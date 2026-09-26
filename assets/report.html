@@ -1,0 +1,175 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BackDown · Report</title>
+<script>(function(){var t=new URLSearchParams(location.search).get('theme');if(t==='dark'||t==='light'){document.documentElement.dataset.theme=t}})()</script>
+<link rel="stylesheet" href="/assets/shell.css">
+<style>
+.hero{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
+.seg{display:inline-flex;padding:3px;background:color-mix(in srgb,var(--bg-sunk) 70%,transparent);border:1px solid var(--glass-line);border-radius:999px;gap:2px;max-width:100%;overflow-x:auto}
+.seg button{border:0;background:transparent;padding:6px 13px;border-radius:999px;cursor:pointer;font:inherit;font-weight:600;font-size:.88rem;color:var(--ink-2);white-space:nowrap}
+.seg button[aria-pressed=true]{background:var(--bg-elev);color:var(--ink);box-shadow:0 1px 2px rgb(0 0 0/.12)}
+.tools{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0 0 12px}
+input[type=search]{font:inherit;font-size:.9rem;padding:7px 12px;border-radius:999px;border:1px solid var(--glass-line);background:var(--glass);color:var(--ink);min-width:220px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:999px;border:1px solid var(--line-2);background:var(--glass);font-size:.84rem;font-weight:500;cursor:pointer;user-select:none;color:var(--ink-2)}
+.chip[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+/* tree */
+.tree{padding:6px 0}
+.row{display:grid;grid-template-columns:minmax(0,1fr) 120px 90px;gap:12px;align-items:center;padding:7px 16px;border-top:1px solid var(--glass-line);cursor:default}
+.row.has:hover{background:color-mix(in srgb,var(--bg-sunk) 40%,transparent)}
+.row.has{cursor:pointer}
+.row .n{display:flex;align-items:center;gap:8px;min-width:0}
+.row .n .tw{width:14px;color:var(--ink-3);font-size:.8rem;flex:none;transition:transform .15s var(--ease)}
+.row.open .n .tw{transform:rotate(90deg)}
+.row .n .lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .n .lbl.other{color:var(--ink-3)}
+.row .bar{height:8px;border-radius:4px;background:var(--seq-track);overflow:hidden}
+.row .bar i{display:block;height:100%;background:var(--seq);border-radius:4px}
+.row .bar.hot i{background:var(--accent)}
+.row .v{text-align:right;font-variant-numeric:tabular-nums;font-size:.9rem}
+.row .f{color:var(--ink-3);font-size:.78rem;text-align:right;font-variant-numeric:tabular-nums}
+.kids{display:none}.kids.open{display:block}
+.crumbs{font-size:.82rem;color:var(--ink-3);padding:10px 16px 0}
+/* tables */
+td.n{white-space:nowrap}
+th.sortable{cursor:pointer;user-select:none}th.sortable:hover{color:var(--ink)}th.sorted::after{content:' ↓';color:var(--accent)}th.sorted.asc::after{content:' ↑'}
+.vol{display:inline-block;font-family:var(--font-mono);font-size:.74rem;padding:1px 7px;border-radius:999px;border:1px solid var(--glass-line);background:color-mix(in srgb,var(--bg-sunk) 60%,transparent);color:var(--ink-2);margin-right:6px}
+.vol.big{border-color:color-mix(in srgb,var(--accent) 50%,transparent);color:var(--accent)}
+/* verdicts */
+.cards{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+.vd{padding:16px 18px}.vd .t{display:flex;align-items:center;gap:10px;font-family:var(--font-display);font-weight:700;font-size:1.1rem;letter-spacing:-.02em}
+.vd .st{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-body);font-size:.8rem;font-weight:600;padding:3px 10px;border-radius:999px;border:1px solid transparent}
+.st.done,.st.safe{color:var(--good);border-color:color-mix(in srgb,var(--good) 40%,transparent);background:color-mix(in srgb,var(--good) 10%,transparent)}
+.st.pending{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,transparent);background:color-mix(in srgb,var(--warn) 10%,transparent)}
+.st.copy{color:var(--crit);border-color:color-mix(in srgb,var(--crit) 40%,transparent);background:color-mix(in srgb,var(--crit) 10%,transparent)}
+.vd p{margin:8px 0 0;color:var(--ink-2);font-size:.9rem}
+/* plan */
+.plan{padding:6px 0}.pl{padding:10px 16px;border-top:1px solid var(--glass-line)}.pl:first-child{border-top:0}
+.pl summary{cursor:pointer;font-weight:600;display:flex;gap:10px;align-items:baseline}.pl summary .d{color:var(--ink-3);font-weight:400;font-size:.85rem}
+.pl ul{margin:8px 0 0 22px;padding:0;color:var(--ink-2);font-size:.9rem}.pl li{margin:3px 0}.pl code{white-space:nowrap}
+/* containment */
+.cont .row{grid-template-columns:minmax(0,1fr) 220px 170px}.cont .pct{white-space:nowrap}
+.pct{font-variant-numeric:tabular-nums;text-align:right}
+.note{font-size:.85rem;color:var(--ink-2);margin:0 0 12px}
+</style></head><body>
+<div class="field" aria-hidden="true"><i></i><i></i><i></i></div>
+<header class="hdr"><div class="nav-glass" aria-hidden="true"></div>
+ <div class="wrap bar">
+  <a href="/" class="home"><span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg></span>BackDown</a>
+  <nav aria-label="Sections"><a href="/">Dashboard</a><a href="#drives" data-s="drives">Drives</a><a href="#bytes" data-s="bytes">Bytes</a><a href="#mail" data-s="mail">Mail</a><a href="#dups" data-s="dups">Duplicates</a><a href="#verify" data-s="verify">Verification</a><a href="#verdicts" data-s="verdicts">Verdicts</a><a href="#plan" data-s="plan">Plan</a><a href="/report.md">Markdown</a></nav>
+  <span class="pill" id="gen">—</span>
+ </div>
+</header>
+<main class="wrap" id="top">
+ <div class="head"><span class="eyebrow">Findings</span><h1>Seven drives, one dataset</h1><p class="muted" id="lede">—</p></div>
+ <div class="hero" id="hero"></div>
+
+ <section id="drives"><div class="head"><h2>Drives</h2><p class="muted small">Click a drive to jump to its size tree.</p></div><div class="cards" id="drive-cards"></div></section>
+
+ <section id="bytes"><div class="head"><h2>Where the bytes are</h2><p class="muted small">Click a row to expand. Bars are relative to the parent. Orange marks directories over 1 TB.</p></div>
+  <div class="tools"><div class="seg" id="volseg" role="tablist"></div></div>
+  <div class="card"><div class="crumbs" id="crumbs"></div><div class="tree" id="tree"></div></div></section>
+
+ <section id="mail"><div class="head"><h2>Mail — mail.maximalconcepts.com</h2><p class="muted small">Dovecot Maildir rsynced from the server (2011 → May 2020). Messages = files under <code>cur/</code> or <code>new/</code>.</p></div>
+  <div class="tools"><input type="search" id="mailq" placeholder="filter domains…" aria-label="Filter domains"></div>
+  <div class="card" style="overflow-x:auto"><table id="mailt"></table></div></section>
+
+ <section id="dups"><div class="head"><h2>Duplicates</h2><p class="muted small">Pairs of directories (depth 2) sharing files by name + size, files ≥ 1 MB. Name + size is the cheap first pass; the hash-proven view is in <a href="#verify">Verification</a>.</p></div>
+  <div class="tools">
+   <span class="chip" role="button" aria-pressed="true" data-f="all">All pairs</span>
+   <span class="chip" role="button" aria-pressed="false" data-f="small">Small drive ↔ big drive</span>
+   <span class="chip" role="button" aria-pressed="false" data-f="internal">Big drive ↔ itself</span>
+   <input type="search" id="dupq" placeholder="filter paths…" aria-label="Filter duplicate pairs">
+   <span class="chip" role="button" aria-pressed="false" id="dupall">show all 400</span>
+  </div>
+  <div class="card" style="overflow-x:auto"><table id="dupt"></table></div>
+  </section>
+
+ <section id="verify"><div class="head"><h2>Hash verification</h2><p class="muted small">Every file on the small drives was sha256-hashed, then matched against hashed twins on the 18 TB drive. <b>Verified</b> = an identical file exists on the big drive. <b>Unique</b> = no identical file anywhere else; must be copied before the drive is wiped.</p></div>
+  <div class="card cont" id="verify-t"></div></section>
+
+ <section id="verdicts"><div class="head"><h2>Wipe verdicts</h2><p class="muted small">Nothing is wiped until every file has a sha256-verified copy. Hashing is complete on all drives; the 'copy first' sizes are the exact unique bytes.</p></div><div class="cards" id="vcards"></div></section>
+
+ <section id="plan"><div class="head"><h2>Proposed filing</h2><p class="muted small">First level = type of thing, second = origin (host / person / company), third = time. One authoritative copy on the 18 TB drive; freed drives become mirrors of the irreplaceable subset.</p></div><div class="card plan" id="planl"></div></section>
+ <footer>BackDown · report generated from <code>index/report.json</code> · <a href="/report.md">Markdown version</a></footer>
+</main>
+<script>
+const $=s=>document.querySelector(s), esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const gb=b=>b>=1e12?(b/1e12).toFixed(2)+' TB':b>=1e9?(b/1e9).toFixed(1)+' GB':b>=1e6?(b/1e6).toFixed(0)+' MB':(b/1e3).toFixed(0)+' KB';
+const fmt=n=>n>=1e6?(n/1e6).toFixed(2)+' M':n>=1e3?(n/1e3).toFixed(1)+' K':String(n);
+let R;
+fetch('/api/report').then(r=>r.json()).then(r=>{R=r;render()});
+function render(){
+ $('#gen').textContent='generated '+R.generated;
+ $('#lede').textContent=`${fmt(R.totals.files)} files · ${gb(R.totals.bytes)} across ${R.volumes.filter(v=>v.files).length} mounted volumes`;
+ const U=R.verify&&R.verify.unique;
+ const mail=R.mail.reduce((a,m)=>({b:a.b+m.bytes,m:a.m+m.msgs}),{b:0,m:0});
+ const mc=R.mail.find(m=>m.domain==='maximalconcepts.com')||{bytes:0,msgs:0,mailboxes:0};
+ $('#hero').innerHTML=`
+  <div class="card tile"><div class="l">Redundant bytes (name + size, ≥ 1 MB)</div><div class="v hero">${gb(R.redundant_bytes)}</div><div class="d">what a full de-duplication would free</div></div>
+  <div class="card tile"><div class="l">maximalconcepts.com mail</div><div class="v">${gb(mc.bytes)}</div><div class="d">${fmt(mc.msgs)} messages · ${mc.mailboxes} mailboxes</div></div>
+  <div class="card tile"><div class="l">All mail in the vmail tree</div><div class="v">${gb(mail.b)}</div><div class="d">${fmt(mail.m)} messages · ${R.mail.length} domains</div></div>
+  <div class="card tile"><div class="l">Must be copied before wiping</div><div class="v">${U?gb(Object.values(U.per_vol).reduce((a,x)=>a+x.unique_bytes,0)):'—'}</div><div class="d">${U?fmt(Object.values(U.per_vol).reduce((a,x)=>a+x.unique_files,0))+' files with no sha256 twin anywhere':''}</div></div>`;
+ // drives
+ $('#drive-cards').innerHTML=R.volumes.map(v=>`<a class="card vd" href="#bytes" data-vol="${v.vol}" style="text-decoration:none;color:inherit">
+   <div class="t">${esc(v.label)} <span class="vol">${esc(v.dev)}</span></div>
+   <div class="meter"><i style="width:${v.size?100*v.used/v.size:0}%"></i></div>
+   <div class="small">${v.size?gb(v.used)+' of '+gb(v.size)+' used':''} · ${fmt(v.files)} files indexed</div>
+   <p>${esc(v.fs)} · ${esc(v.note)}</p></a>`).join('');
+ document.querySelectorAll('#drive-cards a').forEach(a=>a.onclick=()=>selectVol(a.dataset.vol));
+ // tree
+ $('#volseg').innerHTML=R.volumes.filter(v=>v.files).map(v=>`<button role="tab" data-vol="${v.vol}" aria-pressed="false">${esc(v.label)}</button>`).join('');
+ document.querySelectorAll('#volseg button').forEach(b=>b.onclick=()=>selectVol(b.dataset.vol));
+ selectVol('big');
+ // mail
+ renderTable('#mailt',R.mail.filter(m=>m.msgs>0||m.bytes>1e6).map(m=>({Domain:m.domain,Size:m.bytes,Messages:m.msgs,Mailboxes:m.mailboxes,Files:m.files})),{Size:gb,Messages:fmt,Files:fmt},'Size','#mailq',r=>r.Domain);
+ // dups
+ renderDups();
+ document.querySelectorAll('#dups .chip').forEach(c=>c.onclick=()=>{document.querySelectorAll('#dups .chip').forEach(x=>x.setAttribute('aria-pressed','false'));c.setAttribute('aria-pressed','true');renderDups()});
+ $('#dupq').oninput=renderDups; $('#dupall').onclick=e=>{e.target.setAttribute('aria-pressed',e.target.getAttribute('aria-pressed')!=='true');renderDups()};
+ // verification (hash-proven)
+ const V=R.verify&&R.verify.vols;
+ $('#verify-t').innerHTML=!V?'<div class="row">hash verification not run yet</div>':Object.entries(V).map(([v,o])=>{
+   const tv=o.tops.reduce((a,t)=>a+t.vbytes,0), tu=o.tops.reduce((a,t)=>a+t.ubytes,0), uq=U&&U.per_vol[v];
+   return `<div class="row" style="border-top:0;background:color-mix(in srgb,var(--bg-sunk) 35%,transparent)"><div class="n"><b>${esc(v)}</b>${uq?`<span class="small"> · unique ${gb(uq.unique_bytes)} in ${fmt(uq.unique_files)} files${uq.other_small_bytes>1e9?` · ${gb(uq.other_small_bytes)} only on another small drive`:''}</span>`:''}</div><div class="bar"><i style="width:${100*tv/Math.max(1,tv+tu)}%"></i></div><div class="pct"><b>${(100*tv/Math.max(1,tv+tu)).toFixed(1)}%</b> of ${gb(tv+tu)}</div></div>`+
+   o.tops.filter(t=>t.vbytes+t.ubytes>=50e6).map(t=>`<div class="row"><div class="n"><span class="tw"></span><span class="lbl">${esc(t.top)}</span></div><div class="bar ${t.ubytes>10e9?'hot':''}"><i style="width:${100*t.vbytes/Math.max(1,t.vbytes+t.ubytes)}%"></i></div><div class="pct">${(100*t.vbytes/Math.max(1,t.vbytes+t.ubytes)).toFixed(0)}% <span class="small">· ${gb(t.ubytes)} not</span></div></div>`).join('')}).join('');
+ // verdicts
+ const lab={done:'✓ wiped',safe:'✓ safe',pending:'◔ pending hash proof',copy:'✗ copy first'};
+ $('#vcards').innerHTML=R.verdicts.map(v=>`<div class="card vd"><div class="t">${esc(v.drive)} <span class="st ${v.state}">${lab[v.state]}</span></div><p>${esc(v.why)}</p></div>`).join('');
+ // plan
+ $('#planl').innerHTML=R.plan.map((p,i)=>`<details class="pl" ${i<3?'open':''}><summary><code>Archive/${esc(p.dir)}</code><span class="d">${esc(p.desc)}</span></summary><ul>${p.items.map(x=>'<li>'+esc(x).replace(/←/g,'<span class="muted">←</span>')+'</li>').join('')}</ul></details>`).join('');
+ // nav highlight
+ const links=[...document.querySelectorAll('nav a[data-s]')];
+ const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting)links.forEach(a=>a.classList.toggle('active',a.dataset.s===e.target.id))}),{rootMargin:'-35% 0px -60% 0px'});
+ ['drives','bytes','mail','dups','verify','verdicts','plan'].forEach(id=>io.observe(document.getElementById(id)));
+}
+function selectVol(vol){
+ document.querySelectorAll('#volseg button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.vol===vol)));
+ const v=R.volumes.find(x=>x.vol===vol); $('#crumbs').textContent=v.mount+' — '+gb(v.bytes)+' · '+fmt(v.files)+' files';
+ $('#tree').innerHTML=treeRows(v.tree,v.bytes,0);
+ document.querySelectorAll('#tree .row.has').forEach(r=>r.onclick=()=>{r.classList.toggle('open');r.nextElementSibling.classList.toggle('open')});
+ if(location.hash!=='#bytes')history.replaceState(null,'','#bytes');
+}
+function treeRows(nodes,parent,depth){
+ return nodes.map(n=>{const has=n.children&&n.children.length; const pct=100*n.bytes/Math.max(1,parent);
+  return `<div class="row ${has?'has':''}" style="padding-left:${16+depth*22}px"><div class="n"><span class="tw">${has?'▸':''}</span><span class="lbl ${n.other?'other':''}" title="${esc(n.name)}">${esc(n.name)}</span></div><div class="bar ${n.bytes>=1e12?'hot':''}"><i style="width:${pct}%"></i></div><div><div class="v">${gb(n.bytes)}</div><div class="f">${fmt(n.files)} files</div></div></div>`+
+  (has?`<div class="kids">${treeRows(n.children,n.bytes,depth+1)}</div>`:'')}).join('');
+}
+function renderDups(){
+ const f=document.querySelector('#dups .chip[aria-pressed=true]').dataset.f, q=$('#dupq').value.toLowerCase();
+ let rows=R.dups.filter(d=>f==='all'||(f==='internal'?(d.a_vol==='big'&&d.b_vol==='big'):(d.a_vol!=='big'||d.b_vol!=='big')));
+ if(q)rows=rows.filter(d=>(d.a_dir+d.b_dir+d.a_vol+d.b_vol).toLowerCase().includes(q));
+ const lim=$('#dupall').getAttribute('aria-pressed')==='true'?400:50;
+ renderTable('#dupt',rows.slice(0,lim).map(d=>({A:{v:d.a_vol,d:d.a_dir},B:{v:d.b_vol,d:d.b_dir},Shared:d.bytes,Files:d.files})),{Shared:gb,Files:fmt,A:x=>`<span class="vol ${x.v}">${x.v}</span>${esc(x.d)}`,B:x=>`<span class="vol ${x.v}">${x.v}</span>${esc(x.d)}`},'Shared',null,null,['Shared','Files']);
+}
+function renderTable(sel,rows,fmts,sortKey,qsel,qf,numeric){
+ const el=$(sel); let key=sortKey, asc=false, q='';
+ numeric=numeric||Object.keys(rows[0]||{}).filter(k=>typeof rows[0][k]==='number');
+ const draw=()=>{let r=rows.slice(); if(q&&qf)r=r.filter(x=>qf(x).toLowerCase().includes(q));
+  r.sort((a,b)=>{const x=a[key],y=b[key];const c=typeof x==='number'?x-y:String(x.d||x).localeCompare(String(y.d||y));return asc?c:-c});
+  const cols=Object.keys(rows[0]||{});
+  el.innerHTML='<tr>'+cols.map(c=>`<th class="sortable ${numeric.includes(c)?'n':''} ${c===key?'sorted':''} ${asc?'asc':''}" data-k="${c}">${c}</th>`).join('')+'</tr>'+
+   r.map(x=>'<tr>'+cols.map(c=>`<td class="${numeric.includes(c)?'n':''}">${fmts[c]?fmts[c](x[c]):esc(x[c])}</td>`).join('')+'</tr>').join('');
+  el.querySelectorAll('th').forEach(h=>h.onclick=()=>{if(key===h.dataset.k)asc=!asc;else{key=h.dataset.k;asc=!numeric.includes(key)}draw()})};
+ if(qsel)$(qsel).oninput=e=>{q=e.target.value.toLowerCase();draw()};
+ draw();
+}
+</script></body></html>
