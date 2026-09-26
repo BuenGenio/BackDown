@@ -19,3 +19,6 @@ index/dedup-report.json
 *.pyc
 __pycache__/
 .DS_Store
+
+# marketing site: wrangler local state
+marketing/.wrangler/

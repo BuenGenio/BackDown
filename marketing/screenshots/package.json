@@ -1,0 +1,12 @@
+{
+  "name": "backdown-site-screenshots",
+  "private": true,
+  "type": "module",
+  "description": "Captures the landing-page slideshow from the real BackDown UI fed with demo data. See README.md.",
+  "devDependencies": {
+    "puppeteer-core": "^24"
+  },
+  "scripts": {
+    "capture": "node capture.mjs && python3 encode.py"
+  }
+}

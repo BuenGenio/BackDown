@@ -1,0 +1,21 @@
+// backdown.io — a Worker serving ./public, with the early-access list at /api/waitlist.
+// Deploy: npx wrangler deploy (from this directory). See README.md.
+{
+  "name": "backdown-site",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page",
+    "run_worker_first": ["/api/*"]
+  },
+  "kv_namespaces": [
+    { "binding": "WAITLIST", "id": "c2434da953294d019f07c7ee63678f57" }
+  ],
+  "routes": [
+    { "pattern": "backdown.io", "custom_domain": true },
+    { "pattern": "www.backdown.io", "custom_domain": true }
+  ],
+  "workers_dev": false
+}

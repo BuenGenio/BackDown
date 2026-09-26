@@ -115,7 +115,7 @@ Rationale: the free tier is genuinely useful (kills the "why not Borg" objection
 
 - **Wedge:** the consolidation story. "Plug in your old drives; find out what you actually have and what's safe to delete." Nobody else offers it; it's a viral demo (people love watching a tool reclaim TBs).
 - **Distribution:** open-core on GitHub for developer trust and inbound; Homebrew/apt/AUR for the CLI; a polished desktop app for the prosumer; content marketing around the forensic/"prove it" angle for SMB.
-- **Landing page** (`marketing/`, to build): hero = "Backup that thinks," the reclaim demo, the intelligence screenshots, the privacy stance, pricing, a downloadable free tier. Same visual language as the current dashboard/report (Innards-derived, in `assets/`).
+- **Landing page** (`marketing/`, served at backdown.io): hero = "Backup that thinks," the reclaim demo, the intelligence screenshots, the privacy stance, pricing, a downloadable free tier. Same visual language as the current dashboard/report (Innards-derived, in `assets/`).
 - **Moat over time:** the recogniser library and provenance readers compound — every new format we understand is a feature competitors would each have to build. The forensic chain-of-custody, once trusted/certified, is sticky.
 
 ## 8. What exists today vs. what's next
