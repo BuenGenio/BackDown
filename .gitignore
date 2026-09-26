@@ -1,0 +1,21 @@
+# Run data — regenerable, huge, contains every path on the user's drives
+index/
+journal/
+stage/
+*.db
+*.db-wal
+*.db-shm
+*.tsv
+*.log
+*.out
+
+# Contains real personal data — MUST be scrubbed before any public release
+REPORT.md
+docs/screenshots/
+index/dedup-report.json
+
+# Local / machine-specific
+.claude/settings.local.json
+*.pyc
+__pycache__/
+.DS_Store
