@@ -1,6 +1,6 @@
 // BackDown browser: folders as they were at any scan, with versions, copies and file viewers.
-import { fileIcon, folderIcon, driveIcon } from './icons.js';
-import { openViewer, openDiff, openGit } from './viewers.js';
+import { fileIcon, folderIcon, driveIcon, kindOf } from './icons.js';
+import { openViewer, openDiff, openGit, previewInto } from './viewers.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -178,6 +178,12 @@ function sorted() {
     || (key === 'name' ? dir * collator.compare(a.name, b.name) : dir * (val(a) - val(b)) || collator.compare(a.name, b.name)));
 }
 
+// a real picture for images the browser can show (small enough to load for a thumbnail)
+function thumb(e) {
+  if (kindOf(e.name) !== 'image' || e.size > 25e6 || /\.(tiff?|heic|heif|raw|cr2|nef|arw|dng|psd)$/i.test(e.name)) return '';
+  return `<img class="thumb" src="/api/content?id=${e.id}" alt="" loading="lazy" decoding="async" data-name="${esc(e.name)}">`;
+}
+
 function badges(e) {
   const out = [];
   if (e.new_here) out.push('<span class="bdg new" title="New or changed at this scan">new</span>');
@@ -199,7 +205,7 @@ function renderView() {
     v.innerHTML = `<div class="grid" role="listbox" aria-multiselectable="true">${items.map(e => `
       <div class="tile${S.sel.has(e.key) ? ' sel' : ''}${e.later === 'deleted' && S.scan != null ? ' ghost' : ''}" role="option" aria-selected="${S.sel.has(e.key)}" data-key="${e.key}" title="${esc(e.name)}">
         <div class="badges">${badges(e)}</div>
-        ${e.kind === 'dir' ? folderIcon(56) : fileIcon(e.name, 56)}
+        ${e.kind === 'dir' ? folderIcon(56) : thumb(e) || fileIcon(e.name, 56)}
         <div class="nm">${esc(e.name)}</div>
         <div class="sub">${e.kind === 'dir' ? `${count(e.files ?? 0)} item${e.files === 1 ? '' : 's'}` : bytes(e.size)}</div>
       </div>`).join('')}</div>`;
@@ -265,7 +271,7 @@ async function renderInfo() {
   try { f = await api('file', { id: e.id }); } catch (err) { pane.innerHTML += `<p class="note">${esc(err.message)}</p>`; return; }
   if (seq !== infoSeq) return; // selection moved on while this loaded
   const vers = [...f.versions].reverse();
-  pane.innerHTML = `<div class="hero">${fileIcon(f.name, 64)}<h3>${esc(f.name)}</h3>
+  pane.innerHTML = `<div class="preview" id="pv"></div><div class="hero">${fileIcon(f.name, 64)}<h3>${esc(f.name)}</h3>
       <div><button class="btn primary" type="button" id="open-file" ${f.content_from === null ? 'disabled' : ''}>Open</button></div></div>
     <dl class="kv"><dt>Size</dt><dd>${bytes(f.size)} <span class="note">(${f.size.toLocaleString()} bytes)</span></dd>
       <dt>Modified</dt><dd>${when(f.mtime)}</dd>
@@ -282,6 +288,7 @@ async function renderInfo() {
         <span class="acts">${v.readable ? `<button class="btn sm" type="button" data-open-ver="${v.id}">Open</button>` : ''}
           ${v.readable && !v.current && f.versions.some(x => x.current && x.readable) ? `<button class="btn sm" type="button" data-cmp-ver="${v.id}">Diff</button>` : ''}</span></div>`).join('')}`;
   $('#open-file')?.addEventListener('click', () => openEntry(e));
+  if (f.content_from !== null) previewInto($('#pv'), { id: f.id, name: f.name, size: f.size }, () => seq === infoSeq);
   pane.querySelectorAll('[data-dir]').forEach(b => b.onclick = () => go(b.dataset.dir, { select: b.dataset.sel, scan: null }));
   pane.querySelectorAll('[data-open-ver]').forEach(b => b.onclick = () => openViewer({ id: +b.dataset.openVer, name: f.name, size: f.versions.find(v => v.id === +b.dataset.openVer).size }, []));
   const cur = f.versions.find(x => x.current);
@@ -401,7 +408,17 @@ function select(key, ev) {
   } else {
     S.sel = new Set([key]); S.anchor = key;
   }
-  renderView(); renderInfo();
+  paintSelection(); renderInfo();
+}
+
+// Mark the selection on the items already on screen; never rebuild the view for it, or the second
+// click of a double-click lands on a new element and the browser drops the double-click.
+function paintSelection() {
+  document.querySelectorAll('#view [data-key]').forEach(el => {
+    const on = S.sel.has(el.dataset.key);
+    el.classList.toggle('sel', on);
+    el.setAttribute('aria-selected', String(on));
+  });
 }
 
 function move(dx, dy, ev) {
@@ -452,12 +469,14 @@ document.addEventListener('click', e => {
   const hit = t.closest('[data-hit-dir]');
   if (hit) return go(hit.dataset.hitDir, { select: hit.dataset.hitSel || null, scan: null });
   const item = t.closest('#view [data-key]');
-  if (item) return select(item.dataset.key, e);
-  if (t.closest('#view') && S.mode === 'browse') { S.sel.clear(); renderView(); renderInfo(); }
-});
-document.addEventListener('dblclick', e => {
-  const item = e.target.closest('#view [data-key]');
-  if (item) { const en = S.entries.find(x => x.key === item.dataset.key); if (en) openEntry(en); }
+  if (item) {
+    if (e.detail >= 2 && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+      const en = S.entries.find(x => x.key === item.dataset.key);
+      return en && openEntry(en);
+    }
+    return select(item.dataset.key, e);
+  }
+  if (t.closest('#view') && S.mode === 'browse') { S.sel.clear(); paintSelection(); renderInfo(); }
 });
 $('#back').onclick = goBack; $('#fwd').onclick = goFwd;
 $('#view-grid').onclick = () => setView('grid');
@@ -484,8 +503,8 @@ document.addEventListener('keydown', e => {
   if (S.mode !== 'browse') { if (e.key === 'Escape') { S.mode = 'browse'; renderAll(); } return; }
   const k = e.key;
   if (k === 'Backspace') { e.preventDefault(); return goBack(); }
-  if ((e.ctrlKey || e.metaKey) && k === 'a') { e.preventDefault(); S.sel = new Set(S.entries.map(x => x.key)); renderView(); return renderInfo(); }
-  if (k === 'Escape') { S.sel.clear(); renderView(); return renderInfo(); }
+  if ((e.ctrlKey || e.metaKey) && k === 'a') { e.preventDefault(); S.sel = new Set(S.entries.map(x => x.key)); paintSelection(); return renderInfo(); }
+  if (k === 'Escape') { S.sel.clear(); paintSelection(); return renderInfo(); }
   const arrows = { ArrowRight: [1, 0], ArrowLeft: [-1, 0], ArrowDown: [0, 1], ArrowUp: [0, -1] };
   if (arrows[k]) { e.preventDefault(); const [dx, dy] = S.view === 'grid' ? arrows[k] : [0, arrows[k][0] + arrows[k][1]]; return move(dx, dy, e); }
   if ((k === 'Enter' || k === ' ') && S.anchor) {
@@ -494,6 +513,15 @@ document.addEventListener('keydown', e => {
     if (en) openEntry(en);
   }
 });
+
+// a thumbnail the browser can't decode (or whose bytes are gone) falls back to its file icon;
+// listened for here because the page's CSP rightly forbids inline handlers
+document.addEventListener('error', e => {
+  const img = e.target;
+  if (img instanceof HTMLImageElement && img.classList.contains('thumb')) {
+    img.replaceWith(document.createRange().createContextualFragment(fileIcon(img.dataset.name || '', 56)));
+  }
+}, true);
 
 setView(S.view);
 boot().then(pollDaemon);

@@ -117,3 +117,36 @@ fn folders_as_they_were() {
     let hits = browse::search(&db, &drive, "REPORT", 10).unwrap();
     assert_eq!(hits.len(), 1);
 }
+
+#[test]
+fn folders_list_even_without_folder_totals() {
+    // an index written before folder totals existed (0.2.0-alpha.1) has files but no `dirs` rows
+    let tmp = tempfile::tempdir().unwrap();
+    let drive = tmp.path().join("drive");
+    write(&drive.join("a/b/deep.txt"), b"deep");
+    write(&drive.join("a/top.txt"), b"top!");
+    write(&drive.join("root.txt"), b"r");
+    let mut db = Db::open(&tmp.path().join("idx.db")).unwrap();
+    scan(&mut db, &drive);
+    db.conn.execute("DELETE FROM dirs", []).unwrap();
+
+    let drive = dunce::canonicalize(&drive).unwrap();
+    let root = browse::list(&db, &drive, None).unwrap();
+    assert!(root.needs_reindex);
+    let a = root
+        .entries
+        .iter()
+        .find(|e| e.name == "a")
+        .expect("subfolder derived from its files");
+    assert_eq!((a.kind, a.files, a.size), ("dir", Some(2), 8));
+    assert!(root.entries.iter().any(|e| e.name == "root.txt"));
+    assert_eq!((root.files, root.bytes), (3, 9));
+    let inner = browse::list(&db, &drive.join("a"), None).unwrap();
+    assert!(
+        inner
+            .entries
+            .iter()
+            .any(|e| e.name == "b" && e.kind == "dir")
+    );
+    assert!(inner.entries.iter().any(|e| e.name == "top.txt"));
+}

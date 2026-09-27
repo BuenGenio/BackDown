@@ -115,6 +115,18 @@ table.list{width:100%;border-collapse:collapse;font-size:.88rem}
 
 /* details pane */
 .info{width:320px;flex:none;border-left:1px solid var(--line);overflow:auto;padding:18px 16px;background:var(--bg)}
+/* previews: grid thumbnails and the details-pane preview */
+.tile .thumb{width:56px;height:56px;object-fit:cover;border-radius:6px;box-shadow:0 1px 3px rgb(0 0 0/.25);background:var(--bg-sunk,#0001)}
+.list .nmc .thumb{width:20px;height:20px;border-radius:3px;box-shadow:none}
+.preview:empty{display:none}
+.preview{margin:-4px 0 14px;border-radius:10px;overflow:hidden;border:1px solid var(--line);background:var(--view)}
+.preview img,.preview canvas{display:block;max-width:100%;max-height:260px;margin:0 auto;object-fit:contain}
+.preview canvas{background:#fff}
+.preview pre{margin:0;padding:10px 12px;font:11px/1.5 var(--mono);white-space:pre;overflow:hidden;max-height:260px;color:var(--ink-2)}
+.preview audio,.preview video{display:block;width:100%}
+.pv-meta{font-size:.76rem;color:var(--ink-3);padding:6px 10px}
+.pv-list{list-style:none;margin:0;padding:0 10px 8px;font-size:.8rem}
+.pv-list li{padding:3px 0;border-top:1px solid var(--line)}.pv-list span{color:var(--ink-3)}
 .info .hero{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;padding-bottom:12px;border-bottom:1px solid var(--line)}
 .info h3{margin:0;font-size:1rem;word-break:break-word}
 .kv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 12px;font-size:.84rem;margin:12px 0}

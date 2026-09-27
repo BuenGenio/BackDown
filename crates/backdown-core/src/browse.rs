@@ -239,6 +239,60 @@ pub fn list(db: &Db, dir: &Path, scan: Option<i64>) -> Result<Listing> {
         });
     }
 
+    // an index from before folder totals (0.2.0-alpha.1): derive the subfolders from the files
+    // themselves, so the browser works before the next `index` fills in `dirs`
+    let mut derived = (0u64, 0u64);
+    if needs_reindex {
+        let prefix = paths::dir_prefix(dir);
+        let mut stmt = db.conn.prepare(
+            "SELECT dir, COUNT(*), SUM(size), MAX(mtime) FROM files
+             WHERE root_id = ?1 AND first_scan <= ?2 AND last_scan >= ?2 AND substr(dir, 1, ?3) = ?4
+             GROUP BY dir",
+        )?;
+        let rows = stmt.query_map(params![root.id, scan, prefix.len() as i64, prefix], |r| {
+            Ok((
+                r.get::<_, Vec<u8>>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, i64>(3)?,
+            ))
+        })?;
+        let mut children: std::collections::BTreeMap<PathBuf, (u64, u64, i64)> = Default::default();
+        for row in rows {
+            let (sub, files, bytes, newest) = row?;
+            let sub = paths::from_bytes(&sub);
+            let Some(first) = sub
+                .strip_prefix(dir)
+                .ok()
+                .and_then(|r| r.components().next())
+            else {
+                continue;
+            };
+            let e = children.entry(dir.join(first)).or_default();
+            e.0 += files as u64;
+            e.1 += bytes as u64;
+            e.2 = e.2.max(newest);
+            derived.0 += files as u64;
+            derived.1 += bytes as u64;
+        }
+        for (child, (files, bytes, newest)) in children {
+            entries.push(Entry {
+                kind: "dir",
+                name: name_of(&child),
+                key: key(&child),
+                id: None,
+                size: bytes,
+                files: Some(files),
+                mtime: newest,
+                sha256: None,
+                copies: 0,
+                versions: 1,
+                new_here: false,
+                later: "kept",
+            });
+        }
+    }
+
     let mut files = db.conn.prepare(
         "SELECT f.id, f.path, f.size, f.mtime, f.sha256, f.first_scan, f.last_scan,
                 (SELECT COUNT(*) FROM files g WHERE g.current = 1 AND f.sha256 IS NOT NULL AND g.sha256 = f.sha256
@@ -294,7 +348,15 @@ pub fn list(db: &Db, dir: &Path, scan: Option<i64>) -> Result<Listing> {
     }
     crumbs.reverse();
 
-    let (files_total, bytes_total) = totals.unwrap_or_default();
+    let direct = entries.iter().filter(|e| e.kind == "file");
+    let (files_total, bytes_total) = match totals {
+        Some((f, b)) => (f, b),
+        None if needs_reindex => (
+            (derived.0 + direct.clone().count() as u64) as i64,
+            (derived.1 + direct.map(|e| e.size).sum::<u64>()) as i64,
+        ),
+        None => (0, 0),
+    };
     Ok(Listing {
         root_id: root.id,
         scan,

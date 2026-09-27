@@ -66,7 +66,7 @@ checksum = "d92bec98840b8f03a5ff5413de5293bfcd8bf96467cf5452609f939ec6f5de16"
 
 [[package]]
 name = "backdown-cli"
-version = "0.2.0-alpha.3"
+version = "0.2.0-alpha.4"
 dependencies = [
  "anyhow",
  "backdown-core",
@@ -82,7 +82,7 @@ dependencies = [
 
 [[package]]
 name = "backdown-core"
-version = "0.2.0-alpha.3"
+version = "0.2.0-alpha.4"
 dependencies = [
  "anyhow",
  "base64",

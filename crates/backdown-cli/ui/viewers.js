@@ -281,6 +281,51 @@ export async function openGit(dirKey, name) {
   if (log.commits.length) load(log.commits[0].id);
 }
 
+// ---- a small preview for the details pane: images, a PDF's first page, the start of a text file,
+// a database's tables. `alive()` says whether the pane still shows this file.
+
+export async function previewInto(el, e, alive = () => true) {
+  if (!el) return;
+  const x = ext(e.name), k = kindOf(e.name);
+  const put = html => { if (alive()) el.innerHTML = html; };
+  try {
+    if (k === 'image') {
+      put(`<img src="${contentUrl(e.id)}" alt="">`);
+      el.querySelector('img').onerror = () => put('');
+      return;
+    }
+    if (x === 'pdf') {
+      pdfjs ||= await import('/vendor/pdf.min.mjs');
+      pdfjs.GlobalWorkerOptions.workerSrc = '/vendor/pdf.worker.min.mjs';
+      const doc = await pdfjs.getDocument({ url: contentUrl(e.id), isEvalSupported: false, withCredentials: true, disableAutoFetch: true }).promise;
+      const page = await doc.getPage(1);
+      const base = page.getViewport({ scale: 1 });
+      const vp = page.getViewport({ scale: (280 / base.width) * devicePixelRatio });
+      const c = document.createElement('canvas');
+      c.width = vp.width; c.height = vp.height;
+      await page.render({ canvasContext: c.getContext('2d'), viewport: vp, canvas: c }).promise;
+      if (!alive()) return;
+      el.innerHTML = '';
+      el.append(c);
+      el.insertAdjacentHTML('beforeend', `<div class="pv-meta">${doc.numPages} page${doc.numPages === 1 ? '' : 's'}</div>`);
+      return;
+    }
+    if (k === 'audio' || k === 'video') return put(`<${k} controls preload="metadata" src="${contentUrl(e.id)}"></${k}>`);
+    const head = await fetchBytes(e.id, 4096);
+    if (isSqlite(head)) {
+      const info = await api('sqlite', { id: e.id });
+      return put(`<div class="pv-meta">SQLite · ${info.tables.length} table${info.tables.length === 1 ? '' : 's'}</div><ul class="pv-list">${info.tables.slice(0, 12).map(t => `<li>${esc(t.name)}${t.rows != null ? ` <span>${t.rows.toLocaleString()} rows</span>` : ''}</li>`).join('')}</ul>`);
+    }
+    if (TEXTY.has(x) || looksText(head)) {
+      const lines = new TextDecoder('utf-8').decode(head).split('\n').slice(0, 24).join('\n');
+      return put(`<pre>${esc(lines)}</pre>`);
+    }
+    put('');
+  } catch {
+    put('');
+  }
+}
+
 // ---- viewer chrome
 
 let hljsPromise;
