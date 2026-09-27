@@ -97,8 +97,9 @@ def downloads(t, platforms):
     return '\n'.join(out)
 
 
-def jsonld(lang, t):
+def jsonld(lang, t, platforms):
     url = SITE + page_path(lang)
+    available = [p for p in platforms if p['status'] == 'available' and p['files']]
     data = {'@context': 'https://schema.org', '@graph': [
         {'@type': 'Organization', '@id': f'{SITE}/#org', 'name': 'BackDown', 'url': f'{SITE}/', 'logo': f'{SITE}/icon-512.png'},
         {'@type': 'WebSite', '@id': f'{SITE}/#website', 'url': f'{SITE}/', 'name': 'BackDown', 'publisher': {'@id': f'{SITE}/#org'},
@@ -107,11 +108,17 @@ def jsonld(lang, t):
          'inLanguage': lang, 'isPartOf': {'@id': f'{SITE}/#website'}, 'about': {'@id': f'{SITE}/#app'},
          'primaryImageOfPage': f'{SITE}/og/{lang}.png'},
         {'@type': 'SoftwareApplication', '@id': f'{SITE}/#app', 'name': 'BackDown', 'url': url,
-         'description': t['meta.description'], 'applicationCategory': 'UtilitiesApplication', 'operatingSystem': 'Linux',
+         'description': t['meta.description'], 'applicationCategory': 'UtilitiesApplication',
+         'operatingSystem': ', '.join(p['name'] for p in available) or 'Linux',
          'screenshot': [f'{SITE}/shots/{lang}/{sid}-light-1600.webp' for sid, _ in SLIDES],
-         'offers': {'@type': 'Offer', 'price': '0', 'priceCurrency': 'USD', 'availability': 'https://schema.org/PreOrder'},
+         'offers': {'@type': 'Offer', 'price': '0', 'priceCurrency': 'USD',
+                    'availability': 'https://schema.org/' + ('InStock' if available else 'PreOrder')},
          'publisher': {'@id': f'{SITE}/#org'}},
     ]}
+    if available:  # a free preview is downloadable
+        app = data['@graph'][-1]
+        app['softwareVersion'] = available[0]['version'].lstrip('v')
+        app['downloadUrl'] = [f['url'] for p in available for f in p['files']]
     # "</" can't appear inside a <script> block
     return json.dumps(data, ensure_ascii=False, separators=(',', ':')).replace('</', '<\\/')
 
@@ -129,7 +136,8 @@ def sitemap():
 def main():
     template = (ROOT / 'page.html').read_text(encoding='utf-8').replace('{{@form}}', FORM)
     tables = {lang: json.loads((ROOT / 'i18n' / f'{lang}.json').read_text(encoding='utf-8')) for lang in LANGS}
-    platforms = json.loads((ROOT / 'downloads.json').read_text(encoding='utf-8'))['platforms']
+    dl = json.loads((ROOT / 'downloads.json').read_text(encoding='utf-8'))
+    platforms = dl['platforms']
 
     # keys the template uses directly, plus the ones the generators above read
     keys = set(tables['en'])
@@ -162,7 +170,8 @@ def main():
             '@og_image': f'{SITE}/og/{lang}.png',
             '@og_alternates': '\n'.join(f'<meta property="og:locale:alternate" content="{tables[o]["meta.og_locale"]}">'
                                         for o in LANGS if o != lang),
-            '@jsonld': jsonld(lang, t),
+            '@jsonld': jsonld(lang, t, platforms),
+            '@releases_url': dl['releases_url'],
             '@slides': slides(lang, t),
             '@dots': ''.join(f'<button type="button" data-i="{i}" aria-label="{esc(t["slides.goto"])} {i + 1}"></button>'
                              for i in range(len(SLIDES))),
