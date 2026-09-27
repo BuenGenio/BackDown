@@ -1,0 +1,16 @@
+[workspace]
+resolver = "3"
+members = ["crates/backdown-core", "crates/backdown-cli"]
+
+[workspace.package]
+version = "0.2.0-alpha.1"
+edition = "2024"
+rust-version = "1.85"
+authors = ["Yevgen Trotsan"]
+homepage = "https://backdown.io"
+publish = false
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

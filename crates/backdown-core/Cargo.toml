@@ -1,0 +1,19 @@
+[package]
+name = "backdown-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+homepage.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+dunce = "1.0.5"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+sha2 = "0.11.0"
+walkdir = "2.5.0"
+
+[dev-dependencies]
+tempfile = "3.27.0"
