@@ -534,31 +534,39 @@ pub struct Hit {
     pub mtime: i64,
 }
 
-/// Current files and folders whose name contains `q` (case-insensitive for ASCII), under `within`.
+/// Current files and folders under `within` whose own name contains `q` (case-insensitive).
 pub fn search(db: &Db, within: &Path, q: &str, limit: usize) -> Result<Vec<Hit>> {
+    let needle = q.trim().to_lowercase();
+    if needle.is_empty() {
+        return Ok(Vec::new());
+    }
     let prefix = paths::dir_prefix(within);
-    let like = format!(
-        "%{}%",
-        q.replace('\\', "\\\\")
-            .replace('%', "\\%")
-            .replace('_', "\\_")
-    );
     let n = prefix.len() as i64;
+    // Unix paths are stored as their (usually UTF-8) bytes, so SQLite's LIKE can pre-filter in C.
+    // Windows paths are UTF-16 bytes, which LIKE can't read: there every candidate is decoded and
+    // matched below (`?3 IS NULL` keeps the parameter list the same).
+    let like = cfg!(unix).then(|| {
+        format!(
+            "%{}%",
+            q.trim()
+                .replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_")
+        )
+    });
+    let filter = if like.is_some() {
+        "CAST(path AS TEXT) LIKE ?3 ESCAPE '\\'"
+    } else {
+        "?3 IS NULL"
+    };
     let mut hits = Vec::new();
-    for (kind, sql) in [
-        (
-            "dir",
-            "SELECT NULL, path, bytes, newest FROM dirs WHERE current = 1 AND substr(path, 1, ?1) = ?2
-               AND CAST(path AS TEXT) LIKE ?3 ESCAPE '\\' LIMIT ?4",
-        ),
-        (
-            "file",
-            "SELECT id, path, size, mtime FROM files WHERE current = 1 AND substr(path, 1, ?1) = ?2
-               AND CAST(path AS TEXT) LIKE ?3 ESCAPE '\\' LIMIT ?4",
-        ),
+    for (kind, select) in [
+        ("dir", "SELECT NULL, path, bytes, newest FROM dirs"),
+        ("file", "SELECT id, path, size, mtime FROM files"),
     ] {
-        let mut stmt = db.conn.prepare(sql)?;
-        let rows = stmt.query_map(params![n, prefix, like, (limit * 4) as i64], |r| {
+        let sql = format!("{select} WHERE current = 1 AND substr(path, 1, ?1) = ?2 AND {filter}");
+        let mut stmt = db.conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![n, prefix, like], |r| {
             Ok((
                 r.get::<_, Option<i64>>(0)?,
                 r.get::<_, Vec<u8>>(1)?,
@@ -570,8 +578,8 @@ pub fn search(db: &Db, within: &Path, q: &str, limit: usize) -> Result<Vec<Hit>>
             let (id, path, size, mtime) = row?;
             let p = paths::from_bytes(&path);
             let name = name_of(&p);
-            // LIKE matched anywhere in the path; keep hits whose own name matches
-            if !name.to_lowercase().contains(&q.to_lowercase()) {
+            // LIKE matches anywhere in the path; a hit is a match in the item's own name
+            if !name.to_lowercase().contains(&needle) {
                 continue;
             }
             hits.push(Hit {
