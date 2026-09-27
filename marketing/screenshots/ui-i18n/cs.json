@@ -1,0 +1,156 @@
+{
+  "_comment": "BackDown UI strings as they appear in the landing-page screenshots. 'exact': a whole text node (trimmed) -> its translation, numbers already localised. 'patterns': [regex matched against the English text node, replacement using $1..$n]; numbers inside the groups are localised automatically by capture.mjs using 'locale'. Keep paths, drive names and folder names untranslated.",
+  "locale": "cs-CZ",
+  "exact": {
+    "Dashboard": "Dashboard",
+    "Drives": "Disky",
+    "Bytes": "Bajty",
+    "Mail": "Pošta",
+    "Duplicates": "Duplikáty",
+    "Verification": "Ověření",
+    "Verdicts": "Verdikty",
+    "Plan": "Plán",
+    "Markdown": "Markdown",
+    "Findings": "Zjištění",
+    "Six drives, one dataset": "Šest disků, jedna sada dat",
+    "Redundant bytes (name + size, ≥ 1 MB)": "Nadbytečné bajty (název + velikost, ≥ 1 MB)",
+    "what a full de-duplication would free": "kolik by uvolnila úplná deduplikace",
+    "example.com mail": "Pošta example.com",
+    "All mail in the vmail tree": "Veškerá pošta ve stromu vmail",
+    "Must be copied before wiping": "Nutno zkopírovat před smazáním",
+    "Click a drive to jump to its size tree.": "Kliknutím na disk přejdete na jeho strom velikostí.",
+    "ext4 · 18 TB consolidation target": "ext4 · cíl konsolidace (18 TB)",
+    "ext4 · 2019 ThinkPad, home partition": "ext4 · ThinkPad z roku 2019, domovský oddíl",
+    "apfs (read-only) · 2016 MacBook Pro internal": "apfs (jen pro čtení) · interní disk MacBook Pro z roku 2016",
+    "exfat · USB enclosure": "exfat · USB box",
+    "ntfs (read-only) · 2014 Windows backup drive": "ntfs (jen pro čtení) · záložní disk Windows z roku 2014",
+    "vfat · reformatted, mirror target": "vfat · přeformátovaný, cíl zrcadla",
+    "Where the bytes are": "Kde bajty leží",
+    "Click a row to expand. Bars are relative to the parent. Orange marks directories over 1 TB.": "Kliknutím na řádek ho rozbalíte. Pruhy jsou poměrné k nadřazené složce. Oranžově jsou vyznačené složky nad 1 TB.",
+    "Pairs of directories (depth 2) sharing files by name + size, files ≥ 1 MB. Name + size is the cheap first pass; the hash-proven view is in": "Dvojice složek (hloubka 2) se společnými soubory podle názvu + velikosti, soubory ≥ 1 MB. Název + velikost je rychlý první průchod; pohled ověřený hashem najdete v sekci",
+    "All pairs": "Všechny dvojice",
+    "Small drive ↔ big drive": "Malý disk ↔ velký disk",
+    "Big drive ↔ itself": "Velký disk ↔ sám se sebou",
+    "show all 400": "zobrazit všech 400",
+    "Shared": "Společné",
+    "Files": "Soubory",
+    "filter paths…": "filtrovat cesty…",
+    "filter domains…": "filtrovat domény…",
+    "Hash verification": "Ověření hashem",
+    "Every file on the small drives was sha256-hashed, then matched against hashed twins on the 18 TB drive.": "Každý soubor na malých discích dostal hash sha256 a byl porovnán s hashovanými protějšky na 18TB disku.",
+    "Verified": "Ověřeno",
+    "= an identical file exists on the big drive.": "= na velkém disku existuje identický soubor.",
+    "Unique": "Unikátní",
+    "= no identical file anywhere else; must be copied before the drive is wiped.": "= identický soubor nikde jinde není; před smazáním disku je nutné ho zkopírovat.",
+    "Wipe verdicts": "Verdikty o smazání",
+    "Nothing is wiped until every file has a sha256-verified copy. Hashing is complete on all drives; the 'copy first' sizes are the exact unique bytes.": "Nic se nesmaže, dokud každý soubor nemá kopii ověřenou sha256. Hashování je dokončené na všech discích; velikosti u „nejdřív zkopírovat“ jsou přesně unikátní bajty.",
+    "✓ safe": "✓ lze smazat",
+    "✗ copy first": "✗ nejdřív zkopírovat",
+    "◔ pending hash proof": "◔ čeká na ověření hashem",
+    "✓ wiped": "✓ smazáno",
+    "Every file has a sha256-identical copy on ARCHIVE-18TB: 310 GB in 402 K files, all verified.": "Každý soubor má na ARCHIVE-18TB kopii se shodným sha256: 310 GB ve 402 K souborech, vše ověřeno.",
+    "81% verified. 212 GB exists nowhere else (Photos/2019–2021 RAW 188 GB, Videos 24 GB): copy those, then wipe.": "Ověřeno 81 %. 212 GB není nikde jinde (Photos/2019–2021 RAW 188 GB, Videos 24 GB): zkopírujte je a pak disk smažte.",
+    "99.1% verified. 4.2 GB in 11 K files is unique (Documents 3.1 GB, dotfiles, ssh keys): copy those, then wipe.": "Ověřeno 99,1 %. 4,2 GB v 11 K souborech je unikátní (Documents 3,1 GB, dotfiles, klíče ssh): zkopírujte je a pak disk smažte.",
+    "Hashing is 64% done. The verdict follows once every file has been hashed.": "Hashování je hotové z 64 %. Verdikt přijde, jakmile budou zahashované všechny soubory.",
+    "Wiped after verification; now holds an offline mirror of Archive/Mail.": "Smazáno po ověření; nyní obsahuje offline zrcadlo Archive/Mail.",
+    "Proposed filing": "Navržené roztřídění",
+    "First level = type of thing, second = origin (host / person / company), third = time. One authoritative copy on the 18 TB drive; freed drives become mirrors of the irreplaceable subset.": "První úroveň = druh obsahu, druhá = původ (počítač / osoba / firma), třetí = čas. Jedna hlavní kopie na 18TB disku; uvolněné disky se stanou zrcadly nenahraditelné části dat.",
+    "all IMAP/maildir data, by server then domain": "všechna data IMAP/maildir, podle serveru a pak domény",
+    "computer backups, by machine, dated": "zálohy počítačů, podle stroje, s datem",
+    "Overview": "Přehled",
+    "Staging": "Příprava",
+    "Mirrors": "Zrcadla",
+    "Indexing": "Indexování",
+    "Hashing": "Hashování",
+    "Disks": "Disky",
+    "Report": "Report",
+    "Drive consolidation": "Konsolidace disků",
+    "What the machine is doing": "Co počítač právě dělá",
+    "Files indexed on the 18TB drive": "Soubory zaindexované na 18TB disku",
+    "Bytes hashed": "Zahashované bajty",
+    "Indexer": "Indexer",
+    "running": "běží",
+    "one seeker per spindle": "jeden čtecí proces na disk",
+    "Hasher": "Hasher",
+    "Copying every small-drive file that has no sha256 twin on the 18 TB drive into": "Kopírují se všechny soubory z malých disků, které na 18TB disku nemají protějšek se shodným sha256, do",
+    ", layout preserved. Journaled rsync — re-running resumes.": ", se zachovanou strukturou. Žurnálovaný rsync – opětovné spuštění naváže.",
+    "Drive": "Disk",
+    "Copied": "Zkopírováno",
+    "Progress": "Průběh",
+    "Now": "Aktuálně",
+    "done, verified by re-hash": "hotovo, ověřeno opětovným hashováním",
+    "copying Photos/2020": "kopíruje se Photos/2020",
+    "Second copies of the irreplaceable subset on the freed drives: mail as per-mailbox": "Druhé kopie nenahraditelné části dat na uvolněných discích: pošta jako samostatný",
+    "packed across BD-1T-A/B/C; Archive subset → BD-500; Photos → BD-1T-C.": "pro každou schránku, rozložená na BD-1T-A/B/C; výběr z Archive → BD-500; Photos → BD-1T-C."
+  },
+  "patterns": [
+    [
+      "^generated (.+)$",
+      "vygenerováno $1"
+    ],
+    [
+      "^(.+) files · (.+) across (\\d+) mounted volumes$",
+      "$1 souborů · $2 na $3 připojených svazcích"
+    ],
+    [
+      "^(.+) messages · (\\d+) mailboxes$",
+      "$1 zpráv · $2 schránek"
+    ],
+    [
+      "^(.+) messages · (\\d+) domains$",
+      "$1 zpráv · $2 domény"
+    ],
+    [
+      "^(.+) files with no sha256 twin anywhere$",
+      "$1 souborů nemá nikde protějšek se shodným sha256"
+    ],
+    [
+      "^(.+) of (.+) used · (.+) files indexed$",
+      "obsazeno $1 z $2 · zaindexováno $3 souborů"
+    ],
+    [
+      "^(.+) — (.+) · (.+) files$",
+      "$1 — $2 · $3 souborů"
+    ],
+    [
+      "^· unique (.+) in (.+) files · (.+) only on another small drive$",
+      "· unikátní $1 v $2 souborech · $3 jen na jiném malém disku"
+    ],
+    [
+      "^· unique (.+) in (.+) files$",
+      "· unikátní $1 v $2 souborech"
+    ],
+    [
+      "^· (.+) not$",
+      "· $1 neověřeno"
+    ],
+    [
+      "^of (.+)$",
+      "z $1"
+    ],
+    [
+      "^working · (.+)$",
+      "pracuje · $1"
+    ],
+    [
+      "^load (.+) · (\\d+) crawlers on the 18TB drive$",
+      "zátěž $1 · $2 prohledávače na 18TB disku"
+    ],
+    [
+      "^(\\d+) of (\\d+) chunks complete$",
+      "hotovo $1 z $2 bloků"
+    ],
+    [
+      "^(.+) files · (\\d+) MB/s now$",
+      "$1 souborů · nyní $2 MB/s"
+    ],
+    [
+      "^(\\d+) read errors?$",
+      "$1 chyba čtení"
+    ],
+    [
+      "^(.+) files$",
+      "$1 souborů"
+    ]
+  ]
+}

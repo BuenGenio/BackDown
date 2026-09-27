@@ -1,0 +1,156 @@
+{
+  "_comment": "BackDown UI strings as they appear in the landing-page screenshots. 'exact': a whole text node (trimmed) -> its translation, numbers already localised. 'patterns': [regex matched against the English text node, replacement using $1..$n]; numbers inside the groups are localised automatically by capture.mjs using 'locale'. Keep paths, drive names and folder names untranslated. Patterns are tried in order, so specific ones must precede general ones. Optional 'suffixes' maps the app's K/M count suffixes to the locale's abbreviations.",
+  "locale": "en",
+  "exact": {
+    "Dashboard": "Dashboard",
+    "Drives": "Drives",
+    "Bytes": "Bytes",
+    "Mail": "Mail",
+    "Duplicates": "Duplicates",
+    "Verification": "Verification",
+    "Verdicts": "Verdicts",
+    "Plan": "Plan",
+    "Markdown": "Markdown",
+    "Findings": "Findings",
+    "Six drives, one dataset": "Six drives, one dataset",
+    "Redundant bytes (name + size, ≥ 1 MB)": "Redundant bytes (name + size, ≥ 1 MB)",
+    "what a full de-duplication would free": "what a full de-duplication would free",
+    "example.com mail": "example.com mail",
+    "All mail in the vmail tree": "All mail in the vmail tree",
+    "Must be copied before wiping": "Must be copied before wiping",
+    "Click a drive to jump to its size tree.": "Click a drive to jump to its size tree.",
+    "ext4 · 18 TB consolidation target": "ext4 · 18 TB consolidation target",
+    "ext4 · 2019 ThinkPad, home partition": "ext4 · 2019 ThinkPad, home partition",
+    "apfs (read-only) · 2016 MacBook Pro internal": "apfs (read-only) · 2016 MacBook Pro internal",
+    "exfat · USB enclosure": "exfat · USB enclosure",
+    "ntfs (read-only) · 2014 Windows backup drive": "ntfs (read-only) · 2014 Windows backup drive",
+    "vfat · reformatted, mirror target": "vfat · reformatted, mirror target",
+    "Where the bytes are": "Where the bytes are",
+    "Click a row to expand. Bars are relative to the parent. Orange marks directories over 1 TB.": "Click a row to expand. Bars are relative to the parent. Orange marks directories over 1 TB.",
+    "Pairs of directories (depth 2) sharing files by name + size, files ≥ 1 MB. Name + size is the cheap first pass; the hash-proven view is in": "Pairs of directories (depth 2) sharing files by name + size, files ≥ 1 MB. Name + size is the cheap first pass; the hash-proven view is in",
+    "All pairs": "All pairs",
+    "Small drive ↔ big drive": "Small drive ↔ big drive",
+    "Big drive ↔ itself": "Big drive ↔ itself",
+    "show all 400": "show all 400",
+    "Shared": "Shared",
+    "Files": "Files",
+    "filter paths…": "filter paths…",
+    "filter domains…": "filter domains…",
+    "Hash verification": "Hash verification",
+    "Every file on the small drives was sha256-hashed, then matched against hashed twins on the 18 TB drive.": "Every file on the small drives was sha256-hashed, then matched against hashed twins on the 18 TB drive.",
+    "Verified": "Verified",
+    "= an identical file exists on the big drive.": "= an identical file exists on the big drive.",
+    "Unique": "Unique",
+    "= no identical file anywhere else; must be copied before the drive is wiped.": "= no identical file anywhere else; must be copied before the drive is wiped.",
+    "Wipe verdicts": "Wipe verdicts",
+    "Nothing is wiped until every file has a sha256-verified copy. Hashing is complete on all drives; the 'copy first' sizes are the exact unique bytes.": "Nothing is wiped until every file has a sha256-verified copy. Hashing is complete on all drives; the 'copy first' sizes are the exact unique bytes.",
+    "✓ safe": "✓ safe",
+    "✗ copy first": "✗ copy first",
+    "◔ pending hash proof": "◔ pending hash proof",
+    "✓ wiped": "✓ wiped",
+    "Every file has a sha256-identical copy on ARCHIVE-18TB: 310 GB in 402 K files, all verified.": "Every file has a sha256-identical copy on ARCHIVE-18TB: 310 GB in 402 K files, all verified.",
+    "81% verified. 212 GB exists nowhere else (Photos/2019–2021 RAW 188 GB, Videos 24 GB): copy those, then wipe.": "81% verified. 212 GB exists nowhere else (Photos/2019–2021 RAW 188 GB, Videos 24 GB): copy those, then wipe.",
+    "99.1% verified. 4.2 GB in 11 K files is unique (Documents 3.1 GB, dotfiles, ssh keys): copy those, then wipe.": "99.1% verified. 4.2 GB in 11 K files is unique (Documents 3.1 GB, dotfiles, ssh keys): copy those, then wipe.",
+    "Hashing is 64% done. The verdict follows once every file has been hashed.": "Hashing is 64% done. The verdict follows once every file has been hashed.",
+    "Wiped after verification; now holds an offline mirror of Archive/Mail.": "Wiped after verification; now holds an offline mirror of Archive/Mail.",
+    "Proposed filing": "Proposed filing",
+    "First level = type of thing, second = origin (host / person / company), third = time. One authoritative copy on the 18 TB drive; freed drives become mirrors of the irreplaceable subset.": "First level = type of thing, second = origin (host / person / company), third = time. One authoritative copy on the 18 TB drive; freed drives become mirrors of the irreplaceable subset.",
+    "all IMAP/maildir data, by server then domain": "all IMAP/maildir data, by server then domain",
+    "computer backups, by machine, dated": "computer backups, by machine, dated",
+    "Overview": "Overview",
+    "Staging": "Staging",
+    "Mirrors": "Mirrors",
+    "Indexing": "Indexing",
+    "Hashing": "Hashing",
+    "Disks": "Disks",
+    "Report": "Report",
+    "Drive consolidation": "Drive consolidation",
+    "What the machine is doing": "What the machine is doing",
+    "Files indexed on the 18TB drive": "Files indexed on the 18TB drive",
+    "Bytes hashed": "Bytes hashed",
+    "Indexer": "Indexer",
+    "running": "running",
+    "one seeker per spindle": "one seeker per spindle",
+    "Hasher": "Hasher",
+    "Copying every small-drive file that has no sha256 twin on the 18 TB drive into": "Copying every small-drive file that has no sha256 twin on the 18 TB drive into",
+    ", layout preserved. Journaled rsync — re-running resumes.": ", layout preserved. Journaled rsync — re-running resumes.",
+    "Drive": "Drive",
+    "Copied": "Copied",
+    "Progress": "Progress",
+    "Now": "Now",
+    "done, verified by re-hash": "done, verified by re-hash",
+    "copying Photos/2020": "copying Photos/2020",
+    "Second copies of the irreplaceable subset on the freed drives: mail as per-mailbox": "Second copies of the irreplaceable subset on the freed drives: mail as per-mailbox",
+    "packed across BD-1T-A/B/C; Archive subset → BD-500; Photos → BD-1T-C.": "packed across BD-1T-A/B/C; Archive subset → BD-500; Photos → BD-1T-C."
+  },
+  "patterns": [
+    [
+      "^generated (.+)$",
+      "generated $1"
+    ],
+    [
+      "^(.+) files · (.+) across (\\d+) mounted volumes$",
+      "$1 files · $2 across $3 mounted volumes"
+    ],
+    [
+      "^(.+) messages · (\\d+) mailboxes$",
+      "$1 messages · $2 mailboxes"
+    ],
+    [
+      "^(.+) messages · (\\d+) domains$",
+      "$1 messages · $2 domains"
+    ],
+    [
+      "^(.+) files with no sha256 twin anywhere$",
+      "$1 files with no sha256 twin anywhere"
+    ],
+    [
+      "^(.+) of (.+) used · (.+) files indexed$",
+      "$1 of $2 used · $3 files indexed"
+    ],
+    [
+      "^(.+) — (.+) · (.+) files$",
+      "$1 — $2 · $3 files"
+    ],
+    [
+      "^· unique (.+) in (.+) files · (.+) only on another small drive$",
+      "· unique $1 in $2 files · $3 only on another small drive"
+    ],
+    [
+      "^· unique (.+) in (.+) files$",
+      "· unique $1 in $2 files"
+    ],
+    [
+      "^· (.+) not$",
+      "· $1 not"
+    ],
+    [
+      "^of (.+)$",
+      "of $1"
+    ],
+    [
+      "^working · (.+)$",
+      "working · $1"
+    ],
+    [
+      "^load (.+) · (\\d+) crawlers on the 18TB drive$",
+      "load $1 · $2 crawlers on the 18TB drive"
+    ],
+    [
+      "^(\\d+) of (\\d+) chunks complete$",
+      "$1 of $2 chunks complete"
+    ],
+    [
+      "^(.+) files · (\\d+) MB/s now$",
+      "$1 files · $2 MB/s now"
+    ],
+    [
+      "^(\\d+) read errors?$",
+      "$1 read error"
+    ],
+    [
+      "^(.+) files$",
+      "$1 files"
+    ]
+  ]
+}

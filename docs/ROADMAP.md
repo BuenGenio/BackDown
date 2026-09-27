@@ -75,7 +75,7 @@ Tauri 2 shell + Svelte 5, sharing Innards' tokens and components.
 - macOS: `diskutil` probing, APFS snapshots, HFS+/APFS Time Machine sets, `hdiutil` for images, notarised `.dmg`
 - Windows: WMI/`diskpart` probing, NTFS ADS, long paths, `.msi`; read-only access via backup semantics (no ro mount)
 - Case-insensitive / Unicode-normalising fs handling everywhere
-- Website (`backdown.app`? check availability alongside the Innards domains), press kit, docs
+- Website (landing page live at backdown.io from `marketing/`; full docs site still to do), press kit, docs
 
 ## Later / ideas
 

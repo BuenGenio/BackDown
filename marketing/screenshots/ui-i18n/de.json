@@ -1,0 +1,156 @@
+{
+  "_comment": "BackDown UI strings as they appear in the landing-page screenshots. 'exact': a whole text node (trimmed) -> its translation, numbers already localised. 'patterns': [regex matched against the English text node, replacement using $1..$n]; numbers inside the groups are localised automatically by capture.mjs using 'locale'. Keep paths, drive names and folder names untranslated.",
+  "locale": "de-DE",
+  "exact": {
+    "Dashboard": "Dashboard",
+    "Drives": "Laufwerke",
+    "Bytes": "Bytes",
+    "Mail": "Mail",
+    "Duplicates": "Duplikate",
+    "Verification": "Verifizierung",
+    "Verdicts": "Urteile",
+    "Plan": "Plan",
+    "Markdown": "Markdown",
+    "Findings": "Ergebnisse",
+    "Six drives, one dataset": "Sechs Laufwerke, ein Datenbestand",
+    "Redundant bytes (name + size, ≥ 1 MB)": "Redundante Bytes (Name + Größe, ≥ 1 MB)",
+    "what a full de-duplication would free": "was eine vollständige Deduplizierung einsparen würde",
+    "example.com mail": "Mail von example.com",
+    "All mail in the vmail tree": "Alle Mails im vmail-Baum",
+    "Must be copied before wiping": "Muss vor dem Löschen kopiert werden",
+    "Click a drive to jump to its size tree.": "Klicken Sie auf ein Laufwerk, um zu seinem Größenbaum zu springen.",
+    "ext4 · 18 TB consolidation target": "ext4 · 18 TB, Konsolidierungsziel",
+    "ext4 · 2019 ThinkPad, home partition": "ext4 · ThinkPad von 2019, Home-Partition",
+    "apfs (read-only) · 2016 MacBook Pro internal": "apfs (schreibgeschützt) · MacBook Pro von 2016, intern",
+    "exfat · USB enclosure": "exfat · USB-Gehäuse",
+    "ntfs (read-only) · 2014 Windows backup drive": "ntfs (schreibgeschützt) · Windows-Backup-Laufwerk von 2014",
+    "vfat · reformatted, mirror target": "vfat · neu formatiert, Spiegelziel",
+    "Where the bytes are": "Wo die Bytes liegen",
+    "Click a row to expand. Bars are relative to the parent. Orange marks directories over 1 TB.": "Klicken Sie auf eine Zeile, um sie aufzuklappen. Balken sind relativ zum übergeordneten Ordner. Orange markiert Verzeichnisse über 1 TB.",
+    "Pairs of directories (depth 2) sharing files by name + size, files ≥ 1 MB. Name + size is the cheap first pass; the hash-proven view is in": "Verzeichnispaare (Tiefe 2) mit gemeinsamen Dateien nach Name + Größe, Dateien ≥ 1 MB. Name + Größe ist der schnelle erste Durchgang; die per Hash belegte Ansicht finden Sie unter",
+    "All pairs": "Alle Paare",
+    "Small drive ↔ big drive": "Kleines ↔ großes Laufwerk",
+    "Big drive ↔ itself": "Großes Laufwerk ↔ sich selbst",
+    "show all 400": "alle 400 anzeigen",
+    "Shared": "Gemeinsam",
+    "Files": "Dateien",
+    "filter paths…": "Pfade filtern…",
+    "filter domains…": "Domains filtern…",
+    "Hash verification": "Hash-Verifizierung",
+    "Every file on the small drives was sha256-hashed, then matched against hashed twins on the 18 TB drive.": "Jede Datei auf den kleinen Laufwerken wurde per sha256 gehasht und dann mit gehashten Zwillingen auf dem 18-TB-Laufwerk abgeglichen.",
+    "Verified": "Verifiziert",
+    "= an identical file exists on the big drive.": "= auf dem großen Laufwerk gibt es eine identische Datei.",
+    "Unique": "Einmalig",
+    "= no identical file anywhere else; must be copied before the drive is wiped.": "= nirgendwo sonst eine identische Datei; muss vor dem Löschen des Laufwerks kopiert werden.",
+    "Wipe verdicts": "Urteile zum Löschen",
+    "Nothing is wiped until every file has a sha256-verified copy. Hashing is complete on all drives; the 'copy first' sizes are the exact unique bytes.": "Gelöscht wird erst, wenn jede Datei eine sha256-verifizierte Kopie hat. Das Hashing ist auf allen Laufwerken abgeschlossen; die Größen bei „erst kopieren“ sind genau die einmaligen Bytes.",
+    "✓ safe": "✓ sicher löschbar",
+    "✗ copy first": "✗ erst kopieren",
+    "◔ pending hash proof": "◔ Hash-Nachweis ausstehend",
+    "✓ wiped": "✓ gelöscht",
+    "Every file has a sha256-identical copy on ARCHIVE-18TB: 310 GB in 402 K files, all verified.": "Jede Datei hat eine sha256-identische Kopie auf ARCHIVE-18TB: 310 GB in 402 K Dateien, alle verifiziert.",
+    "81% verified. 212 GB exists nowhere else (Photos/2019–2021 RAW 188 GB, Videos 24 GB): copy those, then wipe.": "81 % verifiziert. 212 GB gibt es nirgendwo sonst (Photos/2019–2021 RAW 188 GB, Videos 24 GB): erst diese kopieren, dann löschen.",
+    "99.1% verified. 4.2 GB in 11 K files is unique (Documents 3.1 GB, dotfiles, ssh keys): copy those, then wipe.": "99,1 % verifiziert. 4,2 GB in 11 K Dateien sind einmalig (Documents 3,1 GB, Dotfiles, SSH-Schlüssel): erst diese kopieren, dann löschen.",
+    "Hashing is 64% done. The verdict follows once every file has been hashed.": "Hashing zu 64 % abgeschlossen. Das Urteil folgt, sobald jede Datei gehasht ist.",
+    "Wiped after verification; now holds an offline mirror of Archive/Mail.": "Nach der Verifizierung gelöscht; enthält jetzt einen Offline-Spiegel von Archive/Mail.",
+    "Proposed filing": "Vorgeschlagene Ablage",
+    "First level = type of thing, second = origin (host / person / company), third = time. One authoritative copy on the 18 TB drive; freed drives become mirrors of the irreplaceable subset.": "Erste Ebene = Art der Daten, zweite = Herkunft (Host / Person / Firma), dritte = Zeit. Eine maßgebliche Kopie auf dem 18-TB-Laufwerk; frei gewordene Laufwerke werden zu Spiegeln des unersetzlichen Teils.",
+    "all IMAP/maildir data, by server then domain": "alle IMAP/maildir-Daten, nach Server, dann Domain",
+    "computer backups, by machine, dated": "Computer-Backups, nach Rechner, mit Datum",
+    "Overview": "Übersicht",
+    "Staging": "Staging",
+    "Mirrors": "Spiegel",
+    "Indexing": "Indexierung",
+    "Hashing": "Hashing",
+    "Disks": "Datenträger",
+    "Report": "Bericht",
+    "Drive consolidation": "Laufwerkskonsolidierung",
+    "What the machine is doing": "Was der Rechner gerade tut",
+    "Files indexed on the 18TB drive": "Indexierte Dateien auf dem 18-TB-Laufwerk",
+    "Bytes hashed": "Gehashte Bytes",
+    "Indexer": "Indexer",
+    "running": "läuft",
+    "one seeker per spindle": "ein Leser pro Spindel",
+    "Hasher": "Hasher",
+    "Copying every small-drive file that has no sha256 twin on the 18 TB drive into": "Kopiert jede Datei der kleinen Laufwerke, die keinen sha256-Zwilling auf dem 18-TB-Laufwerk hat, nach",
+    ", layout preserved. Journaled rsync — re-running resumes.": ", Verzeichnisstruktur bleibt erhalten. rsync mit Journal – ein erneuter Lauf setzt fort.",
+    "Drive": "Laufwerk",
+    "Copied": "Kopiert",
+    "Progress": "Fortschritt",
+    "Now": "Aktuell",
+    "done, verified by re-hash": "fertig, per erneutem Hash verifiziert",
+    "copying Photos/2020": "kopiert gerade Photos/2020",
+    "Second copies of the irreplaceable subset on the freed drives: mail as per-mailbox": "Zweitkopien des unersetzlichen Teils auf den frei gewordenen Laufwerken: Mail pro Postfach als",
+    "packed across BD-1T-A/B/C; Archive subset → BD-500; Photos → BD-1T-C.": "gepackt und auf BD-1T-A/B/C verteilt; Archive-Teil → BD-500; Photos → BD-1T-C."
+  },
+  "patterns": [
+    [
+      "^generated (.+)$",
+      "erstellt $1"
+    ],
+    [
+      "^(.+) files · (.+) across (\\d+) mounted volumes$",
+      "$1 Dateien · $2 auf $3 eingehängten Volumes"
+    ],
+    [
+      "^(.+) messages · (\\d+) mailboxes$",
+      "$1 Nachrichten · $2 Postfächer"
+    ],
+    [
+      "^(.+) messages · (\\d+) domains$",
+      "$1 Nachrichten · $2 Domains"
+    ],
+    [
+      "^(.+) files with no sha256 twin anywhere$",
+      "$1 Dateien ohne jeden sha256-Zwilling"
+    ],
+    [
+      "^(.+) of (.+) used · (.+) files indexed$",
+      "$1 von $2 belegt · $3 Dateien indexiert"
+    ],
+    [
+      "^(.+) — (.+) · (.+) files$",
+      "$1 — $2 · $3 Dateien"
+    ],
+    [
+      "^· unique (.+) in (.+) files · (.+) only on another small drive$",
+      "· einmalig: $1 in $2 Dateien · $3 nur auf einem anderen kleinen Laufwerk"
+    ],
+    [
+      "^· unique (.+) in (.+) files$",
+      "· einmalig: $1 in $2 Dateien"
+    ],
+    [
+      "^· (.+) not$",
+      "· $1 offen"
+    ],
+    [
+      "^of (.+)$",
+      "von $1"
+    ],
+    [
+      "^working · (.+)$",
+      "aktiv · $1"
+    ],
+    [
+      "^load (.+) · (\\d+) crawlers on the 18TB drive$",
+      "Last $1 · $2 Crawler auf dem 18-TB-Laufwerk"
+    ],
+    [
+      "^(\\d+) of (\\d+) chunks complete$",
+      "$1 von $2 Chunks fertig"
+    ],
+    [
+      "^(.+) files · (\\d+) MB/s now$",
+      "$1 Dateien · aktuell $2 MB/s"
+    ],
+    [
+      "^(\\d+) read errors?$",
+      "$1 Lesefehler"
+    ],
+    [
+      "^(.+) files$",
+      "$1 Dateien"
+    ]
+  ]
+}
