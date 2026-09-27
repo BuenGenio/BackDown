@@ -185,10 +185,11 @@ fn run(
             for _ in 0..opts.jobs_per_device.max(1) {
                 let (queue, tx) = (Arc::clone(&queue), tx.clone());
                 scope.spawn(move || {
+                    let mut buf = vec![0u8; READ_BUF]; // one per reader: most files are small, so allocating per file dominates
                     while let Some(job) = queue.lock().unwrap().pop_front() {
                         let out = match stage {
-                            Stage::Sample => sample(&job.path, job.size),
-                            Stage::Full => full(&job.path, job.size).map(|h| (h, None)),
+                            Stage::Sample => sample(&job.path, job.size, &mut buf),
+                            Stage::Full => full(&job.path, job.size, &mut buf).map(|h| (h, None)),
                         };
                         if tx.send((job.ids, job.size, out)).is_err() {
                             return;
@@ -246,9 +247,9 @@ fn run(
     })
 }
 
-fn sample(path: &Path, size: u64) -> Outcome {
+fn sample(path: &Path, size: u64, buf: &mut [u8]) -> Outcome {
     if size <= SMALL {
-        let h = full(path, size)?;
+        let h = full(path, size, buf)?;
         return Ok((h.clone(), Some(h)));
     }
     let io = |e: std::io::Error| e.to_string();
@@ -258,23 +259,22 @@ fn sample(path: &Path, size: u64) -> Outcome {
     }
     let mut h = Sha256::new();
     h.update(size.to_le_bytes());
-    let mut buf = vec![0u8; CHUNK as usize];
+    let chunk = &mut buf[..CHUNK as usize];
     for offset in [0, size / 2 - CHUNK / 2, size - CHUNK] {
         f.seek(SeekFrom::Start(offset)).map_err(io)?;
-        f.read_exact(&mut buf).map_err(io)?;
-        h.update(&buf);
+        f.read_exact(chunk).map_err(io)?;
+        h.update(&*chunk);
     }
     Ok((h.finalize().to_vec(), None))
 }
 
-fn full(path: &Path, size: u64) -> Result<Vec<u8>, String> {
+fn full(path: &Path, size: u64, buf: &mut [u8]) -> Result<Vec<u8>, String> {
     let io = |e: std::io::Error| e.to_string();
     let mut f = File::open(path).map_err(io)?;
     let mut h = Sha256::new();
-    let mut buf = vec![0u8; READ_BUF];
     let mut read = 0u64;
     loop {
-        let n = match f.read(&mut buf) {
+        let n = match f.read(buf) {
             Ok(0) => break,
             Ok(n) => n,
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
