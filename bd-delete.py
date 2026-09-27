@@ -30,11 +30,14 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tops", default="", help="comma-separated victim top-level dirs to act on")
     ap.add_argument("--prefix", default="", help="comma-separated victim path prefixes (finer than --tops)")
+    ap.add_argument("--plan", default=str(IDX / "delete-plan.tsv"), help="plan tsv to execute (pre-filtered batch file)")
+    ap.add_argument("--verify", choices=["full", "sample", "stat"], default="full",
+                    help="keeper check: full=re-hash every keeper; sample=re-hash ~1%%, stat the rest "
+                         "(safe when the archive has been read-only since hashing); stat=existence+size only")
     ap.add_argument("--apply", action="store_true")
     a = ap.parse_args()
     tops = set(t for t in a.tops.split(",") if t)
     prefixes = tuple(p for p in a.prefix.split(",") if p)
-    if not tops and not prefixes: sys.exit("give --tops or --prefix")
     if a.apply and not os.access(BIG, os.W_OK):
         # not fatal (root may still write), but warn if archive looks read-only
         pass
@@ -46,7 +49,8 @@ def main():
     keeper_ok = {}   # keeper_rel -> True/False (verified identical)
     jf = open(JOURNAL, "a", errors="surrogateescape") if a.apply else None
     n_del = n_skip = 0; freed = 0; t0 = time.time()
-    for line in open(IDX / "delete-plan.tsv", errors="surrogateescape"):
+    import hashlib as _h
+    for line in open(a.plan, errors="surrogateescape"):
         sha, size, action, keeper, victim = line.rstrip("\n").split("\t")
         size = int(size)
         if tops and victim.split("/")[0] not in tops: continue
@@ -57,10 +61,18 @@ def main():
         except OSError: continue                      # already gone
         if vst.st_size != size:
             print(f"SKIP changed-size {victim}"); n_skip += 1; continue
-        # verify keeper (cache per keeper)
+        # verify keeper (cache per keeper). full=hash; stat=exist+size; sample=hash ~1%, stat rest.
         ok = keeper_ok.get(keeper)
         if ok is None:
-            try: ok = (os.path.exists(kabs) and sha256(kabs) == sha)
+            try:
+                if not os.path.exists(kabs) or os.path.getsize(kabs) != size:
+                    ok = False
+                elif a.verify == "stat":
+                    ok = True
+                elif a.verify == "sample" and int(_h.sha1(keeper.encode("utf-8","surrogateescape")).hexdigest(), 16) % 100 != 0:
+                    ok = True                          # stat-verified this one (in the 99% sample)
+                else:
+                    ok = (sha256(kabs) == sha)         # full, or the ~1% re-hashed sample
             except OSError: ok = False
             keeper_ok[keeper] = ok
         if not ok:
