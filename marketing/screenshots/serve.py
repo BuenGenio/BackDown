@@ -16,6 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
+SITE_PUBLIC = REPO / 'marketing' / 'public'
 TB, GB = 1e12, 1e9
 
 # the report page hardcodes a few details of the founding dataset (its drive count and mail domain);
@@ -182,6 +183,10 @@ def main():
     ap.add_argument('--port', type=int, default=8790)
     port = ap.parse_args().port
     page = _dash_page()
+    # the app's shell.css ships basic-Latin fonts only; for localised screenshots use the site's unicode-range set
+    # (Latin, Latin Extended, Cyrillic stand-ins) so cs/sk/pl/uk render in the brand faces
+    site_faces = '\n'.join(l for l in (SITE_PUBLIC / 'site.css').read_text(encoding='utf-8').splitlines() if l.startswith('@font-face'))
+    shell = '\n'.join(l for l in (REPO / 'assets' / 'shell.css').read_text(encoding='utf-8').splitlines() if not l.startswith('@font-face'))
     rep = (REPO / 'assets' / 'report.html').read_text(encoding='utf-8')
     for pattern, repl in PRIVATE_PATTERNS:
         rep, n = re.subn(pattern, repl, rep)
@@ -191,6 +196,7 @@ def main():
         '/api/status': (json.dumps(status()), 'application/json'),
         '/report': (rep, 'text/html; charset=utf-8'),
         '/api/report': (json.dumps(report()), 'application/json'),
+        '/assets/shell.css': (site_faces + '\n' + shell, 'text/css'),
     }
 
     class H(BaseHTTPRequestHandler):
@@ -202,6 +208,8 @@ def main():
                 body, ct = routes[path]; body = body.encode()
             elif path.startswith(('/assets/', '/fonts/')) and '..' not in path:
                 fp = REPO / 'assets' / path.lstrip('/').removeprefix('assets/')
+                if not fp.is_file() and path.startswith('/fonts/'):
+                    fp = SITE_PUBLIC / path.lstrip('/')
                 if not fp.is_file():
                     self.send_response(404); self.end_headers(); return
                 body = fp.read_bytes()

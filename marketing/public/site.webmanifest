@@ -1,0 +1,14 @@
+{
+  "name": "BackDown",
+  "short_name": "BackDown",
+  "description": "Backup that thinks: find out what's on your drives, what's duplicated, and which ones are safe to wipe.",
+  "start_url": "/",
+  "display": "browser",
+  "background_color": "#f5f3ec",
+  "theme_color": "#d8432b",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

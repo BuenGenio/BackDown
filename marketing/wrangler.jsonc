@@ -13,9 +13,9 @@
   "kv_namespaces": [
     { "binding": "WAITLIST", "id": "c2434da953294d019f07c7ee63678f57" }
   ],
+  // www.backdown.io is served by ./www-redirect (a 301 to this host)
   "routes": [
-    { "pattern": "backdown.io", "custom_domain": true },
-    { "pattern": "www.backdown.io", "custom_domain": true }
+    { "pattern": "backdown.io", "custom_domain": true }
   ],
   "workers_dev": false
 }

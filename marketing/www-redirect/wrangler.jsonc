@@ -1,0 +1,8 @@
+// www.backdown.io → backdown.io. Deploy from this directory: npx wrangler deploy
+{
+  "name": "backdown-www-redirect",
+  "main": "index.js",
+  "compatibility_date": "2026-09-01",
+  "routes": [{ "pattern": "www.backdown.io", "custom_domain": true }],
+  "workers_dev": false
+}

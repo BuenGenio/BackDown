@@ -1,0 +1,160 @@
+{
+  "_comment": "BackDown UI strings as they appear in the landing-page screenshots. 'exact': a whole text node (trimmed) -> its translation, numbers already localised. 'patterns': [regex matched against the English text node, replacement using $1..$n]; numbers inside the groups are localised automatically by capture.mjs using 'locale'. Keep paths, drive names and folder names untranslated.",
+  "locale": "uk-UA",
+  "exact": {
+    "Dashboard": "Панель",
+    "Drives": "Диски",
+    "Bytes": "Байти",
+    "Mail": "Пошта",
+    "Duplicates": "Дублікати",
+    "Verification": "Перевірка",
+    "Verdicts": "Вердикти",
+    "Plan": "План",
+    "Markdown": "Markdown",
+    "Findings": "Знахідки",
+    "Six drives, one dataset": "Шість дисків, один набір даних",
+    "Redundant bytes (name + size, ≥ 1 MB)": "Надлишкові байти (ім’я + розмір, ≥ 1 MB)",
+    "what a full de-duplication would free": "стільки звільнить повна дедуплікація",
+    "example.com mail": "Пошта example.com",
+    "All mail in the vmail tree": "Уся пошта в дереві vmail",
+    "Must be copied before wiping": "Треба скопіювати перед стиранням",
+    "Click a drive to jump to its size tree.": "Клацніть диск, щоб перейти до його дерева розмірів.",
+    "ext4 · 18 TB consolidation target": "ext4 · 18 TB, ціль консолідації",
+    "ext4 · 2019 ThinkPad, home partition": "ext4 · ThinkPad 2019 року, домашній розділ",
+    "apfs (read-only) · 2016 MacBook Pro internal": "apfs (лише читання) · внутрішній диск MacBook Pro 2016 року",
+    "exfat · USB enclosure": "exfat · USB-кишеня",
+    "ntfs (read-only) · 2014 Windows backup drive": "ntfs (лише читання) · диск резервних копій Windows 2014 року",
+    "vfat · reformatted, mirror target": "vfat · переформатовано, ціль для дзеркала",
+    "Where the bytes are": "Де лежать байти",
+    "Click a row to expand. Bars are relative to the parent. Orange marks directories over 1 TB.": "Клацніть рядок, щоб розгорнути. Смуги — відносно батьківської теки. Помаранчевим позначено теки понад 1 TB.",
+    "Pairs of directories (depth 2) sharing files by name + size, files ≥ 1 MB. Name + size is the cheap first pass; the hash-proven view is in": "Пари тек (глибина 2) зі спільними файлами за іменем і розміром, файли ≥ 1 MB. Ім’я + розмір — дешевий перший прохід; перевірене хешами подання — у розділі",
+    "All pairs": "Усі пари",
+    "Small drive ↔ big drive": "Малий диск ↔ великий диск",
+    "Big drive ↔ itself": "Великий диск ↔ сам із собою",
+    "show all 400": "показати всі 400",
+    "Shared": "Спільне",
+    "Files": "Файли",
+    "filter paths…": "фільтр шляхів…",
+    "filter domains…": "фільтр доменів…",
+    "Hash verification": "Перевірка хешами",
+    "Every file on the small drives was sha256-hashed, then matched against hashed twins on the 18 TB drive.": "Кожен файл на малих дисках прохешовано sha256 і звірено з двійниками на диску 18 TB.",
+    "Verified": "Перевірено",
+    "= an identical file exists on the big drive.": "= на великому диску є ідентичний файл.",
+    "Unique": "Унікальні",
+    "= no identical file anywhere else; must be copied before the drive is wiped.": "= ідентичного файлу ніде більше немає; його треба скопіювати, перш ніж стирати диск.",
+    "Wipe verdicts": "Вердикти щодо стирання",
+    "Nothing is wiped until every file has a sha256-verified copy. Hashing is complete on all drives; the 'copy first' sizes are the exact unique bytes.": "Нічого не стирається, доки кожен файл не матиме копії, перевіреної sha256. Хешування завершено на всіх дисках; розміри «спершу скопіюйте» — це точний обсяг унікальних байтів.",
+    "✓ safe": "✓ безпечно",
+    "✗ copy first": "✗ спершу скопіюйте",
+    "◔ pending hash proof": "◔ чекає на перевірку хешем",
+    "✓ wiped": "✓ стерто",
+    "Every file has a sha256-identical copy on ARCHIVE-18TB: 310 GB in 402 K files, all verified.": "Кожен файл має ідентичну за sha256 копію на ARCHIVE-18TB: 310 GB у 402 тис. файлів, усі перевірено.",
+    "81% verified. 212 GB exists nowhere else (Photos/2019–2021 RAW 188 GB, Videos 24 GB): copy those, then wipe.": "Перевірено 81%. 212 GB більше ніде немає (Photos/2019–2021 RAW 188 GB, Videos 24 GB): скопіюйте їх, а тоді стирайте.",
+    "99.1% verified. 4.2 GB in 11 K files is unique (Documents 3.1 GB, dotfiles, ssh keys): copy those, then wipe.": "Перевірено 99,1%. 4,2 GB в 11 тис. файлів — унікальні (Documents 3,1 GB, дотфайли, ключі SSH): скопіюйте їх, а тоді стирайте.",
+    "Hashing is 64% done. The verdict follows once every file has been hashed.": "Хешування виконано на 64%. Вердикт з’явиться, щойно буде прохешовано кожен файл.",
+    "Wiped after verification; now holds an offline mirror of Archive/Mail.": "Стерто після перевірки; тепер тут офлайн-дзеркало Archive/Mail.",
+    "Proposed filing": "Запропоноване впорядкування",
+    "First level = type of thing, second = origin (host / person / company), third = time. One authoritative copy on the 18 TB drive; freed drives become mirrors of the irreplaceable subset.": "Перший рівень = тип даних, другий = походження (хост / людина / компанія), третій = час. Одна еталонна копія на диску 18 TB; звільнені диски стають дзеркалами незамінної частини.",
+    "all IMAP/maildir data, by server then domain": "усі дані IMAP/maildir, за сервером, далі за доменом",
+    "computer backups, by machine, dated": "резервні копії комп’ютерів, окремо за кожним, із датами",
+    "Overview": "Огляд",
+    "Staging": "Проміжна зона",
+    "Mirrors": "Дзеркала",
+    "Indexing": "Індексування",
+    "Hashing": "Хешування",
+    "Disks": "Диски",
+    "Report": "Звіт",
+    "Drive consolidation": "Консолідація дисків",
+    "What the machine is doing": "Що зараз робить комп’ютер",
+    "Files indexed on the 18TB drive": "Проіндексовано файлів на диску 18 TB",
+    "Bytes hashed": "Прохешовано даних",
+    "Indexer": "Індексатор",
+    "running": "працює",
+    "one seeker per spindle": "один потік на шпиндель",
+    "Hasher": "Хешувальник",
+    "Copying every small-drive file that has no sha256 twin on the 18 TB drive into": "Кожен файл із малих дисків, що не має двійника за sha256 на диску 18 TB, копіюється до",
+    ", layout preserved. Journaled rsync — re-running resumes.": ", зі збереженням структури. rsync із журналом — повторний запуск продовжує з місця зупинки.",
+    "Drive": "Диск",
+    "Copied": "Скопійовано",
+    "Progress": "Прогрес",
+    "Now": "Зараз",
+    "done, verified by re-hash": "готово, перевірено повторним хешуванням",
+    "copying Photos/2020": "копіювання Photos/2020",
+    "Second copies of the irreplaceable subset on the freed drives: mail as per-mailbox": "Другі копії незамінної частини на звільнених дисках: пошта — по одному",
+    "packed across BD-1T-A/B/C; Archive subset → BD-500; Photos → BD-1T-C.": "на скриньку, розподілено між BD-1T-A/B/C; частина Archive → BD-500; Photos → BD-1T-C."
+  },
+  "patterns": [
+    [
+      "^generated (.+)$",
+      "згенеровано $1"
+    ],
+    [
+      "^(.+) files · (.+) across (\\d+) mounted volumes$",
+      "$1 файлів · $2 на $3 змонтованих томах"
+    ],
+    [
+      "^(.+) messages · (\\d+) mailboxes$",
+      "$1 листів · $2 скриньки"
+    ],
+    [
+      "^(.+) messages · (\\d+) domains$",
+      "$1 листів · $2 домени"
+    ],
+    [
+      "^(.+) files with no sha256 twin anywhere$",
+      "$1 файлів ніде не мають двійника за sha256"
+    ],
+    [
+      "^(.+) of (.+) used · (.+) files indexed$",
+      "зайнято $1 з $2 · проіндексовано $3 файлів"
+    ],
+    [
+      "^(.+) — (.+) · (.+) files$",
+      "$1 — $2 · $3 файлів"
+    ],
+    [
+      "^· unique (.+) in (.+) files · (.+) only on another small drive$",
+      "· унікальні: $1 у $2 файлів · $3 лише на іншому малому диску"
+    ],
+    [
+      "^· unique (.+) in (.+) files$",
+      "· унікальні: $1 у $2 файлів"
+    ],
+    [
+      "^· (.+) not$",
+      "· $1 не перевірено"
+    ],
+    [
+      "^of (.+)$",
+      "з $1"
+    ],
+    [
+      "^working · (.+)$",
+      "працює · $1"
+    ],
+    [
+      "^load (.+) · (\\d+) crawlers on the 18TB drive$",
+      "навантаження $1 · $2 процеси обходу на диску 18 TB"
+    ],
+    [
+      "^(\\d+) of (\\d+) chunks complete$",
+      "$1 з $2 фрагментів завершено"
+    ],
+    [
+      "^(.+) files · (\\d+) MB/s now$",
+      "$1 файлів · зараз $2 MB/s"
+    ],
+    [
+      "^(\\d+) read errors?$",
+      "$1 помилка читання"
+    ],
+    [
+      "^(.+) files$",
+      "$1 файлів"
+    ]
+  ],
+  "suffixes": {
+    "K": "тис.",
+    "M": "млн"
+  }
+}

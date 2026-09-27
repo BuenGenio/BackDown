@@ -24,12 +24,18 @@ LANGS = ['en', 'de', 'pl', 'cs', 'sk', 'uk']  # language-menu order; English is 
 FLAGS = {'en': 'gb', 'de': 'de', 'pl': 'pl', 'cs': 'cz', 'sk': 'sk', 'uk': 'ua'}  # public/flags/<code>.svg
 TOKEN = re.compile(r'\{\{(@?[a-z0-9_.]+)(\|attr)?\}\}')
 
-# slideshow: screenshot id (public/shots/<id>-<theme>-<width>.webp, made by screenshots/) and the URL shown in its frame;
-# captions are slides.s<N>_title / _body / _alt
-SLIDES = [('verdicts', 'localhost:8787/report'), ('overview', 'localhost:8787/report'), ('tree', 'localhost:8787/report'),
+# slideshow, in display order: screenshot id (public/shots/<lang>/<id>-<theme>-<width>.webp, made by screenshots/) and the URL
+# shown in its frame; captions are slides.<id>_title / _body / _alt
+SLIDES = [('overview', 'localhost:8787/report'), ('verdicts', 'localhost:8787/report'), ('tree', 'localhost:8787/report'),
           ('duplicates', 'localhost:8787/report'), ('verification', 'localhost:8787/report'), ('dashboard', 'localhost:8787')]
 SHOT_WIDTHS = (960, 1600, 2400)
 SHOT_SIZES = '(min-width: 1340px) 1224px, calc(100vw - 32px)'
+# click/tap halves over each screenshot with an arrow at the edge; mouse and touch only (aria-hidden, out of the tab
+# order), since the arrow buttons under the slideshow and the arrow keys cover keyboard and screen-reader users
+ZONES = ('<button class="zone prev" type="button" data-step="-1" tabindex="-1" aria-hidden="true"><span class="zarrow">'
+         '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></span></button>'
+         '<button class="zone next" type="button" data-step="1" tabindex="-1" aria-hidden="true"><span class="zarrow">'
+         '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span></button>')
 
 # the early-access form appears twice (hero and closing CTA); site.js reads its messages from the data attributes
 FORM = '''<form class="join" action="/api/waitlist" method="post" data-sending="{{form.sending|attr}}" data-ok="{{form.ok|attr}}" data-invalid="{{form.invalid|attr}}" data-error="{{form.error|attr}}" data-offline="{{form.offline|attr}}">
@@ -54,16 +60,17 @@ def flag(lang):
     return f'<img class="flag" src="/flags/{FLAGS[lang]}.svg" width="20" height="14" alt="">'
 
 
-def slides(t):
+def slides(lang, t):
     out = []
     for i, (sid, url) in enumerate(SLIDES, 1):
-        srcset = lambda theme: ', '.join(f'/shots/{sid}-{theme}-{w}.webp {w}w' for w in SHOT_WIDTHS)
+        srcset = lambda theme: ', '.join(f'/shots/{lang}/{sid}-{theme}-{w}.webp {w}w' for w in SHOT_WIDTHS)
         load = 'fetchpriority="high"' if i == 1 else 'loading="lazy" decoding="async"'
         out.append(f'''    <figure class="slide" role="group" aria-roledescription="slide" aria-label="{i} / {len(SLIDES)}">
      <div class="frame card"><div class="frame-bar" aria-hidden="true"><span class="dots"><i></i><i></i><i></i></span><span class="mono">{url}</span></div>
       <picture><source media="(prefers-color-scheme: dark)" type="image/webp" srcset="{srcset('dark')}" sizes="{SHOT_SIZES}">
-      <img src="/shots/{sid}-light-1600.webp" srcset="{srcset('light')}" sizes="{SHOT_SIZES}" width="1600" height="1000" alt="{esc(t[f'slides.s{i}_alt'])}" {load}></picture></div>
-     <figcaption><b>{t[f'slides.s{i}_title']}</b> {t[f'slides.s{i}_body']}</figcaption>
+      <img src="/shots/{lang}/{sid}-light-1600.webp" srcset="{srcset('light')}" sizes="{SHOT_SIZES}" width="1600" height="1000" alt="{esc(t[f'slides.{sid}_alt'])}" {load}></picture>
+      {ZONES}</div>
+     <figcaption><b>{t[f'slides.{sid}_title']}</b> {t[f'slides.{sid}_body']}</figcaption>
     </figure>''')
     return '\n'.join(out)
 
@@ -101,7 +108,7 @@ def jsonld(lang, t):
          'primaryImageOfPage': f'{SITE}/og/{lang}.png'},
         {'@type': 'SoftwareApplication', '@id': f'{SITE}/#app', 'name': 'BackDown', 'url': url,
          'description': t['meta.description'], 'applicationCategory': 'UtilitiesApplication', 'operatingSystem': 'Linux',
-         'screenshot': [f'{SITE}/shots/{sid}-light-1600.webp' for sid, _ in SLIDES],
+         'screenshot': [f'{SITE}/shots/{lang}/{sid}-light-1600.webp' for sid, _ in SLIDES],
          'offers': {'@type': 'Offer', 'price': '0', 'priceCurrency': 'USD', 'availability': 'https://schema.org/PreOrder'},
          'publisher': {'@id': f'{SITE}/#org'}},
     ]}
@@ -127,7 +134,7 @@ def main():
     # keys the template uses directly, plus the ones the generators above read
     keys = set(tables['en'])
     used = {m[1] for m in TOKEN.finditer(template) if not m[1].startswith('@')}
-    used |= {f'slides.s{i}_{f}' for i in range(1, len(SLIDES) + 1) for f in ('title', 'body', 'alt')}
+    used |= {f'slides.{sid}_{f}' for sid, _ in SLIDES for f in ('title', 'body', 'alt')}
     used |= {'lang.name', 'meta.title', 'meta.description', 'slides.goto', 'download.status_early', 'download.status_soon',
              'download.cta_early', 'download.cta_notify', 'download.cta_download', 'download.checksum'}
     used |= {f"download.{p['id']}_body" for p in platforms}
@@ -156,7 +163,7 @@ def main():
             '@og_alternates': '\n'.join(f'<meta property="og:locale:alternate" content="{tables[o]["meta.og_locale"]}">'
                                         for o in LANGS if o != lang),
             '@jsonld': jsonld(lang, t),
-            '@slides': slides(t),
+            '@slides': slides(lang, t),
             '@dots': ''.join(f'<button type="button" data-i="{i}" aria-label="{esc(t["slides.goto"])} {i + 1}"></button>'
                              for i in range(len(SLIDES))),
             '@downloads': downloads(t, platforms),

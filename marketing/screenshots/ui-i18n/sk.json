@@ -1,0 +1,160 @@
+{
+  "_comment": "BackDown UI strings as they appear in the landing-page screenshots. 'exact': a whole text node (trimmed) -> its translation, numbers already localised. 'patterns': [regex matched against the English text node, replacement using $1..$n]; numbers inside the groups are localised automatically by capture.mjs using 'locale'. Keep paths, drive names and folder names untranslated.",
+  "locale": "sk-SK",
+  "exact": {
+    "Dashboard": "Dashboard",
+    "Drives": "Disky",
+    "Bytes": "Bajty",
+    "Mail": "Pošta",
+    "Duplicates": "Duplikáty",
+    "Verification": "Overenie",
+    "Verdicts": "Verdikty",
+    "Plan": "Plán",
+    "Markdown": "Markdown",
+    "Findings": "Zistenia",
+    "Six drives, one dataset": "Šesť diskov, jedna sada dát",
+    "Redundant bytes (name + size, ≥ 1 MB)": "Nadbytočné bajty (názov + veľkosť, ≥ 1 MB)",
+    "what a full de-duplication would free": "koľko by uvoľnila úplná deduplikácia",
+    "example.com mail": "pošta example.com",
+    "All mail in the vmail tree": "Všetka pošta v strome vmail",
+    "Must be copied before wiping": "Treba skopírovať pred vymazaním",
+    "Click a drive to jump to its size tree.": "Kliknutím na disk prejdete na jeho strom veľkostí.",
+    "ext4 · 18 TB consolidation target": "ext4 · 18 TB, cieľ konsolidácie",
+    "ext4 · 2019 ThinkPad, home partition": "ext4 · ThinkPad z roku 2019, domovský oddiel",
+    "apfs (read-only) · 2016 MacBook Pro internal": "apfs (iba na čítanie) · interný disk MacBook Pro z roku 2016",
+    "exfat · USB enclosure": "exfat · USB box",
+    "ntfs (read-only) · 2014 Windows backup drive": "ntfs (iba na čítanie) · zálohovací disk Windows z roku 2014",
+    "vfat · reformatted, mirror target": "vfat · preformátovaný, cieľ zrkadla",
+    "Where the bytes are": "Kde sú bajty",
+    "Click a row to expand. Bars are relative to the parent. Orange marks directories over 1 TB.": "Kliknutím na riadok ho rozbalíte. Pruhy sú relatívne k nadradenému priečinku. Oranžová označuje priečinky nad 1 TB.",
+    "Pairs of directories (depth 2) sharing files by name + size, files ≥ 1 MB. Name + size is the cheap first pass; the hash-proven view is in": "Dvojice priečinkov (hĺbka 2) so spoločnými súbormi podľa názvu + veľkosti, súbory ≥ 1 MB. Názov + veľkosť je lacný prvý prechod; pohľad overený hashom je v sekcii",
+    "All pairs": "Všetky dvojice",
+    "Small drive ↔ big drive": "Malý disk ↔ veľký disk",
+    "Big drive ↔ itself": "Veľký disk ↔ sám so sebou",
+    "show all 400": "zobraziť všetkých 400",
+    "Shared": "Spoločné",
+    "Files": "Súbory",
+    "filter paths…": "filtrovať cesty…",
+    "filter domains…": "filtrovať domény…",
+    "Hash verification": "Overenie hashom",
+    "Every file on the small drives was sha256-hashed, then matched against hashed twins on the 18 TB drive.": "Každý súbor na malých diskoch sa zahashoval cez sha256 a porovnal so zahashovanými dvojníkmi na 18 TB disku.",
+    "Verified": "Overené",
+    "= an identical file exists on the big drive.": "= na veľkom disku existuje identický súbor.",
+    "Unique": "Unikátne",
+    "= no identical file anywhere else; must be copied before the drive is wiped.": "= identický súbor nie je nikde inde; pred vymazaním disku ho treba skopírovať.",
+    "Wipe verdicts": "Verdikty o vymazaní",
+    "Nothing is wiped until every file has a sha256-verified copy. Hashing is complete on all drives; the 'copy first' sizes are the exact unique bytes.": "Nič sa nevymaže, kým každý súbor nemá kópiu overenú cez sha256. Hashovanie je na všetkých diskoch dokončené; veľkosti pri „najprv skopírovať“ sú presné unikátne bajty.",
+    "✓ safe": "✓ bezpečné",
+    "✗ copy first": "✗ najprv skopírovať",
+    "◔ pending hash proof": "◔ čaká na overenie hashom",
+    "✓ wiped": "✓ vymazané",
+    "Every file has a sha256-identical copy on ARCHIVE-18TB: 310 GB in 402 K files, all verified.": "Každý súbor má na ARCHIVE-18TB kópiu so zhodným sha256: 310 GB v 402 tis. súboroch, všetko overené.",
+    "81% verified. 212 GB exists nowhere else (Photos/2019–2021 RAW 188 GB, Videos 24 GB): copy those, then wipe.": "Overených 81 %. 212 GB nie je nikde inde (Photos/2019–2021 RAW 188 GB, Videos 24 GB): skopírujte ich, potom vymažte.",
+    "99.1% verified. 4.2 GB in 11 K files is unique (Documents 3.1 GB, dotfiles, ssh keys): copy those, then wipe.": "Overených 99,1 %. 4,2 GB v 11 tis. súboroch je unikátnych (Documents 3,1 GB, dotfiles, kľúče ssh): skopírujte ich, potom vymažte.",
+    "Hashing is 64% done. The verdict follows once every file has been hashed.": "Hashovanie je hotové na 64 %. Verdikt príde, keď bude zahashovaný každý súbor.",
+    "Wiped after verification; now holds an offline mirror of Archive/Mail.": "Vymazaný po overení; teraz obsahuje offline zrkadlo Archive/Mail.",
+    "Proposed filing": "Navrhované zatriedenie",
+    "First level = type of thing, second = origin (host / person / company), third = time. One authoritative copy on the 18 TB drive; freed drives become mirrors of the irreplaceable subset.": "Prvá úroveň = druh obsahu, druhá = pôvod (počítač / osoba / firma), tretia = čas. Jedna smerodajná kópia na 18 TB disku; uvoľnené disky sa stanú zrkadlami nenahraditeľnej časti.",
+    "all IMAP/maildir data, by server then domain": "všetky dáta IMAP/maildir, podľa servera a potom domény",
+    "computer backups, by machine, dated": "zálohy počítačov, podľa počítača, s dátumom",
+    "Overview": "Prehľad",
+    "Staging": "Príprava",
+    "Mirrors": "Zrkadlá",
+    "Indexing": "Indexovanie",
+    "Hashing": "Hashovanie",
+    "Disks": "Disky",
+    "Report": "Report",
+    "Drive consolidation": "Konsolidácia diskov",
+    "What the machine is doing": "Čo počítač práve robí",
+    "Files indexed on the 18TB drive": "Zaindexované súbory na 18 TB disku",
+    "Bytes hashed": "Zahashované bajty",
+    "Indexer": "Indexer",
+    "running": "beží",
+    "one seeker per spindle": "jeden proces na fyzický disk",
+    "Hasher": "Hasher",
+    "Copying every small-drive file that has no sha256 twin on the 18 TB drive into": "Každý súbor z malých diskov, ktorý nemá na 18 TB disku sha256 dvojníka, sa kopíruje do",
+    ", layout preserved. Journaled rsync — re-running resumes.": ", so zachovanou štruktúrou. Beží cez rsync so žurnálom – opätovné spustenie nadviaže.",
+    "Drive": "Disk",
+    "Copied": "Skopírované",
+    "Progress": "Priebeh",
+    "Now": "Teraz",
+    "done, verified by re-hash": "hotovo, overené opätovným hashom",
+    "copying Photos/2020": "kopíruje sa Photos/2020",
+    "Second copies of the irreplaceable subset on the freed drives: mail as per-mailbox": "Druhé kópie nenahraditeľnej časti na uvoľnených diskoch: pošta ako samostatné",
+    "packed across BD-1T-A/B/C; Archive subset → BD-500; Photos → BD-1T-C.": "pre každú schránku, rozložené na BD-1T-A/B/C; časť Archive → BD-500; Photos → BD-1T-C."
+  },
+  "patterns": [
+    [
+      "^generated (.+)$",
+      "vygenerované $1"
+    ],
+    [
+      "^(.+) files · (.+) across (\\d+) mounted volumes$",
+      "$1 súborov · $2 na $3 pripojených zväzkoch"
+    ],
+    [
+      "^(.+) messages · (\\d+) mailboxes$",
+      "$1 správ · $2 schránok"
+    ],
+    [
+      "^(.+) messages · (\\d+) domains$",
+      "$1 správ · $2 domény"
+    ],
+    [
+      "^(.+) files with no sha256 twin anywhere$",
+      "$1 súborov nemá nikde sha256 dvojníka"
+    ],
+    [
+      "^(.+) of (.+) used · (.+) files indexed$",
+      "obsadené $1 z $2 · $3 zaindexovaných súborov"
+    ],
+    [
+      "^(.+) — (.+) · (.+) files$",
+      "$1 – $2 · $3 súborov"
+    ],
+    [
+      "^· unique (.+) in (.+) files · (.+) only on another small drive$",
+      "· unikátne $1 v $2 súboroch · $3 iba na inom malom disku"
+    ],
+    [
+      "^· unique (.+) in (.+) files$",
+      "· unikátne $1 v $2 súboroch"
+    ],
+    [
+      "^· (.+) not$",
+      "· $1 neoverených"
+    ],
+    [
+      "^of (.+)$",
+      "z $1"
+    ],
+    [
+      "^working · (.+)$",
+      "pracuje · $1"
+    ],
+    [
+      "^load (.+) · (\\d+) crawlers on the 18TB drive$",
+      "záťaž $1 · $2 prehľadávače na 18 TB disku"
+    ],
+    [
+      "^(\\d+) of (\\d+) chunks complete$",
+      "hotových $1 z $2 blokov"
+    ],
+    [
+      "^(.+) files · (\\d+) MB/s now$",
+      "$1 súborov · teraz $2 MB/s"
+    ],
+    [
+      "^(\\d+) read errors?$",
+      "$1 chyba čítania"
+    ],
+    [
+      "^(.+) files$",
+      "$1 súborov"
+    ]
+  ],
+  "suffixes": {
+    "K": "tis.",
+    "M": "mil."
+  }
+}
