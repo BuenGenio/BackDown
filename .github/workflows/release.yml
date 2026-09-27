@@ -75,6 +75,7 @@ jobs:
         run: |
           base="backdown-${GITHUB_REF_NAME}-${{ matrix.name }}"
           cp crates/backdown-cli/README-release.txt dist/README.txt
+          cp crates/backdown-cli/THIRD-PARTY-NOTICES.txt dist/
           mkdir -p out
           if [ "${{ runner.os }}" = Windows ]; then
             (cd dist && 7z a -tzip "../out/$base.zip" . >/dev/null)

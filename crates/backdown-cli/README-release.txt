@@ -28,6 +28,13 @@ Quick start
 
        backdown dupes --min-size 10M
 
+  4. Browse it all in your web browser: folders as they were at any scan
+     (time slider), every version and copy of a file, and read-only viewers
+     for PDF, Word, SQLite, SQL dumps, code, images, audio/video, git history
+     and diffs. It runs on this computer only and prints a private link:
+
+       backdown serve
+
   On Windows use drive paths, e.g.  backdown index E:\ F:\Archive
 
 
@@ -42,6 +49,7 @@ Commands
   dupes           duplicated content and the space it wastes
   check PATH      is PATH safe to wipe?
   scans           the scans on record, oldest first
+  serve           the file browser (local web UI on 127.0.0.1, read-only)
   status          what's in the index
 
   --db FILE       index database (default: backdown.db in the current folder,
@@ -61,4 +69,8 @@ Notes for this preview
   Windows: SmartScreen may ask for confirmation ("More info" > "Run anyway").
 - Hardlinks are recognised on Linux and macOS. On Windows each path counts
   as its own file for now.
+- The time slider can open an old version only while its exact content
+  still exists somewhere indexed; hash after each index (`backdown hash`,
+  or `check`/`dupes`) so old versions keep a provable fingerprint.
 - Provided as-is, without warranty, for evaluation. Verify before you wipe.
+- Third-party licenses: THIRD-PARTY-NOTICES.txt.

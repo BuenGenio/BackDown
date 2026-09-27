@@ -8,6 +8,8 @@ use anyhow::Result;
 use backdown_core::{Db, fmt, hash, index, report};
 use clap::{Parser, Subcommand};
 
+mod serve;
+
 #[derive(Parser)]
 #[command(
     name = "backdown",
@@ -71,6 +73,15 @@ enum Cmd {
     Scans {
         #[arg(long)]
         json: bool,
+    },
+    /// Browse the index in your web browser: folders at any scan, versions, copies, file viewers
+    Serve {
+        /// Port on 127.0.0.1
+        #[arg(long, default_value_t = 8787)]
+        port: u16,
+        /// Don't open a browser, just print the link
+        #[arg(long)]
+        no_open: bool,
     },
     /// What's in the index
     Status {
@@ -204,6 +215,10 @@ fn run(cli: Cli) -> Result<ExitCode> {
                     );
                 }
             }
+        }
+        Cmd::Serve { port, no_open } => {
+            drop(db);
+            serve::serve(&cli.db, port, !no_open)?;
         }
         Cmd::Status { json } => {
             let s = db.status()?;

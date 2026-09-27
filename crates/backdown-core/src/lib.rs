@@ -4,6 +4,7 @@
 //! Sources are only ever opened read-only. Every long step is resumable: re-running `index`
 //! keeps the hashes of unchanged files, and `hash` only computes what is still missing.
 
+pub mod browse;
 pub mod db;
 pub mod fmt;
 pub mod hash;

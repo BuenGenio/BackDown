@@ -4,7 +4,8 @@
 //! scans (`first_scan`..=`last_scan`) during which it existed with the same size and mtime. Changed
 //! or deleted files keep their old rows (with `current = 0`), so the index can show a drive as it
 //! was at any earlier scan, and old versions keep their hashes. Hashing and reports work on
-//! `current = 1` rows.
+//! `current = 1` rows. `dirs` is versioned the same way and holds recursive totals, so any folder
+//! can be listed, with sizes, as it was at any scan.
 
 use std::path::Path;
 
@@ -30,6 +31,7 @@ CREATE TABLE IF NOT EXISTS files (
     id         INTEGER PRIMARY KEY,
     root_id    INTEGER NOT NULL REFERENCES roots(id),
     path       BLOB NOT NULL,
+    dir        BLOB,                  -- parent folder, for listing
     size       INTEGER NOT NULL,
     mtime      INTEGER NOT NULL,
     dev        INTEGER,               -- device + inode identify hardlinks (NULL where the OS doesn't expose them)
@@ -41,14 +43,30 @@ CREATE TABLE IF NOT EXISTS files (
     last_scan  INTEGER NOT NULL,
     current    INTEGER NOT NULL DEFAULT 1
 );
+CREATE TABLE IF NOT EXISTS dirs (
+    id         INTEGER PRIMARY KEY,
+    root_id    INTEGER NOT NULL REFERENCES roots(id),
+    path       BLOB NOT NULL,
+    parent     BLOB,                  -- NULL for a root
+    files      INTEGER NOT NULL,      -- recursive totals
+    bytes      INTEGER NOT NULL,
+    newest     INTEGER NOT NULL,      -- newest file mtime below
+    first_scan INTEGER NOT NULL,
+    last_scan  INTEGER NOT NULL,
+    current    INTEGER NOT NULL DEFAULT 1
+);
+CREATE UNIQUE INDEX IF NOT EXISTS dirs_current_path ON dirs(path) WHERE current = 1;
+CREATE INDEX IF NOT EXISTS dirs_parent ON dirs(parent, first_scan);
+CREATE INDEX IF NOT EXISTS dirs_root ON dirs(root_id, current, last_scan);
 CREATE UNIQUE INDEX IF NOT EXISTS files_current_path ON files(path) WHERE current = 1;
+CREATE INDEX IF NOT EXISTS files_dir ON files(dir, first_scan);
 CREATE INDEX IF NOT EXISTS files_path_history ON files(path, first_scan);
 CREATE INDEX IF NOT EXISTS files_root ON files(root_id, current, last_scan);
 CREATE INDEX IF NOT EXISTS files_size_sample ON files(size, sample) WHERE current = 1;
 CREATE INDEX IF NOT EXISTS files_inode ON files(dev, ino) WHERE current = 1;
 CREATE INDEX IF NOT EXISTS files_sha256 ON files(sha256);
-PRAGMA user_version = 1;
 ";
+const VERSION: i64 = 2;
 
 pub struct Db {
     pub conn: Connection,
@@ -66,6 +84,27 @@ pub struct Status {
     pub versions: u64,
 }
 
+/// v1 (0.2.0-alpha.1) had no folder data: add `files.dir` from each path. Folder totals (`dirs`)
+/// appear with the next `index` of each root.
+fn migrate_v1(conn: &Connection) -> Result<()> {
+    conn.execute_batch("BEGIN; ALTER TABLE files ADD COLUMN dir BLOB;")?;
+    {
+        let mut read = conn.prepare("SELECT id, path FROM files")?;
+        let mut write = conn.prepare("UPDATE files SET dir = ?2 WHERE id = ?1")?;
+        let rows = read.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Vec<u8>>(1)?)))?;
+        for row in rows {
+            let (id, path) = row?;
+            let path = crate::paths::from_bytes(&path);
+            write.execute(rusqlite::params![
+                id,
+                path.parent().map(crate::paths::to_bytes)
+            ])?;
+        }
+    }
+    conn.execute_batch("COMMIT")?;
+    Ok(())
+}
+
 impl Db {
     pub fn open(path: &Path) -> Result<Db> {
         let conn =
@@ -73,7 +112,18 @@ impl Db {
         conn.execute_batch(
             "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;",
         )?;
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        if version > VERSION {
+            anyhow::bail!(
+                "{} was written by a newer BackDown (schema {version}); update backdown",
+                path.display()
+            );
+        }
+        if version == 1 {
+            migrate_v1(&conn)?;
+        }
         conn.execute_batch(SCHEMA)?;
+        conn.execute_batch(&format!("PRAGMA user_version = {VERSION}"))?;
         Ok(Db { conn })
     }
 

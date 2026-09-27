@@ -72,15 +72,19 @@ pub fn index(
     )?;
     let mut close = conn.prepare_cached("UPDATE files SET current = 0 WHERE id = ?1")?;
     let mut open = conn.prepare_cached(
-        "INSERT INTO files (root_id, path, size, mtime, dev, ino, first_scan, last_scan, current)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, 1)",
+        "INSERT INTO files (root_id, path, dir, size, mtime, dev, ino, first_scan, last_scan, current)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, 1)",
     )?;
+    let mut dirs = DirWriter::new(db, root_id, scan)?;
 
     let mut st = Stats {
         root: root.clone(),
         scan,
         ..Stats::default()
     };
+    // the folders from the root down to the current entry; a folder's totals are final when the walk
+    // leaves it (walkdir yields each folder before its contents)
+    let mut stack: Vec<OpenDir> = Vec::new();
     let mut last = Instant::now();
     conn.execute_batch("BEGIN")?;
     for entry in WalkDir::new(&root)
@@ -94,6 +98,19 @@ pub fn index(
                 continue;
             }
         };
+        while stack.len() > entry.depth() {
+            dirs.close_top(&mut stack)?;
+        }
+        if entry.file_type().is_dir() {
+            stack.push(OpenDir {
+                path: paths::to_bytes(entry.path()),
+                parent: (entry.depth() > 0).then(|| paths::to_bytes(parent_of(entry.path()))),
+                files: 0,
+                bytes: 0,
+                newest: 0,
+            });
+            continue;
+        }
         if !entry.file_type().is_file() {
             continue;
         }
@@ -115,23 +132,29 @@ pub fn index(
         let existing: Option<(i64, i64, i64)> = find
             .query_row(params![path], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
             .optional()?;
+        let dir = paths::to_bytes(parent_of(entry.path()));
         match existing {
             Some((id, s, m)) if s == size && m == mtime => {
                 extend.execute(params![id, scan, root_id, dev, ino])?;
             }
             Some((id, ..)) => {
                 close.execute(params![id])?;
-                open.execute(params![root_id, path, size, mtime, dev, ino, scan])?;
+                open.execute(params![root_id, path, dir, size, mtime, dev, ino, scan])?;
                 st.changed += 1;
             }
             None => {
-                open.execute(params![root_id, path, size, mtime, dev, ino, scan])?;
+                open.execute(params![root_id, path, dir, size, mtime, dev, ino, scan])?;
                 st.new += 1;
             }
         }
+        if let Some(top) = stack.last_mut() {
+            top.files += 1;
+            top.bytes += meta.len();
+            top.newest = top.newest.max(mtime);
+        }
         st.files += 1;
         st.bytes += meta.len();
-        if st.files % BATCH == 0 {
+        if st.files.is_multiple_of(BATCH) {
             conn.execute_batch("COMMIT; BEGIN")?;
         }
         if last.elapsed() >= Duration::from_millis(250) {
@@ -139,11 +162,18 @@ pub fn index(
             last = Instant::now();
         }
     }
+    while !stack.is_empty() {
+        dirs.close_top(&mut stack)?;
+    }
     // anything of this root not seen in this scan is gone
     st.removed = conn.execute(
         "UPDATE files SET current = 0 WHERE root_id = ?1 AND current = 1 AND last_scan < ?2",
         params![root_id, scan],
     )? as u64;
+    conn.execute(
+        "UPDATE dirs SET current = 0 WHERE root_id = ?1 AND current = 1 AND last_scan < ?2",
+        params![root_id, scan],
+    )?;
     conn.execute(
         "UPDATE scans SET finished_at = ?2, files = ?3, bytes = ?4 WHERE id = ?1",
         params![scan, now(), st.files as i64, st.bytes as i64],
@@ -155,6 +185,84 @@ pub fn index(
     conn.execute_batch("COMMIT")?;
     progress(&st);
     Ok(st)
+}
+
+struct OpenDir {
+    path: Vec<u8>,
+    parent: Option<Vec<u8>>,
+    files: u64,
+    bytes: u64,
+    newest: i64,
+}
+
+/// Writes finished folders as versions, like files: unchanged totals extend the current row.
+struct DirWriter<'c> {
+    root_id: i64,
+    scan: i64,
+    find: rusqlite::CachedStatement<'c>,
+    extend: rusqlite::CachedStatement<'c>,
+    close: rusqlite::CachedStatement<'c>,
+    open: rusqlite::CachedStatement<'c>,
+}
+
+impl<'c> DirWriter<'c> {
+    fn new(db: &'c Db, root_id: i64, scan: i64) -> Result<Self> {
+        let c = &db.conn;
+        Ok(DirWriter {
+            root_id,
+            scan,
+            find: c.prepare_cached(
+                "SELECT id, files, bytes, newest FROM dirs WHERE path = ?1 AND current = 1",
+            )?,
+            extend: c.prepare_cached("UPDATE dirs SET last_scan = ?2, root_id = ?3 WHERE id = ?1")?,
+            close: c.prepare_cached("UPDATE dirs SET current = 0 WHERE id = ?1")?,
+            open: c.prepare_cached(
+                "INSERT INTO dirs (root_id, path, parent, files, bytes, newest, first_scan, last_scan, current)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, 1)",
+            )?,
+        })
+    }
+
+    /// Pop the innermost open folder, record it, and add its totals to its parent.
+    fn close_top(&mut self, stack: &mut Vec<OpenDir>) -> Result<()> {
+        let d = stack.pop().expect("caller checks the stack is not empty");
+        let (files, bytes) = (d.files as i64, d.bytes as i64);
+        let existing: Option<(i64, i64, i64, i64)> = self
+            .find
+            .query_row(params![d.path], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+            })
+            .optional()?;
+        match existing {
+            Some((id, f, b, n)) if (f, b, n) == (files, bytes, d.newest) => {
+                self.extend.execute(params![id, self.scan, self.root_id])?;
+            }
+            other => {
+                if let Some((id, ..)) = other {
+                    self.close.execute(params![id])?;
+                }
+                self.open.execute(params![
+                    self.root_id,
+                    d.path,
+                    d.parent,
+                    files,
+                    bytes,
+                    d.newest,
+                    self.scan
+                ])?;
+            }
+        }
+        if let Some(parent) = stack.last_mut() {
+            parent.files += d.files;
+            parent.bytes += d.bytes;
+            parent.newest = parent.newest.max(d.newest);
+        }
+        Ok(())
+    }
+}
+
+fn parent_of(p: &Path) -> &Path {
+    p.parent().unwrap_or(p)
 }
 
 /// One root inside another would give the same files two owners and two timelines.
