@@ -21,6 +21,8 @@ Lessons captured in `APP-PLAN.md` §2.
 
 ## v0.2 — `backdown` CLI in Rust (3 weeks, Oct 2026)
 
+**Status, 27 Sep 2026:** previews `v0.2.0-alpha.1` and `alpha.2` are out for Linux (x86-64, ARM64), macOS (universal) and Windows, built by `.github/workflows/release.yml` and published to the public `BuenGenio/backdown-releases` repo by `scripts/publish-release.sh`. Shipped: `index` (each run a scan; file and folder versions kept for a time slider), tiered `hash` (size → sample → SHA-256, one reader per device), `dupes`, `check` (safe-to-wipe, exit 0/2), `scans`, `status`, and `serve`, a local file browser with a time slider and read-only viewers (pulled forward from v0.5). Not yet: `volumes`, BLAKE3, importing the Python index, recognisers.
+
 Port the scripts into `crates/backdown-core` + `crates/backdown-cli`. Same on-disk contract (chunks, `.done` markers, SQLite), so the Python tools and the Rust binary can be run interchangeably during the transition.
 
 - `backdown volumes` — probe block devices, partitions, fs, health; classify (mountable / ro-only / encrypted / empty / system)
