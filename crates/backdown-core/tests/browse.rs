@@ -28,6 +28,7 @@ fn scan(db: &mut Db, root: &Path) -> i64 {
         root,
         &index::Options {
             one_file_system: true,
+            allow_empty: false,
         },
         &mut |_| {},
     )

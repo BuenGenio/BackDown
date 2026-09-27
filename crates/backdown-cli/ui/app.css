@@ -38,7 +38,18 @@ svg{flex:none}
 .place .pi svg{width:18px;height:18px}
 .place .pn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
 .place .ps{grid-column:2;font-size:.74rem;color:var(--ink-3);margin-top:-2px}
-.side-foot{margin-top:auto;font-size:.74rem;color:var(--ink-3);padding:10px}
+.side-foot{margin-top:auto;font-size:.74rem;color:var(--ink-3);padding:10px;display:flex;flex-direction:column;gap:2px}
+.side-foot .act{display:flex;align-items:center;gap:7px;color:var(--ink-2);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.side-foot .act.idle{color:var(--good)}
+.pulse{width:8px;height:8px;border-radius:50%;background:var(--accent);flex:none;animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.35}}
+.place-row{position:relative}
+.rescan{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:28px;height:28px;border:0;border-radius:7px;background:var(--side);color:var(--ink-2);display:grid;place-items:center;cursor:pointer;opacity:0}
+.place-row:hover .rescan,.rescan:focus-visible,.rescan.spin{opacity:1}
+.rescan:hover{background:var(--hover);color:var(--ink)}
+.rescan svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.rescan.spin svg{animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 
 /* header bar */
 .main{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--view)}

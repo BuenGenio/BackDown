@@ -1,14 +1,19 @@
 //! `backdown`: find out what's on your drives, what's duplicated, and what's safe to wipe.
 
 use std::io::{IsTerminal, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use backdown_core::{Db, fmt, hash, index, report};
 use clap::{Parser, Subcommand};
+use serde_json::json;
 
+mod client;
+mod daemon;
+mod locations;
 mod serve;
+mod service;
 
 #[derive(Parser)]
 #[command(
@@ -17,14 +22,12 @@ mod serve;
     about = "Backup that thinks: find out what's on your drives, what's duplicated, and what's safe to wipe."
 )]
 struct Cli {
-    /// Index database (created if missing)
-    #[arg(
-        long,
-        global = true,
-        env = "BACKDOWN_DB",
-        default_value = "backdown.db"
-    )]
-    db: PathBuf,
+    /// Index database (default: your BackDown data folder; see `backdown status`)
+    #[arg(long, global = true, env = "BACKDOWN_DB")]
+    db: Option<PathBuf>,
+    /// Work on the index directly even if a BackDown daemon is running
+    #[arg(long, global = true)]
+    local: bool,
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -38,6 +41,10 @@ enum Cmd {
         /// Also descend into other filesystems mounted below PATH
         #[arg(long)]
         cross_filesystems: bool,
+        /// Record PATH even if it's now empty although it held files (normally refused: an empty
+        /// mount point usually means the drive is unplugged)
+        #[arg(long)]
+        allow_empty: bool,
     },
     /// Hash only what could be a duplicate: size, then a sample, then full SHA-256
     Hash {
@@ -83,10 +90,58 @@ enum Cmd {
         #[arg(long)]
         no_open: bool,
     },
-    /// What's in the index
+    /// What's in the index (and what the daemon is doing)
     Status {
         #[arg(long)]
         json: bool,
+    },
+    /// Run in the background: rescan drives, hash, serve the web UI. Usually started by
+    /// `backdown service install` rather than by hand
+    Daemon {
+        /// Port for the web UI on 127.0.0.1
+        #[arg(long, default_value_t = 8787)]
+        port: u16,
+        /// Rescan each drive this often (e.g. 12h, 1d; `never` to scan only on request or when a
+        /// drive comes back)
+        #[arg(long, default_value = "24h")]
+        rescan_every: String,
+        /// Machine-wide service: index in /var/lib/backdown, socket in /run/backdown, shared with
+        /// the `backdown` group (set by the system unit)
+        #[arg(long)]
+        system: bool,
+    },
+    /// Open the running daemon's web UI in your browser
+    Open,
+    /// Run the daemon as a service (systemd): install, uninstall or check it
+    Service {
+        #[command(subcommand)]
+        action: ServiceCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum ServiceCmd {
+    /// Install and start the daemon as a systemd service (a user service unless --system)
+    Install {
+        /// Machine-wide service running as the `backdown` user (needs sudo)
+        #[arg(long)]
+        system: bool,
+        /// Install but don't start it
+        #[arg(long)]
+        no_start: bool,
+        /// Print the unit file instead of installing it
+        #[arg(long)]
+        print: bool,
+    },
+    /// Stop and remove the service (the index is kept)
+    Uninstall {
+        #[arg(long)]
+        system: bool,
+    },
+    /// Is the service installed and running, and what is it doing?
+    Status {
+        #[arg(long)]
+        system: bool,
     },
 }
 
@@ -111,15 +166,84 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> Result<ExitCode> {
-    let mut db = Db::open(&cli.db)?;
     match cli.cmd {
+        Cmd::Daemon {
+            port,
+            rescan_every,
+            system,
+        } => {
+            let (state_dir, runtime_dir) = if system {
+                (
+                    PathBuf::from(locations::SYSTEM_STATE),
+                    PathBuf::from(locations::SYSTEM_RUNTIME),
+                )
+            } else {
+                (locations::state_dir(), locations::runtime_dir())
+            };
+            let db = cli.db.unwrap_or_else(|| state_dir.join("index.db"));
+            daemon::run(daemon::Options {
+                db,
+                state_dir,
+                runtime_dir,
+                port,
+                rescan_every: daemon::parse_every(&rescan_every)?,
+                shared: system,
+            })?;
+            return Ok(ExitCode::SUCCESS);
+        }
+        Cmd::Open => return open_ui(),
+        Cmd::Service { action } => {
+            return match action {
+                ServiceCmd::Install {
+                    system,
+                    no_start,
+                    print,
+                } => service::install(system, !no_start, print),
+                ServiceCmd::Uninstall { system } => service::uninstall(system),
+                ServiceCmd::Status { system } => service::status(system),
+            };
+        }
+        _ => {}
+    }
+    // a running daemon owns the index: hand the work to it (unless told not to)
+    if !cli.local
+        && !matches!(cli.cmd, Cmd::Serve { .. })
+        && let Some(c) = client::Client::connect(cli.db.as_deref())
+    {
+        return via_daemon(c, cli.cmd);
+    }
+    let db_path = match cli.db {
+        Some(p) => p,
+        None => {
+            let p = locations::default_db();
+            if let Some(dir) = p.parent() {
+                locations::ensure_private_dir(dir, false)
+                    .with_context(|| format!("can't create {}", dir.display()))?;
+            }
+            if Path::new("backdown.db").is_file() && !p.exists() {
+                eprintln!(
+                    "note: the index now lives in {}; to keep using ./backdown.db, pass --db backdown.db",
+                    p.display()
+                );
+            }
+            p
+        }
+    };
+    local(&db_path, cli.cmd)
+}
+
+fn local(db_path: &Path, cmd: Cmd) -> Result<ExitCode> {
+    let mut db = Db::open(db_path)?;
+    match cmd {
         Cmd::Index {
             paths,
             cross_filesystems,
+            allow_empty,
         } => {
             for path in paths {
                 let opts = index::Options {
                     one_file_system: !cross_filesystems,
+                    allow_empty,
                 };
                 let st = index::index(&mut db, &path, &opts, &mut |s| {
                     live(&format!(
@@ -147,9 +271,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 }
             }
         }
-        Cmd::Hash { hashing } => {
-            run_hash(&mut db, &hashing)?;
-        }
+        Cmd::Hash { hashing } => run_hash(&mut db, &hashing)?,
         Cmd::Dupes {
             min_size,
             limit,
@@ -157,28 +279,11 @@ fn run(cli: Cli) -> Result<ExitCode> {
             hashing,
         } => {
             run_hash(&mut db, &hashing)?;
-            let d = report::dupes(&db, fmt::parse_size(&min_size)?, limit)?;
-            if json {
-                println!("{}", serde_json::to_string_pretty(&d)?);
-            } else {
-                println!(
-                    "{} reclaimable in {} groups of duplicates (files ≥ {min_size})\n",
-                    fmt::bytes(d.reclaimable),
-                    d.groups
-                );
-                for g in &d.largest {
-                    println!(
-                        "{}  {} × {}  sha256 {}…",
-                        fmt::bytes(g.reclaimable),
-                        g.copies,
-                        fmt::bytes(g.size),
-                        &g.sha256[..12]
-                    );
-                    for p in &g.paths {
-                        println!("    {}", p.display());
-                    }
-                }
-            }
+            print_dupes(
+                &report::dupes(&db, fmt::parse_size(&min_size)?, limit)?,
+                &min_size,
+                json,
+            )?;
         }
         Cmd::Check {
             path,
@@ -187,38 +292,12 @@ fn run(cli: Cli) -> Result<ExitCode> {
             hashing,
         } => {
             run_hash(&mut db, &hashing)?;
-            let c = report::check(&db, &path)?;
-            if json {
-                println!("{}", serde_json::to_string_pretty(&c)?);
-            } else {
-                print_check(&c, list);
-            }
-            return Ok(if c.safe {
-                ExitCode::SUCCESS
-            } else {
-                ExitCode::from(2)
-            });
+            return print_check(&report::check(&db, &path)?, list, json);
         }
-        Cmd::Scans { json } => {
-            let scans = report::scans(&db)?;
-            if json {
-                println!("{}", serde_json::to_string_pretty(&scans)?);
-            } else {
-                for s in scans {
-                    println!(
-                        "{:>5}  {}  {:>10} files  {:>10}  {}",
-                        s.id,
-                        utc(s.finished_at),
-                        fmt::count(s.files),
-                        fmt::bytes(s.bytes),
-                        s.root.display()
-                    );
-                }
-            }
-        }
+        Cmd::Scans { json } => print_scans(&report::scans(&db)?, json)?,
         Cmd::Serve { port, no_open } => {
             drop(db);
-            serve::serve(&cli.db, port, !no_open)?;
+            serve::serve(db_path, port, !no_open)?;
         }
         Cmd::Status { json } => {
             let s = db.status()?;
@@ -226,29 +305,153 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 println!("{}", serde_json::to_string_pretty(&s)?);
             } else {
                 println!(
-                    "{} files, {} in {} roots",
-                    fmt::count(s.files),
-                    fmt::bytes(s.bytes),
-                    s.roots.len()
+                    "index: {}",
+                    dunce::canonicalize(db_path)
+                        .unwrap_or(db_path.to_path_buf())
+                        .display()
                 );
-                for r in &s.roots {
-                    println!("  {r}");
-                }
+                print_status(&s);
+                println!("daemon: not running (backdown service install, or backdown daemon)");
+            }
+        }
+        Cmd::Daemon { .. } | Cmd::Open | Cmd::Service { .. } => unreachable!("handled in run"),
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// The same commands, carried out by the running daemon.
+fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
+    let mut follow = |c: &mut client::Client, job: u64, what: &str| -> Result<String> {
+        let what = what.to_string();
+        let j = c.follow(job, |j| {
+            let state = j["state"].as_str().unwrap_or("");
+            let p = j["progress"].as_str().unwrap_or("");
+            live(&if state == "queued" {
+                format!("{what}: waiting for the daemon's current job")
+            } else {
+                format!("{what}: {p}")
+            });
+        })?;
+        clear();
+        Ok(j["summary"].as_str().unwrap_or("").to_string())
+    };
+    let hash_first = |c: &mut client::Client,
+                      h: &HashArgs,
+                      follow: &mut dyn FnMut(&mut client::Client, u64, &str) -> Result<String>|
+     -> Result<()> {
+        let r = c.request(&json!({ "cmd": "enqueue", "kind": "hash", "jobs": h.jobs, "retry_errors": h.retry_errors }))?;
+        let summary = follow(c, r["job"].as_u64().unwrap_or(0), "hashing")?;
+        if !summary.starts_with("hashed: 0 sampled, 0 full") {
+            eprintln!("{summary}");
+        }
+        Ok(())
+    };
+    match cmd {
+        Cmd::Index {
+            paths,
+            cross_filesystems,
+            allow_empty,
+        } => {
+            for path in paths {
+                let abs = dunce::canonicalize(&path)
+                    .with_context(|| format!("can't open {}", path.display()))?;
+                let r = c.request(&json!({ "cmd": "enqueue", "kind": "index", "path": abs.display().to_string(), "cross_filesystems": cross_filesystems, "allow_empty": allow_empty }))?;
+                let summary = follow(
+                    &mut c,
+                    r["job"].as_u64().unwrap_or(0),
+                    &format!("indexing {}", abs.display()),
+                )?;
+                eprintln!("{summary}");
+            }
+            eprintln!("(the daemon hashes new files next; `backdown status` shows progress)");
+        }
+        Cmd::Hash { hashing } => hash_first(&mut c, &hashing, &mut follow)?,
+        Cmd::Dupes {
+            min_size,
+            limit,
+            json,
+            hashing,
+        } => {
+            hash_first(&mut c, &hashing, &mut follow)?;
+            let r = c.request(
+                &json!({ "cmd": "dupes", "min": fmt::parse_size(&min_size)?, "limit": limit }),
+            )?;
+            print_dupes(
+                &serde_json::from_value(r["report"].clone())?,
+                &min_size,
+                json,
+            )?;
+        }
+        Cmd::Check {
+            path,
+            list,
+            json,
+            hashing,
+        } => {
+            let abs = dunce::canonicalize(&path)
+                .with_context(|| format!("can't open {}", path.display()))?;
+            hash_first(&mut c, &hashing, &mut follow)?;
+            let r = c.request(&json!({ "cmd": "check", "path": abs.display().to_string() }))?;
+            return print_check(&serde_json::from_value(r["report"].clone())?, list, json);
+        }
+        Cmd::Scans { json } => {
+            let r = c.request(&json!({ "cmd": "scans" }))?;
+            let scans: Vec<report::Scan> = serde_json::from_value(r["scans"].clone())?;
+            print_scans(&scans, json)?;
+        }
+        Cmd::Status { json } => {
+            let r = c.request(&json!({ "cmd": "status" }))?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&r)?);
+            } else {
+                println!("index: {}", c.db);
+                print_status(&serde_json::from_value(r["index"].clone())?);
+                let d = &r["daemon"];
+                let now = d["current"].as_object().map(|j| {
+                    format!(
+                        "{} {} {}",
+                        j["kind"].as_str().unwrap_or(""),
+                        j["path"].as_str().unwrap_or(""),
+                        j["progress"].as_str().unwrap_or("")
+                    )
+                });
                 println!(
-                    "{} sampled, {} fully hashed, {} unreadable",
-                    fmt::count(s.sampled),
-                    fmt::count(s.hashed),
-                    fmt::count(s.unreadable)
-                );
-                println!(
-                    "{} finished scans, {} earlier versions kept",
-                    s.scans,
-                    fmt::count(s.versions)
+                    "daemon: running (pid {}, {} queued) · {}",
+                    d["pid"],
+                    d["queued"].as_array().map_or(0, Vec::len),
+                    now.unwrap_or_else(|| "idle".into())
                 );
             }
         }
+        Cmd::Serve { .. } | Cmd::Daemon { .. } | Cmd::Open | Cmd::Service { .. } => {
+            unreachable!("handled in run")
+        }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+fn open_ui() -> Result<ExitCode> {
+    for file in locations::candidate_ui_files() {
+        let Ok(raw) = std::fs::read(&file) else {
+            continue;
+        };
+        let v: serde_json::Value = serde_json::from_slice(&raw)
+            .with_context(|| format!("can't read {}", file.display()))?;
+        let (Some(port), Some(token)) = (v["port"].as_u64(), v["token"].as_str()) else {
+            continue;
+        };
+        let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port as u16));
+        if std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_secs(1)).is_err() {
+            continue; // written by a daemon that isn't running now
+        }
+        let url = format!("http://127.0.0.1:{port}/?t={token}");
+        eprintln!("opening {url}");
+        serve::open(&url);
+        return Ok(ExitCode::SUCCESS);
+    }
+    anyhow::bail!(
+        "no BackDown daemon is running. Start one with `backdown service install` (or `backdown daemon`), or browse without it: `backdown serve`"
+    )
 }
 
 fn run_hash(db: &mut Db, a: &HashArgs) -> Result<()> {
@@ -289,8 +492,84 @@ fn run_hash(db: &mut Db, a: &HashArgs) -> Result<()> {
     Ok(())
 }
 
-fn print_check(c: &report::Check, list: bool) {
-    println!("{}", c.path.display());
+fn print_dupes(d: &report::Dupes, min_size: &str, json: bool) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(d)?);
+        return Ok(());
+    }
+    println!(
+        "{} reclaimable in {} groups of duplicates (files ≥ {min_size})\n",
+        fmt::bytes(d.reclaimable),
+        d.groups
+    );
+    for g in &d.largest {
+        println!(
+            "{}  {} × {}  sha256 {}…",
+            fmt::bytes(g.reclaimable),
+            g.copies,
+            fmt::bytes(g.size),
+            &g.sha256[..12]
+        );
+        for p in &g.paths {
+            println!("    {p}");
+        }
+    }
+    Ok(())
+}
+
+fn print_scans(scans: &[report::Scan], json: bool) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(scans)?);
+        return Ok(());
+    }
+    for s in scans {
+        println!(
+            "{:>5}  {}  {:>10} files  {:>10}  {}",
+            s.id,
+            utc(s.finished_at),
+            fmt::count(s.files),
+            fmt::bytes(s.bytes),
+            s.root
+        );
+    }
+    Ok(())
+}
+
+fn print_status(s: &backdown_core::db::Status) {
+    println!(
+        "{} files, {} in {} roots",
+        fmt::count(s.files),
+        fmt::bytes(s.bytes),
+        s.roots.len()
+    );
+    for r in &s.roots {
+        println!("  {r}");
+    }
+    println!(
+        "{} sampled, {} fully hashed, {} unreadable",
+        fmt::count(s.sampled),
+        fmt::count(s.hashed),
+        fmt::count(s.unreadable)
+    );
+    println!(
+        "{} finished scans, {} earlier versions kept",
+        s.scans,
+        fmt::count(s.versions)
+    );
+}
+
+/// Prints the verdict; exit 0 when safe to wipe, 2 when files must be copied first.
+fn print_check(c: &report::Check, list: bool, json: bool) -> Result<ExitCode> {
+    let code = if c.safe {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(2)
+    };
+    if json {
+        println!("{}", serde_json::to_string_pretty(c)?);
+        return Ok(code);
+    }
+    println!("{}", c.path);
     println!(
         "  {} files, {}",
         fmt::count(c.total.files),
@@ -320,9 +599,9 @@ fn print_check(c: &report::Check, list: bool) {
     if c.safe {
         println!(
             "SAFE TO WIPE: every file has a SHA-256-identical copy outside {}.",
-            c.path.display()
+            c.path
         );
-        return;
+        return Ok(code);
     }
     let mut msg = format!(
         "COPY FIRST: {} in {} files exists nowhere else",
@@ -344,14 +623,15 @@ fn print_check(c: &report::Check, list: bool) {
     if list {
         println!();
         for (p, size) in &c.unique_files {
-            println!("{:>10}  {}", fmt::bytes(*size), p.display());
+            println!("{:>10}  {p}", fmt::bytes(*size));
         }
         for (p, e) in &c.unreadable_files {
-            println!("{:>10}  {}  ({e})", "unreadable", p.display());
+            println!("{:>10}  {p}  ({e})", "unreadable");
         }
     } else if c.unique.files > 0 {
         println!("  (--list shows every file)");
     }
+    Ok(code)
 }
 
 /// A progress line that rewrites itself; only when stderr is a terminal.

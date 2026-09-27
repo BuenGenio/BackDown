@@ -50,11 +50,15 @@ function fatal(msg) {
 function atob64(k) { return atob(k.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((k.length + 3) % 4)); }
 
 function renderPlaces() {
+  const busy = new Set([S.daemon?.current, ...(S.daemon?.queued || [])].filter(j => j?.kind === 'index').map(j => j.path));
   $('#places').innerHTML = S.roots.map(r => `
-    <button class="place" type="button" data-key="${r.key}" aria-current="${S.root?.id === r.id && S.mode === 'browse'}" title="${esc(r.path)}">
-      <span class="pi">${driveIcon()}</span><span class="pn">${esc(r.name)}</span>
-      <span class="ps">${bytes(r.bytes)} · ${count(r.files)} files</span>
-    </button>`).join('');
+    <div class="place-row">
+      <button class="place" type="button" data-key="${r.key}" aria-current="${S.root?.id === r.id && S.mode === 'browse'}" title="${esc(r.path)}">
+        <span class="pi">${driveIcon()}</span><span class="pn">${esc(r.name)}</span>
+        <span class="ps">${bytes(r.bytes)} · ${count(r.files)} files</span>
+      </button>
+      ${S.daemon?.running ? `<button class="rescan${busy.has(r.path) ? ' spin' : ''}" type="button" data-rescan="${r.id}" title="Rescan ${esc(r.name)} now" aria-label="Rescan ${esc(r.name)}"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg></button>` : ''}
+    </div>`).join('');
   $('#dupes-btn').setAttribute('aria-current', String(S.mode === 'dupes'));
 }
 
@@ -343,6 +347,47 @@ async function showDupes() {
   });
 }
 
+// ---------- the daemon: activity, rescans, live refresh
+
+let lastDone = null, pollTimer;
+async function pollDaemon() {
+  clearTimeout(pollTimer);
+  let d;
+  try { d = await api('daemon'); } catch { d = { running: false }; }
+  const was = S.daemon;
+  S.daemon = d.running ? d : null;
+  const st = $('#status');
+  if (S.daemon) {
+    const cur = d.current, q = d.queued.length;
+    const name = p => S.roots.find(r => r.path === p)?.name || (p || '').split(/[\\/]/).pop();
+    st.innerHTML = cur
+      ? `<span class="act"><span class="pulse"></span>${cur.kind === 'index' ? `Scanning ${esc(name(cur.path))}` : 'Hashing'}${cur.progress ? ` · ${esc(cur.progress)}` : ''}</span>${q ? `<span>${q} more queued</span>` : ''}`
+      : `<span class="act idle">Up to date</span><span>${d.rescan_every_secs ? `rescans every ${Math.round(d.rescan_every_secs / 3600)} h` : 'rescans on request'}</span>`;
+    // a scan finished: fresh sizes, timeline and (unless looking at the past) the open folder
+    const done = d.recent.find(j => j.state === 'done');
+    if (lastDone !== null && done && done.id !== lastDone && S.mode === 'browse') {
+      const data = await api('roots').catch(() => null);
+      if (data) S.roots = data.roots;
+      if (done.kind === 'index' && S.root && done.path === S.root.path) {
+        await loadTimeline();
+        if (S.scan == null) await go(S.dir, { push: false, scan: null, select: S.anchor });
+      }
+    }
+    if (done) lastDone = done.id;
+    const failed = d.recent.find(j => j.state === 'failed' && j.finished_at > (Date.now() / 1000 - 10));
+    if (failed) toastError(new Error(`${failed.kind} ${failed.path || ''}: ${failed.error}`));
+  }
+  if (!!was !== !!S.daemon || S.daemon) renderPlaces();
+  pollTimer = setTimeout(pollDaemon, S.daemon?.current ? 1500 : 4000);
+}
+
+async function rescan(rootId) {
+  const r = await fetch(`/api/rescan?root=${rootId}`, { method: 'POST', headers: { 'X-BackDown': '1' }, credentials: 'same-origin' });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) return toastError(new Error(j.error || r.statusText));
+  pollDaemon();
+}
+
 // ---------- selection & keyboard
 
 function select(key, ev) {
@@ -394,6 +439,8 @@ function setView(v) {
 
 document.addEventListener('click', e => {
   const t = e.target;
+  const rs = t.closest('[data-rescan]');
+  if (rs) { rs.classList.add('spin'); return rescan(rs.dataset.rescan); }
   const place = t.closest('.place[data-key]');
   if (place) { $('#timebar').hidden = S.timeline.length < 2; return go(place.dataset.key, { scan: null }); }
   const crumb = t.closest('.crumb[data-key]');
@@ -449,4 +496,4 @@ document.addEventListener('keydown', e => {
 });
 
 setView(S.view);
-boot();
+boot().then(pollDaemon);

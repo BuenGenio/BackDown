@@ -4,7 +4,9 @@
 //! require a random per-run token, passed once in the URL and then kept in a SameSite=Strict cookie;
 //! serve file bytes only by index id, never by arbitrary path; never serve active content (HTML is
 //! sent as text, and every file response carries a CSP sandbox), and open SQLite files immutable.
-//! Nothing here writes to a source: the index is opened read-only per request.
+//! Nothing here writes to a source: the index is opened read-only per request. The one state-changing
+//! request, POST /api/rescan (daemon only), also needs an `X-BackDown` header, which a cross-site page
+//! can't send without a CORS preflight this server never grants.
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -14,6 +16,8 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 use backdown_core::{Db, browse, fmt, report};
+
+use crate::daemon::Daemon;
 use rusqlite::{OpenFlags, types::ValueRef};
 use serde_json::{Value, json};
 use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
@@ -28,27 +32,48 @@ struct Ctx {
     db: PathBuf,
     token: String,
     hosts: Vec<String>,
+    daemon: Option<Arc<Daemon>>,
 }
 
-pub fn serve(db: &Path, port: u16, open_browser: bool) -> Result<()> {
-    Db::open(db)?; // create/migrate once; requests then use read-only connections
-    let db = dunce::canonicalize(db)?;
-    let server = Server::http(("127.0.0.1", port))
-        .map_err(|e| anyhow::anyhow!("can't listen on 127.0.0.1:{port}: {e}"))?;
-    let port = server.server_addr().to_ip().map_or(port, |a| a.port());
+pub fn new_token() -> Result<String> {
     let mut raw = [0u8; 24];
     getrandom::fill(&mut raw)
         .map_err(|e| anyhow::anyhow!("no randomness for the session token: {e}"))?;
-    let token = fmt::hex(&raw);
+    Ok(fmt::hex(&raw))
+}
+
+pub fn bind(port: u16) -> Result<(Server, u16)> {
+    let server = Server::http(("127.0.0.1", port))
+        .map_err(|e| anyhow::anyhow!("can't listen on 127.0.0.1:{port}: {e}"))?;
+    let port = server.server_addr().to_ip().map_or(port, |a| a.port());
+    Ok((server, port))
+}
+
+/// Serve the UI until the process ends. With a daemon, the UI also shows its activity and can
+/// queue rescans.
+pub fn run(server: Server, db: PathBuf, token: String, port: u16, daemon: Option<Arc<Daemon>>) {
     let ctx = Arc::new(Ctx {
-        db: db.clone(),
-        token: token.clone(),
+        db,
+        token,
         hosts: vec![
             format!("127.0.0.1:{port}"),
             format!("localhost:{port}"),
             format!("[::1]:{port}"),
         ],
+        daemon,
     });
+    for req in server.incoming_requests() {
+        let ctx = Arc::clone(&ctx);
+        std::thread::spawn(move || handle(&ctx, req));
+    }
+}
+
+/// `backdown serve`: the UI alone, in the foreground, with a one-run link.
+pub fn serve(db: &Path, port: u16, open_browser: bool) -> Result<()> {
+    Db::open(db)?; // create/migrate once; requests then use read-only connections
+    let db = dunce::canonicalize(db)?;
+    let (server, port) = bind(port)?;
+    let token = new_token()?;
     let url = format!("http://127.0.0.1:{port}/?t={token}");
     eprintln!(
         "BackDown browser for {} at\n  {url}\n(only this link, only on this computer; Ctrl-C to stop)",
@@ -57,14 +82,11 @@ pub fn serve(db: &Path, port: u16, open_browser: bool) -> Result<()> {
     if open_browser {
         open(&url);
     }
-    for req in server.incoming_requests() {
-        let ctx = Arc::clone(&ctx);
-        std::thread::spawn(move || handle(&ctx, req));
-    }
+    run(server, db, token, port, None);
     Ok(())
 }
 
-fn open(url: &str) {
+pub fn open(url: &str) {
     let spawned = if cfg!(target_os = "macos") {
         Command::new("open").arg(url).spawn()
     } else if cfg!(windows) {
@@ -145,8 +167,24 @@ fn handle(ctx: &Ctx, req: Request) {
     if !cookie_ok {
         let _ = req.respond(plain(
             401,
-            "Open BackDown with the link `backdown serve` printed.",
+            "Open BackDown with `backdown open` (or the link `backdown serve` printed).",
         ));
+        return;
+    }
+    if *req.method() == Method::Post && path == "/api/rescan" {
+        let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
+        let resp = match (marked, &ctx.daemon) {
+            (false, _) => plain(403, "missing X-BackDown header"),
+            (true, None) => json_resp(
+                &json!({ "error": "no daemon: this browser was started with `backdown serve`" }),
+            )
+            .with_status_code(409),
+            (true, Some(d)) => match rescan(ctx, d, param("root")) {
+                Ok(v) => json_resp(&v),
+                Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
+            },
+        };
+        let _ = req.respond(resp);
         return;
     }
     if *req.method() != Method::Get {
@@ -218,13 +256,28 @@ fn decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// Queue a scan of one indexed drive (by root id) or of all of them.
+fn rescan(ctx: &Ctx, d: &Daemon, root: Option<&str>) -> Result<Value> {
+    let roots = browse::roots(&ro_db(ctx)?)?;
+    let chosen: Vec<_> = match root {
+        Some(id) => {
+            let id: i64 = id.parse().context("bad root")?;
+            roots.into_iter().filter(|r| r.id == id).collect()
+        }
+        None => roots,
+    };
+    if chosen.is_empty() {
+        bail!("no such drive in the index");
+    }
+    let jobs: Vec<u64> = chosen
+        .into_iter()
+        .map(|r| d.enqueue("index", Some(r.path), false, Default::default()))
+        .collect();
+    Ok(json!({ "ok": true, "jobs": jobs }))
+}
+
 fn ro_db(ctx: &Ctx) -> Result<Db> {
-    let conn = rusqlite::Connection::open_with_flags(
-        &ctx.db,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )?;
-    conn.busy_timeout(std::time::Duration::from_secs(5))?;
-    Ok(Db { conn })
+    Db::open_read_only(&ctx.db)
 }
 
 fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
@@ -234,6 +287,10 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
     let dir = || -> Result<PathBuf> { browse::path_of(param("dir").context("missing dir")?) };
     Ok(match path {
         "/api/roots" => json!({ "roots": browse::roots(&db)?, "status": db.status()? }),
+        "/api/daemon" => ctx
+            .daemon
+            .as_ref()
+            .map_or_else(|| json!({ "running": false }), |d| d.snapshot()),
         "/api/timeline" => json!(browse::timeline(
             &db,
             param("root").context("missing root")?.parse()?

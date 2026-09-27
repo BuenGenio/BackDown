@@ -22,6 +22,7 @@ fn scan(db: &mut Db, root: &Path) -> index::Stats {
         root,
         &index::Options {
             one_file_system: true,
+            allow_empty: false,
         },
         &mut |_| {},
     )
@@ -157,10 +158,53 @@ fn rescans_keep_history_and_hashes() {
             &mut db,
             tmp.path(),
             &index::Options {
-                one_file_system: true
+                one_file_system: true,
+                allow_empty: false
             },
             &mut |_| {}
         )
         .is_err()
     );
+}
+
+#[test]
+fn an_emptied_root_is_refused_unless_allowed() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = tmp.path().join("mnt/usb");
+    write(&d.join("photos/a.jpg"), &big(5, 1000));
+    let mut db = Db::open(&tmp.path().join("idx.db")).unwrap();
+    scan(&mut db, &d);
+
+    // the drive is unplugged: its mount point is still there, but empty
+    fs::remove_dir_all(d.join("photos")).unwrap();
+    let err = index::index(
+        &mut db,
+        &d,
+        &index::Options {
+            one_file_system: true,
+            allow_empty: false,
+        },
+        &mut |_| {},
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(err.contains("unplugged"), "{err}");
+    assert_eq!(
+        db.status().unwrap().files,
+        1,
+        "nothing was recorded as deleted"
+    );
+
+    // told explicitly that it really was emptied
+    let st = index::index(
+        &mut db,
+        &d,
+        &index::Options {
+            one_file_system: true,
+            allow_empty: true,
+        },
+        &mut |_| {},
+    )
+    .unwrap();
+    assert_eq!(st.removed, 1);
 }

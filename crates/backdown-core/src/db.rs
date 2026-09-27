@@ -11,7 +11,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use rusqlite::Connection;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS roots (
@@ -72,7 +72,7 @@ pub struct Db {
     pub conn: Connection,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Status {
     pub roots: Vec<String>,
     pub scans: u64,
@@ -124,6 +124,18 @@ impl Db {
         }
         conn.execute_batch(SCHEMA)?;
         conn.execute_batch(&format!("PRAGMA user_version = {VERSION}"))?;
+        Ok(Db { conn })
+    }
+
+    /// A read-only connection, for readers alongside the one writer (daemon, UI, reports).
+    /// Never creates or migrates anything.
+    pub fn open_read_only(path: &Path) -> Result<Db> {
+        let conn = Connection::open_with_flags(
+            path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .with_context(|| format!("opening index {} read-only", path.display()))?;
+        conn.busy_timeout(std::time::Duration::from_secs(10))?;
         Ok(Db { conn })
     }
 

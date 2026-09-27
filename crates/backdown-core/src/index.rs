@@ -21,6 +21,10 @@ const MAX_ERRORS_KEPT: usize = 20;
 pub struct Options {
     /// Stay on the filesystem the root is on (don't descend into other mounts).
     pub one_file_system: bool,
+    /// Record the root even if it is now empty although its last scan found files. Without this,
+    /// an empty root is refused: it is far more likely an unplugged drive's leftover mount point
+    /// than a drive that really was wiped, and recording it would mark every file deleted.
+    pub allow_empty: bool,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -59,6 +63,24 @@ pub fn index(
         params![root_bytes],
         |r| r.get(0),
     )?;
+    if !opts.allow_empty {
+        let had: i64 = conn.query_row(
+            "SELECT COALESCE((SELECT files FROM scans WHERE id = r.last_scan), 0) FROM roots r WHERE r.id = ?1",
+            params![root_id],
+            |r| r.get(0),
+        )?;
+        let empty = std::fs::read_dir(&root)
+            .with_context(|| format!("can't read {}", root.display()))?
+            .next()
+            .is_none();
+        if had > 0 && empty {
+            bail!(
+                "{} is empty, but held {had} files at its last scan. Is the drive unplugged? \
+                 Nothing was recorded; if it really was emptied, index again with --allow-empty",
+                root.display()
+            );
+        }
+    }
     conn.execute(
         "INSERT INTO scans(root_id, started_at) VALUES (?1, ?2)",
         params![root_id, now()],

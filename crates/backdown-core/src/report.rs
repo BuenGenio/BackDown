@@ -2,25 +2,25 @@
 //! Run `hash::hash` first; unhashed files are never reported as duplicates or as verified.
 
 use std::collections::{BTreeMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use rusqlite::params;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{Db, fmt, paths};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct DupeGroup {
     pub sha256: String,
     pub size: u64,
     /// distinct copies (hardlinks of one inode count once)
     pub copies: u64,
     pub reclaimable: u64,
-    pub paths: Vec<PathBuf>,
+    pub paths: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Dupes {
     pub groups: u64,
     pub reclaimable: u64,
@@ -69,7 +69,7 @@ pub fn dupes(db: &Db, min_size: u64, limit: usize) -> Result<Dupes> {
         if new_copy {
             g.copies += 1;
         }
-        g.paths.push(paths::from_bytes(&path));
+        g.paths.push(paths::from_bytes(&path).display().to_string());
     }
     groups.retain(|g| g.copies > 1); // only hardlinks of one inode: nothing to reclaim
     for g in &mut groups {
@@ -90,7 +90,7 @@ pub fn dupes(db: &Db, min_size: u64, limit: usize) -> Result<Dupes> {
     })
 }
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Tally {
     pub files: u64,
     pub bytes: u64,
@@ -103,16 +103,16 @@ impl Tally {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct UniqueDir {
     pub dir: String,
     pub files: u64,
     pub bytes: u64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Check {
-    pub path: PathBuf,
+    pub path: String,
     pub total: Tally,
     /// has a SHA-256-identical copy outside `path` (not a hardlink of itself)
     pub verified: Tally,
@@ -123,8 +123,8 @@ pub struct Check {
     /// zero-byte files carry no data and don't block a wipe
     pub empty: u64,
     pub unique_by_dir: Vec<UniqueDir>,
-    pub unique_files: Vec<(PathBuf, u64)>,
-    pub unreadable_files: Vec<(PathBuf, String)>,
+    pub unique_files: Vec<(String, u64)>,
+    pub unreadable_files: Vec<(String, String)>,
     pub safe: bool,
 }
 
@@ -166,7 +166,7 @@ pub fn check(db: &Db, dir: &Path) -> Result<Check> {
     })?;
 
     let mut c = Check {
-        path: dir.clone(),
+        path: dir.display().to_string(),
         total: Tally::default(),
         verified: Tally::default(),
         unique: Tally::default(),
@@ -186,7 +186,7 @@ pub fn check(db: &Db, dir: &Path) -> Result<Check> {
             c.empty += 1;
         } else if let Some(e) = error {
             c.unreadable.add(size);
-            c.unreadable_files.push((path, e));
+            c.unreadable_files.push((path.display().to_string(), e));
         } else if verified {
             c.verified.add(size);
         } else {
@@ -198,7 +198,7 @@ pub fn check(db: &Db, dir: &Path) -> Result<Check> {
                 None => ".".to_string(),
             };
             by_dir.entry(top).or_default().add(size);
-            c.unique_files.push((path, size));
+            c.unique_files.push((path.display().to_string(), size));
         }
     }
     c.unique_by_dir = by_dir
@@ -216,10 +216,10 @@ pub fn check(db: &Db, dir: &Path) -> Result<Check> {
     Ok(c)
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Scan {
     pub id: i64,
-    pub root: PathBuf,
+    pub root: String,
     pub started_at: i64,
     pub finished_at: i64,
     pub files: u64,
@@ -235,7 +235,9 @@ pub fn scans(db: &Db) -> Result<Vec<Scan>> {
     let rows = stmt.query_map([], |r| {
         Ok(Scan {
             id: r.get(0)?,
-            root: paths::from_bytes(&r.get::<_, Vec<u8>>(1)?),
+            root: paths::from_bytes(&r.get::<_, Vec<u8>>(1)?)
+                .display()
+                .to_string(),
             started_at: r.get(2)?,
             finished_at: r.get(3)?,
             files: r.get::<_, i64>(4)? as u64,
