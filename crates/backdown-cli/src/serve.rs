@@ -8,7 +8,9 @@
 //! turns HTML mail into plain text, and picks an entry only by its name in the container's own
 //! listing; entries go out with the same headers as the file bytes. mailbox.rs threads an mbox (by
 //! id) or a Maildir (an indexed folder, its messages read by their index ids) from headers alone,
-//! on the same kind of budget.
+//! on the same kind of budget. A filesystem inside a disk image (/api/fs, and /api/entry with
+//! `part`) is picked by its partition number in the image's own table, and a file in it by its
+//! path through that filesystem's own folder listings.
 //! Nothing here writes to a source: the index is opened read-only per request, and GET /api/volumes
 //! runs the same unprivileged, read-only disk probe as `backdown volumes`. The requests that do
 //! something, POST /api/rescan (daemon only) and POST /api/open (hand a file or folder to the desktop),
@@ -909,6 +911,7 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
             param("quick").is_some(),
         )?,
         "/api/disk" => peek::disk(&file()?, param("path"))?,
+        "/api/fs" => peek::fs_list(&file()?, param("part").unwrap_or("0"), param("path"))?,
         // this machine's disks and what's on them: the same read-only probe as `backdown volumes`
         // (sysfs and udev, diskutil, or PowerShell), with the volumes the index covers marked
         "/api/volumes" => {
@@ -1265,7 +1268,11 @@ fn inner(ctx: &Ctx, req: Request, path: &str, params: &[(String, String)]) {
         let (file, _) = source(&db, param("id").context("missing id")?.parse()?)?;
         let max = param("max").map(str::parse).transpose()?;
         if path == "/api/entry" {
-            peek::entry(&file, param("name").context("missing name")?, max)
+            let name = param("name").context("missing name")?;
+            match param("part") {
+                Some(part) => peek::fs_entry(&file, part, name, max),
+                None => peek::entry(&file, name, max),
+            }
         } else {
             peek::attachment(
                 &file,

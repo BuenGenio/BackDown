@@ -2780,6 +2780,10 @@ pub fn disk(path: &Path, dir: Option<&str>) -> Result<Value> {
     Ok(Value::Object(out))
 }
 
+// the files inside a disk image's filesystems (FAT, exFAT, ext2/3/4, NTFS)
+mod fsview;
+pub use fsview::{fs_entry, fs_list};
+
 #[cfg(test)]
 mod tests {
     use super::*;
