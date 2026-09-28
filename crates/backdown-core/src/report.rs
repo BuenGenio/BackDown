@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Db, fmt, paths};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DupeGroup {
     pub sha256: String,
     pub size: u64,
@@ -20,7 +20,7 @@ pub struct DupeGroup {
     pub paths: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Dupes {
     pub groups: u64,
     pub reclaimable: u64,
@@ -103,7 +103,7 @@ impl Tally {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UniqueDir {
     pub dir: String,
     pub files: u64,
@@ -132,6 +132,13 @@ pub struct Check {
 /// outside it. A hardlink doesn't count: it is the same data on the same disk.
 pub fn check(db: &Db, dir: &Path) -> Result<Check> {
     let dir = dunce::canonicalize(dir).with_context(|| format!("can't open {}", dir.display()))?;
+    check_indexed(db, &dir)
+}
+
+/// `check` for a path exactly as the index records it, whether or not the drive is connected
+/// (reports cover unplugged drives too).
+pub fn check_indexed(db: &Db, dir: &Path) -> Result<Check> {
+    let dir = dir.to_path_buf();
     let prefix = paths::dir_prefix(&dir);
     let n = prefix.len() as i64;
     let indexed: i64 = db.conn.query_row(

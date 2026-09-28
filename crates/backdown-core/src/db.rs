@@ -65,6 +65,14 @@ CREATE INDEX IF NOT EXISTS files_root ON files(root_id, current, last_scan);
 CREATE INDEX IF NOT EXISTS files_size_sample ON files(size, sample) WHERE current = 1;
 CREATE INDEX IF NOT EXISTS files_inode ON files(dev, ino) WHERE current = 1;
 CREATE INDEX IF NOT EXISTS files_sha256 ON files(sha256);
+-- what's recognised on each root (recognise.rs), as of one scan; added in 0.3 without a schema
+-- bump, since older versions just ignore it
+CREATE TABLE IF NOT EXISTS entities (
+    root_id     INTEGER PRIMARY KEY REFERENCES roots(id),
+    scan        INTEGER NOT NULL,
+    computed_at INTEGER NOT NULL,
+    data        TEXT NOT NULL         -- JSON: recognise::RootEntities
+);
 ";
 const VERSION: i64 = 2;
 
@@ -112,6 +120,8 @@ impl Db {
         conn.execute_batch(
             "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;",
         )?;
+        // a second writer (a CLI command saving results while the daemon works) waits its turn
+        conn.busy_timeout(std::time::Duration::from_secs(30))?;
         let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         if version > VERSION {
             anyhow::bail!(

@@ -11,6 +11,7 @@ use serde_json::json;
 
 mod client;
 mod daemon;
+mod insight;
 mod license;
 mod locations;
 mod peek;
@@ -118,6 +119,41 @@ enum Cmd {
     Service {
         #[command(subcommand)]
         action: ServiceCmd,
+    },
+    /// What things are: mail stores, backups, phones, systems, repositories, libraries… with where
+    /// they came from (reads small files like backup scripts on connected drives)
+    Entities {
+        /// Only these drives (or the drives these paths are on)
+        paths: Vec<PathBuf>,
+        /// Recognise again even if nothing was scanned since
+        #[arg(long)]
+        refresh: bool,
+        /// Only this kind (mail-store, timemachine, ios-backup, git, photos, …)
+        #[arg(long)]
+        kind: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// How much of each drive, folder and recognised thing already exists elsewhere, and where
+    Overlaps {
+        /// Only list folders and things with at least this share elsewhere (e.g. 90%)
+        #[arg(long, default_value = "0%")]
+        min: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// The whole picture as a document: drives, what's on them, overlaps, duplicates, and which
+    /// drives are safe to wipe
+    Report {
+        /// HTML instead of Markdown
+        #[arg(long)]
+        html: bool,
+        /// Write to this file instead of the terminal
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Recognise every drive again first
+        #[arg(long)]
+        refresh: bool,
     },
     /// Your BackDown Pro licence: add a key, or show the one you have
     License {
@@ -231,7 +267,10 @@ fn run(cli: Cli) -> Result<ExitCode> {
     }
     // a running daemon owns the index: hand the work to it (unless told not to)
     if !cli.local
-        && !matches!(cli.cmd, Cmd::Serve { .. })
+        && !matches!(
+            cli.cmd,
+            Cmd::Serve { .. } | Cmd::Entities { .. } | Cmd::Overlaps { .. } | Cmd::Report { .. }
+        )
         && let Some(c) = client::Client::connect(cli.db.as_deref())
     {
         return via_daemon(c, cli.cmd);
@@ -319,6 +358,25 @@ fn local(db_path: &Path, cmd: Cmd) -> Result<ExitCode> {
             return print_check(&report::check(&db, &path)?, list, json);
         }
         Cmd::Scans { json } => print_scans(&report::scans(&db)?, json)?,
+        Cmd::Entities {
+            paths,
+            refresh,
+            kind,
+            json,
+        } => return insight::entities(&db, &paths, refresh, kind.as_deref(), json),
+        Cmd::Overlaps { min, json } => {
+            let share = min
+                .trim_end_matches('%')
+                .parse::<f64>()
+                .context("--min is a percentage, e.g. 90%")?
+                / 100.0;
+            return insight::overlaps(&db, share, json);
+        }
+        Cmd::Report {
+            html,
+            output,
+            refresh,
+        } => return insight::report(&db, html, output.as_deref(), refresh),
         Cmd::Serve { port, no_open } => {
             drop(db);
             serve::serve(db_path, port, !no_open)?;
@@ -453,7 +511,10 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
         | Cmd::Daemon { .. }
         | Cmd::Open
         | Cmd::Service { .. }
-        | Cmd::License { .. } => {
+        | Cmd::License { .. }
+        | Cmd::Entities { .. }
+        | Cmd::Overlaps { .. }
+        | Cmd::Report { .. } => {
             unreachable!("handled in run")
         }
     }
