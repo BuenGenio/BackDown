@@ -823,6 +823,7 @@ fn run_rescue(d: &Daemon, db: &Db, job: &Job, stop: &AtomicBool) -> Result<Strin
         "image" => rescue_image(d, db, job, &r, stop),
         "parts" => rescue_parts(d, job, &r, stop),
         "carve" => rescue_carve(d, db, job, &r, stop),
+        "files" => rescue_files(d, db, job, &r, stop),
         m => Err(anyhow::anyhow!("{m} can't run yet")),
     };
     match out {
@@ -929,6 +930,71 @@ fn rescue_carve(
         }
     );
     Ok((summary, result))
+}
+
+/// Copy chosen files and folders (deleted ones too) out of a filesystem on a drive or image,
+/// reading it through fsread, each copy checked by reading it back; then index them so they open
+/// in the browser. Stopping and running it again leaves what was copied as it is.
+fn rescue_files(
+    d: &Daemon,
+    db: &Db,
+    job: &Job,
+    r: &backdown_core::rescue::Rescue,
+    stop: &AtomicBool,
+) -> Result<(String, Value)> {
+    use backdown_core::rescue::files;
+    let dest = PathBuf::from(r.dest.as_deref().context("files with nowhere to go")?);
+    let opts: files::Options = serde_json::from_value(r.options.clone())?;
+    let sum = files::copy_out(
+        Path::new(&r.source),
+        &opts,
+        &dest,
+        &mut |p| {
+            d.progress(
+                job.id,
+                format!(
+                    "{} of {} files copied ({} of {})",
+                    fmt::count(p.files),
+                    fmt::count(p.total_files),
+                    fmt::bytes(p.bytes),
+                    fmt::bytes(p.total_bytes)
+                ),
+                Counts {
+                    stage: "copying",
+                    files: p.files,
+                    total_files: p.total_files,
+                    bytes: p.bytes,
+                    total_bytes: p.total_bytes,
+                },
+            )
+        },
+        stop,
+    )?;
+    if sum.files > 0 {
+        let target = root_holding(db, &dest).unwrap_or_else(|| dest.display().to_string());
+        d.enqueue("index", Some(target), "after-rescue", JobOpts::default());
+    }
+    let summary = format!(
+        "{}copied {} file{} ({}){}{}",
+        if sum.stopped { "stopped: " } else { "" },
+        fmt::count(sum.files),
+        if sum.files == 1 { "" } else { "s" },
+        fmt::bytes(sum.bytes),
+        if sum.partly > 0 {
+            format!(
+                ", {} of them deleted and partly overwritten",
+                fmt::count(sum.partly)
+            )
+        } else {
+            String::new()
+        },
+        if sum.failed > 0 {
+            format!("; {} couldn't be copied", fmt::count(sum.failed))
+        } else {
+            String::new()
+        }
+    );
+    Ok((summary, serde_json::to_value(&sum)?))
 }
 
 /// Look for file systems the partition table doesn't list (reads only).

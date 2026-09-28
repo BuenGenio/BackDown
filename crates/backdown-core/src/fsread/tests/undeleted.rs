@@ -331,6 +331,100 @@ fn fat_deleted_files_on_mkfs_volumes() {
     }
 }
 
+/// Copying out (rescue::files) of a FAT partition 1 MiB into a disk whose table is wiped, as
+/// Rescue's "Copy these files out" does for a partition it found.
+#[test]
+fn copied_out_of_a_disk_with_a_wiped_table() {
+    use crate::rescue::files::{Options, copy_out};
+    use std::sync::atomic::AtomicBool;
+    let fx = fat_with_deletes(format_fat(16, 24 << 20, 4));
+    let mut disk = vec![0u8; 1 << 20];
+    disk.extend(&fx.img);
+    let dir = tempfile::tempdir().unwrap();
+    let img = dir.path().join("disk.img");
+    std::fs::write(&img, &disk).unwrap();
+    let (start, len) = (1u64 << 20, fx.img.len() as u64);
+    // chosen as the browser chooses them: from the listings
+    let mut v = Volume::open(File::open(&img).unwrap(), start, len).unwrap();
+    let gone = deleted_of(&mut v, "");
+    let seg = |n: &str| by_name(&gone, n).deleted.as_ref().unwrap().seg.clone();
+    let opts = Options {
+        start,
+        len: Some(len),
+        items: vec![
+            seg("Holiday photo 2024.jpg"),
+            seg("Trip to the sea"),
+            "LATER".into(),
+            "keep.txt".into(),
+            "no such thing".into(),
+        ],
+        with_deleted: false,
+        resume: false,
+    };
+    let out = dir.path().join("out");
+    let never = AtomicBool::new(false);
+    let mut seen = Vec::new();
+    let s = copy_out(&img, &opts, &out, &mut |p| seen.push(*p), &never).unwrap();
+    assert_eq!(
+        (s.files, s.deleted, s.partly, s.failed, s.renamed, s.stopped),
+        (7, 3, 0, 1, 0, false),
+        "{s:?}"
+    );
+    assert!(s.problems[0].contains("no such thing"), "{:?}", s.problems);
+    let last = seen.last().unwrap();
+    assert_eq!((last.files, last.total_files), (7, 7));
+    let cl = fx.cluster;
+    let rd = |p: &str| std::fs::read(out.join(p)).unwrap();
+    assert_eq!(rd("Holiday photo 2024.jpg"), fx.photo);
+    assert_eq!(rd("Trip to the sea/beach day.jpg"), fx.beach);
+    assert_eq!(rd("Trip to the sea/_IARY.TXT"), b"day one\n");
+    assert_eq!(rd("LATER/TAKER1.BIN"), vec![0xAA; cl]);
+    assert_eq!(rd("keep.txt"), b"kept\n");
+    let t = std::fs::metadata(out.join("keep.txt")).unwrap().modified().unwrap();
+    assert_eq!(
+        t.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64,
+        DOS_WHEN
+    );
+    // carrying on after a stop: what's there already is left as it is
+    let again = Options {
+        resume: true,
+        ..opts.clone()
+    };
+    let s = copy_out(&img, &again, &out, &mut |_| {}, &never).unwrap();
+    assert_eq!((s.files, s.renamed), (7, 0));
+    assert!(!out.join("Holiday photo 2024 (2).jpg").exists());
+    // again from scratch: nothing is overwritten
+    let s = copy_out(&img, &opts, &out, &mut |_| {}, &never).unwrap();
+    assert_eq!((s.files, s.renamed), (7, 7));
+    assert_eq!(rd("Holiday photo 2024 (2).jpg"), fx.photo);
+    assert_eq!(rd("keep.txt"), b"kept\n");
+    // the whole filesystem, deleted files included
+    let all = Options {
+        items: vec![String::new()],
+        with_deleted: true,
+        ..opts.clone()
+    };
+    let out2 = dir.path().join("all");
+    let s = copy_out(&img, &all, &out2, &mut |_| {}, &never).unwrap();
+    assert_eq!((s.partly, s.failed), (2, 1), "{s:?}");
+    let mut want = fx.reused.clone();
+    want[cl..2 * cl].fill(0);
+    assert_eq!(
+        std::fs::read(out2.join("BD TEST/Reused file.bin")).unwrap(),
+        want
+    );
+    assert_eq!(
+        std::fs::read(out2.join("BD TEST/Trip to the sea/beach day.jpg")).unwrap(),
+        fx.beach
+    );
+    assert!(s.problems.iter().any(|p| p.starts_with("_ONE.BIN")), "{:?}", s.problems);
+    // stopped before it starts: nothing half-written
+    let out3 = dir.path().join("stopped");
+    let s = copy_out(&img, &opts, &out3, &mut |_| {}, &AtomicBool::new(true)).unwrap();
+    assert!(s.stopped && s.files == 0);
+    assert_eq!(std::fs::read_dir(&out3).unwrap().count(), 0);
+}
+
 // ---- exFAT
 
 enum Lay {

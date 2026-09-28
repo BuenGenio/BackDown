@@ -30,6 +30,11 @@ similar = "3.2.0"
 tar = { version = "0.4", default-features = false }
 tiny_http = "0.12.0"
 
+# "Allow BackDown to read this drive": udisks passes an open file over D-Bus (grant.rs); rustix is
+# already here through fs4, this only turns on its safe recvmsg
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { version = "1.1", features = ["net", "process"] }
+
 [dev-dependencies]
 lzma-rust2 = { version = "0.21", default-features = false, features = ["std", "xz", "encoder"] }
 tempfile = "3.27.0"
