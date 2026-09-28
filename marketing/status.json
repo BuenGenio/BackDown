@@ -5,14 +5,53 @@
     {
       "state": "done",
       "text": {
-        "en": "File browser: double-click opens folders and files, previews in the details pane, image thumbnails",
-        "es": "Explorador de archivos: doble clic para abrir carpetas y archivos, vistas previas en el panel de detalles y miniaturas de imágenes",
-        "pt-br": "Navegador de arquivos: clique duplo abre pastas e arquivos, pré-visualizações no painel de detalhes, miniaturas de imagens",
-        "de": "Dateibrowser: Doppelklick öffnet Ordner und Dateien, Vorschau im Detailbereich, Miniaturansichten für Bilder",
-        "pl": "Przeglądarka plików: podwójne kliknięcie otwiera foldery i pliki, podgląd w panelu szczegółów, miniatury obrazów",
-        "cs": "Prohlížeč souborů: dvojklik otevírá složky i soubory, náhledy v panelu podrobností, miniatury obrázků",
-        "sk": "Prehliadač súborov: dvojklik otvára priečinky a súbory, náhľady v paneli podrobností, miniatúry obrázkov",
-        "uk": "Файловий браузер: подвійне клацання відкриває теки й файли, попередній перегляд на панелі відомостей, мініатюри зображень"
+        "en": "File browser: an Activity view of what BackDown is doing right now and when each drive is scanned next",
+        "es": "Explorador de archivos: una vista Actividad con lo que BackDown está haciendo ahora mismo y cuándo le toca a cada disco el próximo escaneo",
+        "pt-br": "Navegador de arquivos: uma tela Atividade que mostra o que o BackDown está fazendo agora e quando será a próxima varredura de cada disco",
+        "de": "Dateibrowser: eine Aktivitätsansicht, die zeigt, was BackDown gerade tut und wann jedes Laufwerk als Nächstes gescannt wird",
+        "pl": "Przeglądarka plików: widok Aktywność, który pokazuje, co BackDown robi w tej chwili i kiedy przypada następny skan każdego dysku",
+        "cs": "Prohlížeč souborů: zobrazení Aktivita, které ukazuje, co BackDown právě dělá a kdy se jednotlivé disky příště proskenují",
+        "sk": "Prehliadač súborov: zobrazenie Aktivita, ktoré ukazuje, čo BackDown práve robí a kedy sa jednotlivé disky nabudúce preskenujú",
+        "uk": "Файловий браузер: подання «Активність», яке показує, що BackDown робить просто зараз і коли кожен диск скануватиметься наступного разу"
+      }
+    },
+    {
+      "state": "done",
+      "text": {
+        "en": "File browser: right-click menus, open with your system app, download a copy, filters, sorting, a photo gallery and a size map",
+        "es": "Explorador de archivos: menús con clic derecho, abrir con la aplicación de tu sistema, descargar una copia, filtros, ordenación, una galería de fotos y un mapa de tamaños",
+        "pt-br": "Navegador de arquivos: menus do botão direito, abrir com o app do seu sistema, baixar uma cópia, filtros, ordenação, uma galeria de fotos e um mapa de tamanhos",
+        "de": "Dateibrowser: Rechtsklickmenüs, Öffnen mit der passenden App Ihres Systems, Herunterladen einer Kopie, Filter, Sortierung, eine Fotogalerie und eine Größenkarte",
+        "pl": "Przeglądarka plików: menu pod prawym przyciskiem myszy, otwieranie w aplikacji systemowej, pobieranie kopii, filtry, sortowanie, galeria zdjęć i mapa rozmiarów",
+        "cs": "Prohlížeč souborů: nabídky pod pravým tlačítkem, otevření v systémové aplikaci, stažení kopie, filtry, řazení, galerie fotek a mapa velikostí",
+        "sk": "Prehliadač súborov: ponuky pod pravým tlačidlom, otvorenie v systémovej aplikácii, stiahnutie kópie, filtre, zoradenie, galéria fotografií a mapa veľkostí",
+        "uk": "Файловий браузер: меню правої кнопки миші, відкриття в системному застосунку, завантаження копії, фільтри, сортування, фотогалерея і карта розмірів"
+      }
+    },
+    {
+      "state": "done",
+      "text": {
+        "en": "Compare any folder between two scans: what was added, removed and changed, and by how much",
+        "es": "Compara cualquier carpeta entre dos escaneos: qué se ha añadido, eliminado y cambiado, y cuánto",
+        "pt-br": "Comparar qualquer pasta entre duas varreduras: o que foi adicionado, removido e alterado, e em quanto",
+        "de": "Jeden Ordner zwischen zwei Scans vergleichen: was hinzugefügt, entfernt und geändert wurde, und um wie viel",
+        "pl": "Porównywanie dowolnego folderu między dwoma skanami: co dodano, usunięto i zmieniono oraz o ile",
+        "cs": "Porovnání libovolné složky mezi dvěma skeny: co přibylo, co ubylo, co se změnilo a o kolik",
+        "sk": "Porovnanie ľubovoľného priečinka medzi dvoma skenmi: čo pribudlo, čo ubudlo, čo sa zmenilo a o koľko",
+        "uk": "Порівняння будь-якої теки між двома скануваннями: що додано, видалено та змінено — і наскільки"
+      }
+    },
+    {
+      "state": "doing",
+      "text": {
+        "en": "Viewers for spreadsheets, presentations, email, archives and disk images",
+        "es": "Visores de hojas de cálculo, presentaciones, correo, archivos comprimidos e imágenes de disco",
+        "pt-br": "Visualizadores de planilhas, apresentações, e-mails, arquivos compactados e imagens de disco",
+        "de": "Viewer für Tabellen, Präsentationen, E-Mails, Archive und Disk-Images",
+        "pl": "Podgląd arkuszy kalkulacyjnych, prezentacji, poczty e-mail, archiwów i obrazów dysków",
+        "cs": "Prohlížeče tabulek, prezentací, e-mailů, archivů a obrazů disků",
+        "sk": "Prehliadače tabuliek, prezentácií, e-mailov, archívov a obrazov diskov",
+        "uk": "Переглядачі електронних таблиць, презентацій, пошти, архівів і образів дисків"
       }
     },
     {
@@ -26,19 +65,6 @@
         "cs": "Předobjednávky BackDown Pro s licenčními klíči, které se ověřují offline",
         "sk": "Predobjednávky BackDown Pro s licenčnými kľúčmi, ktoré sa overujú offline",
         "uk": "Передзамовлення BackDown Pro з ліцензійними ключами, що перевіряються офлайн"
-      }
-    },
-    {
-      "state": "doing",
-      "text": {
-        "en": "This website: separate pages, Spanish and Brazilian Portuguese, and this status page",
-        "es": "Este sitio web: páginas separadas, español y portugués de Brasil, y esta página de estado",
-        "pt-br": "Este site: páginas separadas, espanhol e português do Brasil, e esta página de status",
-        "de": "Diese Website: eigene Unterseiten, Spanisch und brasilianisches Portugiesisch, und diese Statusseite",
-        "pl": "Ta strona internetowa: osobne podstrony, język hiszpański i portugalski brazylijski oraz ta strona statusu",
-        "cs": "Tento web: samostatné stránky, španělština a brazilská portugalština a tato stránka se stavem vývoje",
-        "sk": "Tento web: samostatné stránky, španielčina a brazílska portugalčina a táto stránka so stavom",
-        "uk": "Цей сайт: окремі сторінки, іспанська та бразильська португальська мови, а також ця сторінка статусу"
       }
     },
     {
