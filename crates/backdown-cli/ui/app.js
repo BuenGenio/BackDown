@@ -1574,7 +1574,7 @@ function loadRescues() { return api('rescues').then(l => { RS.list = l; renderRe
 
 function renderRescueList() {
   const el = $('#rs-list');
-  if (S.mode !== 'rescue' || !el) return;
+  if (S.mode !== 'rescue' || !el || held(renderRescueList)) return;
   if (!RS.list.length) { el.innerHTML = ''; return; }
   const jobs = S.daemon ? [S.daemon.side, ...S.daemon.queued].filter(j => j?.kind === 'rescue') : [];
   const live = new Map(jobs.map(j => [j.path, j]));
@@ -1619,6 +1619,9 @@ function rescueCard(r, job) {
           <td>${f.in_table ? '<span class="pill ok">yes</span>' : '<span class="pill warn">no: lost</span>'}${f.truncated ? '<span class="pill warn">runs past the end</span>' : ''}</td>
           <td><button class="btn sm" type="button" data-rs-pick='${esc(JSON.stringify({ source: r.source, start: f.start, end: f.size ? f.start + f.size : null, label: `${f.fs}${f.label ? ` “${f.label}”` : ''} at ${bytes(f.start)}` }))}'>Find files in it</button></td></tr>`).join('')}</tbody></table>` : ''}`;
   }
+  // stopped or interrupted before it got anywhere: start it again as it was
+  if (!job && ['stopped', 'interrupted', 'failed'].includes(state) && !(r.mode === 'image' ? res.size : r.mode === 'carve' ? res.by_group : res.found))
+    body += `<div class="rs-next"><button class="btn sm" type="button" data-rs-next='${esc(JSON.stringify({ resume: r.id }))}'>Start again</button></div>`;
   if (r.state === 'failed' && !job) body += `<p class="warn-t">${esc(r.summary || 'It stopped with an error.')}</p>`;
   else if (r.summary && !job && r.mode !== 'parts') body += `<p class="muted">${esc(r.summary)}</p>`;
   return `<article class="rs-item">
@@ -1717,6 +1720,11 @@ async function applyDaemon(d) {
   if (key !== busyKey) { busyKey = key; renderPlaces(); }
   if (S.mode === 'activity') renderActivity();
   if (S.mode === 'wipe') renderWipeHist();
+  // a rescue started elsewhere (the CLI, another tab): learn what it is, to name it
+  if (S.daemon && [S.daemon.side, ...S.daemon.queued].some(j => j?.kind === 'rescue' && !RS.list.some(x => `rescue ${x.id}` === j.path)) && !RS.loading) {
+    RS.loading = true;
+    loadRescues().finally(() => { RS.loading = false; if (S.mode === 'activity') renderActivity(); });
+  }
   if (S.mode === 'rescue') {
     if (S.daemon && fin.some(j => j.kind === 'rescue' && !prevSeen?.has(j.id))) loadRescues();
     else renderRescueList();
@@ -1816,7 +1824,16 @@ function showActivity() {
   pollDaemon(true);
 }
 
+// live views redraw every second or so while a job runs: not while a button is being pressed, or
+// the press and the release land on different elements and the click is lost
+let pressed = false, heldRedraw = null;
+document.addEventListener('pointerdown', () => { pressed = true; }, true);
+document.addEventListener('pointerup', () => { pressed = false; setTimeout(() => { const f = heldRedraw; heldRedraw = null; f?.(); }, 0); }, true);
+document.addEventListener('pointercancel', () => { pressed = false; }, true);
+const held = f => { if (!pressed) return false; heldRedraw = f; return true; };
+
 function renderActivity() {
+  if (held(renderActivity)) return;
   clearInterval(activityClock);
   if (S.mode !== 'activity') return;
   // relative times ("5 min ago") age between changes: redraw them twice a minute while on screen

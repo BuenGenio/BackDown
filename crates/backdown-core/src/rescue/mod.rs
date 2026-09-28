@@ -176,6 +176,14 @@ pub fn set(
     Ok(())
 }
 
+pub fn set_options(db: &Db, id: i64, options: &Value) -> Result<()> {
+    db.conn.execute(
+        "UPDATE rescues SET options = ?2 WHERE id = ?1",
+        params![id, options.to_string()],
+    )?;
+    Ok(())
+}
+
 const COLUMNS: &str =
     "id, created_at, updated_at, mode, source, dest, options, state, summary, result";
 
@@ -216,6 +224,37 @@ pub fn history(db: &Db) -> Result<Vec<Rescue>> {
     ))?;
     let rows = stmt.query_map([], row)?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+/// An image's state for people: its totals, and the map squeezed into `n` equal stretches of the
+/// source, each as bytes copied / unreadable / still to try (what the browser draws as a strip).
+pub fn image_state(map: &image::Map, n: usize) -> Value {
+    let t = map.totals();
+    let size = map.size();
+    let n = n.max(1) as u64;
+    let mut bins = vec![[0u64; 3]; n as usize];
+    if size > 0 {
+        for b in &map.blocks {
+            let k = match b.status {
+                image::Status::Finished => 0,
+                image::Status::Bad => 1,
+                _ => 2,
+            };
+            // spread the block over the stretches it covers
+            let mut at = b.pos;
+            while at < b.end() {
+                let i = (at as u128 * n as u128 / size as u128) as u64;
+                let bin_end = ((i + 1) as u128 * size as u128).div_ceil(n as u128) as u64;
+                let upto = b.end().min(bin_end.max(at + 1));
+                bins[i.min(n - 1) as usize][k] += upto - at;
+                at = upto;
+            }
+        }
+    }
+    serde_json::json!({
+        "size": size, "rescued": t.rescued, "bad": t.bad, "todo": t.todo, "bad_areas": t.bad_areas,
+        "bins": bins,
+    })
 }
 
 /// Where an image's map goes: beside it, named the way ddrescue users expect (`card.img.map`).
@@ -261,6 +300,25 @@ mod tests {
         assert_eq!(
             map_path(Path::new("/media/archive/card.img")),
             Path::new("/media/archive/card.img.map")
+        );
+    }
+
+    #[test]
+    fn a_map_as_a_strip() {
+        let mut m = image::Map::parse(
+            "0x00000000     +               1\n0x00000000  0x00000800  +\n0x00000800  0x00000200  -\n0x00000A00  0x00000600  ?\n",
+        )
+        .unwrap();
+        m.fit(0x1000).unwrap();
+        let v = image_state(&m, 4);
+        assert_eq!(
+            (v["rescued"].as_u64(), v["bad"].as_u64(), v["todo"].as_u64()),
+            (Some(0x800), Some(0x200), Some(0x600))
+        );
+        let bins: Vec<[u64; 3]> = serde_json::from_value(v["bins"].clone()).unwrap();
+        assert_eq!(
+            bins,
+            vec![[1024, 0, 0], [1024, 0, 0], [0, 512, 512], [0, 0, 1024]]
         );
     }
 

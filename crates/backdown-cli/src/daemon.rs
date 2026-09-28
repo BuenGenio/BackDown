@@ -224,13 +224,28 @@ impl Daemon {
             } else {
                 st.queue.remove(i);
             }
+            let mut rescue = None;
             if let Some(j) = st.jobs.iter_mut().find(|j| j.id == id) {
                 j.state = "stopped";
                 j.summary = "taken off the queue".into();
                 j.finished_at = Some(now());
+                rescue = j.opts.rescue;
             }
             st.version += 1;
             self.changed.notify_all();
+            drop(st);
+            // a rescue's record says so too, so it can be started again later
+            if let Some(r) = rescue {
+                let _ = Db::open(&self.db).and_then(|db| {
+                    backdown_core::rescue::set(
+                        &db,
+                        r,
+                        "stopped",
+                        Some("taken off the queue before it started"),
+                        None,
+                    )
+                });
+            }
             return Ok("taken off the queue");
         }
         match st.stops.get(&id) {
@@ -300,6 +315,15 @@ impl Daemon {
     fn drive(&self, path: &str) -> Option<Drive> {
         let st = self.state.lock().unwrap();
         st.drives.iter().find(|d| d.path == path).cloned()
+    }
+
+    /// A job of `kind` for `path` is waiting or running.
+    pub fn pending(&self, kind: &str, path: &str) -> bool {
+        self.state.lock().unwrap().jobs.iter().any(|j| {
+            j.kind == kind
+                && j.path.as_deref() == Some(path)
+                && (j.state == "queued" || j.state == "running")
+        })
     }
 
     fn pending_index(&self, path: &str) -> bool {
@@ -787,11 +811,136 @@ fn run_wipe(d: &Daemon, db: &mut Db, job: &Job) -> Result<String> {
     ))
 }
 
-/// Carry out a recorded rescue (see backdown_core::rescue). Wired to the engines once they land.
-fn run_rescue(_d: &Daemon, db: &Db, job: &Job, _stop: &AtomicBool) -> Result<String> {
+/// Carry out a recorded rescue (see backdown_core::rescue), keeping its record up to date: what
+/// it's doing while it runs, then how it ended and what it found.
+fn run_rescue(d: &Daemon, db: &Db, job: &Job, stop: &AtomicBool) -> Result<String> {
+    use backdown_core::rescue;
     let id = job.opts.rescue.context("rescue without a record")?;
-    let r = backdown_core::rescue::load(db, id)?;
-    bail!("rescue {id} ({}) can't run yet", r.mode)
+    let r = rescue::load(db, id)?;
+    rescue::set(db, id, "running", None, None)?;
+    let out = match r.mode.as_str() {
+        "image" => rescue_image(d, db, job, &r, stop),
+        m => Err(anyhow::anyhow!("{m} can't run yet")),
+    };
+    match out {
+        Ok((summary, result)) => {
+            let state = if stop.load(Ordering::Relaxed) {
+                "stopped"
+            } else {
+                "done"
+            };
+            rescue::set(db, id, state, Some(&summary), Some(&result))?;
+            Ok(summary)
+        }
+        Err(e) => {
+            let _ = rescue::set(db, id, "failed", Some(&format!("{e:#}")), None);
+            Err(e)
+        }
+    }
+}
+
+/// Copy a (failing) drive into an image, ddrescue-style; stopping and running it again carries on.
+fn rescue_image(
+    d: &Daemon,
+    db: &Db,
+    job: &Job,
+    r: &backdown_core::rescue::Rescue,
+    stop: &AtomicBool,
+) -> Result<(String, Value)> {
+    use backdown_core::rescue::{self, image};
+    let src = PathBuf::from(&r.source);
+    let dest = PathBuf::from(r.dest.as_deref().context("a copy with nowhere to go")?);
+    if let Some(dir) = dest.parent() {
+        std::fs::create_dir_all(dir).with_context(|| format!("can't create {}", dir.display()))?;
+    }
+    let map = rescue::map_path(&dest);
+    let device = rescue::access(&src).device;
+    let opts = image::Options {
+        retries: r.options["retries"].as_u64().unwrap_or(1) as u32,
+        // an image file is usually a copy made earlier, not the failing drive itself
+        allow_same_drive: !device,
+        // Linux reads a drive a 4 KiB page at a time: smaller sectors only multiply failed reads
+        sector: if device && cfg!(target_os = "linux") {
+            4096
+        } else {
+            512
+        },
+        ..image::Options::default()
+    };
+    let mut kept = Instant::now();
+    let sum = image::image(
+        &src,
+        &dest,
+        &map,
+        &opts,
+        &mut |p| {
+            let bad = if p.bad > 0 {
+                format!(
+                    " · {} unreadable in {} place{}",
+                    fmt::bytes(p.bad),
+                    fmt::count(p.bad_areas),
+                    if p.bad_areas == 1 { "" } else { "s" }
+                )
+            } else {
+                String::new()
+            };
+            d.progress(
+                job.id,
+                format!(
+                    "{}: {} of {} copied{bad} · {}/s",
+                    p.pass,
+                    fmt::bytes(p.rescued),
+                    fmt::bytes(p.size),
+                    fmt::bytes(p.read_rate as u64)
+                ),
+                Counts {
+                    stage: p.pass,
+                    files: p.bad_areas,
+                    total_files: 0,
+                    bytes: p.size - p.todo,
+                    total_bytes: p.size,
+                },
+            );
+            // the record's strip, now and then, for whoever has the Rescue view open
+            if kept.elapsed() >= Duration::from_secs(30) {
+                kept = Instant::now();
+                if let Ok(m) = image::read_map(&map) {
+                    let _ = rescue::set(
+                        db,
+                        r.id,
+                        "running",
+                        None,
+                        Some(&rescue::image_state(&m, 160)),
+                    );
+                }
+            }
+        },
+        stop,
+    )?;
+    let result = rescue::image_state(&image::read_map(&map)?, 160);
+    let summary = if sum.complete {
+        format!(
+            "copied all {} into {}",
+            fmt::bytes(sum.size),
+            dest.display()
+        )
+    } else if sum.stopped {
+        format!(
+            "stopped with {} of {} copied: resume to carry on",
+            fmt::bytes(sum.rescued),
+            fmt::bytes(sum.size)
+        )
+    } else {
+        format!(
+            "copied {} of {}; {} couldn't be read, in {} place{}",
+            fmt::bytes(sum.rescued),
+            fmt::bytes(sum.size),
+            fmt::bytes(sum.bad),
+            fmt::count(sum.bad_areas),
+            if sum.bad_areas == 1 { "" } else { "s" }
+        )
+    };
+    Ok((summary, result))
 }
 
 /// The indexed root holding `path`, if any.
