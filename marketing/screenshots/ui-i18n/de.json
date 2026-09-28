@@ -149,6 +149,14 @@
       "$1 Lesefehler"
     ],
     [
+      "^(.+) · (.+) of (.+) files$",
+      "$1 · $2 von $3 Dateien"
+    ],
+    [
+      "^(.+) of (.+) GB$",
+      "$1 von $2 GB"
+    ],
+    [
       "^(.+) files$",
       "$1 Dateien"
     ]

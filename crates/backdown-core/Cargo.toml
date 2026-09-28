@@ -1,0 +1,25 @@
+[package]
+name = "backdown-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+homepage.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+base64 = "0.23.1"
+dunce = "1.0.5"
+fs4 = { version = "0.13", default-features = false, features = ["sync"] }
+quick-xml = "0.41"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+sha2 = "0.11.0"
+walkdir = "2.5.0"
+
+[dev-dependencies]
+walkdir = "2.5.0"
+dunce = "1.0.5"
+tempfile = "3.27.0"

@@ -1,0 +1,20 @@
+{
+  "_comment": "Site settings read by build.py. Rebuild and deploy after changing anything here (python3 build.py && npx wrangler deploy).",
+  "analytics": {
+    "_comment": "Matomo: the tracker loads only when site_id is set (the id of backdown.io in Matomo > Administration > Websites). Cookieless; skipped for Do Not Track / Global Privacy Control.",
+    "matomo_url": "https://matomo.matumi.anthill.hk/",
+    "site_id": null
+  },
+  "contact_email": "",
+  "preorder": {
+    "_comment": "Shows the Pro pre-order box on /pricing/ (still hidden until /api/preorder reports a live Stripe price), builds /terms/ and /thanks/. Needs every seller field.",
+    "enabled": false,
+    "ship_by": "2027-06-30"
+  },
+  "seller": {
+    "name": "",
+    "address": "",
+    "email": "",
+    "law": ""
+  }
+}

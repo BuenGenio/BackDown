@@ -1,0 +1,104 @@
+# On a version tag (v*): test on every OS, build the `backdown` CLI for Linux (static, x86-64 + ARM64),
+# macOS (one universal binary, Apple silicon + Intel) and Windows (x86-64), and bundle them with
+# SHA256SUMS.txt as the `release` artifact. scripts/publish-release.sh then publishes that artifact
+# to the public BuenGenio/backdown-releases repo, so no token for it lives in this repo.
+name: release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x86_64, os: ubuntu-latest, targets: x86_64-unknown-linux-musl }
+          - { name: linux-arm64, os: ubuntu-latest, targets: aarch64-unknown-linux-musl }
+          - { name: macos-universal, os: macos-latest, targets: 'aarch64-apple-darwin x86_64-apple-darwin' }
+          - { name: windows-x86_64, os: windows-latest, targets: x86_64-pc-windows-msvc }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.targets }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.name }}
+      - name: Test (native)
+        if: matrix.name != 'linux-arm64'
+        run: cargo test --locked --release
+
+      - uses: taiki-e/install-action@v2
+        if: runner.os == 'Linux'
+        with:
+          tool: cargo-zigbuild
+      - name: Build (Linux, static musl via zig)
+        if: runner.os == 'Linux'
+        run: |
+          pip install --quiet ziglang
+          cargo zigbuild --locked --release --target ${{ matrix.targets }}
+          mkdir -p dist && cp target/${{ matrix.targets }}/release/backdown dist/
+      - name: Build (macOS universal)
+        if: runner.os == 'macOS'
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '11.0'
+        run: |
+          for t in ${{ matrix.targets }}; do cargo build --locked --release --target $t; done
+          mkdir -p dist
+          lipo -create -output dist/backdown target/aarch64-apple-darwin/release/backdown target/x86_64-apple-darwin/release/backdown
+          codesign --force --sign - dist/backdown   # ad-hoc: required to run on Apple silicon; not a Developer ID
+          lipo -info dist/backdown
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          cargo build --locked --release --target ${{ matrix.targets }}
+          mkdir -p dist && cp target/${{ matrix.targets }}/release/backdown.exe dist/
+
+      - name: Smoke test
+        if: matrix.name != 'linux-arm64'
+        shell: bash
+        run: |
+          bin=dist/backdown; [ -f dist/backdown.exe ] && bin=dist/backdown.exe
+          $bin --version
+          mkdir -p smoke/a smoke/b && echo same > smoke/a/x && echo same > smoke/b/x
+          $bin --db smoke.db index smoke/a smoke/b
+          $bin --db smoke.db check smoke/a
+
+      - name: Package
+        shell: bash
+        run: |
+          base="backdown-${GITHUB_REF_NAME}-${{ matrix.name }}"
+          cp crates/backdown-cli/README-release.txt dist/README.txt
+          cp crates/backdown-cli/THIRD-PARTY-NOTICES.txt dist/
+          mkdir -p out
+          if [ "${{ runner.os }}" = Windows ]; then
+            (cd dist && 7z a -tzip "../out/$base.zip" . >/dev/null)
+          else
+            tar -C dist -czf "out/$base.tar.gz" .
+          fi
+          ls -l out
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.name }}
+          path: out/*
+
+  bundle:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: parts
+          merge-multiple: true
+      - run: |
+          cd parts && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release
+          path: parts/*

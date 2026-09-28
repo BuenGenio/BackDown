@@ -22,3 +22,7 @@ __pycache__/
 
 # marketing site: wrangler local state
 .wrangler/
+.dev.vars*
+
+# Rust build output
+/target/

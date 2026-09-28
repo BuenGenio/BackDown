@@ -1,0 +1,2752 @@
+{
+  "schema_version": "1.0",
+  "campaign_id": "bd_launch_2026_09",
+  "campaign_name": "The other copy",
+  "status": "draft",
+  "created_date": "2026-09-28",
+  "date_range": {
+    "start": "2026-09-29",
+    "end": "2026-10-28",
+    "inclusive_days": 30
+  },
+  "timezone": "Europe/London",
+  "timing_policy": "All times are proposed operating experiments, not proven optimum posting times. Keep local London times stable; calculate UTC using Europe/London, not a fixed offset.",
+  "publication_policy": {
+    "scheduled_in_any_platform": false,
+    "published_placements": 0,
+    "execution": "Manual publication after owner review. This JSON is a plan, not a scheduler or permission to message people.",
+    "private_messages": "No unsolicited DMs or email campaign. Existing waitlist consent promises one readiness email."
+  },
+  "objectives": {
+    "primary": "Early-access signups",
+    "secondary": "CLI downloads",
+    "numeric_targets": null,
+    "target_note": "Targets and baselines are unknown. Establish them before launch; do not invent figures."
+  },
+  "timezone_transition": {
+    "date": "2026-10-25",
+    "transition_utc": "2026-10-25T01:00:00Z",
+    "before": "2026-10-25T01:59:59+01:00",
+    "after": "2026-10-25T01:00:00+00:00",
+    "effect": "BST becomes GMT. Oct 27 LinkedIn 09:30 local is 09:30 UTC; Bluesky 16:00 local is 16:00 UTC. Before Oct 25 these same local slots are 08:30 and15:00 UTC."
+  },
+  "content_source_contract": {
+    "file": "content.json",
+    "identifier": "content_source.post_id selects the matching object in content.json posts[]. The json_pointer and copy_field identify the exact copy entry.",
+    "asset_directory": "Paths are relative to the campaign package. Standard cards are graphics/P01.png through graphics/P12.png, with matching editable SVGs. P04 LinkedIn instead uses the five-page PDF checklist in carousel/; P04 Bluesky keeps the square card.",
+    "mastodon": "Four optional adaptations use P02/P05/P08/P11 short_copy with the Bluesky UTM source replaced by mastodon. Final adapted copy is included in its placement and targets at most 450 characters, preserving room within the default 500-character limit. Verify actual instance policy.",
+    "hacker_news": "Use top-level show_hn_title and first_comment from content.json. Submit the direct /download/ tracking URL; no image attachment is planned."
+  },
+  "channel_plan": [
+    {
+      "channel": "linkedin",
+      "priority": "primary",
+      "account": "founder personal profile",
+      "placements": 9,
+      "local_time": "09:30",
+      "cadence": "Tuesday/Thursday anchors only",
+      "status": "draft"
+    },
+    {
+      "channel": "bluesky",
+      "priority": "primary",
+      "placements": 12,
+      "local_time": "16:00",
+      "cadence": "Every P01–P12 anchor",
+      "status": "draft"
+    },
+    {
+      "channel": "mastodon",
+      "priority": "optional",
+      "placements": 4,
+      "local_time": "16:30",
+      "cadence": "Weekly Thursday adaptations Oct 1/8/15/22, only if an appropriate account is already active",
+      "status": "draft"
+    },
+    {
+      "channel": "hacker_news",
+      "priority": "conditional",
+      "placements": 1,
+      "local_time": "16:30",
+      "date": "2026-10-06",
+      "cadence": "One eligible Show HN submission only",
+      "status": "draft"
+    }
+  ],
+  "excluded_channels": [
+    {
+      "channel": "reddit",
+      "placements": 0,
+      "reason": "No promotional Reddit posts in this campaign. r/DataHoarder requires prior moderator approval and disallows AI-generated content; r/selfhosted readiness and project-age requirements have not been established. Do not repurpose the campaign copy there."
+    }
+  ],
+  "setup_checklist": [
+    {
+      "id": "S01",
+      "status": "not_started",
+      "task": "Confirm the founder LinkedIn profile and existing Bluesky account; record handles privately. Confirm an already-active, suitable Mastodon account before keeping optional placements."
+    },
+    {
+      "id": "S02",
+      "status": "not_started",
+      "task": "Review P01–P12 copy against the currently downloadable alpha and public roadmap. Planned capabilities must stay clearly marked planned."
+    },
+    {
+      "id": "S03",
+      "status": "not_started",
+      "task": "Open each 1200x1200 PNG at mobile size. Check logo, legibility, demo-data labels and descriptive alt text. Keep Bluesky images under 1.8 MB."
+    },
+    {
+      "id": "S04",
+      "status": "not_started",
+      "task": "Test every UTM URL and early-access form. Check the CLI download/quickstart independently before promising a working install."
+    },
+    {
+      "id": "S05",
+      "status": "not_started",
+      "task": "Current analytics are off and waitlist records store only at and lang. Keep tracking links, but report per-channel signup conversion as unavailable. Use native platform reach/link-click exports, aggregate waitlist changes and GitHub release asset download deltas; do not enable analytics."
+    },
+    {
+      "id": "S06",
+      "status": "not_started",
+      "task": "Before launch, record aggregate waitlist total, per-asset GitHub release download_count and available native platform metrics. Agree realistic goals using these baselines; do not treat them as unique users or precise attribution."
+    },
+    {
+      "id": "S07",
+      "status": "not_started",
+      "task": "Reserve the daily 15-minute manual reply window and weekly 30-minute review. Reserve Oct 6 16:30–18:30 London only if Show HN eligibility passes."
+    },
+    {
+      "id": "S08",
+      "status": "not_started",
+      "task": "Confirm the calendar uses Europe/London and inspect Oct 27 slots after BST ends Oct 25. Nothing has been scheduled in a platform."
+    }
+  ],
+  "measurement_plan": {
+    "baseline": {
+      "measured_at": null,
+      "aggregate_waitlist_count": null,
+      "github_release_asset_download_counts": null,
+      "linkedin_platform_metrics": null,
+      "bluesky_platform_metrics": null,
+      "mastodon_platform_metrics": null,
+      "note": "Unknown until measured. Record GitHub release asset counts by release tag and asset filename, plus available native platform exports. Keep unavailable values null, never zero by assumption."
+    },
+    "definitions": {
+      "aggregate_waitlist_count_change": "End total minus start total for the period. This is net list growth, may reflect removals or other traffic, and cannot be assigned to a particular channel with the current storage.",
+      "platform_link_clicks": "Native platform click metric only when the platform exposes it. It is not a unique-user, signup, completed-download or install count.",
+      "github_asset_download_delta": "Difference in the public GitHub release asset download_count for the same asset between observations. Counts may include repeat downloads and automated activity; they are not unique people or acquisitions.",
+      "qualified_feedback": "A substantive question, reproducible report or practical use case; record without unnecessary personal data."
+    },
+    "utm_convention": {
+      "utm_campaign": "bd_launch_2026_09",
+      "utm_source": "linkedin | bluesky | mastodon | hacker_news",
+      "utm_medium": "organic_social for social platforms; referral for Hacker News",
+      "utm_content": "lowercase P01–P12 content ID; show_hn for the one conditional submission"
+    },
+    "attribution_caveat": "Tracking links are prepared for consistent naming, but current website analytics are off and waitlist records contain only at and lang. Per-channel signup conversion is unavailable until separately implemented and approved. Do not infer precise channel conversions or new-user acquisition from platform reach/clicks, aggregate waitlist change or GitHub asset download deltas.",
+    "weekly_reviews": [
+      {
+        "id": "W1",
+        "date": "2026-10-05",
+        "proposed_time": {
+          "local": "2026-10-05T14:00:00+01:00",
+          "utc": "2026-10-05T13:00:00Z",
+          "timezone": "Europe/London",
+          "zone_abbreviation": "BST"
+        },
+        "window_start": "2026-09-29",
+        "window_end": "2026-10-04",
+        "window_end_note": "Review completed days only.",
+        "metrics": [
+          "Aggregate waitlist count and net change over the review window",
+          "Native platform reach/impressions and link-click exports where available",
+          "GitHub release asset download_count deltas by tag and filename, not unique users",
+          "Meaningful replies and recurring feedback themes",
+          "Link or installation failures"
+        ],
+        "decision": "Keep, adjust or stop topics using observed platform interest and useful replies; review aggregate signup/download changes separately. Treat small samples as directional, change one variable at a time, and record the decision.",
+        "record": {
+          "aggregate_waitlist_count_start": null,
+          "aggregate_waitlist_count_end": null,
+          "aggregate_waitlist_net_change": null,
+          "github_release_asset_download_deltas": null,
+          "platform_reach_and_link_click_exports": null,
+          "per_channel_signup_conversion": null,
+          "qualitative_notes": [],
+          "next_week_decision": null
+        },
+        "unavailable_metric_note": "Per-channel signup conversion is not measured. Leave it null; do not estimate it from other counts."
+      },
+      {
+        "id": "W2",
+        "date": "2026-10-12",
+        "proposed_time": {
+          "local": "2026-10-12T14:00:00+01:00",
+          "utc": "2026-10-12T13:00:00Z",
+          "timezone": "Europe/London",
+          "zone_abbreviation": "BST"
+        },
+        "window_start": "2026-10-05",
+        "window_end": "2026-10-11",
+        "window_end_note": "Review completed days only.",
+        "metrics": [
+          "Aggregate waitlist count and net change over the review window",
+          "Native platform reach/impressions and link-click exports where available",
+          "GitHub release asset download_count deltas by tag and filename, not unique users",
+          "Meaningful replies and recurring feedback themes",
+          "Link or installation failures"
+        ],
+        "decision": "Keep, adjust or stop topics using observed platform interest and useful replies; review aggregate signup/download changes separately. Treat small samples as directional, change one variable at a time, and record the decision.",
+        "record": {
+          "aggregate_waitlist_count_start": null,
+          "aggregate_waitlist_count_end": null,
+          "aggregate_waitlist_net_change": null,
+          "github_release_asset_download_deltas": null,
+          "platform_reach_and_link_click_exports": null,
+          "per_channel_signup_conversion": null,
+          "qualitative_notes": [],
+          "next_week_decision": null
+        },
+        "unavailable_metric_note": "Per-channel signup conversion is not measured. Leave it null; do not estimate it from other counts."
+      },
+      {
+        "id": "W3",
+        "date": "2026-10-19",
+        "proposed_time": {
+          "local": "2026-10-19T14:00:00+01:00",
+          "utc": "2026-10-19T13:00:00Z",
+          "timezone": "Europe/London",
+          "zone_abbreviation": "BST"
+        },
+        "window_start": "2026-10-12",
+        "window_end": "2026-10-18",
+        "window_end_note": "Review completed days only.",
+        "metrics": [
+          "Aggregate waitlist count and net change over the review window",
+          "Native platform reach/impressions and link-click exports where available",
+          "GitHub release asset download_count deltas by tag and filename, not unique users",
+          "Meaningful replies and recurring feedback themes",
+          "Link or installation failures"
+        ],
+        "decision": "Keep, adjust or stop topics using observed platform interest and useful replies; review aggregate signup/download changes separately. Treat small samples as directional, change one variable at a time, and record the decision.",
+        "record": {
+          "aggregate_waitlist_count_start": null,
+          "aggregate_waitlist_count_end": null,
+          "aggregate_waitlist_net_change": null,
+          "github_release_asset_download_deltas": null,
+          "platform_reach_and_link_click_exports": null,
+          "per_channel_signup_conversion": null,
+          "qualitative_notes": [],
+          "next_week_decision": null
+        },
+        "unavailable_metric_note": "Per-channel signup conversion is not measured. Leave it null; do not estimate it from other counts."
+      },
+      {
+        "id": "W4",
+        "date": "2026-10-26",
+        "proposed_time": {
+          "local": "2026-10-26T14:00:00+00:00",
+          "utc": "2026-10-26T14:00:00Z",
+          "timezone": "Europe/London",
+          "zone_abbreviation": "GMT"
+        },
+        "window_start": "2026-10-19",
+        "window_end": "2026-10-25",
+        "window_end_note": "Review completed days only.",
+        "metrics": [
+          "Aggregate waitlist count and net change over the review window",
+          "Native platform reach/impressions and link-click exports where available",
+          "GitHub release asset download_count deltas by tag and filename, not unique users",
+          "Meaningful replies and recurring feedback themes",
+          "Link or installation failures"
+        ],
+        "decision": "Keep, adjust or stop topics using observed platform interest and useful replies; review aggregate signup/download changes separately. Treat small samples as directional, change one variable at a time, and record the decision.",
+        "record": {
+          "aggregate_waitlist_count_start": null,
+          "aggregate_waitlist_count_end": null,
+          "aggregate_waitlist_net_change": null,
+          "github_release_asset_download_deltas": null,
+          "platform_reach_and_link_click_exports": null,
+          "per_channel_signup_conversion": null,
+          "qualitative_notes": [],
+          "next_week_decision": null
+        },
+        "unavailable_metric_note": "Per-channel signup conversion is not measured. Leave it null; do not estimate it from other counts."
+      },
+      {
+        "id": "FINAL",
+        "date": "2026-10-28",
+        "proposed_time": {
+          "local": "2026-10-28T14:00:00+00:00",
+          "utc": "2026-10-28T14:00:00Z",
+          "timezone": "Europe/London",
+          "zone_abbreviation": "GMT"
+        },
+        "window_start": "2026-09-29",
+        "window_end": "2026-10-28",
+        "window_end_note": "Take a provisional reading at 14:00 and finish closing totals after the final reply window. A seven-day lag check outside this calendar is optional and is not scheduled by this file.",
+        "metrics": [
+          "Aggregate waitlist count and net change over the review window",
+          "Native platform reach/impressions and link-click exports where available",
+          "GitHub release asset download_count deltas by tag and filename, not unique users",
+          "Meaningful replies and recurring feedback themes",
+          "Link or installation failures"
+        ],
+        "decision": "Keep, adjust or stop topics using observed platform interest and useful replies; review aggregate signup/download changes separately. Treat small samples as directional, change one variable at a time, and record the decision.",
+        "record": {
+          "aggregate_waitlist_count_start": null,
+          "aggregate_waitlist_count_end": null,
+          "aggregate_waitlist_net_change": null,
+          "github_release_asset_download_deltas": null,
+          "platform_reach_and_link_click_exports": null,
+          "per_channel_signup_conversion": null,
+          "qualitative_notes": [],
+          "next_week_decision": null
+        },
+        "unavailable_metric_note": "Per-channel signup conversion is not measured. Leave it null; do not estimate it from other counts."
+      }
+    ],
+    "success_review": "Compare aggregate waitlist growth, available native reach/link-click metrics, release asset download deltas and substantive feedback with their recorded baselines and the effort spent. These are directional signals, not proof of channel conversion or acquisition. Do not declare winners from tiny samples.",
+    "verified_current_state": {
+      "as_of": "2026-09-28",
+      "website_analytics_enabled": false,
+      "live_footer_states_no_trackers": true,
+      "waitlist_record_fields": [
+        "at",
+        "lang"
+      ],
+      "waitlist_stores_utm_parameters": false,
+      "per_channel_signup_conversion_available": false,
+      "instruction": "Do not enable analytics or change waitlist storage as part of this campaign package. Any attribution implementation is separate work requiring approval."
+    }
+  },
+  "anchors": [
+    {
+      "id": "P01",
+      "date": "2026-09-29",
+      "theme": "New bd identity",
+      "asset_filename": "graphics/P01.png",
+      "asset_dimensions": {
+        "width": 1200,
+        "height": 1200
+      },
+      "content_source_id": "P01",
+      "editable_asset_filename": "graphics/P01.svg"
+    },
+    {
+      "id": "P02",
+      "date": "2026-10-01",
+      "theme": "Old drives",
+      "asset_filename": "graphics/P02.png",
+      "asset_dimensions": {
+        "width": 1200,
+        "height": 1200
+      },
+      "content_source_id": "P02",
+      "editable_asset_filename": "graphics/P02.svg"
+    },
+    {
+      "id": "P03",
+      "date": "2026-10-03",
+      "theme": "Duplication versus backup",
+      "asset_filename": "graphics/P03.png",
+      "asset_dimensions": {
+        "width": 1200,
+        "height": 1200
+      },
+      "content_source_id": "P03",
+      "editable_asset_filename": "graphics/P03.svg"
+    },
+    {
+      "id": "P04",
+      "date": "2026-10-06",
+      "theme": "Hash proof",
+      "asset_filename": "graphics/P04.png",
+      "asset_dimensions": {
+        "width": 1200,
+        "height": 1200
+      },
+      "content_source_id": "P04",
+      "editable_asset_filename": "graphics/P04.svg"
+    },
+    {
+      "id": "P05",
+      "date": "2026-10-08",
+      "theme": "Local privacy",
+      "asset_filename": "graphics/P05.png",
+      "asset_dimensions": {
+        "width": 1200,
+        "height": 1200
+      },
+      "content_source_id": "P05",
+      "editable_asset_filename": "graphics/P05.svg"
+    },
+    {
+      "id": "P06",
+      "date": "2026-10-10",
+      "theme": "Inventory",
+      "asset_filename": "graphics/P06.png",
+      "asset_dimensions": {
+        "width": 1200,
+        "height": 1200
+      },
+      "content_source_id": "P06",
+      "editable_asset_filename": "graphics/P06.svg"
+    },
+    {
+      "id": "P07",
+      "date": "2026-10-13",
+      "theme": "Alpha quickstart",
+      "asset_filename": "graphics/P07.png",
+      "asset_dimensions": {
+        "width": 1200,
+        "height": 1200
+      },
+      "content_source_id": "P07",
+      "editable_asset_filename": "graphics/P07.svg"
+    },
+    {
+      "id": "P08",
+      "date": "2026-10-15",
+      "theme": "Founder dataset",
+      "asset_filename": "graphics/P08.png",
+      "asset_dimensions": {
+        "width": 1200,
+        "height": 1200
+      },
+      "content_source_id": "P08",
+      "editable_asset_filename": "graphics/P08.svg"
+    },
+    {
+      "id": "P09",
+      "date": "2026-10-17",
+      "theme": "Roadmap honesty",
+      "asset_filename": "graphics/P09.png",
+      "asset_dimensions": {
+        "width": 1200,
+        "height": 1200
+      },
+      "content_source_id": "P09",
+      "editable_asset_filename": "graphics/P09.svg"
+    },
+    {
+      "id": "P10",
+      "date": "2026-10-20",
+      "theme": "Feedback",
+      "asset_filename": "graphics/P10.png",
+      "asset_dimensions": {
+        "width": 1200,
+        "height": 1200
+      },
+      "content_source_id": "P10",
+      "editable_asset_filename": "graphics/P10.svg"
+    },
+    {
+      "id": "P11",
+      "date": "2026-10-22",
+      "theme": "Filename versus identical content",
+      "asset_filename": "graphics/P11.png",
+      "asset_dimensions": {
+        "width": 1200,
+        "height": 1200
+      },
+      "content_source_id": "P11",
+      "editable_asset_filename": "graphics/P11.svg"
+    },
+    {
+      "id": "P12",
+      "date": "2026-10-27",
+      "theme": "Recap",
+      "asset_filename": "graphics/P12.png",
+      "asset_dimensions": {
+        "width": 1200,
+        "height": 1200
+      },
+      "content_source_id": "P12",
+      "editable_asset_filename": "graphics/P12.svg"
+    }
+  ],
+  "placements": [
+    {
+      "id": "P01-linkedin",
+      "anchor_id": "P01",
+      "channel": "linkedin",
+      "account": "founder personal profile",
+      "content_source": {
+        "file": "content.json",
+        "post_id": "P01",
+        "channel": "linkedin",
+        "json_pointer": "/posts/0/linkedin_copy",
+        "copy_field": "linkedin_copy"
+      },
+      "status": "draft",
+      "scheduled_in_platform": false,
+      "published": false,
+      "optional": false,
+      "conditional": false,
+      "proposed_time": {
+        "local": "2026-09-29T09:30:00+01:00",
+        "utc": "2026-09-29T08:30:00Z",
+        "timezone": "Europe/London",
+        "zone_abbreviation": "BST"
+      },
+      "tracking_url": "https://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p01#join",
+      "primary_action": "Join the early-access list",
+      "asset": {
+        "filename": "graphics/P01.png",
+        "width": 1200,
+        "height": 1200,
+        "format": "PNG",
+        "alt_text_source": {
+          "file": "content.json",
+          "post_id": "P01",
+          "json_pointer": "/posts/0/alt_text"
+        },
+        "editable_filename": "graphics/P01.svg"
+      },
+      "manual_checks": [
+        "Review final copy and current product claims.",
+        "Open the complete tracking URL.",
+        "Confirm asset and descriptive alt text match the post.",
+        "Publish manually only after final owner review."
+      ]
+    },
+    {
+      "id": "P01-bluesky",
+      "anchor_id": "P01",
+      "channel": "bluesky",
+      "account": "existing founder or BackDown account, to confirm",
+      "content_source": {
+        "file": "content.json",
+        "post_id": "P01",
+        "channel": "bluesky",
+        "json_pointer": "/posts/0/short_copy",
+        "copy_field": "short_copy"
+      },
+      "status": "draft",
+      "scheduled_in_platform": false,
+      "published": false,
+      "optional": false,
+      "conditional": false,
+      "proposed_time": {
+        "local": "2026-09-29T16:00:00+01:00",
+        "utc": "2026-09-29T15:00:00Z",
+        "timezone": "Europe/London",
+        "zone_abbreviation": "BST"
+      },
+      "tracking_url": "https://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p01#join",
+      "primary_action": "Join the early-access list",
+      "asset": {
+        "filename": "graphics/P01.png",
+        "width": 1200,
+        "height": 1200,
+        "format": "PNG",
+        "alt_text_source": {
+          "file": "content.json",
+          "post_id": "P01",
+          "json_pointer": "/posts/0/alt_text"
+        },
+        "editable_filename": "graphics/P01.svg"
+      },
+      "manual_checks": [
+        "Review final copy and current product claims.",
+        "Open the complete tracking URL.",
+        "Confirm asset and descriptive alt text match the post.",
+        "Publish manually only after final owner review."
+      ],
+      "copy_constraints": {
+        "complete_post_max_graphemes": 300,
+        "include_link_in_count": true,
+        "image_target_max_bytes": 1800000,
+        "note": "Check actual final copy, link and any hashtags together before posting."
+      }
+    },
+    {
+      "id": "P02-linkedin",
+      "anchor_id": "P02",
+      "channel": "linkedin",
+      "account": "founder personal profile",
+      "content_source": {
+        "file": "content.json",
+        "post_id": "P02",
+        "channel": "linkedin",
+        "json_pointer": "/posts/1/linkedin_copy",
+        "copy_field": "linkedin_copy"
+      },
+      "status": "draft",
+      "scheduled_in_platform": false,
+      "published": false,
+      "optional": false,
+      "conditional": false,
+      "proposed_time": {
+        "local": "2026-10-01T09:30:00+01:00",
+        "utc": "2026-10-01T08:30:00Z",
+        "timezone": "Europe/London",
+        "zone_abbreviation": "BST"
+      },
+      "tracking_url": "https://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p02#join",
+      "primary_action": "Join the early-access list",
+      "asset": {
+        "filename": "graphics/P02.png",
+        "width": 1200,
+        "height": 1200,
+        "format": "PNG",
+        "alt_text_source": {
+          "file": "content.json",
+          "post_id": "P02",
+          "json_pointer": "/posts/1/alt_text"
+        },
+        "editable_filename": "graphics/P02.svg"
+      },
+      "manual_checks": [
+        "Review final copy and current product claims.",
+        "Open the complete tracking URL.",
+        "Confirm asset and descriptive alt text match the post.",
+        "Publish manually only after final owner review."
+      ]
+    },
+    {
+      "id": "P02-bluesky",
+      "anchor_id": "P02",
+      "channel": "bluesky",
+      "account": "existing founder or BackDown account, to confirm",
+      "content_source": {
+        "file": "content.json",
+        "post_id": "P02",
+        "channel": "bluesky",
+        "json_pointer": "/posts/1/short_copy",
+        "copy_field": "short_copy"
+      },
+      "status": "draft",
+      "scheduled_in_platform": false,
+      "published": false,
+      "optional": false,
+      "conditional": false,
+      "proposed_time": {
+        "local": "2026-10-01T16:00:00+01:00",
+        "utc": "2026-10-01T15:00:00Z",
+        "timezone": "Europe/London",
+        "zone_abbreviation": "BST"
+      },
+      "tracking_url": "https://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p02#join",
+      "primary_action": "Join the early-access list",
+      "asset": {
+        "filename": "graphics/P02.png",
+        "width": 1200,
+        "height": 1200,
+        "format": "PNG",
+        "alt_text_source": {
+          "file": "content.json",
+          "post_id": "P02",
+          "json_pointer": "/posts/1/alt_text"
+        },
+        "editable_filename": "graphics/P02.svg"
+      },
+      "manual_checks": [
+        "Review final copy and current product claims.",
+        "Open the complete tracking URL.",
+        "Confirm asset and descriptive alt text match the post.",
+        "Publish manually only after final owner review."
+      ],
+      "copy_constraints": {
+        "complete_post_max_graphemes": 300,
+        "include_link_in_count": true,
+        "image_target_max_bytes": 1800000,
+        "note": "Check actual final copy, link and any hashtags together before posting."
+      }
+    },
+    {
+      "id": "P02-mastodon",
+      "anchor_id": "P02",
+      "channel": "mastodon",
+      "account": "existing active account on an appropriate instance only",
+      "content_source": {
+        "file": "content.json",
+        "post_id": "P02",
+        "channel": "mastodon",
+        "json_pointer": "/posts/1/short_copy",
+        "copy_field": "short_copy"
+      },
+      "status": "draft",
+      "scheduled_in_platform": false,
+      "published": false,
+      "optional": true,
+      "conditional": true,
+      "proposed_time": {
+        "local": "2026-10-01T16:30:00+01:00",
+        "utc": "2026-10-01T15:30:00Z",
+        "timezone": "Europe/London",
+        "zone_abbreviation": "BST"
+      },
+      "tracking_url": "https://backdown.io/?utm_source=mastodon&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p02#join",
+      "primary_action": "Join the early-access list",
+      "asset": {
+        "filename": "graphics/P02.png",
+        "width": 1200,
+        "height": 1200,
+        "format": "PNG",
+        "alt_text_source": {
+          "file": "content.json",
+          "post_id": "P02",
+          "json_pointer": "/posts/1/alt_text"
+        },
+        "editable_filename": "graphics/P02.svg"
+      },
+      "manual_checks": [
+        "Review final copy and current product claims.",
+        "Open the complete tracking URL.",
+        "Confirm asset and descriptive alt text match the post.",
+        "Publish manually only after final owner review."
+      ],
+      "copy_constraints": {
+        "complete_post_target_max_characters": 450,
+        "default_instance_limit_characters": 500,
+        "headroom_characters": 50,
+        "include_link_in_count": true,
+        "hashtag_max": 2,
+        "note": "Adapt the selected post to the existing community; verify the instance limit and rules. The 450-character target preserves room within the default 500-character limit."
+      },
+      "conditions": [
+        "An appropriate Mastodon account is already active.",
+        "Instance rules permit the post and final adapted copy fits its limit.",
+        "Founder can reply manually."
+      ],
+      "if_conditions_fail": "Skip this optional placement; do not open a new account just for this campaign.",
+      "adapted_copy": "What is on those old drives? BackDown’s alpha builds a local inventory. Join early access for one email when BackDown is ready.\nhttps://backdown.io/?utm_source=mastodon&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p02#join",
+      "adapted_copy_character_count": 246
+    },
+    {
+      "id": "P03-bluesky",
+      "anchor_id": "P03",
+      "channel": "bluesky",
+      "account": "existing founder or BackDown account, to confirm",
+      "content_source": {
+        "file": "content.json",
+        "post_id": "P03",
+        "channel": "bluesky",
+        "json_pointer": "/posts/2/short_copy",
+        "copy_field": "short_copy"
+      },
+      "status": "draft",
+      "scheduled_in_platform": false,
+      "published": false,
+      "optional": false,
+      "conditional": false,
+      "proposed_time": {
+        "local": "2026-10-03T16:00:00+01:00",
+        "utc": "2026-10-03T15:00:00Z",
+        "timezone": "Europe/London",
+        "zone_abbreviation": "BST"
+      },
+      "tracking_url": "https://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p03#join",
+      "primary_action": "Join the early-access list",
+      "asset": {
+        "filename": "graphics/P03.png",
+        "width": 1200,
+        "height": 1200,
+        "format": "PNG",
+        "alt_text_source": {
+          "file": "content.json",
+          "post_id": "P03",
+          "json_pointer": "/posts/2/alt_text"
+        },
+        "editable_filename": "graphics/P03.svg"
+      },
+      "manual_checks": [
+        "Review final copy and current product claims.",
+        "Open the complete tracking URL.",
+        "Confirm asset and descriptive alt text match the post.",
+        "Publish manually only after final owner review."
+      ],
+      "copy_constraints": {
+        "complete_post_max_graphemes": 300,
+        "include_link_in_count": true,
+        "image_target_max_bytes": 1800000,
+        "note": "Check actual final copy, link and any hashtags together before posting."
+      }
+    },
+    {
+      "id": "P04-linkedin",
+      "anchor_id": "P04",
+      "channel": "linkedin",
+      "account": "founder personal profile",
+      "content_source": {
+        "file": "content.json",
+        "post_id": "P04",
+        "channel": "linkedin",
+        "json_pointer": "/posts/3/linkedin_copy",
+        "copy_field": "linkedin_copy"
+      },
+      "status": "draft",
+      "scheduled_in_platform": false,
+      "published": false,
+      "optional": false,
+      "conditional": false,
+      "proposed_time": {
+        "local": "2026-10-06T09:30:00+01:00",
+        "utc": "2026-10-06T08:30:00Z",
+        "timezone": "Europe/London",
+        "zone_abbreviation": "BST"
+      },
+      "tracking_url": "https://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p04#join",
+      "primary_action": "Join the early-access list",
+      "asset": {
+        "filename": "carousel/Before-you-clear-that-drive.pdf",
+        "format": "PDF",
+        "page_count": 5,
+        "title": "Before you clear that drive",
+        "topics": [
+          "Scope scanned",
+          "Content checks",
+          "Where copies live",
+          "Recoverability"
+        ],
+        "accessibility_instruction": "Review the five-page checklist for readable text and a clear title before upload. Use P04 LinkedIn copy as the post description.",
+        "fallback_card": "graphics/P04.png"
+      },
+      "manual_checks": [
+        "Review final copy and current product claims.",
+        "Review all five checklist pages and verify the final PDF before upload; the document cannot be replaced after publication.",
+        "Open the complete tracking URL.",
+        "Confirm asset and descriptive alt text match the post.",
+        "Publish manually only after final owner review."
+      ]
+    },
+    {
+      "id": "P04-bluesky",
+      "anchor_id": "P04",
+      "channel": "bluesky",
+      "account": "existing founder or BackDown account, to confirm",
+      "content_source": {
+        "file": "content.json",
+        "post_id": "P04",
+        "channel": "bluesky",
+        "json_pointer": "/posts/3/short_copy",
+        "copy_field": "short_copy"
+      },
+      "status": "draft",
+      "scheduled_in_platform": false,
+      "published": false,
+      "optional": false,
+      "conditional": false,
+      "proposed_time": {
+        "local": "2026-10-06T16:00:00+01:00",
+        "utc": "2026-10-06T15:00:00Z",
+        "timezone": "Europe/London",
+        "zone_abbreviation": "BST"
+      },
+      "tracking_url": "https://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p04#join",
+      "primary_action": "Join the early-access list",
+      "asset": {
+        "filename": "graphics/P04.png",
+        "width": 1200,
+        "height": 1200,
+        "format": "PNG",
+        "alt_text_source": {
+          "file": "content.json",
+          "post_id": "P04",
+          "json_pointer": "/posts/3/alt_text"
+        },
+        "editable_filename": "graphics/P04.svg"
+      },
+      "manual_checks": [
+        "Review final copy and current product claims.",
+        "Open the complete tracking URL.",
+        "Confirm asset and descriptive alt text match the post.",
+        "Publish manually only after final owner review."
+      ],
+      "copy_constraints": {
+        "complete_post_max_graphemes": 300,
+        "include_link_in_count": true,
+        "image_target_max_bytes": 1800000,
+        "note": "Check actual final copy, link and any hashtags together before posting."
+      }
+    },
+    {
+      "id": "P04-hacker_news",
+      "anchor_id": "P04",
+      "channel": "hacker_news",
+      "account": "founder account",
+      "content_source": {
+        "file": "content.json",
+        "post_id": "P04",
+        "channel": "hacker_news",
+        "title_json_pointer": "/show_hn_title",
+        "first_comment_json_pointer": "/first_comment"
+      },
+      "status": "draft",
+      "scheduled_in_platform": false,
+      "published": false,
+      "optional": true,
+      "conditional": true,
+      "proposed_time": {
+        "local": "2026-10-06T16:30:00+01:00",
+        "utc": "2026-10-06T15:30:00Z",
+        "timezone": "Europe/London",
+        "zone_abbreviation": "BST"
+      },
+      "tracking_url": "https://backdown.io/download/?utm_source=hacker_news&utm_medium=referral&utm_campaign=bd_launch_2026_09&utm_content=show_hn",
+      "primary_action": "Download and try the CLI preview",
+      "asset": null,
+      "manual_checks": [
+        "Verify the current downloadable CLI and documented installation on a supported platform.",
+        "Confirm the linked /download/ page offers a runnable preview without signup.",
+        "Confirm the founder can personally answer questions for the full two-hour reply window.",
+        "Review current Show HN guidelines and ensure this is a substantial first introduction, not a repeat minor update.",
+        "Publish manually only after all conditions and final owner review pass."
+      ],
+      "conditions": [
+        "Current public CLI download and installation have been verified immediately before submission.",
+        "The author is free to reply for at least two hours after submission.",
+        "The submission links directly to /download/ and requires no signup to try the product."
+      ],
+      "reply_window": {
+        "start": {
+          "local": "2026-10-06T16:30:00+01:00",
+          "utc": "2026-10-06T15:30:00Z",
+          "timezone": "Europe/London",
+          "zone_abbreviation": "BST"
+        },
+        "end": {
+          "local": "2026-10-06T18:30:00+01:00",
+          "utc": "2026-10-06T17:30:00Z",
+          "timezone": "Europe/London",
+          "zone_abbreviation": "BST"
+        },
+        "minimum_minutes": 120,
+        "owner": "founder",
+        "method": "Manual replies only; do not request votes or coordinated engagement."
+      },
+      "if_conditions_fail": "Skip the submission. Reassess a later date only after the missing condition is met; do not substitute a waitlist launch."
+    },
+    {
+      "id": "P05-linkedin",
+      "anchor_id": "P05",
+      "channel": "linkedin",
+      "account": "founder personal profile",
+      "content_source": {
+        "file": "content.json",
+        "post_id": "P05",
+        "channel": "linkedin",
+        "json_pointer": "/posts/4/linkedin_copy",
+        "copy_field": "linkedin_copy"
+      },
+      "status": "draft",
+      "scheduled_in_platform": false,
+      "published": false,
+      "optional": false,
+      "conditional": false,
+      "proposed_time": {
+        "local": "2026-10-08T09:30:00+01:00",
+        "utc": "2026-10-08T08:30:00Z",
+        "timezone": "Europe/London",
+        "zone_abbreviation": "BST"
+      },
+      "tracking_url": "https://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p05#join",
+      "primary_action": "Join the early-access list",
+      "asset": {
+        "filename": "graphics/P05.png",
+        "width": 1200,
+        "height": 1200,
+        "format": "PNG",
+        "alt_text_source": {
+          "file": "content.json",
+          "post_id": "P05",
+          "json_pointer": "/posts/4/alt_text"
+        },
+        "editable_filename": "graphics/P05.svg"
+      },
+      "manual_checks": [
+        "Review final copy and current product claims.",
+        "Open the complete tracking URL.",
+        "Confirm asset and descriptive alt text match the post.",
+        "Publish manually only after final owner review."
+      ]
+    },
+    {
+      "id": "P05-bluesky",
+      "anchor_id": "P05",
+      "channel": "bluesky",
+      "account": "existing founder or BackDown account, to confirm",
+      "content_source": {
+        "file": "content.json",
+        "post_id": "P05",
+        "channel": "bluesky",
+        "json_pointer": "/posts/4/short_copy",
+        "copy_field": "short_copy"
+      },
+      "status": "draft",
+      "scheduled_in_platform": false,
+      "published": false,
+      "optional": false,
+      "conditional": false,
+      "proposed_time": {
+        "local": "2026-10-08T16:00:00+01:00",
+        "utc": "2026-10-08T15:00:00Z",
+        "timezone": "Europe/London",
+        "zone_abbreviation": "BST"
+      },
+      "tracking_url": "https://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p05#join",
+      "primary_action": "Join the early-access list",
+      "asset": {
+        "filename": "graphics/P05.png",
+        "width": 1200,
+        "height": 1200,
+        "format": "PNG",
+        "alt_text_source": {
+          "file": "content.json",
+          "post_id": "P05",
+          "json_pointer": "/posts/4/alt_text"
+        },
+        "editable_filename": "graphics/P05.svg"
+      },
+      "manual_checks": [
+        "Review final copy and current product claims.",
+        "Open the complete tracking URL.",
+        "Confirm asset and descriptive alt text match the post.",
+        "Publish manually only after final owner review."
+      ],
+      "copy_constraints": {
+        "complete_post_max_graphemes": 300,
+        "include_link_in_count": true,
+        "image_target_max_bytes": 1800000,
+        "note": "Check actual final copy, link and any hashtags together before posting."
+      }
+    },
+    {
+      "id": "P05-mastodon",
+      "anchor_id": "P05",
+      "channel": "mastodon",
+      "account": "existing active account on an appropriate instance only",
+      "content_source": {
+        "file": "content.json",
+        "post_id": "P05",
+        "channel": "mastodon",
+        "json_pointer": "/posts/4/short_copy",
+        "copy_field": "short_copy"
+      },
+      "status": "draft",
+      "scheduled_in_platform": false,
+      "published": false,
+      "optional": true,
+      "conditional": true,
+      "proposed_time": {
+        "local": "2026-10-08T16:30:00+01:00",
+        "utc": "2026-10-08T15:30:00Z",
+        "timezone": "Europe/London",
+        "zone_abbreviation": "BST"
+      },
+      "tracking_url": "https://backdown.io/?utm_source=mastodon&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p05#join",
+      "primary_action": "Join the early-access list",
+      "asset": {
+        "filename": "graphics/P05.png",
+        "width": 1200,
+        "height": 1200,
+        "format": "PNG",
+        "alt_text_source": {
+          "file": "content.json",
+          "post_id": "P05",
+          "json_pointer": "/posts/4/alt_text"
+        },
+        "editable_filename": "graphics/P05.svg"
+      },
+      "manual_checks": [
+        "Review final copy and current product claims.",
+        "Open the complete tracking URL.",
+        "Confirm asset and descriptive alt text match the post.",
+        "Publish manually only after final owner review."
+      ],
+      "copy_constraints": {
+        "complete_post_target_max_characters": 450,
+        "default_instance_limit_characters": 500,
+        "headroom_characters": 50,
+        "include_link_in_count": true,
+        "hashtag_max": 2,
+        "note": "Adapt the selected post to the existing community; verify the instance limit and rules. The 450-character target preserves room within the default 500-character limit."
+      },
+      "conditions": [
+        "An appropriate Mastodon account is already active.",
+        "Instance rules permit the post and final adapted copy fits its limit.",
+        "Founder can reply manually."
+      ],
+      "if_conditions_fail": "Skip this optional placement; do not open a new account just for this campaign.",
+      "adapted_copy": "BackDown’s local edition needs no account and sends no telemetry. Join early access for one email when BackDown is ready.\nhttps://backdown.io/?utm_source=mastodon&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p05#join",
+      "adapted_copy_character_count": 240
+    },
+    {
+      "id": "P06-bluesky",
+      "anchor_id": "P06",
+      "channel": "bluesky",
+      "account": "existing founder or BackDown account, to confirm",
+      "content_source": {
+        "file": "content.json",
+        "post_id": "P06",
+        "channel": "bluesky",
+        "json_pointer": "/posts/5/short_copy",
+        "copy_field": "short_copy"
+      },
+      "status": "draft",
+      "scheduled_in_platform": false,
+      "published": false,
+      "optional": false,
+      "conditional": false,
+      "proposed_time": {
+        "local": "2026-10-10T16:00:00+01:00",
+        "utc": "2026-10-10T15:00:00Z",
+        "timezone": "Europe/London",
+        "zone_abbreviation": "BST"
+      },
+      "tracking_url": "https://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p06#join",
+      "primary_action": "Join the early-access list",
+      "asset": {
+        "filename": "graphics/P06.png",
+        "width": 1200,
+        "height": 1200,
+        "format": "PNG",
+        "alt_text_source": {
+          "file": "content.json",
+          "post_id": "P06",
+          "json_pointer": "/posts/5/alt_text"
+        },
+        "editable_filename": "graphics/P06.svg"
+      },
+      "manual_checks": [
+        "Review final copy and current product claims.",
+        "Open the complete tracking URL.",
+        "Confirm asset and descriptive alt text match the post.",
+        "Publish manually only after final owner review."
+      ],
+      "copy_constraints": {
+        "complete_post_max_graphemes": 300,
+        "include_link_in_count": true,
+        "image_target_max_bytes": 1800000,
+        "note": "Check actual final copy, link and any hashtags together before posting."
+      }
+    },
+    {
+      "id": "P07-linkedin",
+      "anchor_id": "P07",
+      "channel": "linkedin",
+      "account": "founder personal profile",
+      "content_source": {
+        "file": "content.json",
+        "post_id": "P07",
+        "channel": "linkedin",
+        "json_pointer": "/posts/6/linkedin_copy",
+        "copy_field": "linkedin_copy"
+      },
+      "status": "draft",
+      "scheduled_in_platform": false,
+      "published": false,
+      "optional": false,
+      "conditional": false,
+      "proposed_time": {
+        "local": "2026-10-13T09:30:00+01:00",
+        "utc": "2026-10-13T08:30:00Z",
+        "timezone": "Europe/London",
+        "zone_abbreviation": "BST"
+      },
+      "tracking_url": "https://backdown.io/download/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p07",
+      "primary_action": "Download and try the CLI preview",
+      "asset": {
+        "filename": "graphics/P07.png",
+        "width": 1200,
+        "height": 1200,
+        "format": "PNG",
+        "alt_text_source": {
+          "file": "content.json",
+          "post_id": "P07",
+          "json_pointer": "/posts/6/alt_text"
+        },
+        "editable_filename": "graphics/P07.svg"
+      },
+      "manual_checks": [
+        "Review final copy and current product claims.",
+        "Open the complete tracking URL.",
+        "Confirm asset and descriptive alt text match the post.",
+        "Publish manually only after final owner review."
+      ]
+    },
+    {
+      "id": "P07-bluesky",
+      "anchor_id": "P07",
+      "channel": "bluesky",
+      "account": "existing founder or BackDown account, to confirm",
+      "content_source": {
+        "file": "content.json",
+        "post_id": "P07",
+        "channel": "bluesky",
+        "json_pointer": "/posts/6/short_copy",
+        "copy_field": "short_copy"
+      },
+      "status": "draft",
+      "scheduled_in_platform": false,
+      "published": false,
+      "optional": false,
+      "conditional": false,
+      "proposed_time": {
+        "local": "2026-10-13T16:00:00+01:00",
+        "utc": "2026-10-13T15:00:00Z",
+        "timezone": "Europe/London",
+        "zone_abbreviation": "BST"
+      },
+      "tracking_url": "https://backdown.io/download/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p07",
+      "primary_action": "Download and try the CLI preview",
+      "asset": {
+        "filename": "graphics/P07.png",
+        "width": 1200,
+        "height": 1200,
+        "format": "PNG",
+        "alt_text_source": {
+          "file": "content.json",
+          "post_id": "P07",
+          "json_pointer": "/posts/6/alt_text"
+        },
+        "editable_filename": "graphics/P07.svg"
+      },
+      "manual_checks": [
+        "Review final copy and current product claims.",
+        "Open the complete tracking URL.",
+        "Confirm asset and descriptive alt text match the post.",
+        "Publish manually only after final owner review."
+      ],
+      "copy_constraints": {
+        "complete_post_max_graphemes": 300,
+        "include_link_in_count": true,
+        "image_target_max_bytes": 1800000,
+        "note": "Check actual final copy, link and any hashtags together before posting."
+      }
+    },
+    {
+      "id": "P08-linkedin",
+      "anchor_id": "P08",
+      "channel": "linkedin",
+      "account": "founder personal profile",
+      "content_source": {
+        "file": "content.json",
+        "post_id": "P08",
+        "channel": "linkedin",
+        "json_pointer": "/posts/7/linkedin_copy",
+        "copy_field": "linkedin_copy"
+      },
+      "status": "draft",
+      "scheduled_in_platform": false,
+      "published": false,
+      "optional": false,
+      "conditional": false,
+      "proposed_time": {
+        "local": "2026-10-15T09:30:00+01:00",
+        "utc": "2026-10-15T08:30:00Z",
+        "timezone": "Europe/London",
+        "zone_abbreviation": "BST"
+      },
+      "tracking_url": "https://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p08#join",
+      "primary_action": "Join the early-access list",
+      "asset": {
+        "filename": "graphics/P08.png",
+        "width": 1200,
+        "height": 1200,
+        "format": "PNG",
+        "alt_text_source": {
+          "file": "content.json",
+          "post_id": "P08",
+          "json_pointer": "/posts/7/alt_text"
+        },
+        "editable_filename": "graphics/P08.svg"
+      },
+      "manual_checks": [
+        "Review final copy and current product claims.",
+        "Open the complete tracking URL.",
+        "Confirm asset and descriptive alt text match the post.",
+        "Publish manually only after final owner review."
+      ]
+    },
+    {
+      "id": "P08-bluesky",
+      "anchor_id": "P08",
+      "channel": "bluesky",
+      "account": "existing founder or BackDown account, to confirm",
+      "content_source": {
+        "file": "content.json",
+        "post_id": "P08",
+        "channel": "bluesky",
+        "json_pointer": "/posts/7/short_copy",
+        "copy_field": "short_copy"
+      },
+      "status": "draft",
+      "scheduled_in_platform": false,
+      "published": false,
+      "optional": false,
+      "conditional": false,
+      "proposed_time": {
+        "local": "2026-10-15T16:00:00+01:00",
+        "utc": "2026-10-15T15:00:00Z",
+        "timezone": "Europe/London",
+        "zone_abbreviation": "BST"
+      },
+      "tracking_url": "https://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p08#join",
+      "primary_action": "Join the early-access list",
+      "asset": {
+        "filename": "graphics/P08.png",
+        "width": 1200,
+        "height": 1200,
+        "format": "PNG",
+        "alt_text_source": {
+          "file": "content.json",
+          "post_id": "P08",
+          "json_pointer": "/posts/7/alt_text"
+        },
+        "editable_filename": "graphics/P08.svg"
+      },
+      "manual_checks": [
+        "Review final copy and current product claims.",
+        "Open the complete tracking URL.",
+        "Confirm asset and descriptive alt text match the post.",
+        "Publish manually only after final owner review."
+      ],
+      "copy_constraints": {
+        "complete_post_max_graphemes": 300,
+        "include_link_in_count": true,
+        "image_target_max_bytes": 1800000,
+        "note": "Check actual final copy, link and any hashtags together before posting."
+      }
+    },
+    {
+      "id": "P08-mastodon",
+      "anchor_id": "P08",
+      "channel": "mastodon",
+      "account": "existing active account on an appropriate instance only",
+      "content_source": {
+        "file": "content.json",
+        "post_id": "P08",
+        "channel": "mastodon",
+        "json_pointer": "/posts/7/short_copy",
+        "copy_field": "short_copy"
+      },
+      "status": "draft",
+      "scheduled_in_platform": false,
+      "published": false,
+      "optional": true,
+      "conditional": true,
+      "proposed_time": {
+        "local": "2026-10-15T16:30:00+01:00",
+        "utc": "2026-10-15T15:30:00Z",
+        "timezone": "Europe/London",
+        "zone_abbreviation": "BST"
+      },
+      "tracking_url": "https://backdown.io/?utm_source=mastodon&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p08#join",
+      "primary_action": "Join the early-access list",
+      "asset": {
+        "filename": "graphics/P08.png",
+        "width": 1200,
+        "height": 1200,
+        "format": "PNG",
+        "alt_text_source": {
+          "file": "content.json",
+          "post_id": "P08",
+          "json_pointer": "/posts/7/alt_text"
+        },
+        "editable_filename": "graphics/P08.svg"
+      },
+      "manual_checks": [
+        "Review final copy and current product claims.",
+        "Open the complete tracking URL.",
+        "Confirm asset and descriptive alt text match the post.",
+        "Publish manually only after final owner review."
+      ],
+      "copy_constraints": {
+        "complete_post_target_max_characters": 450,
+        "default_instance_limit_characters": 500,
+        "headroom_characters": 50,
+        "include_link_in_count": true,
+        "hashtag_max": 2,
+        "note": "Adapt the selected post to the existing community; verify the instance limit and rules. The 450-character target preserves room within the default 500-character limit."
+      },
+      "conditions": [
+        "An appropriate Mastodon account is already active.",
+        "Instance rules permit the post and final adapted copy fits its limit.",
+        "Founder can reply manually."
+      ],
+      "if_conditions_fail": "Skip this optional placement; do not open a new account just for this campaign.",
+      "adapted_copy": "BackDown began with one archive: 27M files, 15 TB hashed, 5.9 TB duplicated. One dataset. Join early access for one email when BackDown is ready.\nhttps://backdown.io/?utm_source=mastodon&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p08#join",
+      "adapted_copy_character_count": 264
+    },
+    {
+      "id": "P09-bluesky",
+      "anchor_id": "P09",
+      "channel": "bluesky",
+      "account": "existing founder or BackDown account, to confirm",
+      "content_source": {
+        "file": "content.json",
+        "post_id": "P09",
+        "channel": "bluesky",
+        "json_pointer": "/posts/8/short_copy",
+        "copy_field": "short_copy"
+      },
+      "status": "draft",
+      "scheduled_in_platform": false,
+      "published": false,
+      "optional": false,
+      "conditional": false,
+      "proposed_time": {
+        "local": "2026-10-17T16:00:00+01:00",
+        "utc": "2026-10-17T15:00:00Z",
+        "timezone": "Europe/London",
+        "zone_abbreviation": "BST"
+      },
+      "tracking_url": "https://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p09#join",
+      "primary_action": "Join the early-access list",
+      "asset": {
+        "filename": "graphics/P09.png",
+        "width": 1200,
+        "height": 1200,
+        "format": "PNG",
+        "alt_text_source": {
+          "file": "content.json",
+          "post_id": "P09",
+          "json_pointer": "/posts/8/alt_text"
+        },
+        "editable_filename": "graphics/P09.svg"
+      },
+      "manual_checks": [
+        "Review final copy and current product claims.",
+        "Open the complete tracking URL.",
+        "Confirm asset and descriptive alt text match the post.",
+        "Publish manually only after final owner review."
+      ],
+      "copy_constraints": {
+        "complete_post_max_graphemes": 300,
+        "include_link_in_count": true,
+        "image_target_max_bytes": 1800000,
+        "note": "Check actual final copy, link and any hashtags together before posting."
+      }
+    },
+    {
+      "id": "P10-linkedin",
+      "anchor_id": "P10",
+      "channel": "linkedin",
+      "account": "founder personal profile",
+      "content_source": {
+        "file": "content.json",
+        "post_id": "P10",
+        "channel": "linkedin",
+        "json_pointer": "/posts/9/linkedin_copy",
+        "copy_field": "linkedin_copy"
+      },
+      "status": "draft",
+      "scheduled_in_platform": false,
+      "published": false,
+      "optional": false,
+      "conditional": false,
+      "proposed_time": {
+        "local": "2026-10-20T09:30:00+01:00",
+        "utc": "2026-10-20T08:30:00Z",
+        "timezone": "Europe/London",
+        "zone_abbreviation": "BST"
+      },
+      "tracking_url": "https://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p10#join",
+      "primary_action": "Join the early-access list",
+      "asset": {
+        "filename": "graphics/P10.png",
+        "width": 1200,
+        "height": 1200,
+        "format": "PNG",
+        "alt_text_source": {
+          "file": "content.json",
+          "post_id": "P10",
+          "json_pointer": "/posts/9/alt_text"
+        },
+        "editable_filename": "graphics/P10.svg"
+      },
+      "manual_checks": [
+        "Review final copy and current product claims.",
+        "Open the complete tracking URL.",
+        "Confirm asset and descriptive alt text match the post.",
+        "Publish manually only after final owner review."
+      ]
+    },
+    {
+      "id": "P10-bluesky",
+      "anchor_id": "P10",
+      "channel": "bluesky",
+      "account": "existing founder or BackDown account, to confirm",
+      "content_source": {
+        "file": "content.json",
+        "post_id": "P10",
+        "channel": "bluesky",
+        "json_pointer": "/posts/9/short_copy",
+        "copy_field": "short_copy"
+      },
+      "status": "draft",
+      "scheduled_in_platform": false,
+      "published": false,
+      "optional": false,
+      "conditional": false,
+      "proposed_time": {
+        "local": "2026-10-20T16:00:00+01:00",
+        "utc": "2026-10-20T15:00:00Z",
+        "timezone": "Europe/London",
+        "zone_abbreviation": "BST"
+      },
+      "tracking_url": "https://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p10#join",
+      "primary_action": "Join the early-access list",
+      "asset": {
+        "filename": "graphics/P10.png",
+        "width": 1200,
+        "height": 1200,
+        "format": "PNG",
+        "alt_text_source": {
+          "file": "content.json",
+          "post_id": "P10",
+          "json_pointer": "/posts/9/alt_text"
+        },
+        "editable_filename": "graphics/P10.svg"
+      },
+      "manual_checks": [
+        "Review final copy and current product claims.",
+        "Open the complete tracking URL.",
+        "Confirm asset and descriptive alt text match the post.",
+        "Publish manually only after final owner review."
+      ],
+      "copy_constraints": {
+        "complete_post_max_graphemes": 300,
+        "include_link_in_count": true,
+        "image_target_max_bytes": 1800000,
+        "note": "Check actual final copy, link and any hashtags together before posting."
+      }
+    },
+    {
+      "id": "P11-linkedin",
+      "anchor_id": "P11",
+      "channel": "linkedin",
+      "account": "founder personal profile",
+      "content_source": {
+        "file": "content.json",
+        "post_id": "P11",
+        "channel": "linkedin",
+        "json_pointer": "/posts/10/linkedin_copy",
+        "copy_field": "linkedin_copy"
+      },
+      "status": "draft",
+      "scheduled_in_platform": false,
+      "published": false,
+      "optional": false,
+      "conditional": false,
+      "proposed_time": {
+        "local": "2026-10-22T09:30:00+01:00",
+        "utc": "2026-10-22T08:30:00Z",
+        "timezone": "Europe/London",
+        "zone_abbreviation": "BST"
+      },
+      "tracking_url": "https://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p11#join",
+      "primary_action": "Join the early-access list",
+      "asset": {
+        "filename": "graphics/P11.png",
+        "width": 1200,
+        "height": 1200,
+        "format": "PNG",
+        "alt_text_source": {
+          "file": "content.json",
+          "post_id": "P11",
+          "json_pointer": "/posts/10/alt_text"
+        },
+        "editable_filename": "graphics/P11.svg"
+      },
+      "manual_checks": [
+        "Review final copy and current product claims.",
+        "Open the complete tracking URL.",
+        "Confirm asset and descriptive alt text match the post.",
+        "Publish manually only after final owner review."
+      ]
+    },
+    {
+      "id": "P11-bluesky",
+      "anchor_id": "P11",
+      "channel": "bluesky",
+      "account": "existing founder or BackDown account, to confirm",
+      "content_source": {
+        "file": "content.json",
+        "post_id": "P11",
+        "channel": "bluesky",
+        "json_pointer": "/posts/10/short_copy",
+        "copy_field": "short_copy"
+      },
+      "status": "draft",
+      "scheduled_in_platform": false,
+      "published": false,
+      "optional": false,
+      "conditional": false,
+      "proposed_time": {
+        "local": "2026-10-22T16:00:00+01:00",
+        "utc": "2026-10-22T15:00:00Z",
+        "timezone": "Europe/London",
+        "zone_abbreviation": "BST"
+      },
+      "tracking_url": "https://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p11#join",
+      "primary_action": "Join the early-access list",
+      "asset": {
+        "filename": "graphics/P11.png",
+        "width": 1200,
+        "height": 1200,
+        "format": "PNG",
+        "alt_text_source": {
+          "file": "content.json",
+          "post_id": "P11",
+          "json_pointer": "/posts/10/alt_text"
+        },
+        "editable_filename": "graphics/P11.svg"
+      },
+      "manual_checks": [
+        "Review final copy and current product claims.",
+        "Open the complete tracking URL.",
+        "Confirm asset and descriptive alt text match the post.",
+        "Publish manually only after final owner review."
+      ],
+      "copy_constraints": {
+        "complete_post_max_graphemes": 300,
+        "include_link_in_count": true,
+        "image_target_max_bytes": 1800000,
+        "note": "Check actual final copy, link and any hashtags together before posting."
+      }
+    },
+    {
+      "id": "P11-mastodon",
+      "anchor_id": "P11",
+      "channel": "mastodon",
+      "account": "existing active account on an appropriate instance only",
+      "content_source": {
+        "file": "content.json",
+        "post_id": "P11",
+        "channel": "mastodon",
+        "json_pointer": "/posts/10/short_copy",
+        "copy_field": "short_copy"
+      },
+      "status": "draft",
+      "scheduled_in_platform": false,
+      "published": false,
+      "optional": true,
+      "conditional": true,
+      "proposed_time": {
+        "local": "2026-10-22T16:30:00+01:00",
+        "utc": "2026-10-22T15:30:00Z",
+        "timezone": "Europe/London",
+        "zone_abbreviation": "BST"
+      },
+      "tracking_url": "https://backdown.io/?utm_source=mastodon&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p11#join",
+      "primary_action": "Join the early-access list",
+      "asset": {
+        "filename": "graphics/P11.png",
+        "width": 1200,
+        "height": 1200,
+        "format": "PNG",
+        "alt_text_source": {
+          "file": "content.json",
+          "post_id": "P11",
+          "json_pointer": "/posts/10/alt_text"
+        },
+        "editable_filename": "graphics/P11.svg"
+      },
+      "manual_checks": [
+        "Review final copy and current product claims.",
+        "Open the complete tracking URL.",
+        "Confirm asset and descriptive alt text match the post.",
+        "Publish manually only after final owner review."
+      ],
+      "copy_constraints": {
+        "complete_post_target_max_characters": 450,
+        "default_instance_limit_characters": 500,
+        "headroom_characters": 50,
+        "include_link_in_count": true,
+        "hashtag_max": 2,
+        "note": "Adapt the selected post to the existing community; verify the instance limit and rules. The 450-character target preserves room within the default 500-character limit."
+      },
+      "conditions": [
+        "An appropriate Mastodon account is already active.",
+        "Instance rules permit the post and final adapted copy fits its limit.",
+        "Founder can reply manually."
+      ],
+      "if_conditions_fail": "Skip this optional placement; do not open a new account just for this campaign.",
+      "adapted_copy": "Same name, different contents? BackDown uses hashing to investigate copies. Join early access for one email when BackDown is ready.\nhttps://backdown.io/?utm_source=mastodon&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p11#join",
+      "adapted_copy_character_count": 250
+    },
+    {
+      "id": "P12-linkedin",
+      "anchor_id": "P12",
+      "channel": "linkedin",
+      "account": "founder personal profile",
+      "content_source": {
+        "file": "content.json",
+        "post_id": "P12",
+        "channel": "linkedin",
+        "json_pointer": "/posts/11/linkedin_copy",
+        "copy_field": "linkedin_copy"
+      },
+      "status": "draft",
+      "scheduled_in_platform": false,
+      "published": false,
+      "optional": false,
+      "conditional": false,
+      "proposed_time": {
+        "local": "2026-10-27T09:30:00+00:00",
+        "utc": "2026-10-27T09:30:00Z",
+        "timezone": "Europe/London",
+        "zone_abbreviation": "GMT"
+      },
+      "tracking_url": "https://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p12#join",
+      "primary_action": "Join the early-access list",
+      "asset": {
+        "filename": "graphics/P12.png",
+        "width": 1200,
+        "height": 1200,
+        "format": "PNG",
+        "alt_text_source": {
+          "file": "content.json",
+          "post_id": "P12",
+          "json_pointer": "/posts/11/alt_text"
+        },
+        "editable_filename": "graphics/P12.svg"
+      },
+      "manual_checks": [
+        "Review final copy and current product claims.",
+        "Open the complete tracking URL.",
+        "Confirm asset and descriptive alt text match the post.",
+        "Publish manually only after final owner review."
+      ]
+    },
+    {
+      "id": "P12-bluesky",
+      "anchor_id": "P12",
+      "channel": "bluesky",
+      "account": "existing founder or BackDown account, to confirm",
+      "content_source": {
+        "file": "content.json",
+        "post_id": "P12",
+        "channel": "bluesky",
+        "json_pointer": "/posts/11/short_copy",
+        "copy_field": "short_copy"
+      },
+      "status": "draft",
+      "scheduled_in_platform": false,
+      "published": false,
+      "optional": false,
+      "conditional": false,
+      "proposed_time": {
+        "local": "2026-10-27T16:00:00+00:00",
+        "utc": "2026-10-27T16:00:00Z",
+        "timezone": "Europe/London",
+        "zone_abbreviation": "GMT"
+      },
+      "tracking_url": "https://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p12#join",
+      "primary_action": "Join the early-access list",
+      "asset": {
+        "filename": "graphics/P12.png",
+        "width": 1200,
+        "height": 1200,
+        "format": "PNG",
+        "alt_text_source": {
+          "file": "content.json",
+          "post_id": "P12",
+          "json_pointer": "/posts/11/alt_text"
+        },
+        "editable_filename": "graphics/P12.svg"
+      },
+      "manual_checks": [
+        "Review final copy and current product claims.",
+        "Open the complete tracking URL.",
+        "Confirm asset and descriptive alt text match the post.",
+        "Publish manually only after final owner review."
+      ],
+      "copy_constraints": {
+        "complete_post_max_graphemes": 300,
+        "include_link_in_count": true,
+        "image_target_max_bytes": 1800000,
+        "note": "Check actual final copy, link and any hashtags together before posting."
+      }
+    }
+  ],
+  "daily_work": [
+    {
+      "day_number": 1,
+      "date": "2026-09-29",
+      "weekday": "Tuesday",
+      "timezone": "Europe/London",
+      "utc_offset_at_noon": "+01:00",
+      "classification": "publishing",
+      "placement_ids": [
+        "P01-linkedin",
+        "P01-bluesky"
+      ],
+      "work": [
+        {
+          "type": "posting",
+          "placement_ids": [
+            "P01-linkedin",
+            "P01-bluesky"
+          ],
+          "instruction": "Review and manually publish the primary drafts at their proposed times. Optional placements run only if their explicit conditions pass. No post is scheduled or published by this plan."
+        },
+        {
+          "type": "manual_engagement",
+          "proposed_time": {
+            "local": "2026-09-29T16:45:00+01:00",
+            "utc": "2026-09-29T15:45:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "BST"
+          },
+          "minutes": 15,
+          "instruction": "Reply to genuine questions and useful comments manually. Record recurring questions. No automated replies, unsolicited DMs, engagement pods or vote requests. On the conditional Show HN day this window can be covered by the longer founder reply session."
+        }
+      ],
+      "completion_status": "not_started"
+    },
+    {
+      "day_number": 2,
+      "date": "2026-09-30",
+      "weekday": "Wednesday",
+      "timezone": "Europe/London",
+      "utc_offset_at_noon": "+01:00",
+      "classification": "preparation",
+      "placement_ids": [],
+      "work": [
+        {
+          "type": "preparation",
+          "minutes": 20,
+          "instruction": "Review P02–P03 cards, alt text and links. Confirm optional Mastodon account eligibility."
+        },
+        {
+          "type": "manual_engagement",
+          "proposed_time": {
+            "local": "2026-09-30T16:45:00+01:00",
+            "utc": "2026-09-30T15:45:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "BST"
+          },
+          "minutes": 15,
+          "instruction": "Reply to genuine questions and useful comments manually. Record recurring questions. No automated replies, unsolicited DMs, engagement pods or vote requests. On the conditional Show HN day this window can be covered by the longer founder reply session."
+        }
+      ],
+      "completion_status": "not_started"
+    },
+    {
+      "day_number": 3,
+      "date": "2026-10-01",
+      "weekday": "Thursday",
+      "timezone": "Europe/London",
+      "utc_offset_at_noon": "+01:00",
+      "classification": "publishing",
+      "placement_ids": [
+        "P02-linkedin",
+        "P02-bluesky",
+        "P02-mastodon"
+      ],
+      "work": [
+        {
+          "type": "posting",
+          "placement_ids": [
+            "P02-linkedin",
+            "P02-bluesky",
+            "P02-mastodon"
+          ],
+          "instruction": "Review and manually publish the primary drafts at their proposed times. Optional placements run only if their explicit conditions pass. No post is scheduled or published by this plan."
+        },
+        {
+          "type": "manual_engagement",
+          "proposed_time": {
+            "local": "2026-10-01T16:45:00+01:00",
+            "utc": "2026-10-01T15:45:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "BST"
+          },
+          "minutes": 15,
+          "instruction": "Reply to genuine questions and useful comments manually. Record recurring questions. No automated replies, unsolicited DMs, engagement pods or vote requests. On the conditional Show HN day this window can be covered by the longer founder reply session."
+        }
+      ],
+      "completion_status": "not_started"
+    },
+    {
+      "day_number": 4,
+      "date": "2026-10-02",
+      "weekday": "Friday",
+      "timezone": "Europe/London",
+      "utc_offset_at_noon": "+01:00",
+      "classification": "preparation",
+      "placement_ids": [],
+      "work": [
+        {
+          "type": "preparation",
+          "minutes": 20,
+          "instruction": "Read replies for language people use about old drives; record questions for future posts."
+        },
+        {
+          "type": "manual_engagement",
+          "proposed_time": {
+            "local": "2026-10-02T16:45:00+01:00",
+            "utc": "2026-10-02T15:45:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "BST"
+          },
+          "minutes": 15,
+          "instruction": "Reply to genuine questions and useful comments manually. Record recurring questions. No automated replies, unsolicited DMs, engagement pods or vote requests. On the conditional Show HN day this window can be covered by the longer founder reply session."
+        }
+      ],
+      "completion_status": "not_started"
+    },
+    {
+      "day_number": 5,
+      "date": "2026-10-03",
+      "weekday": "Saturday",
+      "timezone": "Europe/London",
+      "utc_offset_at_noon": "+01:00",
+      "classification": "publishing",
+      "placement_ids": [
+        "P03-bluesky"
+      ],
+      "work": [
+        {
+          "type": "posting",
+          "placement_ids": [
+            "P03-bluesky"
+          ],
+          "instruction": "Review and manually publish the primary drafts at their proposed times. Optional placements run only if their explicit conditions pass. No post is scheduled or published by this plan."
+        },
+        {
+          "type": "manual_engagement",
+          "proposed_time": {
+            "local": "2026-10-03T16:45:00+01:00",
+            "utc": "2026-10-03T15:45:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "BST"
+          },
+          "minutes": 15,
+          "instruction": "Reply to genuine questions and useful comments manually. Record recurring questions. No automated replies, unsolicited DMs, engagement pods or vote requests. On the conditional Show HN day this window can be covered by the longer founder reply session."
+        }
+      ],
+      "completion_status": "not_started"
+    },
+    {
+      "day_number": 6,
+      "date": "2026-10-04",
+      "weekday": "Sunday",
+      "timezone": "Europe/London",
+      "utc_offset_at_noon": "+01:00",
+      "classification": "rest",
+      "placement_ids": [],
+      "work": [
+        {
+          "type": "rest",
+          "instruction": "No new publication, production or analytics work. Keep only a brief manual reply window; defer non-urgent work."
+        },
+        {
+          "type": "manual_engagement",
+          "proposed_time": {
+            "local": "2026-10-04T16:45:00+01:00",
+            "utc": "2026-10-04T15:45:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "BST"
+          },
+          "minutes": 15,
+          "instruction": "Reply to genuine questions and useful comments manually. Record recurring questions. No automated replies, unsolicited DMs, engagement pods or vote requests. On the conditional Show HN day this window can be covered by the longer founder reply session."
+        }
+      ],
+      "completion_status": "not_started"
+    },
+    {
+      "day_number": 7,
+      "date": "2026-10-05",
+      "weekday": "Monday",
+      "timezone": "Europe/London",
+      "utc_offset_at_noon": "+01:00",
+      "classification": "review",
+      "placement_ids": [],
+      "work": [
+        {
+          "type": "measurement_review",
+          "review_id": "W1",
+          "proposed_time": {
+            "local": "2026-10-05T14:00:00+01:00",
+            "utc": "2026-10-05T13:00:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "BST"
+          },
+          "minutes": 30,
+          "instruction": "Use the measurement plan. Record actual values or null; do not infer conversions from impressions."
+        },
+        {
+          "type": "manual_engagement",
+          "proposed_time": {
+            "local": "2026-10-05T16:45:00+01:00",
+            "utc": "2026-10-05T15:45:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "BST"
+          },
+          "minutes": 15,
+          "instruction": "Reply to genuine questions and useful comments manually. Record recurring questions. No automated replies, unsolicited DMs, engagement pods or vote requests. On the conditional Show HN day this window can be covered by the longer founder reply session."
+        }
+      ],
+      "completion_status": "not_started"
+    },
+    {
+      "day_number": 8,
+      "date": "2026-10-06",
+      "weekday": "Tuesday",
+      "timezone": "Europe/London",
+      "utc_offset_at_noon": "+01:00",
+      "classification": "publishing",
+      "placement_ids": [
+        "P04-linkedin",
+        "P04-bluesky",
+        "P04-hacker_news"
+      ],
+      "work": [
+        {
+          "type": "posting",
+          "placement_ids": [
+            "P04-linkedin",
+            "P04-bluesky",
+            "P04-hacker_news"
+          ],
+          "instruction": "Review and manually publish the primary drafts at their proposed times. Optional placements run only if their explicit conditions pass. No post is scheduled or published by this plan."
+        },
+        {
+          "type": "manual_engagement",
+          "proposed_time": {
+            "local": "2026-10-06T16:45:00+01:00",
+            "utc": "2026-10-06T15:45:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "BST"
+          },
+          "minutes": 15,
+          "instruction": "Reply to genuine questions and useful comments manually. Record recurring questions. No automated replies, unsolicited DMs, engagement pods or vote requests. On the conditional Show HN day this window can be covered by the longer founder reply session."
+        }
+      ],
+      "completion_status": "not_started"
+    },
+    {
+      "day_number": 9,
+      "date": "2026-10-07",
+      "weekday": "Wednesday",
+      "timezone": "Europe/London",
+      "utc_offset_at_noon": "+01:00",
+      "classification": "preparation",
+      "placement_ids": [],
+      "work": [
+        {
+          "type": "preparation",
+          "minutes": 20,
+          "instruction": "Collect questions from P04 and any eligible Show HN submission; verify wording for local privacy."
+        },
+        {
+          "type": "manual_engagement",
+          "proposed_time": {
+            "local": "2026-10-07T16:45:00+01:00",
+            "utc": "2026-10-07T15:45:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "BST"
+          },
+          "minutes": 15,
+          "instruction": "Reply to genuine questions and useful comments manually. Record recurring questions. No automated replies, unsolicited DMs, engagement pods or vote requests. On the conditional Show HN day this window can be covered by the longer founder reply session."
+        }
+      ],
+      "completion_status": "not_started"
+    },
+    {
+      "day_number": 10,
+      "date": "2026-10-08",
+      "weekday": "Thursday",
+      "timezone": "Europe/London",
+      "utc_offset_at_noon": "+01:00",
+      "classification": "publishing",
+      "placement_ids": [
+        "P05-linkedin",
+        "P05-bluesky",
+        "P05-mastodon"
+      ],
+      "work": [
+        {
+          "type": "posting",
+          "placement_ids": [
+            "P05-linkedin",
+            "P05-bluesky",
+            "P05-mastodon"
+          ],
+          "instruction": "Review and manually publish the primary drafts at their proposed times. Optional placements run only if their explicit conditions pass. No post is scheduled or published by this plan."
+        },
+        {
+          "type": "manual_engagement",
+          "proposed_time": {
+            "local": "2026-10-08T16:45:00+01:00",
+            "utc": "2026-10-08T15:45:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "BST"
+          },
+          "minutes": 15,
+          "instruction": "Reply to genuine questions and useful comments manually. Record recurring questions. No automated replies, unsolicited DMs, engagement pods or vote requests. On the conditional Show HN day this window can be covered by the longer founder reply session."
+        }
+      ],
+      "completion_status": "not_started"
+    },
+    {
+      "day_number": 11,
+      "date": "2026-10-09",
+      "weekday": "Friday",
+      "timezone": "Europe/London",
+      "utc_offset_at_noon": "+01:00",
+      "classification": "preparation",
+      "placement_ids": [],
+      "work": [
+        {
+          "type": "preparation",
+          "minutes": 20,
+          "instruction": "Review inventory card and next-week alpha quickstart against the actual public preview."
+        },
+        {
+          "type": "manual_engagement",
+          "proposed_time": {
+            "local": "2026-10-09T16:45:00+01:00",
+            "utc": "2026-10-09T15:45:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "BST"
+          },
+          "minutes": 15,
+          "instruction": "Reply to genuine questions and useful comments manually. Record recurring questions. No automated replies, unsolicited DMs, engagement pods or vote requests. On the conditional Show HN day this window can be covered by the longer founder reply session."
+        }
+      ],
+      "completion_status": "not_started"
+    },
+    {
+      "day_number": 12,
+      "date": "2026-10-10",
+      "weekday": "Saturday",
+      "timezone": "Europe/London",
+      "utc_offset_at_noon": "+01:00",
+      "classification": "publishing",
+      "placement_ids": [
+        "P06-bluesky"
+      ],
+      "work": [
+        {
+          "type": "posting",
+          "placement_ids": [
+            "P06-bluesky"
+          ],
+          "instruction": "Review and manually publish the primary drafts at their proposed times. Optional placements run only if their explicit conditions pass. No post is scheduled or published by this plan."
+        },
+        {
+          "type": "manual_engagement",
+          "proposed_time": {
+            "local": "2026-10-10T16:45:00+01:00",
+            "utc": "2026-10-10T15:45:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "BST"
+          },
+          "minutes": 15,
+          "instruction": "Reply to genuine questions and useful comments manually. Record recurring questions. No automated replies, unsolicited DMs, engagement pods or vote requests. On the conditional Show HN day this window can be covered by the longer founder reply session."
+        }
+      ],
+      "completion_status": "not_started"
+    },
+    {
+      "day_number": 13,
+      "date": "2026-10-11",
+      "weekday": "Sunday",
+      "timezone": "Europe/London",
+      "utc_offset_at_noon": "+01:00",
+      "classification": "rest",
+      "placement_ids": [],
+      "work": [
+        {
+          "type": "rest",
+          "instruction": "No new publication, production or analytics work. Keep only a brief manual reply window; defer non-urgent work."
+        },
+        {
+          "type": "manual_engagement",
+          "proposed_time": {
+            "local": "2026-10-11T16:45:00+01:00",
+            "utc": "2026-10-11T15:45:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "BST"
+          },
+          "minutes": 15,
+          "instruction": "Reply to genuine questions and useful comments manually. Record recurring questions. No automated replies, unsolicited DMs, engagement pods or vote requests. On the conditional Show HN day this window can be covered by the longer founder reply session."
+        }
+      ],
+      "completion_status": "not_started"
+    },
+    {
+      "day_number": 14,
+      "date": "2026-10-12",
+      "weekday": "Monday",
+      "timezone": "Europe/London",
+      "utc_offset_at_noon": "+01:00",
+      "classification": "review",
+      "placement_ids": [],
+      "work": [
+        {
+          "type": "measurement_review",
+          "review_id": "W2",
+          "proposed_time": {
+            "local": "2026-10-12T14:00:00+01:00",
+            "utc": "2026-10-12T13:00:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "BST"
+          },
+          "minutes": 30,
+          "instruction": "Use the measurement plan. Record actual values or null; do not infer conversions from impressions."
+        },
+        {
+          "type": "manual_engagement",
+          "proposed_time": {
+            "local": "2026-10-12T16:45:00+01:00",
+            "utc": "2026-10-12T15:45:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "BST"
+          },
+          "minutes": 15,
+          "instruction": "Reply to genuine questions and useful comments manually. Record recurring questions. No automated replies, unsolicited DMs, engagement pods or vote requests. On the conditional Show HN day this window can be covered by the longer founder reply session."
+        }
+      ],
+      "completion_status": "not_started"
+    },
+    {
+      "day_number": 15,
+      "date": "2026-10-13",
+      "weekday": "Tuesday",
+      "timezone": "Europe/London",
+      "utc_offset_at_noon": "+01:00",
+      "classification": "publishing",
+      "placement_ids": [
+        "P07-linkedin",
+        "P07-bluesky"
+      ],
+      "work": [
+        {
+          "type": "posting",
+          "placement_ids": [
+            "P07-linkedin",
+            "P07-bluesky"
+          ],
+          "instruction": "Review and manually publish the primary drafts at their proposed times. Optional placements run only if their explicit conditions pass. No post is scheduled or published by this plan."
+        },
+        {
+          "type": "manual_engagement",
+          "proposed_time": {
+            "local": "2026-10-13T16:45:00+01:00",
+            "utc": "2026-10-13T15:45:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "BST"
+          },
+          "minutes": 15,
+          "instruction": "Reply to genuine questions and useful comments manually. Record recurring questions. No automated replies, unsolicited DMs, engagement pods or vote requests. On the conditional Show HN day this window can be covered by the longer founder reply session."
+        }
+      ],
+      "completion_status": "not_started"
+    },
+    {
+      "day_number": 16,
+      "date": "2026-10-14",
+      "weekday": "Wednesday",
+      "timezone": "Europe/London",
+      "utc_offset_at_noon": "+01:00",
+      "classification": "preparation",
+      "placement_ids": [],
+      "work": [
+        {
+          "type": "preparation",
+          "minutes": 20,
+          "instruction": "Review founder dataset copy: label it a single personal project, never typical savings or a benchmark."
+        },
+        {
+          "type": "manual_engagement",
+          "proposed_time": {
+            "local": "2026-10-14T16:45:00+01:00",
+            "utc": "2026-10-14T15:45:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "BST"
+          },
+          "minutes": 15,
+          "instruction": "Reply to genuine questions and useful comments manually. Record recurring questions. No automated replies, unsolicited DMs, engagement pods or vote requests. On the conditional Show HN day this window can be covered by the longer founder reply session."
+        }
+      ],
+      "completion_status": "not_started"
+    },
+    {
+      "day_number": 17,
+      "date": "2026-10-15",
+      "weekday": "Thursday",
+      "timezone": "Europe/London",
+      "utc_offset_at_noon": "+01:00",
+      "classification": "publishing",
+      "placement_ids": [
+        "P08-linkedin",
+        "P08-bluesky",
+        "P08-mastodon"
+      ],
+      "work": [
+        {
+          "type": "posting",
+          "placement_ids": [
+            "P08-linkedin",
+            "P08-bluesky",
+            "P08-mastodon"
+          ],
+          "instruction": "Review and manually publish the primary drafts at their proposed times. Optional placements run only if their explicit conditions pass. No post is scheduled or published by this plan."
+        },
+        {
+          "type": "manual_engagement",
+          "proposed_time": {
+            "local": "2026-10-15T16:45:00+01:00",
+            "utc": "2026-10-15T15:45:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "BST"
+          },
+          "minutes": 15,
+          "instruction": "Reply to genuine questions and useful comments manually. Record recurring questions. No automated replies, unsolicited DMs, engagement pods or vote requests. On the conditional Show HN day this window can be covered by the longer founder reply session."
+        }
+      ],
+      "completion_status": "not_started"
+    },
+    {
+      "day_number": 18,
+      "date": "2026-10-16",
+      "weekday": "Friday",
+      "timezone": "Europe/London",
+      "utc_offset_at_noon": "+01:00",
+      "classification": "preparation",
+      "placement_ids": [],
+      "work": [
+        {
+          "type": "preparation",
+          "minutes": 20,
+          "instruction": "Refresh roadmap facts from the current status page; separate shipped preview features from planned work."
+        },
+        {
+          "type": "manual_engagement",
+          "proposed_time": {
+            "local": "2026-10-16T16:45:00+01:00",
+            "utc": "2026-10-16T15:45:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "BST"
+          },
+          "minutes": 15,
+          "instruction": "Reply to genuine questions and useful comments manually. Record recurring questions. No automated replies, unsolicited DMs, engagement pods or vote requests. On the conditional Show HN day this window can be covered by the longer founder reply session."
+        }
+      ],
+      "completion_status": "not_started"
+    },
+    {
+      "day_number": 19,
+      "date": "2026-10-17",
+      "weekday": "Saturday",
+      "timezone": "Europe/London",
+      "utc_offset_at_noon": "+01:00",
+      "classification": "publishing",
+      "placement_ids": [
+        "P09-bluesky"
+      ],
+      "work": [
+        {
+          "type": "posting",
+          "placement_ids": [
+            "P09-bluesky"
+          ],
+          "instruction": "Review and manually publish the primary drafts at their proposed times. Optional placements run only if their explicit conditions pass. No post is scheduled or published by this plan."
+        },
+        {
+          "type": "manual_engagement",
+          "proposed_time": {
+            "local": "2026-10-17T16:45:00+01:00",
+            "utc": "2026-10-17T15:45:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "BST"
+          },
+          "minutes": 15,
+          "instruction": "Reply to genuine questions and useful comments manually. Record recurring questions. No automated replies, unsolicited DMs, engagement pods or vote requests. On the conditional Show HN day this window can be covered by the longer founder reply session."
+        }
+      ],
+      "completion_status": "not_started"
+    },
+    {
+      "day_number": 20,
+      "date": "2026-10-18",
+      "weekday": "Sunday",
+      "timezone": "Europe/London",
+      "utc_offset_at_noon": "+01:00",
+      "classification": "rest",
+      "placement_ids": [],
+      "work": [
+        {
+          "type": "rest",
+          "instruction": "No new publication, production or analytics work. Keep only a brief manual reply window; defer non-urgent work."
+        },
+        {
+          "type": "manual_engagement",
+          "proposed_time": {
+            "local": "2026-10-18T16:45:00+01:00",
+            "utc": "2026-10-18T15:45:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "BST"
+          },
+          "minutes": 15,
+          "instruction": "Reply to genuine questions and useful comments manually. Record recurring questions. No automated replies, unsolicited DMs, engagement pods or vote requests. On the conditional Show HN day this window can be covered by the longer founder reply session."
+        }
+      ],
+      "completion_status": "not_started"
+    },
+    {
+      "day_number": 21,
+      "date": "2026-10-19",
+      "weekday": "Monday",
+      "timezone": "Europe/London",
+      "utc_offset_at_noon": "+01:00",
+      "classification": "review",
+      "placement_ids": [],
+      "work": [
+        {
+          "type": "measurement_review",
+          "review_id": "W3",
+          "proposed_time": {
+            "local": "2026-10-19T14:00:00+01:00",
+            "utc": "2026-10-19T13:00:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "BST"
+          },
+          "minutes": 30,
+          "instruction": "Use the measurement plan. Record actual values or null; do not infer conversions from impressions."
+        },
+        {
+          "type": "manual_engagement",
+          "proposed_time": {
+            "local": "2026-10-19T16:45:00+01:00",
+            "utc": "2026-10-19T15:45:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "BST"
+          },
+          "minutes": 15,
+          "instruction": "Reply to genuine questions and useful comments manually. Record recurring questions. No automated replies, unsolicited DMs, engagement pods or vote requests. On the conditional Show HN day this window can be covered by the longer founder reply session."
+        }
+      ],
+      "completion_status": "not_started"
+    },
+    {
+      "day_number": 22,
+      "date": "2026-10-20",
+      "weekday": "Tuesday",
+      "timezone": "Europe/London",
+      "utc_offset_at_noon": "+01:00",
+      "classification": "publishing",
+      "placement_ids": [
+        "P10-linkedin",
+        "P10-bluesky"
+      ],
+      "work": [
+        {
+          "type": "posting",
+          "placement_ids": [
+            "P10-linkedin",
+            "P10-bluesky"
+          ],
+          "instruction": "Review and manually publish the primary drafts at their proposed times. Optional placements run only if their explicit conditions pass. No post is scheduled or published by this plan."
+        },
+        {
+          "type": "manual_engagement",
+          "proposed_time": {
+            "local": "2026-10-20T16:45:00+01:00",
+            "utc": "2026-10-20T15:45:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "BST"
+          },
+          "minutes": 15,
+          "instruction": "Reply to genuine questions and useful comments manually. Record recurring questions. No automated replies, unsolicited DMs, engagement pods or vote requests. On the conditional Show HN day this window can be covered by the longer founder reply session."
+        }
+      ],
+      "completion_status": "not_started"
+    },
+    {
+      "day_number": 23,
+      "date": "2026-10-21",
+      "weekday": "Wednesday",
+      "timezone": "Europe/London",
+      "utc_offset_at_noon": "+01:00",
+      "classification": "preparation",
+      "placement_ids": [],
+      "work": [
+        {
+          "type": "preparation",
+          "minutes": 20,
+          "instruction": "Review filename/content comparison explanation and P11 card; keep identical-content claims hash-qualified."
+        },
+        {
+          "type": "manual_engagement",
+          "proposed_time": {
+            "local": "2026-10-21T16:45:00+01:00",
+            "utc": "2026-10-21T15:45:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "BST"
+          },
+          "minutes": 15,
+          "instruction": "Reply to genuine questions and useful comments manually. Record recurring questions. No automated replies, unsolicited DMs, engagement pods or vote requests. On the conditional Show HN day this window can be covered by the longer founder reply session."
+        }
+      ],
+      "completion_status": "not_started"
+    },
+    {
+      "day_number": 24,
+      "date": "2026-10-22",
+      "weekday": "Thursday",
+      "timezone": "Europe/London",
+      "utc_offset_at_noon": "+01:00",
+      "classification": "publishing",
+      "placement_ids": [
+        "P11-linkedin",
+        "P11-bluesky",
+        "P11-mastodon"
+      ],
+      "work": [
+        {
+          "type": "posting",
+          "placement_ids": [
+            "P11-linkedin",
+            "P11-bluesky",
+            "P11-mastodon"
+          ],
+          "instruction": "Review and manually publish the primary drafts at their proposed times. Optional placements run only if their explicit conditions pass. No post is scheduled or published by this plan."
+        },
+        {
+          "type": "manual_engagement",
+          "proposed_time": {
+            "local": "2026-10-22T16:45:00+01:00",
+            "utc": "2026-10-22T15:45:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "BST"
+          },
+          "minutes": 15,
+          "instruction": "Reply to genuine questions and useful comments manually. Record recurring questions. No automated replies, unsolicited DMs, engagement pods or vote requests. On the conditional Show HN day this window can be covered by the longer founder reply session."
+        }
+      ],
+      "completion_status": "not_started"
+    },
+    {
+      "day_number": 25,
+      "date": "2026-10-23",
+      "weekday": "Friday",
+      "timezone": "Europe/London",
+      "utc_offset_at_noon": "+01:00",
+      "classification": "preparation",
+      "placement_ids": [],
+      "work": [
+        {
+          "type": "preparation",
+          "minutes": 20,
+          "instruction": "Prepare recap using only observed campaign results. Leave unknown measurements blank."
+        },
+        {
+          "type": "manual_engagement",
+          "proposed_time": {
+            "local": "2026-10-23T16:45:00+01:00",
+            "utc": "2026-10-23T15:45:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "BST"
+          },
+          "minutes": 15,
+          "instruction": "Reply to genuine questions and useful comments manually. Record recurring questions. No automated replies, unsolicited DMs, engagement pods or vote requests. On the conditional Show HN day this window can be covered by the longer founder reply session."
+        }
+      ],
+      "completion_status": "not_started"
+    },
+    {
+      "day_number": 26,
+      "date": "2026-10-24",
+      "weekday": "Saturday",
+      "timezone": "Europe/London",
+      "utc_offset_at_noon": "+01:00",
+      "classification": "preparation",
+      "placement_ids": [],
+      "work": [
+        {
+          "type": "preparation",
+          "minutes": 20,
+          "instruction": "Check that Oct 27 post times remain 09:30 and 16:00 Europe/London after the clock change; refresh final card and alt text."
+        },
+        {
+          "type": "manual_engagement",
+          "proposed_time": {
+            "local": "2026-10-24T16:45:00+01:00",
+            "utc": "2026-10-24T15:45:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "BST"
+          },
+          "minutes": 15,
+          "instruction": "Reply to genuine questions and useful comments manually. Record recurring questions. No automated replies, unsolicited DMs, engagement pods or vote requests. On the conditional Show HN day this window can be covered by the longer founder reply session."
+        }
+      ],
+      "completion_status": "not_started"
+    },
+    {
+      "day_number": 27,
+      "date": "2026-10-25",
+      "weekday": "Sunday",
+      "timezone": "Europe/London",
+      "utc_offset_at_noon": "+00:00",
+      "classification": "rest",
+      "placement_ids": [],
+      "work": [
+        {
+          "type": "rest",
+          "instruction": "No new publication, production or analytics work. Keep only a brief manual reply window; defer non-urgent work."
+        },
+        {
+          "type": "manual_engagement",
+          "proposed_time": {
+            "local": "2026-10-25T16:45:00+00:00",
+            "utc": "2026-10-25T16:45:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "GMT"
+          },
+          "minutes": 15,
+          "instruction": "Reply to genuine questions and useful comments manually. Record recurring questions. No automated replies, unsolicited DMs, engagement pods or vote requests. On the conditional Show HN day this window can be covered by the longer founder reply session."
+        }
+      ],
+      "completion_status": "not_started"
+    },
+    {
+      "day_number": 28,
+      "date": "2026-10-26",
+      "weekday": "Monday",
+      "timezone": "Europe/London",
+      "utc_offset_at_noon": "+00:00",
+      "classification": "review",
+      "placement_ids": [],
+      "work": [
+        {
+          "type": "measurement_review",
+          "review_id": "W4",
+          "proposed_time": {
+            "local": "2026-10-26T14:00:00+00:00",
+            "utc": "2026-10-26T14:00:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "GMT"
+          },
+          "minutes": 30,
+          "instruction": "Use the measurement plan. Record actual values or null; do not infer conversions from impressions."
+        },
+        {
+          "type": "manual_engagement",
+          "proposed_time": {
+            "local": "2026-10-26T16:45:00+00:00",
+            "utc": "2026-10-26T16:45:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "GMT"
+          },
+          "minutes": 15,
+          "instruction": "Reply to genuine questions and useful comments manually. Record recurring questions. No automated replies, unsolicited DMs, engagement pods or vote requests. On the conditional Show HN day this window can be covered by the longer founder reply session."
+        }
+      ],
+      "completion_status": "not_started"
+    },
+    {
+      "day_number": 29,
+      "date": "2026-10-27",
+      "weekday": "Tuesday",
+      "timezone": "Europe/London",
+      "utc_offset_at_noon": "+00:00",
+      "classification": "publishing",
+      "placement_ids": [
+        "P12-linkedin",
+        "P12-bluesky"
+      ],
+      "work": [
+        {
+          "type": "posting",
+          "placement_ids": [
+            "P12-linkedin",
+            "P12-bluesky"
+          ],
+          "instruction": "Review and manually publish the primary drafts at their proposed times. Optional placements run only if their explicit conditions pass. No post is scheduled or published by this plan."
+        },
+        {
+          "type": "manual_engagement",
+          "proposed_time": {
+            "local": "2026-10-27T16:45:00+00:00",
+            "utc": "2026-10-27T16:45:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "GMT"
+          },
+          "minutes": 15,
+          "instruction": "Reply to genuine questions and useful comments manually. Record recurring questions. No automated replies, unsolicited DMs, engagement pods or vote requests. On the conditional Show HN day this window can be covered by the longer founder reply session."
+        }
+      ],
+      "completion_status": "not_started"
+    },
+    {
+      "day_number": 30,
+      "date": "2026-10-28",
+      "weekday": "Wednesday",
+      "timezone": "Europe/London",
+      "utc_offset_at_noon": "+00:00",
+      "classification": "review",
+      "placement_ids": [],
+      "work": [
+        {
+          "type": "measurement_review",
+          "review_id": "FINAL",
+          "proposed_time": {
+            "local": "2026-10-28T14:00:00+00:00",
+            "utc": "2026-10-28T14:00:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "GMT"
+          },
+          "minutes": 30,
+          "instruction": "Use the measurement plan. Record actual values or null; do not infer conversions from impressions."
+        },
+        {
+          "type": "manual_engagement",
+          "proposed_time": {
+            "local": "2026-10-28T16:45:00+00:00",
+            "utc": "2026-10-28T16:45:00Z",
+            "timezone": "Europe/London",
+            "zone_abbreviation": "GMT"
+          },
+          "minutes": 15,
+          "instruction": "Reply to genuine questions and useful comments manually. Record recurring questions. No automated replies, unsolicited DMs, engagement pods or vote requests. On the conditional Show HN day this window can be covered by the longer founder reply session."
+        }
+      ],
+      "completion_status": "not_started"
+    }
+  ],
+  "summary": {
+    "anchor_posts": 12,
+    "linkedin_primary_drafts": 9,
+    "bluesky_primary_drafts": 12,
+    "mastodon_optional_drafts": 4,
+    "show_hn_conditional_drafts": 1,
+    "total_placement_drafts": 26,
+    "daily_items": 30,
+    "rest_days": [
+      "2026-10-04",
+      "2026-10-11",
+      "2026-10-18",
+      "2026-10-25"
+    ],
+    "weekly_reviews": 4,
+    "final_reviews": 1,
+    "published": 0,
+    "scheduled": 0
+  },
+  "supporting_assets": [
+    {
+      "purpose": "profile avatar",
+      "filename": null,
+      "width": 512,
+      "height": 512,
+      "note": "Use the corresponding final profile asset from the package; no account profile has been changed."
+    },
+    {
+      "purpose": "LinkedIn banner",
+      "filename": null,
+      "width": 1584,
+      "height": 396,
+      "note": "Use the corresponding final profile asset from the package; no account profile has been changed."
+    }
+  ]
+}

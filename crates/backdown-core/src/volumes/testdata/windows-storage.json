@@ -1,0 +1,154 @@
+{
+  "SystemDrive": "C:",
+  "Disks": [
+    {
+      "Number": 0,
+      "FriendlyName": "Fakedisk NV900 1TB",
+      "Model": "Fakedisk NV900 1TB",
+      "SerialNumber": "FNV0_0000_0000_0001.",
+      "BusType": "NVMe",
+      "Size": 1000204886016,
+      "PartitionStyle": "GPT",
+      "IsSystem": true,
+      "IsBoot": true,
+      "IsOffline": false,
+      "IsReadOnly": false
+    },
+    {
+      "Number": 1,
+      "FriendlyName": "FakeSpin 4000",
+      "Model": "FakeSpin 4000",
+      "SerialNumber": "        FS4K00000042",
+      "BusType": "SATA",
+      "Size": 4000787030016,
+      "PartitionStyle": "GPT",
+      "IsSystem": false,
+      "IsBoot": false,
+      "IsOffline": false,
+      "IsReadOnly": false
+    },
+    {
+      "Number": 2,
+      "FriendlyName": "Fakeco Portable 2TB",
+      "Model": "Portable 2TB",
+      "SerialNumber": "FAKE0000BEEF",
+      "BusType": "7",
+      "Size": 2000398934016,
+      "PartitionStyle": "MBR",
+      "IsSystem": false,
+      "IsBoot": false,
+      "IsOffline": false,
+      "IsReadOnly": false
+    },
+    {
+      "Number": 3,
+      "FriendlyName": "Fakeco Spare 500GB",
+      "Model": "Spare 500GB",
+      "SerialNumber": "FAKESPARE500",
+      "BusType": "USB",
+      "Size": 500107862016,
+      "PartitionStyle": "GPT",
+      "IsSystem": false,
+      "IsBoot": false,
+      "IsOffline": true,
+      "IsReadOnly": false
+    }
+  ],
+  "Physical": [
+    { "DeviceId": "0", "MediaType": "SSD", "SpindleSpeed": 0 },
+    { "DeviceId": "1", "MediaType": "HDD", "SpindleSpeed": 5400 },
+    { "DeviceId": "2", "MediaType": "Unspecified", "SpindleSpeed": 4294967295 },
+    { "DeviceId": "3", "MediaType": "Unspecified", "SpindleSpeed": 4294967295 }
+  ],
+  "Partitions": [
+    {
+      "DiskNumber": 0, "PartitionNumber": 1, "DriveLetter": null, "Size": 104857600, "Type": "System",
+      "GptType": "{c12a7328-f81f-11d2-ba4b-00a0c93ec93b}", "MbrType": null,
+      "IsSystem": true, "IsBoot": false, "IsHidden": false, "IsReadOnly": false,
+      "AccessPaths": ["\\\\?\\Volume{0d0e0f00-1111-4222-8333-000000000001}\\"],
+      "Guid": "{9a8b7c6d-0000-4000-8000-000000000001}"
+    },
+    {
+      "DiskNumber": 0, "PartitionNumber": 2, "DriveLetter": null, "Size": 16777216, "Type": "Reserved",
+      "GptType": "{e3c9e316-0b5c-4db8-817d-f92df00215ae}", "MbrType": null,
+      "IsSystem": false, "IsBoot": false, "IsHidden": true, "IsReadOnly": false,
+      "AccessPaths": [],
+      "Guid": "{9a8b7c6d-0000-4000-8000-000000000002}"
+    },
+    {
+      "DiskNumber": 0, "PartitionNumber": 3, "DriveLetter": "C", "Size": 998996557824, "Type": "Basic",
+      "GptType": "{ebd0a0a2-b9e5-4433-87c0-68b6b72699c7}", "MbrType": null,
+      "IsSystem": false, "IsBoot": true, "IsHidden": false, "IsReadOnly": false,
+      "AccessPaths": ["C:\\", "\\\\?\\Volume{0d0e0f00-1111-4222-8333-000000000003}\\"],
+      "Guid": "{9a8b7c6d-0000-4000-8000-000000000003}"
+    },
+    {
+      "DiskNumber": 0, "PartitionNumber": 4, "DriveLetter": null, "Size": 1073741824, "Type": "Recovery",
+      "GptType": "{de94bba4-06d1-4d40-a16a-bfd50179d6ac}", "MbrType": null,
+      "IsSystem": false, "IsBoot": false, "IsHidden": true, "IsReadOnly": false,
+      "AccessPaths": ["\\\\?\\Volume{0d0e0f00-1111-4222-8333-000000000004}\\"],
+      "Guid": "{9a8b7c6d-0000-4000-8000-000000000004}"
+    },
+    {
+      "DiskNumber": 1, "PartitionNumber": 1, "DriveLetter": null, "Size": 134217728, "Type": "Reserved",
+      "GptType": "{e3c9e316-0b5c-4db8-817d-f92df00215ae}", "MbrType": null,
+      "IsSystem": false, "IsBoot": false, "IsHidden": true, "IsReadOnly": false,
+      "AccessPaths": [],
+      "Guid": "{9a8b7c6d-0000-4000-8000-000000000011}"
+    },
+    {
+      "DiskNumber": 1, "PartitionNumber": 2, "DriveLetter": "D", "Size": 2000000000000, "Type": "Basic",
+      "GptType": "{ebd0a0a2-b9e5-4433-87c0-68b6b72699c7}", "MbrType": null,
+      "IsSystem": false, "IsBoot": false, "IsHidden": false, "IsReadOnly": false,
+      "AccessPaths": ["D:\\", "\\\\?\\Volume{0d0e0f00-1111-4222-8333-000000000012}\\"],
+      "Guid": "{9a8b7c6d-0000-4000-8000-000000000012}"
+    },
+    {
+      "DiskNumber": 1, "PartitionNumber": 3, "DriveLetter": "E", "Size": 1000000000000, "Type": "Basic",
+      "GptType": "{ebd0a0a2-b9e5-4433-87c0-68b6b72699c7}", "MbrType": null,
+      "IsSystem": false, "IsBoot": false, "IsHidden": false, "IsReadOnly": false,
+      "AccessPaths": ["E:\\", "\\\\?\\Volume{0d0e0f00-1111-4222-8333-000000000013}\\"],
+      "Guid": "{9a8b7c6d-0000-4000-8000-000000000013}"
+    },
+    {
+      "DiskNumber": 1, "PartitionNumber": 4, "DriveLetter": null, "Size": 500000000000, "Type": "Basic",
+      "GptType": "{ebd0a0a2-b9e5-4433-87c0-68b6b72699c7}", "MbrType": null,
+      "IsSystem": false, "IsBoot": false, "IsHidden": false, "IsReadOnly": false,
+      "AccessPaths": ["\\\\?\\Volume{0d0e0f00-1111-4222-8333-000000000014}\\"],
+      "Guid": "{9a8b7c6d-0000-4000-8000-000000000014}"
+    },
+    {
+      "DiskNumber": 1, "PartitionNumber": 5, "DriveLetter": null, "Size": 500652875776, "Type": "Unknown",
+      "GptType": "{0fc63daf-8483-4772-8e79-3d69d8477de4}", "MbrType": null,
+      "IsSystem": false, "IsBoot": false, "IsHidden": false, "IsReadOnly": false,
+      "AccessPaths": ["\\\\?\\Volume{0d0e0f00-1111-4222-8333-000000000015}\\"],
+      "Guid": "{9a8b7c6d-0000-4000-8000-000000000015}"
+    },
+    {
+      "DiskNumber": 2, "PartitionNumber": 1, "DriveLetter": "F", "Size": 2000397885440, "Type": "FAT32 XINT13",
+      "GptType": null, "MbrType": 12,
+      "IsSystem": false, "IsBoot": false, "IsHidden": false, "IsReadOnly": false,
+      "AccessPaths": ["F:\\", "C:\\Mounts\\Camera\\", "\\\\?\\Volume{0d0e0f00-1111-4222-8333-000000000021}\\"],
+      "Guid": null
+    }
+  ],
+  "Volumes": [
+    { "DriveLetter": null, "Path": "\\\\?\\Volume{0d0e0f00-1111-4222-8333-000000000001}\\", "FileSystem": "FAT32", "FileSystemLabel": "", "Size": 100663296, "DriveType": "Fixed" },
+    { "DriveLetter": "C", "Path": "\\\\?\\Volume{0d0e0f00-1111-4222-8333-000000000003}\\", "FileSystem": "NTFS", "FileSystemLabel": "Windows", "Size": 998996553728, "DriveType": "Fixed" },
+    { "DriveLetter": null, "Path": "\\\\?\\Volume{0d0e0f00-1111-4222-8333-000000000004}\\", "FileSystem": "NTFS", "FileSystemLabel": "", "Size": 1073737728, "DriveType": "Fixed" },
+    { "DriveLetter": "D", "Path": "\\\\?\\Volume{0d0e0f00-1111-4222-8333-000000000012}\\", "FileSystem": "NTFS", "FileSystemLabel": "Data", "Size": 1999999995904, "DriveType": "Fixed" },
+    { "DriveLetter": "E", "Path": "\\\\?\\Volume{0d0e0f00-1111-4222-8333-000000000013}\\", "FileSystem": "", "FileSystemLabel": "", "Size": 0, "DriveType": "Fixed" },
+    { "DriveLetter": null, "Path": "\\\\?\\Volume{0d0e0f00-1111-4222-8333-000000000014}\\", "FileSystem": "NTFS", "FileSystemLabel": "Old Backup", "Size": 499999997952, "DriveType": "Fixed" },
+    { "DriveLetter": null, "Path": "\\\\?\\Volume{0d0e0f00-1111-4222-8333-000000000015}\\", "FileSystem": "", "FileSystemLabel": "", "Size": 0, "DriveType": "Fixed" },
+    { "DriveLetter": "F", "Path": "\\\\?\\Volume{0d0e0f00-1111-4222-8333-000000000021}\\", "FileSystem": "FAT32", "FileSystemLabel": "CAMERA", "Size": 2000397852672, "DriveType": "Removable" },
+    { "DriveLetter": "G", "Path": "\\\\?\\Volume{0d0e0f00-1111-4222-8333-000000000099}\\", "FileSystem": "UDF", "FileSystemLabel": "FAKE_DVD", "Size": 4700000000, "DriveType": "CD-ROM" }
+  ],
+  "BitLocker": [
+    { "MountPoint": "C:", "Protection": "1" },
+    { "MountPoint": "D:", "Protection": "2" },
+    { "MountPoint": "E:", "Protection": "6" },
+    { "MountPoint": "F:", "Protection": "0" },
+    { "MountPoint": "G:", "Protection": "" }
+  ],
+  "BitLockerSource": "shell"
+}

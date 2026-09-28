@@ -21,6 +21,8 @@ Lessons captured in `APP-PLAN.md` §2.
 
 ## v0.2 — `backdown` CLI in Rust (3 weeks, Oct 2026)
 
+**Status, 27 Sep 2026:** previews `v0.2.0-alpha.1` and `alpha.2` are out for Linux (x86-64, ARM64), macOS (universal) and Windows, built by `.github/workflows/release.yml` and published to the public `BuenGenio/backdown-releases` repo by `scripts/publish-release.sh`. Shipped: `index` (each run a scan; file and folder versions kept for a time slider), tiered `hash` (size → sample → SHA-256, one reader per device), `dupes`, `check` (safe-to-wipe, exit 0/2), `scans`, `status`, `serve`, a local file browser with a time slider and read-only viewers (pulled forward from v0.5), and (`alpha.3`) `daemon` + `service install|uninstall|status`: a systemd user or hardened system service that rescans drives when due or when they come back, hashes after every scan, and serves the UI (`backdown open`). Since (on `cli/rust-v0.2`, 28 Sep): the browser's Activity view (current job with progress, queue, per-drive schedule; long-polled, nothing in hidden tabs), right-click menus, open with the system app / show in file manager (never programs or scripts), download a copy, type/size/date filters and hidden files, sorting in every view, a photo gallery, a nested size map, comparing a folder between any two scans, drag-select, typed locations (Ctrl+L), tabs and a shortcuts help; `backdown license add|show` for offline Pro keys; `backdown import-legacy`, which turns the Python scripts' `index/` (merged `<vol>.tsv` or finished chunks, plus `hashes.db`) into one finished scan per drive with its hashes attached, so the next `index` finds the files unchanged and nothing is crawled or hashed twice; `backdown volumes` (and `GET /api/volumes` for the UI): every disk (model, serial, transport, spinning or not) and partition (fs, label, UUID, mounts ro/rw), classified system / mounted / mountable / encrypted / member / swap / empty / unknown, with the volumes the index covers marked; read from sysfs, udev and mountinfo on Linux, `diskutil` on macOS, the storage cmdlets on Windows, never as root. Not yet: SMART health, BLAKE3.
+
 Port the scripts into `crates/backdown-core` + `crates/backdown-cli`. Same on-disk contract (chunks, `.done` markers, SQLite), so the Python tools and the Rust binary can be run interchangeably during the transition.
 
 - `backdown volumes` — probe block devices, partitions, fs, health; classify (mountable / ro-only / encrypted / empty / system)
@@ -34,6 +36,8 @@ Port the scripts into `crates/backdown-core` + `crates/backdown-cli`. Same on-di
 
 ## v0.3 — Recognisers + generated report (3 weeks, Nov 2026)
 
+**Status, 28 Sep 2026: built** on `cli/rust-v0.2`: `backdown entities` (mail stores, Time Machine, phones, systems, homes, websites, repositories, disk images, dumps, media libraries, exports, downloads piles, recovered files; junk; provenance from backup scripts, plists, hostnames, git remotes, ddrescue mapfiles, dump headers, sync markers), `backdown overlaps` (containment per drive, top folder and entity), `backdown report [--html]`; in the daemon (after every hash) and the browser (What's here, the report). Not yet: mdbox depth, binary plists, Thunderbird account names, the REPORT.md-parity dogfood on the real desk.
+
 - `backdown entities` — the recogniser set in `APP-PLAN.md` §6, with confidence and junk-subtree flags
 - Provenance readers: shell scripts with `rsync`/`scp`/`tar` lines, `.sync*` markers, Time Machine plists, iOS `Info.plist`, ddrescue logs
 - `backdown overlaps` — directory containment matrix by hash (falls back to name+size where unhashed)
@@ -44,6 +48,8 @@ Port the scripts into `crates/backdown-core` + `crates/backdown-cli`. Same on-di
 
 ## v0.4 — Planner + journaled executor (4 weeks, Dec 2026 – Jan 2027)
 
+**Status, 28 Sep 2026: built** on `cli/rust-v0.2`: `backdown plan` (type → origin → time schema, editable; explanations; already-archived skips; ≥90% twins copy only what's unique; low-value listed not copied), `backdown apply` (dry run, then journaled copies verified by reading back, resumable, never overwrites, never deletes; free-space check), `backdown mirror add|sync|verify` (old versions kept aside, extras reported, sampled re-reads on a schedule); in the daemon and the browser (Plan view; mirrors in Activity). `backdown wipe` and the browser's Free up view: tick drives, folders or recognised things; see how much has an identical copy outside the selection and where; move what exists only there to a chosen folder or leave it; confirm by typing the drive names. The daemon re-reads each file and its copy before deleting it (or, trusting the index, still checks the copy is there as scanned), journals every deletion, then rescans. Never the running system outside home folders, never BackDown's index. Not yet: reflink/copy_file_range fast paths, the privileged helper, per-mailbox merging.
+
 - `backdown plan` — filing proposal (type → origin → time), schema editable as a small TOML, explanation per placement, merge rule for >90 % overlapping entities
 - `backdown apply --dry-run` then `apply` — journaled copy (reflink/`copy_file_range` where possible), verify by re-hash, `delete`/`wipe` gated on verified copies; pause/resume; per-op logs
 - `backdown mirror add|verify` — standing sync rules, verify by sampling or full
@@ -51,6 +57,19 @@ Port the scripts into `crates/backdown-core` + `crates/backdown-cli`. Same on-di
 - Dogfood: execute the real consolidation of these seven drives with it. Free Stuff, sda4, sdc, Verbatim; make BD-500 + one freed drive the mirrors of `Archive/Mail`, `Archive/Companies`, `Archive/Machines`.
 
 **Done when:** the desk is consolidated and every deletion is traceable to a journal line with a matching hash.
+
+## Rescue — failing drives, deleted files, lost partitions (pulled forward, Sep 2026)
+
+For people who've never heard of ddrescue, PhotoRec or TestDisk: a Rescue view in the browser (which drive, what happened, where rescued things go) and `backdown rescue image|find|partitions`. Only ever reads the source.
+
+**Status, 28 Sep 2026: built** on `cli/rescue` (PR #3):
+- **Copy a failing drive** into an image (`rescue::image`): ddrescue's passes (copy with skipping forwards and backwards, trim, scrape, retry) and its mapfile format, resumable without re-reading. It refuses to write onto the source or elsewhere on its physical drive.
+- **Find files by content** (`rescue::carve`): photos (JPEG with EXIF, PNG, HEIC, camera RAW), videos (MP4/MOV, MKV, AVI and more), documents (PDF, Office old and new, OpenDocument, EPUB), audio, archives and SQLite, saved by kind with an index; recovered files are then indexed so they open in the browser.
+- **Find lost partitions** (`rescue::parts`): MBR/GPT and their damage, file systems by primary and backup structures; "Find files in it" searches just that partition.
+
+Rescues run in the daemon's side lane beside scans, can be stopped and resumed, and stay on record. When a drive can't be read directly, BackDown says so and gives the one command that lets this account read that device only; `sudo backdown rescue …` works too, and never opens the index.
+
+Not yet: reassembling fragmented files, a privileged helper instead of the one-off permission command, opening a found partition's file system directly, SMART health.
 
 ## v0.5 — Desktop app (5 weeks, Feb – Mar 2027)
 
@@ -83,7 +102,7 @@ Tauri 2 shell + Svelte 5, sharing Innards' tokens and components.
 - Photo-aware dedup: perceptual hashes, burst grouping, EXIF-date filing into `Media/Photos/YYYY/MM`
 - Cloud sources as volumes via rclone (Drive, Dropbox, iCloud Drive, S3)
 - "Time-lapse" view: how a directory tree evolved across the snapshots found on different drives
-- Recovery mode: feed `testdisk`/`photorec` output and `found.000` dirs into the recognisers
+- Recovery mode: feed `testdisk`/`photorec` output and `found.000` dirs into the recognisers (BackDown's own Rescue now does the finding; see below)
 
 ---
 

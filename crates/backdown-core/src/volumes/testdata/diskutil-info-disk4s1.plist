@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Bootable</key>
+	<false/>
+	<key>BusProtocol</key>
+	<string>USB</string>
+	<key>Content</key>
+	<string>EFI</string>
+	<key>DeviceBlockSize</key>
+	<integer>512</integer>
+	<key>DeviceIdentifier</key>
+	<string>disk4s1</string>
+	<key>DeviceNode</key>
+	<string>/dev/disk4s1</string>
+	<key>Ejectable</key>
+	<true/>
+	<key>FilesystemName</key>
+	<string>MS-DOS FAT32</string>
+	<key>FilesystemType</key>
+	<string>msdos</string>
+	<key>FilesystemUserVisibleName</key>
+	<string>MS-DOS FAT32</string>
+	<key>FreeSpace</key>
+	<integer>0</integer>
+	<key>IOKitSize</key>
+	<integer>209715200</integer>
+	<key>IORegistryEntryName</key>
+	<string>EFI</string>
+	<key>Internal</key>
+	<false/>
+	<key>MediaName</key>
+	<string></string>
+	<key>MediaType</key>
+	<string>Generic</string>
+	<key>MountPoint</key>
+	<string></string>
+	<key>ParentWholeDisk</key>
+	<string>disk4</string>
+	<key>PartitionMapPartition</key>
+	<true/>
+	<key>Removable</key>
+	<false/>
+	<key>RemovableMedia</key>
+	<false/>
+	<key>RemovableMediaOrExternalDevice</key>
+	<true/>
+	<key>Size</key>
+	<integer>209715200</integer>
+	<key>SolidState</key>
+	<false/>
+	<key>TotalSize</key>
+	<integer>209715200</integer>
+	<key>VolumeName</key>
+	<string>EFI</string>
+	<key>WholeDisk</key>
+	<false/>
+	<key>Writable</key>
+	<false/>
+	<key>WritableMedia</key>
+	<true/>
+	<key>WritableVolume</key>
+	<false/>
+</dict>
+</plist>

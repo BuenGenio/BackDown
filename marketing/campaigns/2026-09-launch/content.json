@@ -1,0 +1,284 @@
+{
+  "campaign_id": "bd_launch_2026_09",
+  "campaign_name": "The other copy",
+  "start_date": "2026-09-29",
+  "end_date": "2026-10-28",
+  "timezone": "Europe/London",
+  "status": "draft_ready_for_review_not_posted",
+  "primary_goal": "Early-access signups and product awareness",
+  "secondary_goal": "Public alpha CLI downloads",
+  "claims_checked_against": "Local marketing sources on 2026-09-28; review current release status before publishing later scheduled posts.",
+  "profile_bio": "Know what is on your drives. Find matching copies. Local inventory, hashing and file browsing. Public alpha for Linux, macOS and Windows. backdown.io",
+  "pinned_post": "BackDown helps you understand what is on your drives and where matching copies exist.\n\nThe public v0.2.0-alpha.4 includes indexing, hashing, duplicate checks, a local file browser and read-only viewers. Builds are available for Linux, macOS and Windows. It is an early command-line preview; broader archive workflows and a polished native desktop experience are planned.\n\nThe paired bd is our new mark. The question it represents is practical: where is the other copy, and does its content match?\n\nJoin early access for one email when BackDown is ready:\nhttps://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=pinned#join\n\nTry the alpha without signing up:\nhttps://backdown.io/download/",
+  "show_hn_title": "Show HN: BackDown – local drive inventory and hash-based duplicate checks",
+  "first_comment": "I’m working on BackDown, a local drive-inventory and duplicate-checking tool.\n\nBackDown began as a one-off job to consolidate years of old drives into one archive. The original scripts indexed about 27 million files and read and hashed 15 TB in that founding dataset. Those numbers describe that particular archive, not a general performance claim.\n\nThe current public build is v0.2.0-alpha.4. It provides index, hash, dupes and check commands, plus a local browser and read-only viewers for supported files. Builds cover Linux x86-64 and ARM64, macOS universal, and Windows x86-64.\n\nDownload and setup notes: https://backdown.io/download/\n\nThere is no signup gate. The local edition needs no account and sends no telemetry. This is an early alpha, rather than the planned polished native desktop release. Broader planning and copying workflows are still roadmap work.\n\nUseful feedback would include confusing inventory results, content comparisons that need more explanation, and reproducible browser or viewer problems. Please use non-sensitive examples; sharing a private archive is not necessary.",
+  "response_templates": [
+    {
+      "question": "What can I use today?",
+      "reply": "The public v0.2.0-alpha.4 includes index, hash, dupes and check commands, a local browser and read-only viewers for supported files. It is a command-line alpha for Linux, macOS and Windows. Download and setup notes: https://backdown.io/download/"
+    },
+    {
+      "question": "Does this replace my backup?",
+      "reply": "BackDown helps you inventory drives and inspect matching file contents. Duplicate results need to be interpreted within your backup plan: a second copy may be one you should keep. The public alpha is useful for examining the copies you have."
+    },
+    {
+      "question": "Will it automatically delete my files?",
+      "reply": "The alpha inspection workflow uses index, hash, dupes and check to examine your data and report results. A duplicate finding is not an instruction to delete. Broader planning, copying and cleanup workflows are planned work; we are not presenting them as shipped alpha features."
+    },
+    {
+      "question": "Can I rely on a matching hash to clear a drive?",
+      "reply": "A matching content hash is evidence about the files compared. Review the full scan and check results, including anything unscanned or unique, and confirm which copies your backup plan needs before making a deletion decision. BackDown is still an alpha."
+    },
+    {
+      "question": "Do my files get uploaded?",
+      "reply": "The local edition works on your machine, needs no account and sends no telemetry. Its file browser is served locally. Early access is an optional signup for one email when BackDown is ready, separate from downloading or using the alpha."
+    },
+    {
+      "question": "Which operating systems are supported?",
+      "reply": "The current alpha has Linux x86-64 and ARM64 builds, a macOS universal build for Apple silicon and Intel, and a Windows x86-64 build. Release checksums and setup notes are at https://backdown.io/download/"
+    },
+    {
+      "question": "Is there a finished desktop app?",
+      "reply": "There is a local browser interface in the public command-line alpha. A polished native desktop experience is planned. Current release details and roadmap status are available at https://backdown.io/status/"
+    },
+    {
+      "question": "Is it AI?",
+      "reply": "The capabilities discussed here are drive indexing, content hashing, duplicate checks and local file viewing. We are not claiming that the public alpha uses AI to understand your archive."
+    },
+    {
+      "question": "Will I save 5.9 TB?",
+      "reply": "The 5.9 TB figure comes from duplication found on the largest drive in BackDown’s founding archive. It is one real dataset, not a saving to expect on another archive. Your results depend on the contents of your drives."
+    },
+    {
+      "question": "Do I need to join the list to download?",
+      "reply": "No. The alpha is available directly at https://backdown.io/download/ with no email signup gate. Join early access for one email when BackDown is ready; signing up is optional."
+    },
+    {
+      "question": "How should I report a problem?",
+      "reply": "Tell us the version, operating system, what you expected and what happened. A small example using non-sensitive files is ideal. Remove private filenames, paths and contents from any logs or screenshots you choose to share."
+    },
+    {
+      "question": "Is source mounting automatically read-only?",
+      "reply": "The founding archive job used source drives mounted read-only. That describes how that job was run; it is not a claim that the public alpha automatically changes every drive’s mount permissions."
+    }
+  ],
+  "posts": [
+    {
+      "id": "P01",
+      "date": "2026-09-29",
+      "title": "Meet the paired bd",
+      "pillar": "Identity",
+      "theme": "New identity and paired copies",
+      "visual_headline": "Two letters. A question about copies.",
+      "visual_subhead": "The new BackDown mark starts a month of looking more closely at what is on your drives.",
+      "linkedin_copy": "Meet the new BackDown mark: a lowercase b and d, paired in orange.\n\nThe pair is a useful reminder of the question behind the product: where is the other copy, and does it contain the same data?\n\nBackDown helps you inventory drives and compare file contents using hashes. The current public alpha includes a command-line tool, a local file browser and read-only viewers. It is an early preview, with more work ahead.\n\nOver the next month, we'll share practical ways to think about old drives, duplicate files and the evidence behind a backup decision.\n\nJoin early access for one email when BackDown is ready.\n\nhttps://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p01#join",
+      "short_copy": "Meet BackDown’s paired bd. Where is the other copy—and does its content match? Join early access for one email when BackDown is ready.\nhttps://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p01#join",
+      "alt_text": "BackDown campaign card with the paired lowercase bd mark and the headline “Two letters. A question about copies.”",
+      "cta_url": "https://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p01#join",
+      "short_cta_url": "https://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p01#join",
+      "source_refs": [
+        "marketing/public/brand/backdown-mark.svg",
+        "marketing/status.json: shipped alpha.1, alpha.2, alpha.4"
+      ]
+    },
+    {
+      "id": "P02",
+      "date": "2026-10-01",
+      "title": "The drawer of old drives",
+      "pillar": "Problem",
+      "theme": "Drawer of old drives",
+      "visual_headline": "What is on the drive in the drawer?",
+      "visual_subhead": "Start with an inventory. Find out which folders are there before deciding what belongs in the archive.",
+      "linkedin_copy": "An old laptop drive. A disk labelled “backup”. Another labelled “backup old”.\n\nThe hard part of sorting them is often knowing what each one contains. Which folders came from the same computer? Which hold something you still need? Which have another copy?\n\nBackDown began with a real drive-consolidation job: years of old disks needed to become one archive. That experience still shapes the product.\n\nThe current alpha can index a drive and let you browse the inventory locally. Hashing and duplicate checks add evidence about matching content across the drives you have indexed.\n\nThe next time you plug in a forgotten drive, start by finding out what is there. Join early access for one email when BackDown is ready.\n\nhttps://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p02#join",
+      "short_copy": "What is on those old drives? BackDown’s alpha builds a local inventory. Join early access for one email when BackDown is ready.\nhttps://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p02#join",
+      "alt_text": "BackDown campaign card asking “What is on the drive in the drawer?” and recommending an inventory before archive decisions.",
+      "cta_url": "https://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p02#join",
+      "short_cta_url": "https://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p02#join",
+      "source_refs": [
+        "marketing/i18n/en.json: story.p1, story.p2",
+        "marketing/status.json: shipped alpha.1, alpha.2"
+      ]
+    },
+    {
+      "id": "P03",
+      "date": "2026-10-03",
+      "title": "An identical copy still has a job",
+      "pillar": "Education",
+      "theme": "Duplication versus backup",
+      "visual_headline": "An identical copy can be worth keeping.",
+      "visual_subhead": "Matching content tells you what is duplicated. Your backup plan determines which copies you still need.",
+      "linkedin_copy": "Two files can contain the same bytes and still serve different purposes.\n\nA second copy on another drive may be part of your backup plan. A repeated folder on the same drive may simply be taking up room. Seeing “duplicate” is the beginning of a decision, not an instruction to delete.\n\nBackDown's alpha helps identify matching content across indexed drives. That gives you a clearer inventory of the copies you have.\n\nBefore removing anything, consider which drive holds each copy, whether the data matters, and how you would recover it if a drive failed. A duplicate report cannot make those choices for you.\n\nFollow this account for more practical archive notes. Join early access for one email when BackDown is ready.\n\nhttps://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p03#join",
+      "short_copy": "An identical copy may be a backup you need. BackDown helps identify matches. Join early access for one email when BackDown is ready.\nhttps://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p03#join",
+      "alt_text": "BackDown campaign card reading “An identical copy can be worth keeping.” It distinguishes matching content from a backup decision.",
+      "cta_url": "https://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p03#join",
+      "short_cta_url": "https://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p03#join",
+      "source_refs": [
+        "marketing/status.json: shipped alpha.1",
+        "marketing/i18n/en.json: how.intro"
+      ]
+    },
+    {
+      "id": "P04",
+      "date": "2026-10-06",
+      "title": "Put evidence behind the comparison",
+      "pillar": "Evidence",
+      "theme": "Hash proof",
+      "visual_headline": "Compare the contents. Keep the evidence.",
+      "visual_subhead": "SHA-256 checks help establish whether files match. A filename alone cannot answer that question.",
+      "linkedin_copy": "A folder name is a label. A content hash gives you evidence about the file itself.\n\nBackDown uses SHA-256 hashing when checking matching file contents. The public alpha includes index, hash, dupes and check commands, so you can move from a list of files to a more informed view of where the matching copies are.\n\nThat distinction matters when an archive contains renamed files, repeated exports and years of copied folders. Familiar names can hide different contents; different names can point to matching data.\n\nThe result still needs to be read in the context of the drives and files you have scanned. It is evidence to inspect when planning your archive.\n\nJoin early access for one email when BackDown is ready.\n\nhttps://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p04#join",
+      "short_copy": "A filename is a clue. BackDown uses SHA-256 to compare file contents. Join early access for one email when BackDown is ready.\nhttps://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p04#join",
+      "alt_text": "BackDown campaign card with the headline “Compare the contents. Keep the evidence.” and a note about SHA-256 content comparison.",
+      "cta_url": "https://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p04#join",
+      "short_cta_url": "https://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p04#join",
+      "source_refs": [
+        "marketing/status.json: shipped alpha.1",
+        "marketing/i18n/en.json: how.s2_body"
+      ]
+    },
+    {
+      "id": "P05",
+      "date": "2026-10-08",
+      "title": "An inventory that stays local",
+      "pillar": "Privacy",
+      "theme": "Local privacy",
+      "visual_headline": "Your drive inventory belongs on your machine.",
+      "visual_subhead": "BackDown’s local edition needs no account and sends no telemetry. The alpha runs against your own drives.",
+      "linkedin_copy": "An archive can contain family photos, old documents, project files and records you would never publish.\n\nBackDown's local edition is built around keeping that work on your own machine. It needs no account and sends no telemetry. The alpha's file browser is served locally, so you can inspect the drives you have indexed without uploading their contents to a hosted dashboard.\n\nThe public alpha is available to download without joining the website's early-access list.\n\nLocal processing is useful when your first task is simply understanding the disks already on your desk.\n\nJoin early access for one email when BackDown is ready.\n\nhttps://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p05#join",
+      "short_copy": "BackDown’s local edition needs no account and sends no telemetry. Join early access for one email when BackDown is ready.\nhttps://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p05#join",
+      "alt_text": "BackDown campaign card stating “Your drive inventory belongs on your machine.” The supporting text describes no account and no telemetry.",
+      "cta_url": "https://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p05#join",
+      "short_cta_url": "https://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p05#join",
+      "source_refs": [
+        "marketing/i18n/en.json: privacy.p1_body",
+        "marketing/status.json: shipped alpha.2",
+        "marketing/downloads.json"
+      ]
+    },
+    {
+      "id": "P06",
+      "date": "2026-10-10",
+      "title": "Keep the path attached",
+      "pillar": "Workflow",
+      "theme": "Traceable inventory",
+      "visual_headline": "Keep the path attached to the file.",
+      "visual_subhead": "A useful inventory lets you go back to the drive and folder behind each result.",
+      "linkedin_copy": "A list of duplicate files is more useful when you can see where each result came from.\n\nDrive, folder and scan context help you work out whether you are looking at an old export, a working directory or another copy of a familiar archive. Those details are easy to lose when information is reduced to a total number of gigabytes.\n\nBackDown's alpha combines a local file inventory with a browser for indexed folders and past scans. Read-only viewers let you inspect supported files, including PDFs, text and SQLite databases, from that local interface.\n\nThe aim is a result you can follow back to the data behind it.\n\nShare the archive questions you need answered in the replies. Join early access for one email when BackDown is ready.\n\nhttps://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p06#join",
+      "short_copy": "Keep the drive and folder attached to the result. Explore BackDown’s local inventory. Join early access for one email when BackDown is ready.\nhttps://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p06#join",
+      "alt_text": "BackDown campaign card reading “Keep the path attached to the file.” It describes tracing inventory results to their drive and folder.",
+      "cta_url": "https://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p06#join",
+      "short_cta_url": "https://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p06#join",
+      "source_refs": [
+        "marketing/status.json: shipped alpha.2, alpha.4",
+        "marketing/status.json: milestones v0.2"
+      ]
+    },
+    {
+      "id": "P07",
+      "date": "2026-10-13",
+      "title": "Try the public alpha",
+      "pillar": "Product",
+      "theme": "Alpha quickstart",
+      "visual_headline": "Start with one folder you know.",
+      "visual_subhead": "Download the command-line alpha, index a familiar folder, then inspect its local inventory.",
+      "linkedin_copy": "BackDown v0.2.0-alpha.4 is available to try now.\n\nChoose the build for your machine: Linux x86-64 or ARM64, macOS universal for Apple silicon and Intel, or Windows x86-64. The download page includes release checksums and setup notes.\n\nFor a first look, use a small folder whose contents you already know. Run the index command, inspect the local browser, then try hashing and duplicate checks with a second known copy. The index, hash, dupes and check commands are the core of this preview.\n\nThe alpha also includes read-only viewers for supported file types. It is an early release; clear, reproducible feedback is especially useful.\n\nDownload directly. There is no email signup gate.\n\nhttps://backdown.io/download/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p07",
+      "short_copy": "Try BackDown v0.2.0-alpha.4: index, hash, dupes, check and a local browser. Linux, macOS and Windows builds. Direct download; no signup gate.\nhttps://backdown.io/download/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p07",
+      "alt_text": "BackDown campaign card reading “Start with one folder you know.” It introduces the command-line alpha and a small first indexing task.",
+      "cta_url": "https://backdown.io/download/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p07",
+      "short_cta_url": "https://backdown.io/download/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p07",
+      "source_refs": [
+        "marketing/downloads.json",
+        "marketing/i18n/en.json: download.note",
+        "marketing/status.json: shipped alpha.1, alpha.2, alpha.4"
+      ]
+    },
+    {
+      "id": "P08",
+      "date": "2026-10-15",
+      "title": "The archive that started it",
+      "pillar": "Origin",
+      "theme": "Founding archive dataset",
+      "visual_headline": "One archive. Twenty-seven million files.",
+      "visual_subhead": "BackDown began with one drive-consolidation job: 15 TB read and hashed, with 5.9 TB of duplication uncovered.",
+      "linkedin_copy": "BackDown began as a one-off job: consolidate years of old disks into one archive and work out which drives could be cleared.\n\nThat founding archive contained about 27 million files. The original work read and hashed 15 TB, and uncovered 5.9 TB of duplication on the largest drive. An important mail archive only became clear after examining the script that had backed it up.\n\nThese are results from that one archive, not a promised saving or a benchmark for every machine.\n\nThe experience gave BackDown a practical focus: make the inventory inspectable, compare contents and preserve enough context to understand a result.\n\nThe public product is now an alpha. Join early access for one email when BackDown is ready.\n\nhttps://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p08#join",
+      "short_copy": "BackDown began with one archive: 27M files, 15 TB hashed, 5.9 TB duplicated. One dataset. Join early access for one email when BackDown is ready.\nhttps://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p08#join",
+      "alt_text": "BackDown campaign card headed “One archive. Twenty-seven million files.” It labels 15 TB and 5.9 TB as figures from the founding archive.",
+      "cta_url": "https://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p08#join",
+      "short_cta_url": "https://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p08#join",
+      "source_refs": [
+        "marketing/i18n/en.json: story.p1, story.p2, story.s1_value, story.s2_value, story.s2_label, story.s3_value",
+        "marketing/status.json: shipped v0.1"
+      ]
+    },
+    {
+      "id": "P09",
+      "date": "2026-10-17",
+      "title": "What you can try today",
+      "pillar": "Product",
+      "theme": "Feature boundary honesty",
+      "visual_headline": "Available today. Planned for later.",
+      "visual_subhead": "The public alpha covers inventory, hashing, duplicate checks and local browsing. Broader archive workflows are still being built.",
+      "linkedin_copy": "A product roadmap is easier to judge when the current release is clear.\n\nHere is what you can try in BackDown's public v0.2.0-alpha.4: a command-line tool for indexing, hashing, duplicate discovery and checks, plus a local file browser and read-only viewers for supported formats.\n\nA polished native desktop experience and broader planning, copying and archive-management workflows are planned work. They should be evaluated as roadmap items, rather than reasons to expect those workflows in today's alpha.\n\nThe preview is useful if you are comfortable with a terminal and want to inspect a real drive inventory. Follow this account for development notes and new releases.\n\nJoin early access for one email when BackDown is ready.\n\nhttps://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p09#join",
+      "short_copy": "BackDown’s alpha: inventory, hashing and local browsing. Native desktop is planned. Join early access for one email when BackDown is ready.\nhttps://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p09#join",
+      "alt_text": "BackDown campaign card headed “Available today. Planned for later.” It separates current alpha inspection tools from planned archive workflows.",
+      "cta_url": "https://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p09#join",
+      "short_cta_url": "https://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p09#join",
+      "source_refs": [
+        "marketing/status.json: shipped alpha.1, alpha.2, alpha.4",
+        "marketing/status.json: milestones v0.4, v0.5, v1.0"
+      ]
+    },
+    {
+      "id": "P10",
+      "date": "2026-10-20",
+      "title": "Help make an inventory easier to understand",
+      "pillar": "Participation",
+      "theme": "Useful feedback invitation",
+      "visual_headline": "Which result would you need explained?",
+      "visual_subhead": "A confusing folder, an unclear comparison, or a missing detail: specific feedback helps improve the alpha.",
+      "linkedin_copy": "Useful early feedback can be very small.\n\nA folder that is hard to recognise. A result whose wording is unclear. A file preview that does not show what you expected. A question the inventory leaves unanswered.\n\nBackDown's alpha is ready for that kind of scrutiny. It indexes drives, checks content matches and lets you inspect results in a local browser. The people trying it can help make those results easier to understand.\n\nIf you have feedback, describe what you expected, what happened, your operating system and the version you tried. A minimal example using non-sensitive files is especially helpful; there is no need to share your archive.\n\nWhat would you need an old-drive inventory to explain? Reply here. Join early access for one email when BackDown is ready.\n\nhttps://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p10#join",
+      "short_copy": "What should an old-drive inventory explain? Tell us what is unclear in BackDown’s alpha. Join early access for one email when BackDown is ready.\nhttps://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p10#join",
+      "alt_text": "BackDown campaign card asking “Which result would you need explained?” It invites specific feedback on confusing inventory results.",
+      "cta_url": "https://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p10#join",
+      "short_cta_url": "https://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p10#join",
+      "source_refs": [
+        "marketing/status.json: shipped alpha.1, alpha.2, alpha.4"
+      ]
+    },
+    {
+      "id": "P11",
+      "date": "2026-10-22",
+      "title": "Names do not prove content",
+      "pillar": "Education",
+      "theme": "Filename versus identical content",
+      "visual_headline": "Same name does not prove same file.",
+      "visual_subhead": "Renaming a file changes its label. Hashing compares its contents, helping you inspect the copies behind the names.",
+      "linkedin_copy": "Consider two files both named “holiday.jpg”. They could be different photos.\n\nNow consider “holiday.jpg” and “holiday-copy.jpg”. They could contain exactly the same photo data.\n\nNames help people organise things, but they do not establish that file contents match. That becomes a problem when years of exports, renamed folders and device backups meet in one archive.\n\nBackDown's alpha uses content hashing as part of its duplicate checks. It helps you investigate copies by their data, while keeping the paths available so you can understand where the results came from.\n\nA match is still something to interpret within your backup plan. Start with evidence, then decide which copies serve a purpose.\n\nJoin early access for one email when BackDown is ready.\n\nhttps://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p11#join",
+      "short_copy": "Same name, different contents? BackDown uses hashing to investigate copies. Join early access for one email when BackDown is ready.\nhttps://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p11#join",
+      "alt_text": "BackDown campaign card stating “Same name does not prove same file.” It explains that names are labels and hashes compare content.",
+      "cta_url": "https://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p11#join",
+      "short_cta_url": "https://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p11#join",
+      "source_refs": [
+        "marketing/status.json: shipped alpha.1",
+        "marketing/i18n/en.json: how.s2_body"
+      ]
+    },
+    {
+      "id": "P12",
+      "date": "2026-10-27",
+      "title": "From a drawer to an understandable archive",
+      "pillar": "Invitation",
+      "theme": "Month recap and signups",
+      "visual_headline": "Know what you have. Find the other copy.",
+      "visual_subhead": "Follow BackDown as the alpha develops: local inventories, content comparisons and results you can inspect.",
+      "linkedin_copy": "Over the past month, we have looked at the questions behind BackDown: what is on each drive, where the other copies are, and what evidence says their contents match.\n\nThe new paired bd mark brings that idea into the identity. The product is still at an early stage: the public alpha offers indexing, hashing, duplicate checks and local browsing, with read-only viewers for supported files.\n\nThe next steps will be shaped by what people find useful and what remains hard to understand. A clear inventory of an old drive is a good place to start.\n\nIf you have a drawer of disks, a sprawling archive or a comparison you cannot quite trust, follow this account for progress. Join early access for one email when BackDown is ready.\n\nhttps://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p12#join",
+      "short_copy": "Know what is on your drives. Find the matching copies. BackDown’s alpha is the start. Join early access for one email when BackDown is ready.\nhttps://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p12#join",
+      "alt_text": "BackDown campaign card reading “Know what you have. Find the other copy.” It invites readers to sign up for one email when BackDown is ready.",
+      "cta_url": "https://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p12#join",
+      "short_cta_url": "https://backdown.io/?utm_source=bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p12#join",
+      "source_refs": [
+        "marketing/status.json: shipped alpha.1, alpha.2, alpha.4",
+        "marketing/public/brand/backdown-mark.svg"
+      ]
+    }
+  ]
+}

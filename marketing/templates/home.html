@@ -1,0 +1,73 @@
+ <div class="wrap hero">
+  <span class="status"><span class="dot"></span>{{hero.status}}</span>
+  <h1>{{hero.title}}</h1>
+  <p class="lede">{{hero.lede}}</p>
+  <div class="hero-join">
+   {{@form}}
+   <p class="nojs-msg ok" id="joined">{{form.ok}}</p>
+   <p class="nojs-msg err" id="join-error">{{form.nojs_error}}</p>
+   <p class="join-note">{{form.note}}</p>
+  </div>
+ </div>
+
+ <section class="showcase" id="screens" aria-roledescription="carousel" aria-label="{{slides.label|attr}}">
+  <div class="wrap-wide">
+   <div class="stage">
+    <div class="track" tabindex="0">
+{{@slides}}
+    </div>
+   </div>
+   <div class="show-ctl" hidden>
+    <button class="sbtn" type="button" data-step="-1" aria-label="{{slides.prev|attr}}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+    <div class="sdots">{{@dots}}</div>
+    <button class="sbtn" type="button" data-step="1" aria-label="{{slides.next|attr}}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
+    <button class="sbtn splay" type="button" aria-label="{{slides.pause|attr}}" data-pause="{{slides.pause|attr}}" data-play="{{slides.play|attr}}"><svg class="i-pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg><svg class="i-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.2-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg></button>
+   </div>
+   <p class="show-note">{{slides.note}}</p>
+  </div>
+ </section>
+
+ <section id="how">
+  <div class="wrap">
+   <div class="head"><span class="eyebrow">{{how.eyebrow}}</span><h2>{{how.title}}</h2>
+    <p>{{how.intro}}</p></div>
+   <div class="steps">
+    <article class="step card"><h3>{{how.s1_title}}</h3><p>{{how.s1_body}}</p></article>
+    <article class="step card"><h3>{{how.s2_title}}</h3><p>{{how.s2_body}}</p></article>
+    <article class="step card"><h3>{{how.s3_title}}</h3><p>{{how.s3_body}}</p></article>
+   </div>
+  </div>
+ </section>
+
+ <section id="story">
+  <div class="wrap">
+   <div class="split">
+    <div><span class="eyebrow">{{story.eyebrow}}</span><h2>{{story.title}}</h2></div>
+    <div class="prose">
+     <p>{{story.p1}}</p>
+     <p>{{story.p2}}</p>
+     <p>{{story.p3}}</p>
+    </div>
+   </div>
+   <div class="stats">
+    <div class="stat card"><div class="v">{{story.s1_value}}</div><div class="l">{{story.s1_label}}</div></div>
+    <div class="stat card"><div class="v">{{story.s2_value}}</div><div class="l">{{story.s2_label}}</div></div>
+    <div class="stat card hot"><div class="v">{{story.s3_value}}</div><div class="l">{{story.s3_label}}</div></div>
+    <div class="stat card"><div class="v">{{story.s4_value}}</div><div class="l">{{story.s4_label}}</div></div>
+   </div>
+  </div>
+ </section>
+
+ <section id="explore">
+  <div class="wrap">
+   <div class="head"><span class="eyebrow">{{explore.eyebrow}}</span><h2>{{explore.title}}</h2></div>
+   <div class="explore">
+    <a class="go card" href="{{@href.features}}"><h3>{{nav.features}}</h3><p>{{explore.features}}</p><span class="more" aria-hidden="true">→</span></a>
+    <a class="go card" href="{{@href.pricing}}"><h3>{{nav.pricing}}</h3><p>{{explore.pricing}}</p><span class="more" aria-hidden="true">→</span></a>
+    <a class="go card" href="{{@href.download}}"><h3>{{nav.download}}</h3><p>{{explore.download}}</p><span class="more" aria-hidden="true">→</span></a>
+    <a class="go card" href="{{@href.status}}"><h3>{{nav.status}}</h3><p>{{explore.status}}</p><span class="more" aria-hidden="true">→</span></a>
+   </div>
+  </div>
+ </section>
+
+{{@join}}

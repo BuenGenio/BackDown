@@ -1,0 +1,380 @@
+{
+  "_comment": "The /status/ page's roadmap and changelog. Text fields are {lang: text}; a missing language falls back to English (marked lang=en), so English can be updated first. Keep it public-safe: no real paths, hosts or drive names.",
+  "updated": "2026-09-28",
+  "now": [
+    {
+      "state": "done",
+      "text": {
+        "en": "Recognising what things are (mail stores, Time Machine sets, phone backups, systems, repositories, photo libraries) and where they came from",
+        "es": "Reconocer qué es cada cosa (buzones de correo, copias de Time Machine, copias de teléfonos, sistemas, repositorios, bibliotecas de fotos) y de dónde viene",
+        "pt-br": "Identificar o que é cada coisa (caixas de e-mail, conjuntos do Time Machine, backups de celular, sistemas, repositórios, bibliotecas de fotos) e de onde veio",
+        "de": "Erkennen, was was ist (Postfächer, Time-Machine-Backups, Smartphone-Backups, Systeme, Repositorys, Fotobibliotheken) und woher es stammt",
+        "pl": "Rozpoznawanie, co jest czym (archiwa poczty, zestawy Time Machine, kopie zapasowe telefonów, systemy, repozytoria, biblioteki zdjęć) i skąd pochodzi",
+        "cs": "Rozpoznávání, co je co (poštovní schránky, sady Time Machine, zálohy telefonů, systémy, repozitáře, knihovny fotek) a odkud to pochází",
+        "sk": "Rozpoznávanie, čo je čo (poštové schránky, zálohy Time Machine, zálohy telefónov, systémy, repozitáre, knižnice fotografií) a odkiaľ to pochádza",
+        "uk": "Розпізнавання, що є що (поштові скриньки, набори Time Machine, резервні копії телефонів, системи, репозиторії, фототеки) і звідки воно взялося"
+      }
+    },
+    {
+      "state": "done",
+      "text": {
+        "en": "A generated report: every drive, what's on it, how much exists elsewhere, and which drives are safe to wipe",
+        "es": "Un informe generado automáticamente: cada disco, qué contiene, cuánto está ya en otro lugar y qué discos se pueden borrar sin riesgo",
+        "pt-br": "Um relatório gerado automaticamente: cada disco, o que há nele, quanto já existe em outro lugar e quais discos podem ser apagados com segurança",
+        "de": "Ein automatisch erstellter Bericht: jedes Laufwerk, was darauf liegt, wie viel davon anderswo vorhanden ist und welche Laufwerke sicher löschbar sind",
+        "pl": "Automatycznie generowany raport: każdy dysk, co na nim jest, ile z tego istnieje gdzie indziej i które dyski można bezpiecznie wyczyścić",
+        "cs": "Automaticky vytvořený report: každý disk, co na něm je, kolik z toho existuje jinde a které disky lze bezpečně smazat",
+        "sk": "Automaticky vytvorený report: každý disk, čo na ňom je, koľko z toho existuje inde a ktoré disky môžete bezpečne vymazať",
+        "uk": "Автоматичний звіт: кожен диск, що на ньому є, скільки з цього вже є деінде і які диски можна безпечно стерти"
+      }
+    },
+    {
+      "state": "done",
+      "text": {
+        "en": "A filing plan and verified, journaled copying into one archive, plus mirrors that keep a second copy checked",
+        "es": "Un plan de organización y una copia verificada y con registro a un único archivo, además de espejos que mantienen comprobada una segunda copia",
+        "pt-br": "Um plano de organização e cópia verificada, registrada no journal, para um único acervo, além de espelhos que mantêm uma segunda cópia sempre conferida",
+        "de": "Ein Ablageplan und verifiziertes Kopieren mit Journal in ein einziges Archiv, dazu Spiegelungen als laufend geprüfte zweite Kopie",
+        "pl": "Plan uporządkowania plików i zweryfikowane kopiowanie z dziennikiem do jednego archiwum, a także kopie lustrzane, dzięki którym druga kopia jest stale sprawdzana",
+        "cs": "Plán roztřídění a ověřené kopírování se žurnálem do jednoho archivu, k tomu zrcadla jako průběžně kontrolovaná druhá kopie",
+        "sk": "Plán zatriedenia a overené kopírovanie so žurnálom do jedného archívu, k tomu zrkadlá ako priebežne kontrolovaná druhá kópia",
+        "uk": "План впорядкування й перевірене копіювання з журналом в один архів, а також дзеркала, що тримають другу копію завжди перевіреною"
+      }
+    },
+    {
+      "state": "done",
+      "text": {
+        "en": "Every disk and partition on the computer, classified, and importing the original scripts' index",
+        "es": "Clasificación de todos los discos y particiones del ordenador e importación del índice de los scripts originales",
+        "pt-br": "Classificação de todos os discos e partições do computador e importação do índice dos scripts originais",
+        "de": "Klassifizierung aller Datenträger und Partitionen im Computer und Import des Index aus den ursprünglichen Skripten",
+        "pl": "Klasyfikacja wszystkich dysków i partycji w komputerze oraz import indeksu z pierwotnych skryptów",
+        "cs": "Klasifikace všech disků a oddílů v počítači a import indexu z původních skriptů",
+        "sk": "Klasifikácia všetkých diskov a oddielov v počítači a import indexu z pôvodných skriptov",
+        "uk": "Класифікація всіх дисків і розділів комп’ютера та імпорт індексу з початкових скриптів"
+      }
+    },
+    {
+      "state": "doing",
+      "text": {
+        "en": "Freeing up drives: tick what to wipe, move what exists only there, and delete only what has a verified copy",
+        "es": "Liberar discos: marca lo que quieres borrar, mueve lo que solo está ahí y elimina únicamente lo que tenga una copia verificada",
+        "pt-br": "Liberar discos: marque o que apagar, mova o que só existe ali e exclua apenas o que tiver cópia verificada",
+        "de": "Laufwerke freigeben: auswählen, was gelöscht werden soll, verschieben, was nur dort liegt, und nur löschen, was eine verifizierte Kopie hat",
+        "pl": "Zwalnianie dysków: zaznacz, co wyczyścić, przenieś to, co jest tylko tam, i usuń wyłącznie to, co ma zweryfikowaną kopię",
+        "cs": "Uvolňování disků: zaškrtnete, co se má smazat, přesunete, co existuje jen tam, a smaže se jen to, co má ověřenou kopii",
+        "sk": "Uvoľňovanie diskov: zaškrtnete, čo sa má vymazať, presuniete, čo existuje len tam, a zmaže sa len to, čo má overenú kópiu",
+        "uk": "Звільнення дисків: позначте, що стерти, перенесіть те, що є тільки там, а видалено буде лише те, що має перевірену копію"
+      }
+    },
+    {
+      "state": "doing",
+      "text": {
+        "en": "Rescue: copy a failing drive or memory card safely, then find deleted photos, documents and lost partitions",
+        "es": "Rescate: copia sin riesgo un disco o una tarjeta de memoria que está fallando y luego encuentra fotos y documentos borrados y particiones perdidas",
+        "pt-br": "Resgate: copie com segurança um disco ou cartão de memória que está falhando e depois encontre fotos e documentos apagados e partições perdidas",
+        "de": "Datenrettung: ein ausfallendes Laufwerk oder eine Speicherkarte sicher kopieren, dann gelöschte Fotos und Dokumente sowie verlorene Partitionen wiederfinden",
+        "pl": "Ratowanie danych: bezpiecznie skopiuj padający dysk lub kartę pamięci, a potem odnajdź usunięte zdjęcia, dokumenty i utracone partycje",
+        "cs": "Záchrana dat: bezpečně zkopírujete odcházející disk nebo paměťovou kartu a pak najdete smazané fotky, dokumenty a ztracené oddíly",
+        "sk": "Záchrana dát: bezpečne skopírujete zlyhávajúci disk alebo pamäťovú kartu a potom nájdete zmazané fotografie, dokumenty a stratené oddiely",
+        "uk": "Порятунок даних: безпечно скопіюйте диск, що виходить з ладу, або карту пам’яті, а потім знайдіть видалені фото, документи й втрачені розділи"
+      }
+    },
+    {
+      "state": "doing",
+      "text": {
+        "en": "Pre-orders for BackDown Pro, with licence keys that are checked offline",
+        "es": "Reservas de BackDown Pro, con claves de licencia que se comprueban sin conexión",
+        "pt-br": "Pré-venda do BackDown Pro, com chaves de licença verificadas offline",
+        "de": "Vorbestellungen für BackDown Pro, mit Lizenzschlüsseln, die offline geprüft werden",
+        "pl": "Przedsprzedaż BackDown Pro z kluczami licencyjnymi sprawdzanymi offline",
+        "cs": "Předobjednávky BackDown Pro s licenčními klíči, které se ověřují offline",
+        "sk": "Predobjednávky BackDown Pro s licenčnými kľúčmi, ktoré sa overujú offline",
+        "uk": "Передзамовлення BackDown Pro з ліцензійними ключами, що перевіряються офлайн"
+      }
+    },
+    {
+      "state": "next",
+      "text": {
+        "en": "The next preview release, with all of the above",
+        "es": "La próxima versión preliminar, con todo lo anterior",
+        "pt-br": "A próxima versão prévia, com tudo o que está acima",
+        "de": "Die nächste Vorschauversion mit allem oben Genannten",
+        "pl": "Następna wersja zapoznawcza, a w niej wszystko powyższe",
+        "cs": "Další náhledová verze se vším výše uvedeným",
+        "sk": "Ďalšia predbežná verzia so všetkým uvedeným vyššie",
+        "uk": "Наступна попередня версія з усім переліченим вище"
+      }
+    }
+  ],
+  "milestones": [
+    {
+      "version": "v0.1",
+      "state": "done",
+      "when": [
+        2026,
+        3
+      ],
+      "title": {
+        "en": "The original scripts",
+        "es": "Los scripts originales",
+        "pt-br": "Os scripts originais",
+        "de": "Die ursprünglichen Skripte",
+        "pl": "Pierwotne skrypty",
+        "cs": "Původní skripty",
+        "sk": "Pôvodné skripty",
+        "uk": "Початкові скрипти"
+      },
+      "body": {
+        "en": "Resumable indexing, SHA-256 hashing and a live dashboard, proven on 27 million files across 15 TB.",
+        "es": "Indexación reanudable, hashes SHA-256 y un panel en tiempo real, probados con 27 millones de archivos en 15 TB.",
+        "pt-br": "Indexação retomável, hash SHA-256 e um painel ao vivo, postos à prova em 27 milhões de arquivos e 15 TB.",
+        "de": "Fortsetzbare Indexierung, SHA-256-Hashing und ein Live-Dashboard, bewährt an 27 Millionen Dateien auf 15 TB.",
+        "pl": "Indeksowanie z możliwością wznowienia, hashowanie SHA-256 i panel na żywo, sprawdzone na 27 milionach plików o łącznym rozmiarze 15 TB.",
+        "cs": "Indexování, které lze navázat, hashování SHA-256 a živý dashboard, prověřené na 27 milionech souborů a 15 TB dat.",
+        "sk": "Indexovanie, ktoré vie pokračovať po prerušení, hashovanie SHA-256 a živý dashboard, overené na 27 miliónoch súborov s objemom 15 TB.",
+        "uk": "Індексування з можливістю продовження, хешування SHA-256 і панель у реальному часі — перевірено на 27 мільйонах файлів обсягом 15 TB."
+      }
+    },
+    {
+      "version": "v0.2",
+      "state": "now",
+      "when": [
+        2026,
+        4
+      ],
+      "title": {
+        "en": "Command-line preview",
+        "es": "Versión preliminar de línea de comandos",
+        "pt-br": "Prévia de linha de comando",
+        "de": "Kommandozeilen-Vorschau",
+        "pl": "Wersja zapoznawcza CLI",
+        "cs": "Náhledová verze CLI",
+        "sk": "Predbežná verzia CLI",
+        "uk": "Попередня CLI-версія"
+      },
+      "body": {
+        "en": "One fast binary for Linux, macOS and Windows: index, hash, find duplicates, prove a drive is safe to wipe, browse any past scan, and run as a background service.",
+        "es": "Un único binario rápido para Linux, macOS y Windows: indexa, calcula hashes, encuentra duplicados, demuestra que un disco se puede borrar sin riesgo, explora cualquier escaneo anterior y funciona como servicio en segundo plano.",
+        "pt-br": "Um único binário rápido para Linux, macOS e Windows: indexar, calcular hashes, encontrar duplicados, provar que um disco pode ser apagado com segurança, navegar por qualquer varredura anterior e rodar como serviço em segundo plano.",
+        "de": "Eine schnelle Binärdatei für Linux, macOS und Windows: indexieren, hashen, Duplikate finden, nachweisen, dass ein Laufwerk sicher löschbar ist, jeden früheren Scan durchstöbern und als Hintergrunddienst laufen.",
+        "pl": "Jeden szybki plik binarny dla systemów Linux, macOS i Windows: indeksuje, liczy hashe, znajduje duplikaty, dowodzi, że dysk można bezpiecznie wyczyścić, pozwala przeglądać każdy wcześniejszy skan i działa jako usługa w tle.",
+        "cs": "Jeden rychlý binární soubor pro Linux, macOS a Windows: indexuje, hashuje, hledá duplikáty, dokáže, že disk lze bezpečně smazat, projde kterýkoli dřívější sken a běží jako služba na pozadí.",
+        "sk": "Jeden rýchly binárny súbor pre Linux, macOS a Windows: indexuje, hashuje, hľadá duplikáty, dokazuje, že disk môžete bezpečne vymazať, prehliada ľubovoľný starší sken a beží ako služba na pozadí.",
+        "uk": "Один швидкий бінарний файл для Linux, macOS і Windows: індексує, хешує, знаходить дублікати, доводить, що диск можна безпечно стерти, показує будь-яке минуле сканування й працює як фонова служба."
+      }
+    },
+    {
+      "version": "v0.3",
+      "state": "now",
+      "when": [
+        2026,
+        4
+      ],
+      "title": {
+        "en": "Recognisers and reports",
+        "es": "Reconocimiento e informes",
+        "pt-br": "Reconhecedores e relatórios",
+        "de": "Erkennung und Berichte",
+        "pl": "Rozpoznawanie i raporty",
+        "cs": "Rozpoznávání a reporty",
+        "sk": "Rozpoznávanie a reporty",
+        "uk": "Розпізнавання і звіти"
+      },
+      "body": {
+        "en": "Tell what each folder is (mail archives, Time Machine sets, phone backups, photo libraries, git repositories) and where it came from, then write a report with a verdict for every drive.",
+        "es": "Saber qué es cada carpeta (correo archivado, copias de Time Machine, copias de teléfonos, bibliotecas de fotos, repositorios git) y de dónde viene, y después redactar un informe con un veredicto para cada disco.",
+        "pt-br": "Identificar o que é cada pasta (acervos de e-mail, conjuntos do Time Machine, backups de celular, bibliotecas de fotos, repositórios git) e de onde ela veio, e então gerar um relatório com um veredito para cada disco.",
+        "de": "Erkennen, was hinter jedem Ordner steckt (Mailarchive, Time-Machine-Backups, Smartphone-Backups, Fotobibliotheken, Git-Repositorys) und woher er stammt, und daraus einen Bericht mit einem Urteil für jedes Laufwerk erstellen.",
+        "pl": "Rozpoznaje, czym jest każdy folder (archiwa poczty, zestawy Time Machine, kopie zapasowe telefonów, biblioteki zdjęć, repozytoria git) i skąd pochodzi, a potem tworzy raport z werdyktem dla każdego dysku.",
+        "cs": "Pozná, co je která složka zač (poštovní archivy, sady Time Machine, zálohy telefonů, knihovny fotek, repozitáře git) a odkud pochází, a pak sepíše report s verdiktem pro každý disk.",
+        "sk": "Zistí, čo je každý priečinok zač (poštové archívy, zálohy Time Machine, zálohy telefónov, knižnice fotografií, repozitáre git) a odkiaľ pochádza, a potom vytvorí report s verdiktom pre každý disk.",
+        "uk": "Визначати, що являє собою кожна тека (поштові архіви, набори Time Machine, резервні копії телефонів, фототеки, репозиторії git) і звідки вона взялася, а потім складати звіт із вердиктом щодо кожного диска."
+      }
+    },
+    {
+      "version": "v0.4",
+      "state": "now",
+      "when": [
+        2027,
+        1
+      ],
+      "title": {
+        "en": "Planner and journaled copy",
+        "es": "Planificador y copia con registro",
+        "pt-br": "Planejador e cópia com journal",
+        "de": "Planer und Kopieren mit Journal",
+        "pl": "Planowanie i kopiowanie z dziennikiem",
+        "cs": "Plánovač a kopírování se žurnálem",
+        "sk": "Plánovač a kopírovanie so žurnálom",
+        "uk": "Планувальник і копіювання з журналом"
+      },
+      "body": {
+        "en": "Propose a clean archive layout, copy into it with every step journaled and re-verified by hash, and only then free up the old drives.",
+        "es": "Proponer una organización limpia para el archivo, copiar en ella registrando cada paso y volviendo a verificarlo por hash, y solo entonces liberar los discos antiguos.",
+        "pt-br": "Propor uma organização limpa para o acervo, copiar tudo para ela com cada etapa registrada no journal e verificada novamente por hash e, só então, liberar os discos antigos.",
+        "de": "Eine saubere Archivstruktur vorschlagen, die Daten dorthin kopieren, wobei jeder Schritt im Journal erfasst und per Hash erneut verifiziert wird, und erst dann die alten Laufwerke freigeben.",
+        "pl": "Proponuje przejrzysty układ archiwum, kopiuje do niego dane, zapisując każdy krok w dzienniku i ponownie weryfikując go hashem, i dopiero wtedy zwalnia stare dyski.",
+        "cs": "Navrhne čisté uspořádání archivu, zkopíruje do něj data, každý krok zapíše do žurnálu a znovu ověří hashem – a teprve pak uvolní staré disky.",
+        "sk": "Navrhne prehľadnú štruktúru archívu, skopíruje doň dáta, pričom každý krok zapíše do žurnálu a znova overí hashom, a až potom uvoľní staré disky.",
+        "uk": "Запропонувати впорядковану структуру архіву, скопіювати в неї дані, записуючи кожен крок у журнал і повторно перевіряючи його хешем, і лише тоді звільнити старі диски."
+      }
+    },
+    {
+      "version": "v0.5",
+      "state": "later",
+      "when": [
+        2027,
+        1
+      ],
+      "title": {
+        "en": "Desktop app",
+        "es": "App de escritorio",
+        "pt-br": "App para desktop",
+        "de": "Desktop-App",
+        "pl": "Aplikacja desktopowa",
+        "cs": "Desktopová aplikace",
+        "sk": "Desktopová aplikácia",
+        "uk": "Настільний застосунок"
+      },
+      "body": {
+        "en": "Everything above without a terminal: plug in two drives, see what's duplicated, get a report.",
+        "es": "Todo lo anterior sin terminal: conecta dos discos, mira qué está duplicado y obtén un informe.",
+        "pt-br": "Tudo isso sem terminal: conecte dois discos, veja o que está duplicado e receba um relatório.",
+        "de": "Alles oben Genannte ohne Terminal: zwei Laufwerke anschließen, sehen, was doppelt ist, Bericht erhalten.",
+        "pl": "Wszystko powyższe bez terminala: podłącz dwa dyski, zobacz, co jest zduplikowane, i odbierz raport.",
+        "cs": "Všechno výše uvedené bez terminálu: připojíte dva disky, uvidíte, co je duplicitní, a dostanete report.",
+        "sk": "Všetko uvedené vyššie bez terminálu: pripojte dva disky, pozrite sa, čo je duplicitné, a získajte report.",
+        "uk": "Усе перелічене вище — без термінала: під’єднайте два диски, подивіться, що дублюється, отримайте звіт."
+      }
+    },
+    {
+      "version": "v0.6",
+      "state": "later",
+      "when": [
+        2027,
+        2
+      ],
+      "title": {
+        "en": "Mirrors and drive health",
+        "es": "Espejos y estado de los discos",
+        "pt-br": "Espelhos e saúde dos discos",
+        "de": "Spiegelungen und Laufwerkszustand",
+        "pl": "Kopie lustrzane i stan dysków",
+        "cs": "Zrcadla a stav disků",
+        "sk": "Zrkadlá a stav diskov",
+        "uk": "Дзеркала й стан дисків"
+      },
+      "body": {
+        "en": "Scheduled mirror checks, drive-health trends, and a warning before a drive dies.",
+        "es": "Comprobaciones programadas de los espejos, tendencias del estado de los discos y un aviso antes de que un disco falle.",
+        "pt-br": "Verificações agendadas dos espelhos, tendências de saúde dos discos e um aviso antes que um disco morra.",
+        "de": "Zeitgesteuerte Prüfung der Spiegelungen, Trends zum Laufwerkszustand und eine Warnung, bevor ein Laufwerk ausfällt.",
+        "pl": "Sprawdzanie kopii lustrzanych według harmonogramu, trendy stanu dysków i ostrzeżenie, zanim dysk padnie.",
+        "cs": "Plánované kontroly zrcadel, vývoj stavu disků a varování dřív, než disk odejde.",
+        "sk": "Plánované kontroly zrkadiel, vývoj stavu diskov a varovanie skôr, než disk zlyhá.",
+        "uk": "Перевірка дзеркал за розкладом, динаміка стану дисків і попередження ще до того, як диск вийде з ладу."
+      }
+    },
+    {
+      "version": "v1.0",
+      "state": "later",
+      "when": [
+        2027,
+        2
+      ],
+      "title": {
+        "en": "macOS and Windows, natively",
+        "es": "macOS y Windows, de forma nativa",
+        "pt-br": "macOS e Windows, de forma nativa",
+        "de": "macOS und Windows, nativ",
+        "pl": "Natywnie w macOS i Windows",
+        "cs": "Nativně pro macOS a Windows",
+        "sk": "Natívne pre macOS a Windows",
+        "uk": "Нативно для macOS і Windows"
+      },
+      "body": {
+        "en": "Native disk handling for APFS, Time Machine and NTFS, with signed installers.",
+        "es": "Gestión nativa de discos para APFS, Time Machine y NTFS, con instaladores firmados.",
+        "pt-br": "Suporte nativo a discos APFS, Time Machine e NTFS, com instaladores assinados.",
+        "de": "Native Datenträgerunterstützung für APFS, Time Machine und NTFS, mit signierten Installationsprogrammen.",
+        "pl": "Natywna obsługa dysków z APFS, Time Machine i NTFS oraz podpisane instalatory.",
+        "cs": "Nativní práce s disky pro APFS, Time Machine a NTFS a podepsané instalátory.",
+        "sk": "Natívna práca s diskami APFS, Time Machine a NTFS a podpísané inštalátory.",
+        "uk": "Нативна робота з APFS, Time Machine і NTFS та підписані інсталятори."
+      }
+    }
+  ],
+  "shipped": [
+    {
+      "date": "2026-09-28",
+      "version": "v0.2.0-alpha.4",
+      "text": {
+        "en": "File browser fixes: double-click opens folders and files, the details pane previews images, PDFs, text and databases, and folders list correctly in older indexes.",
+        "es": "Correcciones en el explorador de archivos: el doble clic abre carpetas y archivos, el panel de detalles muestra vistas previas de imágenes, PDF, texto y bases de datos, y las carpetas se listan correctamente en los índices antiguos.",
+        "pt-br": "Correções no navegador de arquivos: clique duplo abre pastas e arquivos, o painel de detalhes mostra pré-visualizações de imagens, PDFs, textos e bancos de dados, e as pastas aparecem corretamente em índices antigos.",
+        "de": "Korrekturen am Dateibrowser: Doppelklick öffnet Ordner und Dateien, der Detailbereich zeigt Vorschauen von Bildern, PDFs, Text und Datenbanken, und Ordner werden auch in älteren Indizes korrekt aufgelistet.",
+        "pl": "Poprawki przeglądarki plików: podwójne kliknięcie otwiera foldery i pliki, panel szczegółów pokazuje podgląd obrazów, PDF-ów, tekstu i baz danych, a foldery ze starszych indeksów wyświetlają się poprawnie.",
+        "cs": "Opravy prohlížeče souborů: dvojklik otevírá složky i soubory, panel podrobností zobrazuje náhledy obrázků, PDF, textů a databází a složky ve starších indexech se vypisují správně.",
+        "sk": "Opravy prehliadača súborov: dvojklik otvára priečinky a súbory, panel podrobností zobrazuje náhľady obrázkov, PDF, textu a databáz a priečinky sa správne zobrazujú aj v starších indexoch.",
+        "uk": "Виправлення у файловому браузері: подвійне клацання відкриває теки й файли, панель відомостей показує попередній перегляд зображень, PDF, тексту й баз даних, а теки в старіших індексах відображаються правильно."
+      }
+    },
+    {
+      "date": "2026-09-27",
+      "version": "v0.2.0-alpha.3",
+      "text": {
+        "en": "<code>backdown daemon</code> and <code>backdown service install</code>: runs in the background, rescans drives when they're due or plugged back in, hashes after every scan, and serves the web UI (<code>backdown open</code>).",
+        "es": "<code>backdown daemon</code> y <code>backdown service install</code>: se ejecuta en segundo plano, vuelve a escanear los discos cuando les toca o cuando se vuelven a conectar, calcula los hashes tras cada escaneo y sirve la interfaz web (<code>backdown open</code>).",
+        "pt-br": "<code>backdown daemon</code> e <code>backdown service install</code>: roda em segundo plano, faz uma nova varredura dos discos quando chega a hora ou quando eles são reconectados, calcula os hashes depois de cada varredura e serve a interface web (<code>backdown open</code>).",
+        "de": "<code>backdown daemon</code> und <code>backdown service install</code>: läuft im Hintergrund, scannt Laufwerke neu, sobald es fällig ist oder sie wieder angeschlossen werden, hasht nach jedem Scan und stellt die Weboberfläche bereit (<code>backdown open</code>).",
+        "pl": "<code>backdown daemon</code> i <code>backdown service install</code>: działa w tle, ponownie skanuje dyski, gdy przyjdzie na to pora albo gdy znów zostaną podłączone, liczy hashe po każdym skanie i udostępnia interfejs webowy (<code>backdown open</code>).",
+        "cs": "<code>backdown daemon</code> a <code>backdown service install</code>: běží na pozadí, znovu proskenuje disky, když přijde čas nebo když je znovu připojíte, po každém skenu dopočítá hashe a servíruje webové rozhraní (<code>backdown open</code>).",
+        "sk": "<code>backdown daemon</code> a <code>backdown service install</code>: beží na pozadí, znova preskenuje disky, keď je čas alebo keď ich znova pripojíte, po každom skene hashuje a poskytuje webové rozhranie (<code>backdown open</code>).",
+        "uk": "<code>backdown daemon</code> і <code>backdown service install</code>: робота у фоні, повторне сканування дисків за розкладом або щойно їх знову під’єднано, хешування після кожного сканування і локальний вебінтерфейс (<code>backdown open</code>)."
+      }
+    },
+    {
+      "date": "2026-09-27",
+      "version": "v0.2.0-alpha.2",
+      "text": {
+        "en": "A local file browser with a time slider, and read-only viewers for PDFs, office documents, SQLite databases, git history and diffs.",
+        "es": "Un explorador de archivos local con un control deslizante temporal y visores de solo lectura para PDF, documentos de oficina, bases de datos SQLite, historial de git y diferencias.",
+        "pt-br": "Um navegador de arquivos local com controle deslizante de tempo e visualizadores somente leitura para PDFs, documentos de escritório, bancos de dados SQLite, histórico e diffs do git.",
+        "de": "Ein lokaler Dateibrowser mit Zeitregler und schreibgeschützten Viewern für PDFs, Office-Dokumente, SQLite-Datenbanken, Git-Verlauf und Diffs.",
+        "pl": "Lokalna przeglądarka plików z suwakiem czasu oraz widoki tylko do odczytu dla PDF-ów, dokumentów biurowych, baz danych SQLite, historii git i diffów.",
+        "cs": "Lokální prohlížeč souborů s časovým posuvníkem a prohlížeče jen pro čtení pro PDF, kancelářské dokumenty, databáze SQLite, historii repozitářů git a diffy.",
+        "sk": "Lokálny prehliadač súborov s časovým posuvníkom a zobrazenie PDF, kancelárskych dokumentov, databáz SQLite, histórie repozitárov git a diffov iba na čítanie.",
+        "uk": "Локальний файловий браузер із повзунком часу та переглядачі лише для читання для PDF, офісних документів, баз даних SQLite, історії git і порівнянь змін."
+      }
+    },
+    {
+      "date": "2026-09-27",
+      "version": "v0.2.0-alpha.1",
+      "text": {
+        "en": "The first command-line preview for Linux, macOS and Windows: <code>index</code>, tiered <code>hash</code>, <code>dupes</code>, and <code>check</code> (is this drive safe to wipe?).",
+        "es": "La primera versión preliminar de línea de comandos para Linux, macOS y Windows: <code>index</code>, <code>hash</code> por niveles, <code>dupes</code> y <code>check</code> (¿se puede borrar este disco sin riesgo?).",
+        "pt-br": "A primeira prévia de linha de comando para Linux, macOS e Windows: <code>index</code>, <code>hash</code> em camadas, <code>dupes</code> e <code>check</code> (este disco pode ser apagado com segurança?).",
+        "de": "Die erste Kommandozeilen-Vorschau für Linux, macOS und Windows: <code>index</code>, mehrstufiges <code>hash</code>, <code>dupes</code> und <code>check</code> (ist dieses Laufwerk sicher löschbar?).",
+        "pl": "Pierwsza wersja zapoznawcza CLI dla systemów Linux, macOS i Windows: <code>index</code>, wielostopniowy <code>hash</code>, <code>dupes</code> i <code>check</code> (czy ten dysk można bezpiecznie wyczyścić?).",
+        "cs": "První náhledová verze CLI pro Linux, macOS a Windows: <code>index</code>, víceúrovňový <code>hash</code>, <code>dupes</code> a <code>check</code> (lze tento disk bezpečně smazat?).",
+        "sk": "Prvá predbežná verzia CLI pre Linux, macOS a Windows: <code>index</code>, viacstupňový <code>hash</code>, <code>dupes</code> a <code>check</code> (dá sa tento disk bezpečne vymazať?).",
+        "uk": "Перша попередня CLI-версія для Linux, macOS і Windows: <code>index</code>, багаторівневий <code>hash</code>, <code>dupes</code> і <code>check</code> (чи можна безпечно стерти цей диск?)."
+      }
+    },
+    {
+      "date": "2026-09-21",
+      "version": "v0.1",
+      "text": {
+        "en": "The original scripts finish their first real job: 27 million files indexed, 15 TB hashed, and three drives wiped after hash verification.",
+        "es": "Los scripts originales terminan su primer trabajo real: 27 millones de archivos indexados, 15 TB con su hash calculado y tres discos borrados tras verificarlos por hash.",
+        "pt-br": "Os scripts originais concluem seu primeiro trabalho real: 27 milhões de arquivos indexados, 15 TB com hash calculado e três discos apagados após a verificação por hash.",
+        "de": "Die ursprünglichen Skripte erledigen ihren ersten echten Auftrag: 27 Millionen Dateien indexiert, 15 TB gehasht und drei Laufwerke nach Hash-Verifizierung gelöscht.",
+        "pl": "Pierwotne skrypty kończą swoje pierwsze prawdziwe zadanie: 27 milionów zindeksowanych plików, 15 TB zahashowanych danych i trzy dyski wyczyszczone po weryfikacji hashami.",
+        "cs": "Původní skripty dokončily svou první skutečnou práci: 27 milionů zaindexovaných souborů, 15 TB zahashovaných dat a tři disky smazané po ověření hashem.",
+        "sk": "Pôvodné skripty dokončili svoju prvú skutočnú úlohu: 27 miliónov zaindexovaných súborov, 15 TB zahashovaných dát a tri disky vymazané po overení hashom.",
+        "uk": "Початкові скрипти виконали своє перше справжнє завдання: проіндексовано 27 мільйонів файлів, прохешовано 15 TB, а три диски стерто після перевірки хешами."
+      }
+    }
+  ]
+}
