@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<array>
+	<dict>
+		<key>Device Characteristics</key>
+		<dict>
+			<key>Medium Type</key>
+			<string>Solid State</string>
+			<key>Product Name</key>
+			<string>FAKEAPPLE SSD AF0500</string>
+			<key>Product Revision Level</key>
+			<string>1.0</string>
+			<key>Serial Number</key>
+			<string>FAKEMAC0000SSD01    </string>
+		</dict>
+		<key>IOObjectClass</key>
+		<string>IONVMeBlockStorageDevice</string>
+		<key>IORegistryEntryChildren</key>
+		<array>
+			<dict>
+				<key>IOObjectClass</key>
+				<string>IOBlockStorageDriver</string>
+				<key>IORegistryEntryChildren</key>
+				<array>
+					<dict>
+						<key>BSD Name</key>
+						<string>disk0</string>
+						<key>IOObjectClass</key>
+						<string>IOMedia</string>
+						<key>IORegistryEntryChildren</key>
+						<array>
+							<dict>
+								<key>BSD Name</key>
+								<string>disk0s1</string>
+								<key>IOObjectClass</key>
+								<string>IOMedia</string>
+								<key>IORegistryEntryChildren</key>
+								<array/>
+								<key>IORegistryEntryName</key>
+								<string>disk0s1</string>
+								<key>Whole</key>
+								<false/>
+							</dict>
+							<dict>
+								<key>BSD Name</key>
+								<string>disk0s2</string>
+								<key>IOObjectClass</key>
+								<string>IOMedia</string>
+								<key>IORegistryEntryChildren</key>
+								<array/>
+								<key>IORegistryEntryName</key>
+								<string>disk0s2</string>
+								<key>Whole</key>
+								<false/>
+							</dict>
+							<dict>
+								<key>BSD Name</key>
+								<string>disk0s3</string>
+								<key>IOObjectClass</key>
+								<string>IOMedia</string>
+								<key>IORegistryEntryChildren</key>
+								<array/>
+								<key>IORegistryEntryName</key>
+								<string>disk0s3</string>
+								<key>Whole</key>
+								<false/>
+							</dict>
+						</array>
+						<key>IORegistryEntryName</key>
+						<string>disk0</string>
+						<key>Whole</key>
+						<true/>
+					</dict>
+				</array>
+			</dict>
+		</array>
+		<key>IORegistryEntryName</key>
+		<string>IONVMeBlockStorageDevice</string>
+	</dict>
+	<dict>
+		<key>IOObjectClass</key>
+		<string>IOBlockStorageServices</string>
+		<key>IORegistryEntryChildren</key>
+		<array>
+			<dict>
+				<key>IOObjectClass</key>
+				<string>IOBlockStorageDriver</string>
+				<key>IORegistryEntryChildren</key>
+				<array>
+					<dict>
+						<key>BSD Name</key>
+						<string>disk4</string>
+						<key>IOObjectClass</key>
+						<string>IOMedia</string>
+						<key>IORegistryEntryChildren</key>
+						<array>
+							<dict>
+								<key>BSD Name</key>
+								<string>disk4s1</string>
+								<key>IOObjectClass</key>
+								<string>IOMedia</string>
+								<key>IORegistryEntryChildren</key>
+								<array/>
+								<key>IORegistryEntryName</key>
+								<string>disk4s1</string>
+								<key>Whole</key>
+								<false/>
+							</dict>
+							<dict>
+								<key>BSD Name</key>
+								<string>disk4s2</string>
+								<key>IOObjectClass</key>
+								<string>IOMedia</string>
+								<key>IORegistryEntryChildren</key>
+								<array/>
+								<key>IORegistryEntryName</key>
+								<string>disk4s2</string>
+								<key>Whole</key>
+								<false/>
+							</dict>
+							<dict>
+								<key>BSD Name</key>
+								<string>disk4s3</string>
+								<key>IOObjectClass</key>
+								<string>IOMedia</string>
+								<key>IORegistryEntryChildren</key>
+								<array/>
+								<key>IORegistryEntryName</key>
+								<string>disk4s3</string>
+								<key>Whole</key>
+								<false/>
+							</dict>
+						</array>
+						<key>IORegistryEntryName</key>
+						<string>disk4</string>
+						<key>Whole</key>
+						<true/>
+					</dict>
+				</array>
+			</dict>
+		</array>
+		<key>IORegistryEntryName</key>
+		<string>IOBlockStorageServices</string>
+	</dict>
+</array>
+</plist>

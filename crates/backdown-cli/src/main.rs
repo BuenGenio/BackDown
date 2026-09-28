@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
-use backdown_core::{Db, fmt, hash, index, report};
+use backdown_core::{Db, fmt, hash, index, report, volumes};
 use clap::{Parser, Subcommand};
 use serde_json::json;
 
@@ -77,6 +77,12 @@ enum Cmd {
         json: bool,
         #[command(flatten)]
         hashing: HashArgs,
+    },
+    /// Every disk and partition on this machine: what's on it, and what BackDown can do with it
+    /// (read-only; needs no root)
+    Volumes {
+        #[arg(long)]
+        json: bool,
     },
     /// Finished scans, oldest first
     Scans {
@@ -227,6 +233,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 LicenseCmd::Show => license::show(),
             };
         }
+        Cmd::Volumes { json } => return run_volumes(cli.db, json),
         _ => {}
     }
     // a running daemon owns the index: hand the work to it (unless told not to)
@@ -338,7 +345,11 @@ fn local(db_path: &Path, cmd: Cmd) -> Result<ExitCode> {
                 println!("daemon: not running (backdown service install, or backdown daemon)");
             }
         }
-        Cmd::Daemon { .. } | Cmd::Open | Cmd::Service { .. } | Cmd::License { .. } => {
+        Cmd::Daemon { .. }
+        | Cmd::Open
+        | Cmd::Service { .. }
+        | Cmd::License { .. }
+        | Cmd::Volumes { .. } => {
             unreachable!("handled in run")
         }
     }
@@ -453,7 +464,8 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
         | Cmd::Daemon { .. }
         | Cmd::Open
         | Cmd::Service { .. }
-        | Cmd::License { .. } => {
+        | Cmd::License { .. }
+        | Cmd::Volumes { .. } => {
             unreachable!("handled in run")
         }
     }
@@ -482,6 +494,155 @@ fn open_ui() -> Result<ExitCode> {
     anyhow::bail!(
         "no BackDown daemon is running. Start one with `backdown service install` (or `backdown daemon`), or browse without it: `backdown serve`"
     )
+}
+
+/// `backdown volumes`: probe the disks, then mark what the index covers, if there is an index.
+/// Never creates one, and doesn't need the daemon.
+fn run_volumes(db: Option<PathBuf>, json: bool) -> Result<ExitCode> {
+    let mut r = volumes::probe()?;
+    let explicit = db.is_some();
+    let db = db
+        .or_else(|| client::Client::connect(None).map(|c| PathBuf::from(c.db)))
+        .unwrap_or_else(locations::default_db);
+    if db.is_file() {
+        match Db::open_read_only(&db).and_then(|d| volumes::mark_indexed(&mut r, &d)) {
+            Ok(()) => r.index = Some(db.display().to_string()),
+            Err(e) => r
+                .notes
+                .push(format!("couldn't read the index {}: {e:#}", db.display())),
+        }
+    } else if explicit {
+        r.notes.push(format!("no index at {}", db.display()));
+    }
+    if json {
+        println!("{}", serde_json::to_string_pretty(&r)?);
+    } else {
+        print_volumes(&r);
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// One block per disk, one row per volume (what's stacked on it indented below), fitting in 100
+/// columns: long mount points and notes are shortened in the middle, extra ones go on more lines.
+fn print_volumes(r: &volumes::Report) {
+    if r.disks.is_empty() {
+        println!("no disks found");
+    }
+    for (i, d) in r.disks.iter().enumerate() {
+        if i > 0 {
+            println!();
+        }
+        let mut head = vec![format!("{}  {}", d.name, fmt::bytes(d.size))];
+        head.extend(d.model.clone());
+        head.extend(d.transport.clone());
+        head.extend(
+            d.rotational
+                .map(|r| if r { "rotational" } else { "solid state" }.to_string()),
+        );
+        for (on, tag) in [
+            (d.removable, "removable"),
+            (d.read_only, "read-only"),
+            (d.system, "system disk"),
+        ] {
+            if on {
+                head.push(tag.to_string());
+            }
+        }
+        head.extend(d.backing_file.as_ref().map(|f| format!("file {f}")));
+        head.extend(d.serial.as_ref().map(|s| format!("S/N {s}")));
+        println!("{}", clip(&head.join(" · "), 100));
+        for v in &d.volumes {
+            print_volume(v, 0);
+        }
+    }
+    if !r.notes.is_empty() {
+        println!();
+        for n in &r.notes {
+            println!("note: {n}");
+        }
+    }
+}
+
+fn print_volume(v: &volumes::Volume, depth: usize) {
+    use volumes::State;
+    let name = match depth {
+        0 => v.name.clone(),
+        n => format!("{}└ {}", "  ".repeat(n - 1), v.name),
+    };
+    let state = match (v.state, v.read_only) {
+        (State::Mounted, Some(true)) => "mounted ro",
+        (State::Mounted, _) => "mounted rw",
+        (s, _) => s.as_str(),
+    };
+    let fs = v.fs_name.as_deref().unwrap_or(match v.state {
+        State::Unknown => "?",
+        _ => "-",
+    });
+    let mut details = Vec::new();
+    if !v.mounts.is_empty() {
+        let paths: Vec<&str> = v.mounts.iter().map(|m| m.path.as_str()).collect();
+        details.push(paths.join(", "));
+    }
+    if let Some(e) = &v.encryption {
+        let lock = if e.unlocked { "unlocked" } else { "locked" };
+        details.push(format!("{}, {lock}", e.scheme));
+    }
+    details.extend(v.note.clone());
+    for i in &v.indexed {
+        let when = i
+            .scanned_at
+            .map_or("no finished scan".to_string(), |t| utc(t)[..10].to_string());
+        details.push(match i.relation {
+            "same" => format!("indexed, scanned {when}"),
+            "inside" => format!("inside indexed {} ({when})", i.root),
+            _ => format!("indexed: {} ({when})", i.root),
+        });
+    }
+    let row = format!(
+        "  {:<12} {:>8}  {:<10} {:<14} {:<10}  ",
+        clip(&name, 12),
+        fmt::bytes(v.size),
+        clip(fs, 10),
+        clip(v.label.as_deref().unwrap_or(""), 14),
+        state
+    );
+    let indent = row.chars().count();
+    let room = 100 - indent;
+    let mut details = details.iter();
+    match details.next() {
+        Some(d) => println!("{row}{}", clip_middle(d, room)),
+        None => println!("{}", row.trim_end()),
+    }
+    for d in details {
+        println!("{:indent$}{}", "", clip_middle(d, room));
+    }
+    for h in &v.holders {
+        print_volume(h, depth + 1);
+    }
+}
+
+/// At most `width` characters, cut at the end.
+fn clip(s: &str, width: usize) -> String {
+    if s.chars().count() <= width {
+        return s.to_string();
+    }
+    let mut out: String = s.chars().take(width - 1).collect();
+    out.push('…');
+    out
+}
+
+/// At most `width` characters, cut in the middle (the end of a path says the most).
+fn clip_middle(s: &str, width: usize) -> String {
+    let n = s.chars().count();
+    if n <= width {
+        return s.to_string();
+    }
+    let head = (width - 1) / 3;
+    let tail = width - 1 - head;
+    let mut out: String = s.chars().take(head).collect();
+    out.push('…');
+    out.extend(s.chars().skip(n - tail));
+    out
 }
 
 fn run_hash(db: &mut Db, a: &HashArgs) -> Result<()> {
@@ -704,6 +865,16 @@ fn utc(t: i64) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn clipping() {
+        assert_eq!(super::clip("photos", 10), "photos");
+        assert_eq!(super::clip("a long label", 6), "a lon…");
+        assert_eq!(
+            super::clip_middle("/media/someone/A Long Drive Name", 16),
+            "/medi…Drive Name"
+        );
+    }
+
     #[test]
     fn utc_dates() {
         assert_eq!(super::utc(0), "1970-01-01 00:00 UTC");
