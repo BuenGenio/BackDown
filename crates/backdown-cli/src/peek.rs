@@ -677,7 +677,7 @@ impl Zip {
 // ---- compressed streams and tar
 
 #[derive(Clone, Copy, PartialEq, Debug)]
-enum Codec {
+pub(crate) enum Codec {
     Plain,
     Gzip,
     Bzip2,
@@ -686,7 +686,7 @@ enum Codec {
 }
 
 impl Codec {
-    fn sniff(head: &[u8]) -> Codec {
+    pub(crate) fn sniff(head: &[u8]) -> Codec {
         if head.starts_with(&[0x1F, 0x8B]) {
             Codec::Gzip
         } else if head.starts_with(b"BZh") {
@@ -710,7 +710,7 @@ impl Codec {
         }
     }
 
-    fn open(self, f: File) -> Result<Box<dyn Read + Send>> {
+    pub(crate) fn open(self, f: File) -> Result<Box<dyn Read + Send>> {
         let r = BufReader::with_capacity(1 << 16, f);
         Ok(match self {
             Codec::Plain => Box::new(r),
