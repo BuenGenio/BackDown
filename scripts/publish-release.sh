@@ -1,35 +1,53 @@
 #!/usr/bin/env bash
 # Publish a tagged CLI build to the public BuenGenio/backdown-releases repo and point the site's download
-# cards at it. The `release` workflow for the tag must have finished; it builds and checksums everything,
-# so this only moves verified files. Deploying the site is a separate step (marketing/README.md).
+# cards at it. The `release` workflow for the tag must have finished (or, with --local, scripts/build-local.sh
+# must have built the tag on this machine); either builds and checksums everything, so this only moves
+# verified files. Deploying the site is a separate step (marketing/README.md).
 #
 #   scripts/publish-release.sh v0.2.0-alpha.1
+#   scripts/publish-release.sh v0.2.0-alpha.5 --local   # publish what scripts/build-local.sh built instead
 #
 # Needs gh (logged in with access to both repos) and python3.
 set -euo pipefail
-tag=${1:?usage: scripts/publish-release.sh vX.Y.Z}
+tag=${1:?usage: scripts/publish-release.sh vX.Y.Z [--local]}
+local_build=
+case ${2:-} in --local) local_build=1 ;; '') ;; *) echo "unknown option $2" >&2; exit 1 ;; esac
 src=BuenGenio/BackDown
 dst=BuenGenio/backdown-releases
 root=$(cd "$(dirname "$0")/.." && pwd)
 
 dist="$root/target/dist/$tag"
-rm -rf "$dist" && mkdir -p "$dist"
-run=$(gh run list --repo "$src" --workflow release.yml --branch "$tag" --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
-if [ -n "$run" ]; then
-  gh run download "$run" --repo "$src" --name release --dir "$dist"
+if [ -n "$local_build" ]; then
+  # built on this machine by scripts/build-local.sh (Actions unavailable): publish exactly that folder
+  want=("backdown-$tag-linux-x86_64.tar.gz" "backdown-$tag-linux-arm64.tar.gz" "backdown-$tag-macos-universal.tar.gz"
+        "backdown-$tag-windows-x86_64.zip" SHA256SUMS.txt)
+  [ "$(cd "$dist" 2>/dev/null && ls | sort)" = "$(printf '%s\n' "${want[@]}" | sort)" ] ||
+    { echo "$dist should hold exactly ${want[*]}: run scripts/build-local.sh $tag" >&2; exit 1; }
   (cd "$dist" && sha256sum --quiet -c SHA256SUMS.txt) || { echo "checksum mismatch in $dist" >&2; exit 1; }
+  built=$(cat "$dist.built-from" 2>/dev/null || echo unknown)
+  tagged=$(git -C "$root" rev-parse -q --verify "refs/tags/$tag^{commit}" || echo "missing here")
+  [ "$built" = "$tagged" ] ||
+    { echo "$dist was built from $built, but tag $tag is $tagged: tag the built commit, or rebuild at the tag" >&2; exit 1; }
+  echo "publishing the local build of $tag (${tagged:0:12}) in $dist"
 else
-  # every build job passed but the bundle job didn't run (e.g. Actions was out of minutes): do its one
-  # step here, from the per-platform artifacts
-  run=$(gh run list --repo "$src" --workflow release.yml --branch "$tag" --limit 1 --json databaseId --jq '.[0].databaseId // empty')
-  [ -n "$run" ] || { echo "no release workflow run for $tag yet" >&2; exit 1; }
-  platforms=(linux-x86_64 linux-arm64 macos-universal windows-x86_64)
-  for p in "${platforms[@]}"; do
-    gh run download "$run" --repo "$src" --name "$p" --dir "$dist" \
-      || { echo "run $run has no finished $p build; wait for it or rerun it" >&2; exit 1; }
-  done
-  (cd "$dist" && sha256sum -- * > SHA256SUMS.txt)
-  echo "bundled run $run's ${#platforms[@]} builds locally"
+  rm -rf "$dist" && mkdir -p "$dist"
+  run=$(gh run list --repo "$src" --workflow release.yml --branch "$tag" --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+  if [ -n "$run" ]; then
+    gh run download "$run" --repo "$src" --name release --dir "$dist"
+    (cd "$dist" && sha256sum --quiet -c SHA256SUMS.txt) || { echo "checksum mismatch in $dist" >&2; exit 1; }
+  else
+    # every build job passed but the bundle job didn't run (e.g. Actions was out of minutes): do its one
+    # step here, from the per-platform artifacts
+    run=$(gh run list --repo "$src" --workflow release.yml --branch "$tag" --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+    [ -n "$run" ] || { echo "no release workflow run for $tag yet (Actions down? build it here: scripts/build-local.sh)" >&2; exit 1; }
+    platforms=(linux-x86_64 linux-arm64 macos-universal windows-x86_64)
+    for p in "${platforms[@]}"; do
+      gh run download "$run" --repo "$src" --name "$p" --dir "$dist" \
+        || { echo "run $run has no finished $p build; wait for it or rerun it" >&2; exit 1; }
+    done
+    (cd "$dist" && sha256sum -- * > SHA256SUMS.txt)
+    echo "bundled run $run's ${#platforms[@]} builds locally"
+  fi
 fi
 
 pre=(); [[ $tag == *-* ]] && pre=(--prerelease)
