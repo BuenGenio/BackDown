@@ -13,6 +13,7 @@ mod client;
 mod daemon;
 mod license;
 mod locations;
+mod peek;
 mod serve;
 mod service;
 

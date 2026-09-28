@@ -9,13 +9,13 @@ const EXT = {
   image: 'png jpg jpeg gif webp avif bmp ico svg tif tiff heic heif raw cr2 nef arw dng psd',
   pdf: 'pdf',
   doc: 'doc docx odt rtf pages',
-  sheet: 'xls xlsx ods numbers',
-  slides: 'ppt pptx odp key',
-  archive: 'zip tar gz tgz bz2 xz zst 7z rar tbz txz lz4',
+  sheet: 'xls xlsx xlsm xlsb xltx xltm ods numbers',
+  slides: 'ppt pptx pptm ppsx odp key',
+  archive: 'zip jar apk epub war cbz whl tar gz tgz bz2 tbz tbz2 xz txz zst tzst 7z rar lz4',
   audio: 'mp3 m4a aac flac wav ogg oga opus wma aiff',
   video: 'mp4 m4v mov mkv webm avi wmv mpg mpeg 3gp',
-  disk: 'img iso dd dmg vmdk vdi qcow2 vhd vhdx',
-  mail: 'eml mbox msg',
+  disk: 'img iso dd dmg vmdk vdi qcow qcow2 vhd vhdx',
+  mail: 'eml mbox mbx msg',
   diff: 'diff patch',
 };
 const BY_EXT = {};
