@@ -1141,19 +1141,24 @@ fn run_hash(db: &mut Db, a: &HashArgs) -> Result<()> {
         ));
     })?;
     if st.sampled + st.hashed + st.errors > 0 {
-        done(&format!(
-            "hashed: {} sampled, {} full, {} read{}",
-            fmt::count(st.sampled),
-            fmt::count(st.hashed),
-            fmt::bytes(st.bytes_read),
-            if st.errors > 0 {
-                format!(", {} unreadable", st.errors)
-            } else {
-                String::new()
-            }
-        ));
+        done(
+            &(format!(
+                "hashed: {} sampled, {} full, {} read{}",
+                fmt::count(st.sampled),
+                fmt::count(st.hashed),
+                fmt::bytes(st.bytes_read),
+                if st.errors > 0 {
+                    format!(", {} unreadable", st.errors)
+                } else {
+                    String::new()
+                }
+            ) + &hash_absent(st.absent)),
+        );
     } else {
         clear();
+    }
+    if st.absent > 0 && st.sampled + st.hashed + st.errors == 0 {
+        eprintln!("{}", hash_absent(st.absent).trim_start_matches("; "));
     }
     Ok(())
 }
@@ -1308,6 +1313,18 @@ fn print_check(c: &report::Check, list: bool, json: bool) -> Result<ExitCode> {
 }
 
 /// A progress line that rewrites itself; only when stderr is a terminal.
+/// "; 1,234 files on drives that aren't connected wait for them"
+pub(crate) fn hash_absent(n: u64) -> String {
+    if n == 0 {
+        String::new()
+    } else {
+        format!(
+            "; {} files on drives that aren't connected wait for them",
+            fmt::count(n)
+        )
+    }
+}
+
 fn live(msg: &str) {
     let mut err = std::io::stderr();
     if err.is_terminal() {

@@ -54,6 +54,8 @@ pub struct Stats {
     pub hashed: u64,
     pub bytes_read: u64,
     pub errors: u64,
+    /// on drives that aren't connected: left for when they are (never marked unreadable)
+    pub absent: u64,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -81,8 +83,11 @@ pub fn hash(db: &mut Db, opts: &Options, progress: &mut dyn FnMut(&Progress)) ->
         )?;
     }
     reuse_by_inode(db)?;
+    let away = absent_roots(db)?;
     let sample_jobs = collect(
         db,
+        &away,
+        &mut stats,
         &format!(
             "SELECT id, path, size, dev, ino FROM files
              WHERE current = 1 AND sample IS NULL AND sha256 IS NULL AND error IS NULL AND size > 0
@@ -93,6 +98,8 @@ pub fn hash(db: &mut Db, opts: &Options, progress: &mut dyn FnMut(&Progress)) ->
     reuse_by_inode(db)?;
     let full_jobs = collect(
         db,
+        &away,
+        &mut stats,
         "SELECT id, path, size, dev, ino FROM files f
          WHERE current = 1 AND sha256 IS NULL AND error IS NULL AND sample IS NOT NULL
            AND (EXISTS (SELECT 1 FROM files g WHERE g.current = 1 AND g.size = f.size AND g.sample = f.sample AND g.id <> f.id
@@ -119,7 +126,27 @@ fn reuse_by_inode(db: &Db) -> Result<()> {
     Ok(())
 }
 
-fn collect(db: &Db, sql: &str) -> Result<Vec<Job>> {
+/// Roots whose drive isn't connected: the folder is missing, or empty although it held files
+/// (an unplugged drive's leftover mount point). Their files wait; reading them would only fail.
+fn absent_roots(db: &Db) -> Result<Vec<Vec<u8>>> {
+    let mut stmt = db.conn.prepare(
+        "SELECT r.path, COALESCE((SELECT files FROM scans WHERE id = r.last_scan), 0) FROM roots r",
+    )?;
+    let rows = stmt.query_map([], |r| Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, i64>(1)?)))?;
+    let mut away = Vec::new();
+    for row in rows {
+        let (path, files) = row?;
+        let p = paths::from_bytes(&path);
+        let here = p.is_dir()
+            && (files == 0 || std::fs::read_dir(&p).is_ok_and(|mut it| it.next().is_some()));
+        if !here {
+            away.push(paths::dir_prefix(&p));
+        }
+    }
+    Ok(away)
+}
+
+fn collect(db: &Db, away: &[Vec<u8>], stats: &mut Stats, sql: &str) -> Result<Vec<Job>> {
     let mut stmt = db.conn.prepare(sql)?;
     let rows = stmt.query_map([], |r| {
         Ok((
@@ -134,6 +161,10 @@ fn collect(db: &Db, sql: &str) -> Result<Vec<Job>> {
     let mut by_inode: HashMap<(i64, i64), usize> = HashMap::new();
     for row in rows {
         let (id, path, size, dev, ino) = row?;
+        if away.iter().any(|a| path.starts_with(a)) {
+            stats.absent += 1;
+            continue;
+        }
         if let (Some(d), Some(i)) = (dev, ino) {
             if let Some(&j) = by_inode.get(&(d, i)) {
                 jobs[j].ids.push(id);

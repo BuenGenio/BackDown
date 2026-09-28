@@ -727,7 +727,7 @@ fn run_hash(d: &Daemon, db: &mut Db, job: &Job) -> Result<String> {
         } else {
             String::new()
         }
-    ))
+    ) + &crate::hash_absent(st.absent))
 }
 
 // ---------- the scheduler: rescans, drive arrivals, watchdog

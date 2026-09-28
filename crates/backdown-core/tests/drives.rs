@@ -208,3 +208,31 @@ fn an_emptied_root_is_refused_unless_allowed() {
     .unwrap();
     assert_eq!(st.removed, 1);
 }
+
+#[test]
+fn an_unplugged_drive_waits_instead_of_turning_unreadable() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = tmp.path().join("usb");
+    write(&d.join("a.bin"), &big(1, 70_000));
+    write(&d.join("b.bin"), &big(2, 70_000)); // same size: needs hashing
+    let mut db = Db::open(&tmp.path().join("i.db")).unwrap();
+    scan(&mut db, &d);
+    fs::rename(&d, tmp.path().join("elsewhere")).unwrap();
+    let st = hash_all(&mut db);
+    assert_eq!((st.sampled, st.errors, st.absent), (0, 0, 2), "{st:?}");
+    let unreadable: i64 = db
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM files WHERE error IS NOT NULL",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        unreadable, 0,
+        "nothing is marked unreadable while the drive is away"
+    );
+    fs::rename(tmp.path().join("elsewhere"), &d).unwrap();
+    let st = hash_all(&mut db);
+    assert_eq!((st.sampled, st.absent), (2, 0), "{st:?}");
+}
