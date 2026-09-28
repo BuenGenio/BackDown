@@ -10,6 +10,8 @@
 pub mod apply;
 pub mod browse;
 pub mod db;
+pub mod dedup;
+pub mod fastcopy;
 pub mod find;
 pub mod fmt;
 pub mod fsread;
@@ -17,6 +19,8 @@ pub mod hash;
 pub mod index;
 pub mod legacy;
 pub mod magic;
+pub mod mailmerge;
+pub mod mailstores;
 pub mod mirror;
 pub mod overlap;
 pub mod paths;

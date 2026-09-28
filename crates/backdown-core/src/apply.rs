@@ -12,7 +12,7 @@
 
 use std::collections::HashSet;
 use std::fs::{self, File, FileTimes};
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -23,7 +23,7 @@ use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
 use crate::plan::{self, Item};
-use crate::{Db, fmt, paths};
+use crate::{Db, fastcopy, fmt, mailmerge, paths};
 
 const BUF: usize = 1 << 20;
 
@@ -34,6 +34,11 @@ pub struct Stats {
     /// copied and verified in this run
     pub copied: u64,
     pub copied_bytes: u64,
+    /// of those, made as clones (sharing the source's blocks: no extra space) or by the kernel
+    #[serde(default)]
+    pub cloned: u64,
+    #[serde(default)]
+    pub kernel_copied: u64,
     /// verified by an earlier run (resumed)
     pub resumed: u64,
     /// the same file was already at the destination
@@ -47,6 +52,14 @@ pub struct Stats {
     /// dry run: files that would be copied, and a destination that exists
     pub would_copy: u64,
     pub would_copy_bytes: u64,
+    /// mailboxes merged from several snapshots (mailmerge.rs): messages written or found there,
+    /// and in a dry run the mailboxes that would be merged
+    #[serde(default)]
+    pub merged: u64,
+    #[serde(default)]
+    pub merged_bytes: u64,
+    #[serde(default)]
+    pub would_merge: u64,
     pub first_problems: Vec<String>,
 }
 
@@ -87,27 +100,51 @@ pub(crate) fn hash_file(path: &Path) -> Result<[u8; 32]> {
     Ok(h.finalize().into())
 }
 
-pub(crate) enum Outcome {
+#[derive(Debug)]
+pub enum Outcome {
     Copied([u8; 32]),
     AlreadyThere([u8; 32]),
     Conflict(String),
 }
 
-/// Copy one file with its hash, flush, keep its mtime, rename into place, and verify by reading back.
-pub(crate) fn copy_verified(src: &Path, dest: &Path, meta: &fs::Metadata) -> Result<Outcome> {
+/// Copy one file with its hash, flush, keep its mtime, rename into place, and verify by reading
+/// back. The fastest way the filesystems allow (fastcopy.rs: a clone, the kernel's copy, or the
+/// plain loop); every way is verified the same.
+pub fn copy_verified(src: &Path, dest: &Path, meta: &fs::Metadata) -> Result<Outcome> {
+    copy_verified_how(src, dest, meta).map(|(o, _)| o)
+}
+
+/// `copy_verified`, also saying how the copy was made (`None` when nothing was copied).
+pub fn copy_verified_how(
+    src: &Path,
+    dest: &Path,
+    meta: &fs::Metadata,
+) -> Result<(Outcome, Option<fastcopy::Method>)> {
+    copy_verified_with(src, dest, meta, &fastcopy::NATIVE)
+}
+
+pub(crate) fn copy_verified_with(
+    src: &Path,
+    dest: &Path,
+    meta: &fs::Metadata,
+    ops: &fastcopy::Ops,
+) -> Result<(Outcome, Option<fastcopy::Method>)> {
     if dest.exists() {
         let (a, b) = (
             hash_file(src).context("reading the source")?,
             hash_file(dest).context("reading the existing copy")?,
         );
-        return Ok(if a == b {
-            Outcome::AlreadyThere(a)
-        } else {
-            Outcome::Conflict(format!(
-                "{} exists and differs; left as it is",
-                dest.display()
-            ))
-        });
+        return Ok((
+            if a == b {
+                Outcome::AlreadyThere(a)
+            } else {
+                Outcome::Conflict(format!(
+                    "{} exists and differs; left as it is",
+                    dest.display()
+                ))
+            },
+            None,
+        ));
     }
     let parent = dest.parent().context("destination without a folder")?;
     fs::create_dir_all(parent).with_context(|| format!("can't create {}", parent.display()))?;
@@ -115,26 +152,17 @@ pub(crate) fn copy_verified(src: &Path, dest: &Path, meta: &fs::Metadata) -> Res
         ".{}.backdown-partial",
         dest.file_name().unwrap_or_default().to_string_lossy()
     ));
-    let result = (|| -> Result<[u8; 32]> {
+    let result = (|| -> Result<([u8; 32], fastcopy::Method)> {
         let mut input = File::open(src).with_context(|| format!("can't read {}", src.display()))?;
-        let mut out =
-            File::create(&tmp).with_context(|| format!("can't write {}", tmp.display()))?;
-        let mut h = Sha256::new();
-        let mut buf = vec![0u8; BUF];
-        loop {
-            let n = input.read(&mut buf)?;
-            if n == 0 {
-                break;
-            }
-            h.update(&buf[..n]);
-            out.write_all(&buf[..n])?;
-        }
+        let (out, how, sum) = fastcopy::copy_into(&mut input, &tmp, ops)
+            .with_context(|| format!("can't copy {} to {}", src.display(), tmp.display()))?;
         out.sync_all()?;
         if let Ok(t) = meta.modified() {
             out.set_times(FileTimes::new().set_modified(t))?;
         }
+        // the read-back below should see the disk, not the pages just written
+        fastcopy::forget_cached(&out);
         drop(out);
-        let sum: [u8; 32] = h.finalize().into();
         if dest.exists() {
             bail!("{} appeared while copying", dest.display());
         }
@@ -148,12 +176,12 @@ pub(crate) fn copy_verified(src: &Path, dest: &Path, meta: &fs::Metadata) -> Res
                 src.display()
             );
         }
-        Ok(sum)
+        Ok((sum, how))
     })();
     if result.is_err() {
         let _ = fs::remove_file(&tmp);
     }
-    result.map(Outcome::Copied)
+    result.map(|(sum, how)| (Outcome::Copied(sum), Some(how)))
 }
 
 /// Content already in the archive (for copy-unique items): hashes of indexed files under the
@@ -201,12 +229,10 @@ pub fn apply(
         .collect();
     let total_bytes: u64 = todo.iter().map(|(_, i)| i.bytes).sum();
     for (_, it) in &todo {
-        if !Path::new(&it.source).exists() {
-            bail!(
-                "{} isn't there: connect the drive {} first",
-                it.source,
-                it.drive
-            );
+        for src in std::iter::once(&it.source).chain(&it.merge) {
+            if !Path::new(src).exists() {
+                bail!("{src} isn't there: connect the drive {} first", it.drive);
+            }
         }
     }
     if let Some(free) = free_space(&target) {
@@ -240,6 +266,29 @@ pub fn apply(
     for (n, (idx, it)) in todo.iter().enumerate() {
         let src_root = PathBuf::from(&it.source);
         let dest_root = target.join(&it.dest);
+        if it.action == "merge" {
+            let items = todo.len();
+            merge_item(
+                db,
+                plan_id,
+                *idx,
+                it,
+                &dest_root,
+                dry_run,
+                &mut st,
+                &mut |f, b| {
+                    progress(&Progress {
+                        item: n + 1,
+                        items,
+                        what: format!("{} (merging)", it.what),
+                        files: f,
+                        bytes: b,
+                        total_bytes,
+                    })
+                },
+            )?;
+            continue;
+        }
         let excluded: Vec<PathBuf> = it.exclude.iter().map(PathBuf::from).collect();
         let mut walker = WalkDir::new(&src_root).follow_links(false);
         if it.only_files {
@@ -341,17 +390,22 @@ pub fn apply(
                 }
                 continue;
             }
-            let (state, sha, error) = match copy_verified(src, &dest, &meta) {
-                Ok(Outcome::Copied(h)) => {
+            let (state, sha, error) = match copy_verified_how(src, &dest, &meta) {
+                Ok((Outcome::Copied(h), how)) => {
                     st.copied += 1;
                     st.copied_bytes += size;
+                    match how {
+                        Some(fastcopy::Method::Clone) => st.cloned += 1,
+                        Some(fastcopy::Method::Kernel) => st.kernel_copied += 1,
+                        _ => {}
+                    }
                     ("copied", Some(h.to_vec()), None)
                 }
-                Ok(Outcome::AlreadyThere(h)) => {
+                Ok((Outcome::AlreadyThere(h), _)) => {
                     st.already_there += 1;
                     ("already-there", Some(h.to_vec()), None)
                 }
-                Ok(Outcome::Conflict(msg)) => {
+                Ok((Outcome::Conflict(msg), _)) => {
                     st.conflicts += 1;
                     if st.first_problems.len() < 20 {
                         st.first_problems.push(msg.clone());
@@ -397,6 +451,85 @@ pub fn apply(
     Ok(st)
 }
 
+/// A "merge" item: its snapshots merged into one mailbox at `dest` (mailmerge.rs, which journals
+/// every message it writes and carries on where an earlier run stopped). The plan's journal gets
+/// one row for the mailbox, state "merged" (or "failed"), with the merge's summary.
+#[allow(clippy::too_many_arguments)]
+fn merge_item(
+    db: &Db,
+    plan_id: i64,
+    idx: usize,
+    it: &Item,
+    dest: &Path,
+    dry_run: bool,
+    st: &mut Stats,
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<()> {
+    if dry_run {
+        // reading every message would take as long as merging: that's what `mail merge
+        // --dry-run` is for
+        st.would_merge += 1;
+        st.would_copy_bytes += it.bytes;
+        return Ok(());
+    }
+    let sources: Vec<PathBuf> = std::iter::once(&it.source)
+        .chain(&it.merge)
+        .map(PathBuf::from)
+        .collect();
+    let id = match mailmerge::for_plan_item(db, plan_id, idx as i64)? {
+        Some(id) => id,
+        None => mailmerge::record(db, &sources, dest, Some((plan_id, idx as i64)))?,
+    };
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    let (state, error, bytes) = match mailmerge::run(db, id, &stop, &mut |_, n, b| progress(n, b)) {
+        Ok(r) => {
+            st.merged += r.written + r.resumed;
+            st.merged_bytes += r.written_bytes;
+            st.failed += r.failed + r.unreadable;
+            for p in &r.problems {
+                if st.first_problems.len() < 20 {
+                    st.first_problems.push(p.clone());
+                }
+            }
+            (
+                if r.failed + r.unreadable == 0 {
+                    "merged"
+                } else {
+                    "failed"
+                },
+                mailmerge::summary(&r),
+                r.bytes,
+            )
+        }
+        Err(e) => {
+            st.failed += 1;
+            let msg = format!("merging {}: {e:#}", it.what);
+            if st.first_problems.len() < 20 {
+                st.first_problems.push(msg.clone());
+            }
+            ("failed", msg, 0)
+        }
+    };
+    db.conn.execute(
+        "DELETE FROM journal WHERE plan_id = ?1 AND item = ?2 AND state IN ('merged', 'failed') AND src = ?3",
+        params![plan_id, idx as i64, paths::to_bytes(Path::new(&it.source))],
+    )?;
+    db.conn.execute(
+        "INSERT INTO journal(plan_id, item, src, dest, size, mtime, sha256, state, error, at) VALUES (?1, ?2, ?3, ?4, ?5, 0, NULL, ?6, ?7, ?8)",
+        params![
+            plan_id,
+            idx as i64,
+            paths::to_bytes(Path::new(&it.source)),
+            paths::to_bytes(dest),
+            bytes as i64,
+            state,
+            error,
+            now()
+        ],
+    )?;
+    Ok(())
+}
+
 /// The journal's summary for a plan: files by outcome.
 pub fn journal_summary(db: &Db, plan_id: i64) -> Result<Vec<(String, u64, u64)>> {
     let mut stmt = db.conn.prepare("SELECT state, COUNT(*), COALESCE(SUM(size), 0) FROM journal WHERE plan_id = ?1 GROUP BY state ORDER BY state")?;
@@ -417,4 +550,65 @@ pub fn plans(db: &Db) -> Result<Vec<(i64, i64, String, String)>> {
         .prepare("SELECT id, created_at, target, state FROM plans ORDER BY id DESC")?;
     let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fastcopy::{Method, NATIVE, Ops};
+    use std::io;
+
+    /// a "clone" that quietly gets one byte wrong (a filesystem bug, a bad block)
+    fn bad_clone(src: &File, dest: &Path) -> io::Result<File> {
+        let mut bytes = Vec::new();
+        src.try_clone()?.read_to_end(&mut bytes)?;
+        if let Some(b) = bytes.first_mut() {
+            *b ^= 0xFF;
+        }
+        fs::write(dest, &bytes)?;
+        File::open(dest)
+    }
+    fn good_clone(src: &File, dest: &Path) -> io::Result<File> {
+        let mut bytes = Vec::new();
+        src.try_clone()?.read_to_end(&mut bytes)?;
+        fs::write(dest, &bytes)?;
+        File::open(dest)
+    }
+
+    #[test]
+    fn a_clone_is_verified_like_any_copy() {
+        let t = tempfile::tempdir().unwrap();
+        let src = t.path().join("photo.jpg");
+        fs::write(&src, vec![7u8; 300_000]).unwrap();
+        let meta = fs::metadata(&src).unwrap();
+        let dest = t.path().join("archive/photo.jpg");
+        let bad = Ops {
+            clone: bad_clone,
+            kernel: NATIVE.kernel,
+        };
+        let e = copy_verified_with(&src, &dest, &meta, &bad).unwrap_err();
+        assert!(format!("{e:#}").contains("read back differently"), "{e:#}");
+        assert!(!dest.exists(), "the bad copy is removed");
+        assert_eq!(
+            fs::read_dir(t.path().join("archive")).unwrap().count(),
+            0,
+            "and no partial file is left"
+        );
+        let good = Ops {
+            clone: good_clone,
+            kernel: NATIVE.kernel,
+        };
+        let (o, how) = copy_verified_with(&src, &dest, &meta, &good).unwrap();
+        assert!(matches!(o, Outcome::Copied(_)));
+        assert_eq!(how, Some(Method::Clone));
+        assert_eq!(fs::read(&dest).unwrap(), fs::read(&src).unwrap());
+        assert_eq!(
+            fs::metadata(&dest).unwrap().modified().unwrap(),
+            meta.modified().unwrap(),
+            "the source's modification time is kept"
+        );
+        // copying again finds it there, and says nothing was copied
+        let (o, how) = copy_verified_how(&src, &dest, &meta).unwrap();
+        assert!(matches!(o, Outcome::AlreadyThere(_)) && how.is_none());
+    }
 }
