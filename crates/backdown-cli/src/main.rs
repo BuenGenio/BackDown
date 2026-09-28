@@ -11,6 +11,7 @@ use serde_json::json;
 
 mod client;
 mod daemon;
+mod license;
 mod locations;
 mod serve;
 mod service;
@@ -117,6 +118,22 @@ enum Cmd {
         #[command(subcommand)]
         action: ServiceCmd,
     },
+    /// Your BackDown Pro licence: add a key, or show the one you have
+    License {
+        #[command(subcommand)]
+        action: LicenseCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum LicenseCmd {
+    /// Check a licence key (offline) and keep it in your BackDown data folder
+    Add {
+        /// The key from your order confirmation (BD1.…), or - to read it from stdin
+        key: String,
+    },
+    /// Show the licence you have (exits 1 without one)
+    Show,
 }
 
 #[derive(Subcommand)]
@@ -201,6 +218,12 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 } => service::install(system, !no_start, print),
                 ServiceCmd::Uninstall { system } => service::uninstall(system),
                 ServiceCmd::Status { system } => service::status(system),
+            };
+        }
+        Cmd::License { action } => {
+            return match action {
+                LicenseCmd::Add { key } => license::add(&key),
+                LicenseCmd::Show => license::show(),
             };
         }
         _ => {}
@@ -314,7 +337,9 @@ fn local(db_path: &Path, cmd: Cmd) -> Result<ExitCode> {
                 println!("daemon: not running (backdown service install, or backdown daemon)");
             }
         }
-        Cmd::Daemon { .. } | Cmd::Open | Cmd::Service { .. } => unreachable!("handled in run"),
+        Cmd::Daemon { .. } | Cmd::Open | Cmd::Service { .. } | Cmd::License { .. } => {
+            unreachable!("handled in run")
+        }
     }
     Ok(ExitCode::SUCCESS)
 }
@@ -423,7 +448,11 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
                 );
             }
         }
-        Cmd::Serve { .. } | Cmd::Daemon { .. } | Cmd::Open | Cmd::Service { .. } => {
+        Cmd::Serve { .. }
+        | Cmd::Daemon { .. }
+        | Cmd::Open
+        | Cmd::Service { .. }
+        | Cmd::License { .. } => {
             unreachable!("handled in run")
         }
     }
