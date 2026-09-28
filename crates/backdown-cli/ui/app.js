@@ -780,7 +780,7 @@ async function showCurrent() {
   if (S.mode === 'dupes') return showDupes();
   if (S.mode === 'compare' && S.cmp) return renderCompare();
   S.mode = 'browse';
-  if (!S.listing) return go(S.dir, { push: false, scan: null });
+  if (!S.listing) return S.dir ? go(S.dir, { push: false, scan: null }) : showActivity();
   $('#timebar').hidden = S.timeline.length < 2;
   renderAll();
 }
@@ -1239,8 +1239,9 @@ boot().then(restoreTabs).then(() => pollDaemon(true));
 // tabs survive a reload of the page (not of the browser): reopened lazily, each loads when shown
 function restoreTabs() {
   const saved = savedTabs;
-  if (!saved?.dirs?.length || saved.dirs.length < 2 || !S.listing) return;
-  tabs = saved.dirs.map(dir => ({ ...snap(), dir, listing: null, entries: [], mode: 'browse', back: [], fwd: [], sel: new Set(), anchor: null, cmp: null, scan: null }));
+  const dirs = (saved?.dirs || []).filter(d => d && S.roots.some(r => atob64(d).startsWith(atob64(r.key))));
+  if (dirs.length < 2 || !S.listing) return;
+  tabs = dirs.map(dir => ({ ...snap(), dir, listing: null, entries: [], mode: 'browse', back: [], fwd: [], sel: new Set(), anchor: null, cmp: null, scan: null }));
   tabAt = Math.min(saved.at || 0, tabs.length - 1);
   const here = tabs.findIndex(t => t.dir === S.dir);
   if (here >= 0) { tabs[here] = snap(); tabAt = here; renderTabs(); }
