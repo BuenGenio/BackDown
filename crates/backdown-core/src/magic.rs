@@ -278,8 +278,9 @@ pub fn probe_fs(f: &File, base: u64) -> io::Result<Option<Fs>> {
     Ok(None)
 }
 
-/// An NTFS volume's name: the $VOLUME_NAME attribute of MFT record 3 (one record read).
-fn ntfs_label(f: &File, base: u64, b: &[u8]) -> Option<String> {
+/// An NTFS volume's name: the $VOLUME_NAME attribute of MFT record 3 (one record read). `base`
+/// is where the volume starts and `b` its boot sector (which may be the backup copy at its end).
+pub fn ntfs_label(f: &File, base: u64, b: &[u8]) -> Option<String> {
     let cluster = le(b, 11, 2) * u64::from(b[13]);
     let rec = match b[64] as i8 {
         n if n < 0 => 1u64 << n.unsigned_abs(),
@@ -317,8 +318,9 @@ fn ntfs_label(f: &File, base: u64, b: &[u8]) -> Option<String> {
     None
 }
 
-/// An exFAT volume's label: an entry in the root directory's first cluster.
-fn exfat_label(f: &File, base: u64, b: &[u8]) -> Option<String> {
+/// An exFAT volume's label: an entry in the root directory's first cluster. `base` is where the
+/// volume starts and `b` its boot sector (which may be the backup copy at sector 12).
+pub fn exfat_label(f: &File, base: u64, b: &[u8]) -> Option<String> {
     let sector = 1u64 << b[108].min(12);
     let cluster = sector << b[109].min(16);
     let at = base + le(b, 88, 4) * sector + le(b, 96, 4).checked_sub(2)? * cluster;
