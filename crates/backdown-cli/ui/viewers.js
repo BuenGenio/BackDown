@@ -2,6 +2,7 @@
 // endpoints; nothing here can write to a drive.
 import { api, bytes, when } from './app.js';
 import { kindOf, fileIcon, folderIcon } from './icons.js';
+import { mailboxInto, mailExt } from './mailbox.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -79,12 +80,12 @@ async function render() {
   show(e.name, `${bytes(e.size)}${e.mtime ? ' · ' + when(e.mtime) : ''}${current.list.length > 1 ? ` · ${current.index + 1} of ${current.list.length}` : ''}`);
   $('#v-prev').disabled = current.index === 0;
   $('#v-next').disabled = current.index >= current.list.length - 1;
-  const x = ext(e.name), k = kindOf(e.name);
   try {
+    const x = await mailExt(e, ext(e.name)), k = kindOf(e.name); // no extension: maybe mail
     if (SHEETS.has(x)) return await sheetView(e);
     if (DECKS.has(x)) return await slidesView(e);
     if (x === 'eml') return await mailView(e);
-    if (x === 'mbox' || x === 'mbx') return await mboxView(e);
+    if (x === 'mbox' || x === 'mbx') return live(e) && await mailboxInto($('#vbody'), { id: e.id }, { render: mailHtml, tools: $('#v-tools') });
     if (ARCHIVES.has(x)) return await archiveView(e);
     if (DISKS.has(x) && await diskView(e)) return; // not a disk image after all: carry on
     if (!live(e)) return;
@@ -362,52 +363,6 @@ async function mailView(e) {
   $('#vbody').innerHTML = mailHtml(e.id, m, null);
 }
 
-// an mbox: pages of messages (date, sender, subject) read from the file a slice at a time, a
-// search over sender and subject, and the chosen message parsed like an .eml
-async function mboxView(e) {
-  const st = { q: '', msgs: [], next: 0, seq: 0 };
-  $('#vbody').innerHTML = `<div class="split fixed mbox"><nav><div class="mbox-search"><input type="search" id="mb-q" placeholder="Search sender or subject" aria-label="Search sender or subject" autocomplete="off"></div>
-    <div id="mb-list"></div><div id="mb-more" class="mbox-more"></div></nav><section id="mb-msg"></section></div>`;
-  const fail = err => { if (live(e)) $('#mb-more').innerHTML = `<p class="note">${esc(err.message || err)}</p>`; };
-  const more = async reset => {
-    const seq = reset ? ++st.seq : st.seq;
-    if (reset) Object.assign(st, { msgs: [], next: 0 });
-    $('#mb-more').innerHTML = '<span class="v-meta">Reading…</span>';
-    let d, tries = 0;
-    do { // a search can read a long way without a hit: keep going a little before asking
-      d = await api('mbox', { id: e.id, offset: st.next, q: st.q });
-      if (seq !== st.seq || !live(e)) return;
-      st.msgs.push(...d.messages);
-      st.next = d.next;
-    } while (!d.messages.length && d.next != null && ++tries < 5);
-    $('#mb-list').innerHTML = st.msgs.map(m => `<button type="button" data-at="${m.at}"><div class="t">${esc(m.subject || '(no subject)')}</div><div class="m">${esc(m.from)} · ${when(m.date)}</div></button>`).join('');
-    const read = d.size ? Math.min(100, Math.round(100 * d.scanned_to / d.size)) : 100;
-    $('#mb-more').innerHTML = st.next != null
-      ? `<button class="btn sm" type="button" id="mb-next">${st.q ? 'Search further' : 'Load more'}</button><span class="v-meta">${read}% of the file read</span>`
-      : `<span class="v-meta">${st.msgs.length.toLocaleString()} message${st.msgs.length === 1 ? '' : 's'}${st.q ? ' match' : ''}</span>`;
-    $('#mb-next')?.addEventListener('click', () => more(false).catch(fail));
-    $('#v-tools').innerHTML = `<span class="v-meta">mbox · ${bytes(d.size)}</span>`;
-  };
-  const show = async at => {
-    document.querySelectorAll('#mb-list button').forEach(b => b.setAttribute('aria-current', String(+b.dataset.at === at)));
-    const m = await api('mail', { id: e.id, at });
-    if (!live(e)) return;
-    $('#mb-msg').innerHTML = mailHtml(e.id, m, at);
-    $('#mb-msg').scrollTop = 0;
-  };
-  $('#mb-list').onclick = ev => {
-    const b = ev.target.closest('button[data-at]');
-    if (b) show(+b.dataset.at).catch(err => { $('#mb-msg').innerHTML = `<p class="note pad">${esc(err.message)}</p>`; });
-  };
-  let timer;
-  $('#mb-q').addEventListener('input', ev => {
-    clearTimeout(timer);
-    timer = setTimeout(() => { st.q = ev.target.value.trim(); more(true).catch(fail); }, 300);
-  });
-  await more(true);
-  if (live(e) && st.msgs.length) await show(st.msgs[0].at);
-}
-
 // One file from inside a container, previewed in `host`: images, audio/video, PDFs, text and code;
 // anything else as hex. Everything is fetched from `url` (an /api/entry link).
 async function entryPreview(host, url, name, size) {
@@ -622,6 +577,18 @@ export async function openDiff(a, b) {
   }
 }
 
+// a Maildir folder (cur/ and new/) as one mailbox: threads across both, messages by index id
+export async function openMaildir(dirKey, name) {
+  current = null;
+  show(`${name} · mailbox`, '');
+  $('#v-prev').disabled = $('#v-next').disabled = true;
+  try {
+    await mailboxInto($('#vbody'), { dir: dirKey }, { render: mailHtml, tools: $('#v-tools'), title: $('#v-name') });
+  } catch (err) {
+    message("Can't open this mailbox", [esc(err.message || err)]);
+  }
+}
+
 export async function openGit(dirKey, name) {
   current = null;
   show(`${name} · git history`, '');
@@ -646,7 +613,7 @@ export async function openGit(dirKey, name) {
 
 export async function previewInto(el, e, alive = () => true) {
   if (!el) return;
-  const x = ext(e.name), k = kindOf(e.name);
+  const x = await mailExt(e, ext(e.name)), k = kindOf(e.name);
   const put = html => { if (alive()) el.innerHTML = html; };
   try {
     if (SHEETS.has(x)) {

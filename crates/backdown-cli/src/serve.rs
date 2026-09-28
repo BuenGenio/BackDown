@@ -6,7 +6,9 @@
 //! sent as text, and every file response carries a CSP sandbox), and open SQLite files immutable.
 //! Inside containers (archives, disk images, mail), peek.rs reads bounded ranges on a time budget,
 //! turns HTML mail into plain text, and picks an entry only by its name in the container's own
-//! listing; entries go out with the same headers as the file bytes.
+//! listing; entries go out with the same headers as the file bytes. mailbox.rs threads an mbox (by
+//! id) or a Maildir (an indexed folder, its messages read by their index ids) from headers alone,
+//! on the same kind of budget.
 //! Nothing here writes to a source: the index is opened read-only per request, and GET /api/volumes
 //! runs the same unprivileged, read-only disk probe as `backdown volumes`. The requests that do
 //! something, POST /api/rescan (daemon only) and POST /api/open (hand a file or folder to the desktop),
@@ -898,6 +900,9 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
             param("q").unwrap_or(""),
             num("limit", 200)? as usize,
         )?,
+        "/api/threads" | "/api/thread" | "/api/mail-kind" => {
+            crate::mailbox::api(&db, path, &|name| get(params, name))?
+        }
         "/api/archive" => peek::archive(
             &file()?,
             num("limit", 10_000)? as usize,
@@ -1498,6 +1503,7 @@ fn ui_asset(name: &str) -> Option<(&'static [u8], &'static str)> {
         "viewers.js" => "text/javascript; charset=utf-8",
         "icons.js" => "text/javascript; charset=utf-8",
         "extras.js" => "text/javascript; charset=utf-8",
+        "mailbox.js" => "text/javascript; charset=utf-8",
         "favicon.svg" => "image/svg+xml",
         "vendor/pdf.min.mjs" => "text/javascript; charset=utf-8",
         "vendor/pdf.worker.min.mjs" => "text/javascript; charset=utf-8",

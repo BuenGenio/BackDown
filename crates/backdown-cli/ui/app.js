@@ -1,6 +1,6 @@
 // BackDown browser: folders as they were at any scan, with versions, copies and file viewers.
 import { fileIcon, folderIcon, driveIcon, kindOf } from './icons.js';
-import { openViewer, openDiff, openGit, previewInto } from './viewers.js';
+import { openViewer, openDiff, openGit, openMaildir, previewInto } from './viewers.js';
 import { squarify, compareListings, menu, closeMenu, menuOpen, toast } from './extras.js';
 
 const $ = s => document.querySelector(s);
@@ -172,8 +172,15 @@ function renderBanner() {
   if (S.scan == null || S.scan === L.latest_scan) {
     // a git repository: its history is one click away
     const repo = S.entries.some(e => e.kind === 'dir' && e.name === '.git');
-    b.hidden = !repo;
+    const mail = !repo && maildirHere();
+    b.hidden = !repo && !mail;
     if (repo) { b.className = 'banner'; b.innerHTML = `This folder is a git repository. <button class="btn sm" type="button" id="banner-git">View history</button>`; }
+    // a Maildir: its mail as threaded conversations, rather than folders of numbered files
+    else if (mail) {
+      b.className = 'banner';
+      b.innerHTML = `${mail.inside ? `These files are the messages of the mailbox <b>${esc(mail.name)}</b> (Maildir).` : 'This folder is a mailbox (Maildir).'}
+        <button class="btn sm" type="button" id="banner-mail">Open as mailbox</button>`;
+    }
     return;
   }
   const gone = S.entries.filter(e => e.later === 'deleted').length, changed = S.entries.filter(e => e.later === 'changed').length;
@@ -182,6 +189,19 @@ function renderBanner() {
     ${gone ? `${gone} item${gone === 1 ? ' has' : 's have'} since been deleted (struck through).` : ''}
     ${changed ? `${changed} changed later.` : ''}
     <button class="btn sm" type="button" id="banner-now">Back to now</button>`;
+}
+
+// the Maildir shown here: this folder when it holds cur/ and new/, or the one whose cur/, new/ or
+// tmp/ this is (its files named like "1698765432.M5P6Q7.host:2,S")
+const MAILDIR_FILE = /^\d{9,11}\.[^/]+$/;
+function maildirHere() {
+  const dirs = new Set(S.entries.filter(e => e.kind === 'dir').map(e => e.name));
+  if (dirs.has('cur') && dirs.has('new')) return { key: S.dir, name: S.listing.name, inside: false };
+  const up = S.listing.crumbs.at(-2);
+  if (up && ['cur', 'new', 'tmp'].includes(S.listing.name) && S.entries.some(e => e.kind === 'file' && MAILDIR_FILE.test(e.name))) {
+    return { key: up.key, name: S.listing.crumbs.length === 2 ? S.root.name : up.name, inside: true };
+  }
+  return null;
 }
 
 // ---------- the folder view
@@ -358,13 +378,20 @@ async function renderInfo() {
       <dl class="kv"><dt>Contains</dt><dd>${count(e.files)} files</dd><dt>Size</dt><dd>${bytes(e.size)}</dd><dt>Newest file</dt><dd>${when(e.mtime)}</dd>
       ${e.versions > 1 ? `<dt>Changed</dt><dd>${e.versions - 1} time${e.versions === 2 ? '' : 's'} across scans</dd>` : ''}</dl>
       <button class="btn" type="button" id="open-dir">Open</button>
-      <button class="btn" type="button" id="git-dir" hidden>Git history</button>`;
+      <button class="btn" type="button" id="git-dir" hidden>Git history</button>
+      <button class="btn" type="button" id="mail-dir" hidden>Open as mailbox</button>`;
     $('#open-dir').onclick = () => go(e.key);
     // a repository: offer its history when the folder holds a .git
     api('ls', { dir: e.key, scan: S.scan ?? '' }).then(l => {
       if (l.entries.some(x => x.kind === 'dir' && x.name === '.git')) {
         const b = $('#git-dir'); if (!b) return;
         b.hidden = false; b.onclick = () => openGit(e.key, e.name);
+      }
+      // a Maildir (cur/ and new/ inside): open its mail as conversations
+      const sub = new Set(l.entries.filter(x => x.kind === 'dir').map(x => x.name));
+      if (sub.has('cur') && sub.has('new')) {
+        const b = $('#mail-dir'); if (!b) return;
+        b.hidden = false; b.onclick = () => openMaildir(e.key, e.name);
       }
     }).catch(() => {});
     return;
@@ -2049,6 +2076,7 @@ document.addEventListener('click', e => {
   if (t.closest('#pathbar') && !t.closest('.crumb') && e.detail >= 2) return editPath();
   if (t.closest('#banner-now')) return setScan(S.timeline.length - 1);
   if (t.closest('#banner-git')) return openGit(S.dir, S.listing.name);
+  if (t.closest('#banner-mail')) { const m = maildirHere(); return m && openMaildir(m.key, m.name); }
   const th = t.closest('#view th[data-sort]');
   if (th) { const k = th.dataset.sort; S.sort = { key: k, asc: S.sort.key === k ? !S.sort.asc : k === 'name' }; return renderView(); }
   const hit = t.closest('[data-hit-dir]');
