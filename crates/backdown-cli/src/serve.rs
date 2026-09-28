@@ -4,6 +4,9 @@
 //! require a random per-run token, passed once in the URL and then kept in a SameSite=Strict cookie;
 //! serve file bytes only by index id, never by arbitrary path; never serve active content (HTML is
 //! sent as text, and every file response carries a CSP sandbox), and open SQLite files immutable.
+//! Inside containers (archives, disk images, mail), peek.rs reads bounded ranges on a time budget,
+//! turns HTML mail into plain text, and picks an entry only by its name in the container's own
+//! listing; entries go out with the same headers as the file bytes.
 //! Nothing here writes to a source: the index is opened read-only per request. The requests that do
 //! something, POST /api/rescan (daemon only) and POST /api/open (hand a file or folder to the desktop),
 //! also need an `X-BackDown` header, which a cross-site page can't send without a CORS preflight this
@@ -19,6 +22,7 @@ use anyhow::{Context, Result, bail};
 use backdown_core::{Db, browse, fmt, report};
 
 use crate::daemon::Daemon;
+use crate::peek;
 use rusqlite::{OpenFlags, types::ValueRef};
 use serde_json::{Value, json};
 use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
@@ -242,6 +246,9 @@ fn handle(ctx: &Ctx, req: Request) {
         let download = param("download") == Some("1");
         return content(ctx, req, param("id"), range.as_deref(), download);
     }
+    if path == "/api/entry" || path == "/api/attachment" {
+        return inner(ctx, req, path, &params);
+    }
     let result = api(ctx, path, &params);
     let resp = match result {
         Ok(v) => json_resp(&v),
@@ -327,6 +334,13 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
     let db = ro_db(ctx)?;
     let id = || -> Result<i64> { param("id").context("missing id")?.parse().context("bad id") };
     let dir = || -> Result<PathBuf> { browse::path_of(param("dir").context("missing dir")?) };
+    let num = |name: &str, default: u64| -> Result<u64> {
+        param(name).map_or(Ok(default), |v| {
+            v.parse().with_context(|| format!("bad {name}"))
+        })
+    };
+    // the container viewers (peek.rs) read the file an index id resolves to, like `content()`
+    let file = || -> Result<PathBuf> { Ok(source(&db, id()?)?.0) };
     Ok(match path {
         "/api/roots" => json!({ "roots": browse::roots(&db)?, "status": db.status()? }),
         "/api/timeline" => json!(browse::timeline(
@@ -367,6 +381,26 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
             param("table"),
             param("offset").unwrap_or("0").parse()?,
         )?,
+        "/api/sheet" => peek::sheet(
+            &file()?,
+            param("sheet"),
+            num("offset", 0)?,
+            num("limit", 500)?,
+        )?,
+        "/api/slides" => peek::slides(&file()?)?,
+        "/api/mail" => peek::mail(&file()?, param("at").map(str::parse).transpose()?)?,
+        "/api/mbox" => peek::mbox(
+            &file()?,
+            num("offset", 0)?,
+            param("q").unwrap_or(""),
+            num("limit", 200)? as usize,
+        )?,
+        "/api/archive" => peek::archive(
+            &file()?,
+            num("limit", 10_000)? as usize,
+            param("quick").is_some(),
+        )?,
+        "/api/disk" => peek::disk(&file()?, param("path"))?,
         "/api/git" => git(&db, &dir()?, param("rev"))?,
         "/api/diff" => diff(
             &db,
@@ -406,12 +440,53 @@ fn mime(name: &str) -> &'static str {
     }
 }
 
+/// Where an index id's bytes can be read now (the file itself, or an identical current copy),
+/// and their size. Every file-reading endpoint starts here.
+fn source(db: &Db, id: i64) -> Result<(PathBuf, u64)> {
+    browse::resolve_content(db, id)?
+        .context("this version's bytes aren't on any indexed drive any more")
+}
+
+/// The headers every response carrying file bytes gets: a type from the safe list (HTML and
+/// anything else unknown go out as opaque data), a sandbox CSP, no sniffing, no caching.
+fn file_headers(name: &str) -> Vec<Header> {
+    vec![
+        header("Content-Type", mime(name)),
+        header("Content-Security-Policy", FILE_CSP),
+        header("X-Content-Type-Options", "nosniff"),
+        header("Cache-Control", "private, no-store"),
+    ]
+}
+
+/// `attachment` with an ASCII fallback name and the real one percent-encoded (RFC 6266).
+fn disposition(name: &str) -> String {
+    let ascii: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || " ._-()[]+,".contains(c) {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let encoded: String = name
+        .bytes()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || b"._-".contains(&b) {
+                (b as char).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
+        .collect();
+    format!("attachment; filename=\"{ascii}\"; filename*=UTF-8''{encoded}")
+}
+
 fn content(ctx: &Ctx, req: Request, id: Option<&str>, range: Option<&str>, download: bool) {
     let result = (|| -> Result<(PathBuf, u64)> {
         let db = ro_db(ctx)?;
-        let id: i64 = id.context("missing id")?.parse()?;
-        browse::resolve_content(&db, id)?
-            .context("this version's bytes aren't on any indexed drive any more")
+        source(&db, id.context("missing id")?.parse()?)
     })();
     let (path, size) = match result {
         Ok(x) => x,
@@ -437,19 +512,15 @@ fn content(ctx: &Ctx, req: Request, id: Option<&str>, range: Option<&str>, downl
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
+    let mut headers = file_headers(&name);
+    headers.push(header("Accept-Ranges", "bytes"));
     let mut resp = Response::new(
         StatusCode(if range.is_some() && size > 0 {
             206
         } else {
             200
         }),
-        vec![
-            header("Content-Type", mime(&name)),
-            header("Accept-Ranges", "bytes"),
-            header("Content-Security-Policy", FILE_CSP),
-            header("X-Content-Type-Options", "nosniff"),
-            header("Cache-Control", "private, no-store"),
-        ],
+        headers,
         Box::new(file.take(len)) as Box<dyn Read + Send>,
         Some(len as usize),
         None,
@@ -461,24 +532,8 @@ fn content(ctx: &Ctx, req: Request, id: Option<&str>, range: Option<&str>, downl
         ));
     }
     if download {
-        // "download a copy": save under its own name (RFC 6266/5987, so any name survives)
-        let ascii: String = name
-            .chars()
-            .map(|c| {
-                if c.is_ascii_graphic() && c != '"' && c != '\\' || c == ' ' {
-                    c
-                } else {
-                    '_'
-                }
-            })
-            .collect();
-        resp.add_header(header(
-            "Content-Disposition",
-            &format!(
-                "attachment; filename=\"{ascii}\"; filename*=UTF-8''{}",
-                pct_encode(&name)
-            ),
-        ));
+        // "download a copy": saved under its own name
+        resp.add_header(header("Content-Disposition", &disposition(&name)));
     }
     let _ = req.respond(resp);
 }
@@ -684,6 +739,46 @@ fn desktop_open(path: &Path, reveal: bool) -> Result<()> {
     Ok(()) // still running after 4 s: it's showing the file
 }
 
+/// One file from inside an indexed container: an archive or disk-image entry (`/api/entry`, by
+/// its name in the container's own listing, never a filesystem path) or a mail attachment
+/// (`/api/attachment`). Same headers as `content()`; `dl=1` makes it a download.
+fn inner(ctx: &Ctx, req: Request, path: &str, params: &[(String, String)]) {
+    let param = |name: &str| get(params, name);
+    let result = (|| -> Result<peek::Part> {
+        let db = ro_db(ctx)?;
+        let (file, _) = source(&db, param("id").context("missing id")?.parse()?)?;
+        let max = param("max").map(str::parse).transpose()?;
+        if path == "/api/entry" {
+            peek::entry(&file, param("name").context("missing name")?, max)
+        } else {
+            peek::attachment(
+                &file,
+                param("at").map(str::parse).transpose()?,
+                param("part").context("missing part")?.parse()?,
+            )
+        }
+    })();
+    let part = match result {
+        Ok(p) => p,
+        Err(e) => {
+            let _ = req.respond(plain(404, &format!("{e:#}")));
+            return;
+        }
+    };
+    let mut headers = file_headers(&part.name);
+    if param("dl").is_some() {
+        headers.push(header("Content-Disposition", &disposition(&part.name)));
+    }
+    let len = part.len.map(|n| n as usize);
+    let _ = req.respond(Response::new(
+        StatusCode(200),
+        headers,
+        part.body,
+        len,
+        None,
+    ));
+}
+
 fn parse_range(range: Option<&str>, size: u64) -> Option<(u64, u64)> {
     let spec = range?.strip_prefix("bytes=")?;
     let (a, b) = spec.split(',').next()?.split_once('-')?;
@@ -699,8 +794,7 @@ fn parse_range(range: Option<&str>, size: u64) -> Option<(u64, u64)> {
 }
 
 fn read_text(db: &Db, id: i64) -> Result<(PathBuf, String)> {
-    let (path, size) = browse::resolve_content(db, id)?
-        .context("this version's bytes aren't on any indexed drive any more")?;
+    let (path, size) = source(db, id)?;
     if size > TEXT_LIMIT {
         bail!("too large to compare ({})", fmt::bytes(size));
     }
@@ -729,8 +823,7 @@ fn diff(db: &Db, a: i64, b: i64) -> Result<Value> {
 /// SQLite files are opened read-only *and* immutable, so SQLite never takes a lock or touches a
 /// journal on the source drive.
 fn sqlite(db: &Db, id: i64, table: Option<&str>, offset: i64) -> Result<Value> {
-    let (path, _) = browse::resolve_content(db, id)?
-        .context("this version's bytes aren't on any indexed drive any more")?;
+    let (path, _) = source(db, id)?;
     let uri = format!("file:{}?mode=ro&immutable=1", uri_path(&path));
     let conn = rusqlite::Connection::open_with_flags(
         uri,

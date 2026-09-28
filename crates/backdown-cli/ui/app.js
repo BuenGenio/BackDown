@@ -1142,7 +1142,7 @@ document.addEventListener('click', e => {
   if (t.closest('#pathbar') && !t.closest('.crumb') && e.detail >= 2) return editPath();
   if (t.closest('#banner-now')) return setScan(S.timeline.length - 1);
   if (t.closest('#banner-git')) return openGit(S.dir, S.listing.name);
-  const th = t.closest('th[data-sort]');
+  const th = t.closest('#view th[data-sort]');
   if (th) { const k = th.dataset.sort; S.sort = { key: k, asc: S.sort.key === k ? !S.sort.asc : k === 'name' }; return renderView(); }
   const hit = t.closest('[data-hit-dir]');
   if (hit) return go(hit.dataset.hitDir, { select: hit.dataset.hitSel || null, scan: null });
