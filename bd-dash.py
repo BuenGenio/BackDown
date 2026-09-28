@@ -219,12 +219,13 @@ def status():
 
 PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>BackDown</title>
+<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
 <script>(function(){var t=new URLSearchParams(location.search).get('theme');if(t==='dark'||t==='light'){document.documentElement.dataset.theme=t}})()</script>
 <link rel="stylesheet" href="/assets/shell.css"></head><body>
 <div class="field" aria-hidden="true"><i></i><i></i><i></i></div>
 <header class="hdr"><div class="nav-glass" aria-hidden="true"></div>
  <div class="wrap bar">
-  <a href="#top" class="home"><span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg></span>BackDown</a>
+  <a href="#top" class="home"><span class="mark" aria-hidden="true"><svg viewBox="0 0 80 60" fill="currentColor" fill-rule="evenodd"><path d="M1 0H10A1 1 0 0 1 11 1V19.7383A21.5 21.5 0 0 1 40 27.5455A21.5 21.5 0 0 1 69 19.7383V1A1 1 0 0 1 70 0H79A1 1 0 0 1 80 1V38.5A21.5 21.5 0 0 1 40 49.4545A21.5 21.5 0 0 1 0 38.5V1A1 1 0 0 1 1 0ZM32.5 38.5A11 11 0 1 0 10.5 38.5A11 11 0 1 0 32.5 38.5ZM69.5 38.5A11 11 0 1 0 47.5 38.5A11 11 0 1 0 69.5 38.5Z"/></svg></span>backdown</a>
   <nav aria-label="Sections"><a href="#top" data-s="top">Overview</a><a href="#staging" data-s="staging">Staging</a><a href="#mirrors" data-s="mirrors">Mirrors</a><a href="#indexing" data-s="indexing">Indexing</a><a href="#hashing" data-s="hashing">Hashing</a><a href="#disks" data-s="disks">Disks</a><a href="/report" target="_blank" rel="noopener">Report</a></nav>
   <span class="pill" id="live"><span class="dot"></span>connecting…</span>
  </div>
@@ -304,7 +305,7 @@ class H(BaseHTTPRequestHandler):
         elif path.startswith("/assets/") and "/" not in path[8:] and ".." not in path:
             fp = HERE / "assets" / path[8:]
             if not fp.exists(): self.send_response(404); self.end_headers(); return
-            body = fp.read_bytes(); ct = {"css": "text/css", "html": "text/html; charset=utf-8", "js": "text/javascript"}.get(fp.suffix[1:], "application/octet-stream")
+            body = fp.read_bytes(); ct = {"css": "text/css", "html": "text/html; charset=utf-8", "js": "text/javascript", "svg": "image/svg+xml"}.get(fp.suffix[1:], "application/octet-stream")
         else:
             self.send_response(404); self.end_headers(); return
         self.send_response(200); self.send_header("Content-Type", ct)

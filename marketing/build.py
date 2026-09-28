@@ -24,6 +24,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 T = ROOT / 'templates'
 SITE = 'https://backdown.io'
+BRAND_MARK = (ROOT / 'public/brand/backdown-mark.svg').read_text(encoding='utf-8').strip()
+BRAND_VERSION = hashlib.sha256((BRAND_MARK + (ROOT / 'public/favicon.svg').read_text(encoding='utf-8')).encode()).hexdigest()[:10]
+BRAND_INLINE = BRAND_MARK.replace('fill="#d8432b"', 'fill="currentColor"').replace('<svg ', '<svg aria-hidden="true" ', 1)
 # page codes (also the URL folder and i18n/<code>.json), in language-menu order; English is served at /
 LANGS = ['en', 'es', 'pt-br', 'de', 'pl', 'cs', 'sk', 'uk']
 FLAGS = {'en': 'gb', 'es': 'es', 'pt-br': 'br', 'de': 'de', 'pl': 'pl', 'cs': 'cz', 'sk': 'sk', 'uk': 'ua'}  # public/flags/<code>.svg
@@ -120,12 +123,12 @@ def human_date(t, iso):
 def slides(lang, t):
     out = []
     for i, (sid, url) in enumerate(SLIDES, 1):
-        srcset = lambda theme: ', '.join(f'/shots/{lang}/{sid}-{theme}-{w}.webp {w}w' for w in SHOT_WIDTHS)
+        srcset = lambda theme: ', '.join(f'/shots/{lang}/{sid}-{theme}-{w}.webp?v={BRAND_VERSION} {w}w' for w in SHOT_WIDTHS)
         load = 'fetchpriority="high"' if i == 1 else 'loading="lazy" decoding="async"'
         out.append(f'''    <figure class="slide" role="group" aria-roledescription="slide" aria-label="{i} / {len(SLIDES)}">
      <div class="frame card"><div class="frame-bar" aria-hidden="true"><span class="dots"><i></i><i></i><i></i></span><span class="mono">{url}</span></div>
       <picture><source media="(prefers-color-scheme: dark)" type="image/webp" srcset="{srcset('dark')}" sizes="{SHOT_SIZES}">
-      <img src="/shots/{lang}/{sid}-light-1600.webp" srcset="{srcset('light')}" sizes="{SHOT_SIZES}" width="1600" height="1000" alt="{esc(t[f'slides.{sid}_alt'])}" {load}></picture>
+      <img src="/shots/{lang}/{sid}-light-1600.webp?v={BRAND_VERSION}" srcset="{srcset('light')}" sizes="{SHOT_SIZES}" width="1600" height="1000" alt="{esc(t[f'slides.{sid}_alt'])}" {load}></picture>
       {ZONES}</div>
      <figcaption><b>{t[f'slides.{sid}_title']}</b> {t[f'slides.{sid}_body']}</figcaption>
     </figure>''')
@@ -206,7 +209,7 @@ def jsonld(lang, page, t, meta, ctx):
     url = SITE + url_path(lang, page)
     home = SITE + url_path(lang, PAGES[0])
     graph = [
-        {'@type': 'Organization', '@id': f'{SITE}/#org', 'name': 'BackDown', 'url': f'{SITE}/', 'logo': f'{SITE}/icon-512.png'},
+        {'@type': 'Organization', '@id': f'{SITE}/#org', 'name': 'BackDown', 'url': f'{SITE}/', 'logo': f'{SITE}/icon-512.png?v={BRAND_VERSION}'},
         {'@type': 'WebSite', '@id': f'{SITE}/#website', 'url': f'{SITE}/', 'name': 'BackDown', 'publisher': {'@id': f'{SITE}/#org'},
          'inLanguage': [tag(l) for l in LANGS]},
     ]
@@ -245,6 +248,7 @@ def jsonld(lang, page, t, meta, ctx):
 def page_meta(lang, page, t):
     pid = page['id']
     og_image = f'{SITE}/og/{lang}.png' if pid == 'home' or not page['og'] else f'{SITE}/og/{lang}-{pid}.png'
+    og_image += f'?v={BRAND_VERSION}'
     if pid == 'home':
         return dict(title=t['meta.title'], description=t['meta.description'], og_title=t['meta.og_title'],
                     og_description=t['meta.og_description'], og_alt=t['meta.og_image_alt'], og_image=og_image, crumb='BackDown')
@@ -372,6 +376,7 @@ def main():
             computed = {
                 '@lang': tag(lang), '@page': lang, '@page_id': pid, '@code': lang.split('-')[0].upper(),
                 '@url': SITE + here, '@home': href['home'], '@asset_v': version,
+                '@brand_v': BRAND_VERSION, '@brand_mark': BRAND_INLINE,
                 '@title': esc(meta['title']), '@description': esc(text(meta['description'])),
                 '@og_title': esc(text(meta['og_title'])), '@og_description': esc(text(meta['og_description'])),
                 '@og_image': meta['og_image'], '@og_image_alt': esc(text(meta['og_alt'])),
@@ -449,7 +454,15 @@ def main():
                     print(f'removed {stale.relative_to(ROOT)}')
 
     notfound = ROOT / 'public' / '404.html'
-    notfound.write_text(re.sub(r'/site\.css(\?v=[0-9a-f]+)?', f'/site.css?v={version}', notfound.read_text(encoding='utf-8')), encoding='utf-8')
+    notfound_html = re.sub(r'/site\.css(\?v=[0-9a-f]+)?', f'/site.css?v={version}', notfound.read_text(encoding='utf-8'))
+    notfound_html = re.sub(r'/favicon\.svg(\?v=[0-9a-f]+)?', f'/favicon.svg?v={BRAND_VERSION}', notfound_html)
+    notfound_html = re.sub(r'<span class="mark">.*?</span>', f'<span class="mark">{BRAND_INLINE}</span>', notfound_html)
+    notfound.write_text(notfound_html, encoding='utf-8')
+    manifest_path = ROOT / 'public' / 'site.webmanifest'
+    manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+    for icon in manifest['icons']:
+        icon['src'] = icon['src'].split('?')[0] + f'?v={BRAND_VERSION}'
+    manifest_path.write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
     (ROOT / 'public' / 'sitemap.xml').write_text(sitemap(pages, status), encoding='utf-8')
     print('sitemap: public/sitemap.xml')
 
