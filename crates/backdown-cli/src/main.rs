@@ -21,6 +21,7 @@ mod rescuing;
 mod serve;
 mod service;
 mod sqldump;
+mod tidy;
 
 #[derive(Parser)]
 #[command(
@@ -203,6 +204,10 @@ enum Cmd {
         /// Print the built-in schema and exit
         #[arg(long)]
         print_schema: bool,
+        /// Merge copies of the same mailbox by Message-ID, instead of filing one and copying the
+        /// other's extra files beside it
+        #[arg(long)]
+        merge_mail: bool,
         #[arg(long)]
         json: bool,
     },
@@ -250,6 +255,59 @@ enum Cmd {
     License {
         #[command(subcommand)]
         action: LicenseCmd,
+    },
+    /// Tidy an archive: identical files in FOLDER share their storage, as hardlinks or clones.
+    /// Both files are re-read first; every link is journaled. Without --go, only shows what
+    /// would happen
+    Dedup {
+        folder: PathBuf,
+        /// hard: one file with several names (any filesystem; editing one edits them all).
+        /// clone: separate files sharing blocks until one changes (btrfs, XFS, APFS)
+        #[arg(long, default_value = "hard")]
+        link: String,
+        /// Leave smaller files alone (e.g. 4K, 1M)
+        #[arg(long, default_value = "4K")]
+        min_size: String,
+        /// Only show what would happen (the default)
+        #[arg(long, conflicts_with = "go")]
+        dry_run: bool,
+        /// Link them
+        #[arg(long)]
+        go: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Mailboxes: merge copies of one into a single Maildir, or export a Maildir folder as mbox
+    Mail {
+        #[command(subcommand)]
+        action: MailCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum MailCmd {
+    /// Merge copies of the same mailbox taken at different times (Maildir, mbox files, a
+    /// Thunderbird folder, or whole mail stores, mailbox by mailbox) into one Maildir: every
+    /// message once by Message-ID, in the folder the newest copy has it in, flags combined.
+    /// The sources are only read
+    Merge {
+        #[arg(required = true)]
+        sources: Vec<PathBuf>,
+        /// The merged Maildir: a new folder (running again carries on where it stopped)
+        #[arg(long)]
+        to: PathBuf,
+        /// Read everything and show what the merge would be, writing nothing
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Export one Maildir folder (its own messages, not its subfolders) as an mbox file (mboxrd)
+    Export {
+        maildir: PathBuf,
+        /// The mbox file to write (never overwritten)
+        #[arg(long)]
+        mbox: PathBuf,
     },
 }
 
@@ -423,6 +481,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 | Cmd::Plans
                 | Cmd::Mirror { .. }
                 | Cmd::Wipe { .. }
+                // like wipe: they check here, then hand the real work to the daemon if it runs
+                | Cmd::Dedup { .. }
+                | Cmd::Mail { .. }
                 // a dry run only reads; a real one goes to the daemon, the index's one writer
                 | Cmd::Apply { go: false, .. }
         )
@@ -457,10 +518,10 @@ fn run(cli: Cli) -> Result<ExitCode> {
             p
         }
     };
-    local(&db_path, cli.cmd)
+    local(&db_path, cli.cmd, !cli.local)
 }
 
-fn local(db_path: &Path, cmd: Cmd) -> Result<ExitCode> {
+fn local(db_path: &Path, cmd: Cmd, use_daemon: bool) -> Result<ExitCode> {
     if let Cmd::ImportLegacy { .. } = cmd {
         return import_legacy(db_path, cmd);
     }
@@ -550,6 +611,7 @@ fn local(db_path: &Path, cmd: Cmd) -> Result<ExitCode> {
             from,
             schema,
             print_schema,
+            merge_mail,
             json,
         } => {
             if print_schema {
@@ -564,9 +626,42 @@ fn local(db_path: &Path, cmd: Cmd) -> Result<ExitCode> {
                     to: &to,
                     from: &from,
                     schema: schema.as_deref(),
+                    merge_mail,
                     json,
                 },
             );
+        }
+        Cmd::Dedup {
+            folder,
+            link,
+            min_size,
+            dry_run: _,
+            go,
+            json,
+        } => {
+            return tidy::dedup(
+                &db,
+                db_path,
+                tidy::DedupArgs {
+                    folder: &folder,
+                    link: &link,
+                    min_size: fmt::parse_size(&min_size)?,
+                    go,
+                    json,
+                    use_daemon,
+                },
+            );
+        }
+        Cmd::Mail { action } => {
+            return match action {
+                MailCmd::Merge {
+                    sources,
+                    to,
+                    dry_run,
+                    json,
+                } => tidy::mail_merge(&db, db_path, &sources, &to, dry_run, json, use_daemon),
+                MailCmd::Export { maildir, mbox } => tidy::mail_export(&db, &maildir, &mbox),
+            };
         }
         Cmd::Plans => return filing::list_plans(&db),
         Cmd::Wipe {
@@ -767,6 +862,8 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
         | Cmd::Plans
         | Cmd::Mirror { .. }
         | Cmd::Wipe { .. }
+        | Cmd::Dedup { .. }
+        | Cmd::Mail { .. }
         | Cmd::Rescue { .. }
         | Cmd::Volumes { .. } => {
             unreachable!("handled in run")

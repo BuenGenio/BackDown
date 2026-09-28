@@ -31,6 +31,7 @@
 //! copy it and replace it with the copy.
 
 use std::collections::{BTreeMap, HashSet};
+#[cfg(unix)]
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -40,7 +41,9 @@ use anyhow::{Context, Result, bail};
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
-use crate::apply::{hash_file, mtime};
+use crate::apply::hash_file;
+#[cfg(unix)]
+use crate::apply::mtime;
 use crate::{Db, fastcopy, fmt, paths};
 
 /// The tables (made by `Db::open`): each run, and each file it linked.
@@ -219,6 +222,7 @@ struct Now {
 /// Does this link keep one inode's metadata for several files (so they must all agree on it)?
 /// Hardlinks do; so do macOS clones (a new file cloned from the keeper). Linux clones are made in
 /// place and keep each file's own.
+#[cfg(unix)]
 fn strict(link: Link) -> bool {
     link == Link::Hard || cfg!(target_os = "macos")
 }

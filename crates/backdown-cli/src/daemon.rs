@@ -52,7 +52,7 @@ pub struct Job {
     pub started_at: Option<i64>,
     pub finished_at: Option<i64>,
     #[serde(skip)]
-    opts: JobOpts,
+    pub(crate) opts: JobOpts,
 }
 
 /// Where a running job is. For a scan the totals are the drive's previous scan (an estimate); for
@@ -91,7 +91,13 @@ pub struct JobOpts {
     pub trust_index: bool,
     /// rescue: which recorded rescue
     pub rescue: Option<i64>,
+    /// dedup: which recorded dedup run (tidying an archive); mail-merge: which recorded merge
+    pub dedup: Option<i64>,
+    pub merge: Option<i64>,
 }
+
+/// Jobs in the main lane that can be stopped at their next file (and carried on later).
+const STOPPABLE: &[&str] = &["dedup", "mail-merge"];
 
 /// Jobs that can run for hours or days and hardly touch the index (copying a failing drive,
 /// searching a card for lost files): they go in a lane of their own, one at a time, so scans and
@@ -165,6 +171,8 @@ impl Daemon {
                     "after-apply" => " (after copying into it)",
                     "after-wipe" => " (after wiping)",
                     "after-rescue" => " (what a rescue found)",
+                    "after-dedup" => " (after linking duplicates in it)",
+                    "after-merge" => " (after merging mail into it)",
                     "scheduled" => " (scheduled)",
                     "returned" => " (the drive is back)",
                     _ => "",
@@ -176,7 +184,7 @@ impl Daemon {
             kind,
             path,
             state: "queued",
-            stoppable: SIDE.contains(&kind),
+            stoppable: SIDE.contains(&kind) || STOPPABLE.contains(&kind),
             progress: String::new(),
             counts: None,
             summary: String::new(),
@@ -278,7 +286,7 @@ impl Daemon {
     }
 
     /// A running job's progress; wakes waiting viewers at most once a second.
-    fn progress(&self, id: u64, msg: String, counts: Counts) {
+    pub(crate) fn progress(&self, id: u64, msg: String, counts: Counts) {
         let mut st = self.state.lock().unwrap();
         if let Some(j) = st.jobs.iter_mut().find(|j| j.id == id) {
             j.progress = msg;
@@ -589,20 +597,29 @@ fn worker(d: &Daemon) {
                 .map(|p| format!(" {p}"))
                 .unwrap_or_default()
         ));
+        // tidying and merging can be stopped at their next file
+        let stop = Arc::new(AtomicBool::new(false));
+        if STOPPABLE.contains(&job.kind) {
+            d.state.lock().unwrap().stops.insert(id, Arc::clone(&stop));
+        }
         let result = match job.kind {
             "index" => run_index(d, &mut db, &job),
             "entities" => run_entities(d, &db, &job),
             "apply" => run_apply(d, &mut db, &job),
             "mirror-sync" | "mirror-verify" => run_mirror(d, &db, &job),
             "wipe" => run_wipe(d, &mut db, &job),
+            "dedup" => crate::tidy::run_dedup_job(d, &db, &job, &stop),
+            "mail-merge" => crate::tidy::run_merge_job(d, &db, &job, &stop),
             _ => run_hash(d, &mut db, &job),
         };
+        d.state.lock().unwrap().stops.remove(&id);
+        let stopped = stop.load(Ordering::Relaxed);
         let ok = result.is_ok();
         match result {
             Ok(summary) => {
-                eprintln!("done: {summary}");
+                eprintln!("{}: {summary}", if stopped { "stopped" } else { "done" });
                 d.update(id, |j| {
-                    j.state = "done";
+                    j.state = if stopped { "stopped" } else { "done" };
                     j.summary = summary;
                     j.finished_at = Some(now());
                 });
@@ -673,6 +690,12 @@ fn worker(d: &Daemon) {
                 d.enqueue("index", Some(root), "after-apply", JobOpts::default());
             }
         }
+        // linked or merged files are new to the index: rescan where they are
+        if let Some((place, reason)) = crate::tidy::changed_place(&db, &job)
+            && let Some(root) = root_holding(&db, &place)
+        {
+            d.enqueue("index", Some(root), reason, JobOpts::default());
+        }
         if ok && job.kind == "hash" {
             // then say what the drives hold, now that duplicates are known
             d.enqueue("entities", None, "after-scan", JobOpts::default());
@@ -716,6 +739,9 @@ fn run_apply(d: &Daemon, db: &mut Db, job: &Job) -> Result<String> {
         fmt::count(st.duplicates),
         fmt::count(st.resumed)
     );
+    if st.merged > 0 {
+        s += &format!("; {} messages in merged mailboxes", fmt::count(st.merged));
+    }
     if st.conflicts + st.failed > 0 {
         s += &format!(
             "; {} conflicts and {} failures need a look",
@@ -1357,7 +1383,16 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
                     }
                     "wipe"
                 }
-                _ => bail!("kind must be index, hash, entities, apply or wipe"),
+                Some("dedup") => {
+                    if d.shared {
+                        bail!(
+                            "the machine-wide service reads only; tidy from your own BackDown (backdown --local dedup …)"
+                        );
+                    }
+                    "dedup"
+                }
+                Some("mail-merge") => "mail-merge",
+                _ => bail!("kind must be index, hash, entities, apply, wipe, dedup or mail-merge"),
             };
             let plan = req["plan"].as_i64();
             let path = match kind {
@@ -1374,6 +1409,18 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
                     "wipe {}",
                     req["wipe"].as_i64().context("wipe needs a recorded wipe")?
                 )),
+                "dedup" => Some(format!(
+                    "dedup {}",
+                    req["dedup"]
+                        .as_i64()
+                        .context("dedup needs a recorded run")?
+                )),
+                "mail-merge" => Some(format!(
+                    "merge {}",
+                    req["merge"]
+                        .as_i64()
+                        .context("mail-merge needs a recorded merge")?
+                )),
                 _ => None,
             };
             let opts = JobOpts {
@@ -1386,6 +1433,8 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
                 wipe: req["wipe"].as_i64(),
                 trust_index: req["trust_index"].as_bool().unwrap_or(false),
                 rescue: None,
+                dedup: req["dedup"].as_i64(),
+                merge: req["merge"].as_i64(),
             };
             json!({ "ok": true, "job": d.enqueue(kind, path, "requested", opts) })
         }
@@ -1485,7 +1534,7 @@ mod control {
                 )?;
                 return Ok(());
             };
-            let finished = job.state == "done" || job.state == "failed";
+            let finished = matches!(job.state, "done" | "failed" | "stopped");
             let ev = json!({ "ok": true, "job": job });
             let s = ev.to_string();
             if s != last || finished {

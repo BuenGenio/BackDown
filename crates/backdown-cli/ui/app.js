@@ -3,6 +3,7 @@ import { fileIcon, folderIcon, driveIcon, kindOf } from './icons.js';
 import { openViewer, openDiff, openGit, openMaildir, previewInto } from './viewers.js';
 import { squarify, compareListings, menu, closeMenu, menuOpen, toast } from './extras.js';
 import { mountFind, find, foundHtml, setScope, setEarlier, more as findMore } from './search.js';
+import { tidyCard, wireTidy, mergeButton, mergeSources } from './tidy.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -1036,11 +1037,11 @@ function renderPlan() {
       <button class="btn primary" type="button" id="pl-make">Make plan</button></section>`;
   const picker = PL.list.length > 1 ? `<select id="pl-pick" aria-label="Plans">${PL.list.map(p => `<option value="${p.id}"${p.id === PL.id ? ' selected' : ''}>Plan ${p.id} · ${esc(day(p.created_at))} · ${esc(p.state)}</option>`).join('')}</select>` : '';
   if (!PL.data) {
-    v.innerHTML = `<div class="plan">${form}<div class="empty"><div><h2>No plan yet</h2><p>A plan proposes where everything on your old drives goes in one archive: mail with mail, phones with phones, each thing as a unit, with the reason for every placement.</p></div></div></div>`;
+    v.innerHTML = `<div class="plan">${form}<div class="empty"><div><h2>No plan yet</h2><p>A plan proposes where everything on your old drives goes in one archive: mail with mail, phones with phones, each thing as a unit, with the reason for every placement.</p></div></div>${tidyCard(guess)}</div>`;
   } else {
     const { plan: p, state, journal } = PL.data;
     const j = Object.fromEntries(journal.map(([s, n, b]) => [s, { n, b }]));
-    const groups = [['copy', 'Copy'], ['copy-unique', 'Copy only what’s unique'], ['skip', 'Not copied']];
+    const groups = [['copy', 'Copy'], ['copy-unique', 'Copy only what’s unique'], ['merge', 'Merge snapshots of a mailbox'], ['skip', 'Not copied']];
     v.innerHTML = `<div class="plan">
       <div class="pl-head">
         <div><h2>Plan ${PL.id}</h2><p class="muted">into <code>${esc(p.target)}</code> · made ${esc(when(p.created_at))}${/caches left out/.test(p.schema || '') ? ' · caches left out' : ''} · <span class="pill ${state === 'done' ? 'ok' : state === 'partial' ? 'warn' : ''}">${esc(state)}</span></p></div>
@@ -1049,8 +1050,8 @@ function renderPlan() {
           <button class="btn primary" type="button" id="pl-go"${S.daemon ? '' : ' disabled title="Copying runs in the BackDown service: backdown apply ' + PL.id + ' --go"'}>Apply: copy ${bytes(p.copy_bytes)}</button></div>
       </div>
       ${form}
-      ${PL.dry ? `<div class="pl-dry banner">${PL.dry.error ? esc(PL.dry.error) : `Dry run: ${count(PL.dry.would_copy)} files (${bytes(PL.dry.would_copy_bytes)}) would be copied${PL.dry.resumed ? `; ${count(PL.dry.resumed)} are done already` : ''}${PL.dry.duplicates ? `; ${count(PL.dry.duplicates)} are already in the archive` : ''}${PL.dry.conflicts ? `; ${count(PL.dry.conflicts)} destinations exist and will be compared, never overwritten` : ''}. Nothing was written.`}</div>` : ''}
-      ${journal.length ? `<div class="pl-journal"><b>Done so far:</b> ${j.copied ? `${count(j.copied.n)} files copied and verified (${bytes(j.copied.b)})` : 'nothing copied yet'}${j['already-there'] ? ` · ${count(j['already-there'].n)} already there` : ''}${j.duplicate ? ` · ${count(j.duplicate.n)} already in the archive` : ''}${j.conflict ? ` · <span class="warn-t">${count(j.conflict.n)} conflicts</span>` : ''}${j.failed ? ` · <span class="warn-t">${count(j.failed.n)} failed</span>` : ''}</div>` : ''}
+      ${PL.dry ? `<div class="pl-dry banner">${PL.dry.error ? esc(PL.dry.error) : `Dry run: ${count(PL.dry.would_copy)} files (${bytes(PL.dry.would_copy_bytes)}) would be copied${PL.dry.would_merge ? `; ${count(PL.dry.would_merge)} mailbox${PL.dry.would_merge === 1 ? '' : 'es'} would be merged from ${PL.dry.would_merge === 1 ? 'its' : 'their'} snapshots, message by message` : ''}${PL.dry.resumed ? `; ${count(PL.dry.resumed)} are done already` : ''}${PL.dry.duplicates ? `; ${count(PL.dry.duplicates)} are already in the archive` : ''}${PL.dry.conflicts ? `; ${count(PL.dry.conflicts)} destinations exist and will be compared, never overwritten` : ''}. Nothing was written.`}</div>` : ''}
+      ${journal.length ? `<div class="pl-journal"><b>Done so far:</b> ${j.copied ? `${count(j.copied.n)} files copied and verified (${bytes(j.copied.b)})` : j.merged ? '' : 'nothing copied yet'}${j.merged ? `${j.copied ? ' · ' : ''}${count(j.merged.n)} mailbox${j.merged.n === 1 ? '' : 'es'} merged (${bytes(j.merged.b)})` : ''}${j['already-there'] ? ` · ${count(j['already-there'].n)} already there` : ''}${j.duplicate ? ` · ${count(j.duplicate.n)} already in the archive` : ''}${j.conflict ? ` · <span class="warn-t">${count(j.conflict.n)} conflicts</span>` : ''}${j.failed ? ` · <span class="warn-t">${count(j.failed.n)} failed</span>` : ''}</div>` : ''}
       <h3>Drives</h3>
       <table class="list pl-drives"><thead><tr><th>Drive</th><th class="n">Size</th><th class="n">To copy</th><th class="n">Already archived</th><th>After applying</th></tr></thead><tbody>
       ${p.drives.map(d => `<tr><td><b>${esc(d.drive)}</b><small class="muted">${esc(d.path)}</small></td><td class="n">${bytes(d.bytes)}</td><td class="n">${bytes(d.copy)}</td><td class="n">${bytes(d.already)}</td>
@@ -1058,10 +1059,13 @@ function renderPlan() {
       ${groups.map(([a, label]) => { const items = p.items.filter(i => i.action === a); return items.length ? `<h3>${label} <span class="muted">(${items.length})</span></h3><div class="pl-items">${items.map(i => `
         <div class="pl-item ${a}"><div class="pl-what"><b>${esc(i.what)}</b><span class="pl-size">${bytes(i.bytes)}</span></div>
           <button class="rowlink pl-src-path" type="button" data-ent-open="${i.source_key}" data-ent-file="${i.is_file ? 1 : ''}">${esc(i.source)}</button>
+          ${mergeSources(i)}
           ${a !== 'skip' ? `<div class="pl-dest">→ <code>${esc(i.dest)}</code></div>` : ''}
-          <div class="pl-why">${esc(i.why)}</div></div>`).join('')}</div>` : ''; }).join('')}
+          <div class="pl-why">${esc(i.why)}</div>${mergeButton(PL.data, p.items.indexOf(i))}</div>`).join('')}</div>` : ''; }).join('')}
+      ${tidyCard(p.target)}
     </div>`;
   }
+  wireTidy({ planId: PL.id, reload: () => showPlan(PL.id), error: toastError, poll: () => { if (!polling) pollDaemon(true); } });
   $('#pl-make')?.addEventListener('click', makePlan);
   $('#pl-junk')?.addEventListener('change', e => { PL.junk = e.target.checked; });
   document.querySelectorAll('.pl-src').forEach(c => c.addEventListener('change', junkSize));
@@ -1719,7 +1723,8 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) poll
 
 const jobName = j => j.kind === 'index' ? `Scan ${rootName(j.path)}` : j.kind === 'entities' ? 'Recognise what’s on the drives'
   : j.kind === 'apply' ? `Apply ${j.path || 'a plan'}` : j.kind === 'mirror-sync' ? `Sync ${j.path || 'a mirror'}`
-  : j.kind === 'mirror-verify' ? `Verify ${j.path || 'a mirror'}` : j.kind === 'wipe' ? `Free up (${j.path || 'a wipe'})` : j.kind === 'rescue' ? rescueJobName(j) : 'Hash new and changed files';
+  : j.kind === 'mirror-verify' ? `Verify ${j.path || 'a mirror'}` : j.kind === 'wipe' ? `Free up (${j.path || 'a wipe'})` : j.kind === 'rescue' ? rescueJobName(j)
+  : j.kind === 'dedup' ? `Tidy the archive (${j.path || 'dedup'})` : j.kind === 'mail-merge' ? `Merge mailboxes (${j.path || 'merge'})` : 'Hash new and changed files';
 function rescueJobName(j) {
   const r = RS.list.find(x => `rescue ${x.id}` === j.path);
   return r ? `${RS_TITLE[r.mode] || 'Rescue'}: ${baseName(r.source)}` : 'Rescue';
@@ -1820,8 +1825,10 @@ function eta(j, now) {
   if (p == null || p < 0.02 || took < 15) return '';
   return `about ${dur(took * (1 - p) / p)} left`;
 }
-const REASON = { requested: 'you asked', scheduled: 'scheduled', returned: 'drive came back', 'after-scan': 'after a scan', 'after-apply': 'after copying', 'after-wipe': 'after wiping', 'after-rescue': 'recovered files' };
+const REASON = { requested: 'you asked', scheduled: 'scheduled', returned: 'drive came back', 'after-scan': 'after a scan', 'after-apply': 'after copying', 'after-wipe': 'after wiping', 'after-rescue': 'recovered files', 'after-dedup': 'after tidying', 'after-merge': 'after merging mail' };
 const JOB_ICON = {
+  dedup: '<svg viewBox="0 0 24 24"><path d="M10 14a3.5 3.5 0 0 0 5 0l3-3a3.5 3.5 0 0 0-5-5l-.5.5"/><path d="M14 10a3.5 3.5 0 0 0-5 0l-3 3a3.5 3.5 0 0 0 5 5l.5-.5"/></svg>',
+  'mail-merge': '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>',
   index: '<svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg>',
   hash: '<svg viewBox="0 0 24 24"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></svg>',
   entities: '<svg viewBox="0 0 24 24"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>',
@@ -1912,7 +1919,8 @@ function renderActivity() {
       <div class="act-head"><span class="pulse"></span><h2>${esc(jobName(cur))}<span class="muted">${stage}</span></h2><span class="act-pct">${p != null ? Math.round(p * 100) + '%' : ''}</span></div>
       <div class="meter${p == null ? ' unknown' : ''}"><i style="width:${p != null ? (p * 100).toFixed(1) : 100}%"></i></div>
       <p>${detail}</p>
-      <p class="muted">Started ${rel(cur.started_at)} · ${REASON[cur.reason] || ''}${eta(cur, now) ? ` · ${eta(cur, now)}` : ''}</p>
+      <p class="muted${cur.stoppable ? ' act-side-foot' : ''}"><span>Started ${rel(cur.started_at)} · ${REASON[cur.reason] || ''}${eta(cur, now) ? ` · ${eta(cur, now)}` : ''}</span>${cur.stoppable ? `
+        <button class="btn sm" type="button" data-job-stop="${cur.id}" title="Stops at the next file; running it again carries on">Stop</button>` : ''}</p>
     </section>`;
   } else {
     const next = d.drives.filter(x => x.present && x.next_at).sort((a, b) => a.next_at - b.next_at)[0];

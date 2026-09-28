@@ -295,6 +295,7 @@ fn native_kernel_copy(_src: &File, _dest: &File, _offset: u64, _max: usize) -> i
 // ---------- in-place deduplication (dedup.rs)
 
 /// The result of asking the kernel to share one file's blocks with another's.
+#[cfg(target_os = "linux")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Dedupe {
     /// every byte now shares the keeper's blocks
@@ -367,11 +368,6 @@ pub(crate) fn dedupe_range(keeper: &File, dup: &File, len: u64) -> io::Result<De
         }
     }
     Ok(Dedupe::Shared)
-}
-
-#[cfg(not(target_os = "linux"))]
-pub(crate) fn dedupe_range(_keeper: &File, _dup: &File, _len: u64) -> io::Result<Dedupe> {
-    Err(io::ErrorKind::Unsupported.into())
 }
 
 /// Clone `src` to the new file `dest` (for dedup.rs on macOS, where there's no in-place dedupe).

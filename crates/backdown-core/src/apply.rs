@@ -469,7 +469,6 @@ fn merge_item(
         // reading every message would take as long as merging: that's what `mail merge
         // --dry-run` is for
         st.would_merge += 1;
-        st.would_copy_bytes += it.bytes;
         return Ok(());
     }
     let sources: Vec<PathBuf> = std::iter::once(&it.source)
