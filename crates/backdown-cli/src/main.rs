@@ -219,6 +219,24 @@ enum Cmd {
         #[command(subcommand)]
         action: MirrorCmd,
     },
+    /// Free drives (or folders on them): delete only what has a verified copy elsewhere, moving
+    /// what exists only here to --move-to first. Without --go, only shows what would happen.
+    Wipe {
+        #[arg(required = true)]
+        paths: Vec<PathBuf>,
+        /// Move what exists only in these paths here first (verified), instead of leaving it
+        #[arg(long)]
+        move_to: Option<PathBuf>,
+        /// Don't re-read each file and its copy; trust the index's hashes (faster, a little less safe)
+        #[arg(long)]
+        trust_index: bool,
+        /// Actually wipe
+        #[arg(long)]
+        go: bool,
+        /// The drive name(s), as the dry run shows them
+        #[arg(long)]
+        confirm: Option<String>,
+    },
     /// Your BackDown Pro licence: add a key, or show the one you have
     License {
         #[command(subcommand)]
@@ -393,6 +411,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 | Cmd::Plan { .. }
                 | Cmd::Plans
                 | Cmd::Mirror { .. }
+                | Cmd::Wipe { .. }
                 // a dry run only reads; a real one goes to the daemon, the index's one writer
                 | Cmd::Apply { go: false, .. }
         )
@@ -539,6 +558,23 @@ fn local(db_path: &Path, cmd: Cmd) -> Result<ExitCode> {
             );
         }
         Cmd::Plans => return filing::list_plans(&db),
+        Cmd::Wipe {
+            paths,
+            move_to,
+            trust_index,
+            go,
+            confirm,
+        } => {
+            return filing::wipe(
+                &mut db,
+                db_path,
+                &paths,
+                move_to.as_deref(),
+                trust_index,
+                go,
+                confirm.as_deref(),
+            );
+        }
         Cmd::Mirror { action } => {
             return match action {
                 MirrorCmd::Add {
@@ -718,6 +754,7 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
         | Cmd::Plan { .. }
         | Cmd::Plans
         | Cmd::Mirror { .. }
+        | Cmd::Wipe { .. }
         | Cmd::Volumes { .. } => {
             unreachable!("handled in run")
         }

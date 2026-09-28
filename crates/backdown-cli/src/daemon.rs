@@ -83,6 +83,9 @@ pub struct JobOpts {
     pub plan: Option<i64>,
     /// mirror-sync / mirror-verify: which mirror
     pub mirror: Option<i64>,
+    /// wipe: which recorded wipe, and whether to trust the index instead of re-reading
+    pub wipe: Option<i64>,
+    pub trust_index: bool,
 }
 
 #[derive(Default)]
@@ -103,6 +106,8 @@ struct State {
 pub struct Daemon {
     pub db: PathBuf,
     pub started_at: i64,
+    /// the machine-wide service: its sandbox reads only, so it never wipes
+    pub shared: bool,
     pub rescan_every: Option<Duration>,
     state: Mutex<State>,
     wake: Condvar,
@@ -331,6 +336,7 @@ pub fn run(opts: Options) -> Result<()> {
     let d = Arc::new(Daemon {
         db: db.clone(),
         started_at: now(),
+        shared: opts.shared,
         rescan_every: opts.rescan_every,
         state: Mutex::new(State::default()),
         wake: Condvar::new(),
@@ -446,6 +452,7 @@ fn worker(d: &Daemon) {
             "entities" => run_entities(d, &db, &job),
             "apply" => run_apply(d, &mut db, &job),
             "mirror-sync" | "mirror-verify" => run_mirror(d, &db, &job),
+            "wipe" => run_wipe(d, &mut db, &job),
             _ => run_hash(d, &mut db, &job),
         };
         let ok = result.is_ok();
@@ -483,6 +490,24 @@ fn worker(d: &Daemon) {
                     ..JobOpts::default()
                 },
             );
+        }
+        if job.kind == "wipe" {
+            // rescan what was wiped (and where things were moved), so the index sees it
+            if let Some(id) = job.opts.wipe
+                && let Ok((paths, move_to, _)) = backdown_core::wipe::load(&db, id)
+            {
+                let mut roots: Vec<String> = Vec::new();
+                for p in paths.iter().chain(move_to.iter()) {
+                    if let Some(r) = root_holding(&db, p)
+                        && !roots.contains(&r)
+                    {
+                        roots.push(r);
+                    }
+                }
+                for r in roots {
+                    d.enqueue("index", Some(r), "after-apply", JobOpts::default());
+                }
+            }
         }
         if job.kind == "apply" {
             // the archive's copies only count as proof once its drive is indexed and hashed again
@@ -595,6 +620,53 @@ fn run_mirror(d: &Daemon, db: &Db, job: &Job) -> Result<String> {
             fmt::bytes(st.checked_bytes)
         ))
     }
+}
+
+/// Wipe what a recorded wipe selected (see backdown_core::wipe for the rules).
+fn run_wipe(d: &Daemon, db: &mut Db, job: &Job) -> Result<String> {
+    let id = job.opts.wipe.context("wipe without a selection")?;
+    let st = backdown_core::wipe::wipe(db, id, job.opts.trust_index, Some(&d.db), &mut |n, b| {
+        let counts = Counts {
+            stage: "wiping",
+            files: n,
+            bytes: b,
+            ..Counts::default()
+        };
+        d.progress(
+            job.id,
+            format!("{} files, {}", fmt::count(n), fmt::bytes(b)),
+            counts,
+        );
+    })?;
+    Ok(format!(
+        "deleted {} files ({}), {} moved first; left {} changed, {} with no copy, {} unreadable{}",
+        fmt::count(st.deleted),
+        fmt::bytes(st.deleted_bytes),
+        fmt::count(st.moved),
+        fmt::count(st.left_changed),
+        fmt::count(st.left_no_copy),
+        fmt::count(st.left_unreadable),
+        if st.failed > 0 {
+            format!("; {} failed", st.failed)
+        } else {
+            String::new()
+        }
+    ))
+}
+
+/// The indexed root holding `path`, if any.
+fn root_holding(db: &Db, path: &Path) -> Option<String> {
+    let mut stmt = db.conn.prepare("SELECT path FROM roots").ok()?;
+    let roots: Vec<PathBuf> = stmt
+        .query_map([], |r| r.get::<_, Vec<u8>>(0))
+        .ok()?
+        .filter_map(|r| r.ok().map(|b| paths::from_bytes(&b)))
+        .collect();
+    roots
+        .into_iter()
+        .filter(|r| path.starts_with(r))
+        .max_by_key(|r| r.as_os_str().len())
+        .map(|r| r.display().to_string())
 }
 
 /// The indexed root that holds a plan's archive folder, if any.
@@ -841,7 +913,15 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
                 Some("hash") => "hash",
                 Some("entities") => "entities",
                 Some("apply") => "apply",
-                _ => bail!("kind must be index, hash, entities or apply"),
+                Some("wipe") => {
+                    if d.shared {
+                        bail!(
+                            "the machine-wide service reads only; wipe from your own BackDown (backdown --local wipe …)"
+                        );
+                    }
+                    "wipe"
+                }
+                _ => bail!("kind must be index, hash, entities, apply or wipe"),
             };
             let plan = req["plan"].as_i64();
             let path = match kind {
@@ -854,6 +934,10 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
                 }
                 // one queued apply per plan (the label keeps two plans' jobs apart)
                 "apply" => Some(format!("plan {}", plan.context("apply needs a plan")?)),
+                "wipe" => Some(format!(
+                    "wipe {}",
+                    req["wipe"].as_i64().context("wipe needs a recorded wipe")?
+                )),
                 _ => None,
             };
             let opts = JobOpts {
@@ -863,6 +947,8 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
                 retry_errors: req["retry_errors"].as_bool().unwrap_or(false),
                 plan,
                 mirror: None,
+                wipe: req["wipe"].as_i64(),
+                trust_index: req["trust_index"].as_bool().unwrap_or(false),
             };
             json!({ "ok": true, "job": d.enqueue(kind, path, "requested", opts) })
         }

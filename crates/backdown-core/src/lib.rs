@@ -21,5 +21,6 @@ pub mod recognise;
 pub mod report;
 pub mod summary;
 pub mod volumes;
+pub mod wipe;
 
 pub use db::Db;

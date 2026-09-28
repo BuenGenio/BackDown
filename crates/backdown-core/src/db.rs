@@ -109,6 +109,26 @@ CREATE TABLE IF NOT EXISTS mirrors (
     last_verify_summary TEXT,
     last_verify_ok      INTEGER
 );
+-- wipes (wipe.rs) and every file they deleted, with its proof: the copy that was re-read (or the
+-- one this wipe moved it to) and its hash
+CREATE TABLE IF NOT EXISTS wipes (
+    id         INTEGER PRIMARY KEY,
+    created_at INTEGER NOT NULL,
+    paths      TEXT NOT NULL,         -- JSON list of what was selected
+    move_to    TEXT,
+    state      TEXT NOT NULL,         -- new | running | done | partial
+    summary    TEXT
+);
+CREATE TABLE IF NOT EXISTS deletions (
+    id        INTEGER PRIMARY KEY,
+    wipe_id   INTEGER NOT NULL REFERENCES wipes(id),
+    path      BLOB NOT NULL,
+    size      INTEGER NOT NULL,
+    sha256    BLOB NOT NULL,
+    proof     BLOB NOT NULL,          -- the copy kept (empty for an empty file)
+    proof_how TEXT NOT NULL,          -- re-read | moved | index | empty
+    at        INTEGER NOT NULL
+);
 ";
 const VERSION: i64 = 2;
 
