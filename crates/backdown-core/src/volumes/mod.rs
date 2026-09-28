@@ -13,7 +13,8 @@
 //! to be readable; on macOS it asks `diskutil` (and `ioreg` for serial numbers); on Windows,
 //! PowerShell's storage cmdlets. Each platform's parser is ordinary code over text or files, so all
 //! three are tested on every platform; only the part that runs the tools is platform-specific.
-//! SMART health is not probed yet: `health` is always null.
+//! SMART health is read separately (`backdown health`, backdown_core::health): `health` here
+//! stays null.
 
 use std::path::Path;
 
@@ -63,7 +64,7 @@ pub struct Disk {
     pub system: bool,
     /// For a loop device or disk image: the file behind it.
     pub backing_file: Option<String>,
-    /// SMART health: not probed yet, always null.
+    /// Not filled here: drive health is read by backdown_core::health (`backdown health`).
     pub health: Option<serde_json::Value>,
     pub volumes: Vec<Volume>,
 }

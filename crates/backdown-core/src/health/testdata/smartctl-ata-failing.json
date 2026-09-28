@@ -1,0 +1,31 @@
+{
+  "json_format_version": [1, 0],
+  "smartctl": {"version": [7, 3], "svn_revision": "5338", "platform_info": "x86_64-linux-6.1.0-18-amd64", "build_info": "(local build)", "argv": ["smartctl", "-j", "-a", "-n", "standby", "/dev/sdc"], "exit_status": 24},
+  "device": {"name": "/dev/sdc", "info_name": "/dev/sdc [SAT]", "type": "sat", "protocol": "ATA"},
+  "model_family": "Fakeco Barracuda 7200.14 (AF)",
+  "model_name": "FAKECO ST2000DM001-1ER164",
+  "serial_number": "Z4Z00FAKE",
+  "wwn": {"naa": 5, "oui": 3152, "id": 2882400001},
+  "firmware_version": "CC26",
+  "user_capacity": {"blocks": 3907029168, "bytes": 2000398934016},
+  "rotation_rate": 7200,
+  "smart_support": {"available": true, "enabled": true},
+  "smart_status": {"passed": false},
+  "ata_smart_attributes": {
+    "revision": 10,
+    "table": [
+      {"id": 1, "name": "Raw_Read_Error_Rate", "value": 81, "worst": 63, "thresh": 6, "when_failed": "", "flags": {"value": 15, "string": "POSR-- ", "prefailure": true, "updated_online": true, "performance": true, "error_rate": true, "event_count": false, "auto_keep": false}, "raw": {"value": 138476672, "string": "138476672"}},
+      {"id": 5, "name": "Reallocated_Sector_Ct", "value": 5, "worst": 5, "thresh": 10, "when_failed": "now", "flags": {"value": 51, "string": "PO--CK ", "prefailure": true, "updated_online": true, "performance": false, "error_rate": false, "event_count": true, "auto_keep": true}, "raw": {"value": 2008, "string": "2008"}},
+      {"id": 9, "name": "Power_On_Hours", "value": 36, "worst": 36, "thresh": 0, "when_failed": "", "flags": {"value": 50, "string": "-O--CK ", "prefailure": false, "updated_online": true, "performance": false, "error_rate": false, "event_count": true, "auto_keep": true}, "raw": {"value": 56231, "string": "56231"}},
+      {"id": 187, "name": "Reported_Uncorrect", "value": 1, "worst": 1, "thresh": 0, "when_failed": "", "flags": {"value": 50, "string": "-O--CK ", "prefailure": false, "updated_online": true, "performance": false, "error_rate": false, "event_count": true, "auto_keep": true}, "raw": {"value": 1321, "string": "1321"}},
+      {"id": 190, "name": "Airflow_Temperature_Cel", "value": 60, "worst": 48, "thresh": 45, "when_failed": "In_the_past", "flags": {"value": 34, "string": "-O---K ", "prefailure": false, "updated_online": true, "performance": false, "error_rate": false, "event_count": false, "auto_keep": true}, "raw": {"value": 674627624, "string": "40 (Min/Max 23/40)"}},
+      {"id": 194, "name": "Temperature_Celsius", "value": 40, "worst": 52, "thresh": 0, "when_failed": "", "flags": {"value": 34, "string": "-O---K ", "prefailure": false, "updated_online": true, "performance": false, "error_rate": false, "event_count": false, "auto_keep": true}, "raw": {"value": 94489280552, "string": "40 (0 13 0 0 0)"}},
+      {"id": 197, "name": "Current_Pending_Sector", "value": 100, "worst": 100, "thresh": 0, "when_failed": "", "flags": {"value": 18, "string": "-O--C- ", "prefailure": false, "updated_online": true, "performance": false, "error_rate": false, "event_count": true, "auto_keep": false}, "raw": {"value": 48, "string": "48"}},
+      {"id": 198, "name": "Offline_Uncorrectable", "value": 100, "worst": 100, "thresh": 0, "when_failed": "", "flags": {"value": 16, "string": "----C- ", "prefailure": false, "updated_online": false, "performance": false, "error_rate": false, "event_count": true, "auto_keep": false}, "raw": {"value": 48, "string": "48"}},
+      {"id": 199, "name": "UDMA_CRC_Error_Count", "value": 200, "worst": 200, "thresh": 0, "when_failed": "", "flags": {"value": 62, "string": "-OSRCK ", "prefailure": false, "updated_online": true, "performance": true, "error_rate": true, "event_count": true, "auto_keep": true}, "raw": {"value": 0, "string": "0"}}
+    ]
+  },
+  "power_on_time": {"hours": 56231},
+  "power_cycle_count": 212,
+  "temperature": {"current": 40}
+}

@@ -19,6 +19,10 @@
 //! POST /api/wipe (daemon only, never the system service) deletes: it re-checks the selection the
 //! way `backdown wipe` does and needs the drive names typed back, and the daemon re-reads every file
 //! and its copy before deleting it.
+//! GET /api/health reads drive health the same unprivileged way as `backdown health` (in the daemon,
+//! its latest round); the POSTs beside it (read now, mark notifications read, notification
+//! settings, a test notification) need the same header, change nothing but BackDown's own records
+//! and settings file, and a notification's text never goes through a shell.
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -334,6 +338,22 @@ fn handle(ctx: &Ctx, req: Request) {
             (true, Some(d)) => json_resp(
                 &json!({ "ok": true, "job": d.enqueue("entities", None, "requested", Default::default()) }),
             ),
+        };
+        let _ = req.respond(resp);
+        return;
+    }
+    if *req.method() == Method::Post && crate::health::handles(path) {
+        // drive health and notifications: read the drives now, mark notifications read, change
+        // or try the notification settings (health.rs)
+        let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
+        let resp = if !marked {
+            plain(403, "missing X-BackDown header")
+        } else {
+            let p = |k: &str| param(k).map(str::to_string);
+            match crate::health::post(ctx.daemon.as_deref(), &ctx.db, path, &p) {
+                Ok(v) => json_resp(&v),
+                Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
+            }
         };
         let _ = req.respond(resp);
         return;
@@ -781,6 +801,11 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
                 d.snapshot()
             }
         });
+    }
+    if crate::health::handles(path) {
+        // drive health, notifications and their settings (health.rs)
+        let p = |k: &str| param(k).map(str::to_string);
+        return crate::health::get(ctx.daemon.as_deref(), &ctx.db, path, &p);
     }
     let db = ro_db(ctx)?;
     let id = || -> Result<i64> { param("id").context("missing id")?.parse().context("bad id") };
@@ -1553,6 +1578,7 @@ fn ui_asset(name: &str) -> Option<(&'static [u8], &'static str)> {
         "sqldump.js" => "text/javascript; charset=utf-8",
         "search.js" => "text/javascript; charset=utf-8",
         "settings.js" => "text/javascript; charset=utf-8",
+        "health.js" => "text/javascript; charset=utf-8",
         "favicon.svg" => "image/svg+xml",
         "vendor/pdf.min.mjs" => "text/javascript; charset=utf-8",
         "vendor/pdf.worker.min.mjs" => "text/javascript; charset=utf-8",

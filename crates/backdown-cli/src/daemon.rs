@@ -3,7 +3,9 @@
 //! One worker thread runs jobs one at a time, so there is a single writer to the index and a
 //! single reader per drive; every index job is followed by hashing, so each scan keeps provable
 //! fingerprints for the time slider. A scheduler rescans drives when due, or when one that was away
-//! comes back. The CLI talks to it over a Unix socket (line-delimited JSON), the browser over the
+//! comes back. A health thread reads every drive's SMART data (health.rs) every six hours and when
+//! a drive appears, keeps what's new, and notifies when a drive, a mirror or a scheduled job goes
+//! wrong. The CLI talks to it over a Unix socket (line-delimited JSON), the browser over the
 //! same local web UI as `backdown serve`. Under systemd it reports readiness, liveness and status.
 //!
 //! Being killed is safe: every job commits in batches and resumes where it stopped.
@@ -126,6 +128,8 @@ pub struct Daemon {
     pub shared: bool,
     /// changeable while it runs (Settings)
     rescan_every: Mutex<Option<Duration>>,
+    /// drive health, read in a thread of its own (health.rs), and notifications
+    pub health: crate::health::Monitor,
     state: Mutex<State>,
     wake: Condvar,
     changed: Condvar,
@@ -310,6 +314,12 @@ impl Daemon {
         }
     }
 
+    /// Something a viewer would notice changed outside the job queue (drive health, notifications).
+    pub fn touch(&self) {
+        self.state.lock().unwrap().version += 1;
+        self.changed.notify_all();
+    }
+
     /// Wait until something changes after `since` (the `version` of a snapshot), or `timeout`.
     pub fn wait_change(&self, since: u64, timeout: Duration) {
         let st = self.state.lock().unwrap();
@@ -421,6 +431,7 @@ impl Daemon {
             "queued": queued,
             "recent": recent,
             "drives": drives,
+            "health": self.health.snapshot(),
         })
     }
 }
@@ -441,6 +452,11 @@ pub fn run(opts: Options) -> Result<()> {
         started_at: now(),
         shared: opts.shared,
         rescan_every: Mutex::new(opts.rescan_every),
+        health: crate::health::Monitor::new(
+            crate::health::source_from_env(),
+            &opts.state_dir,
+            !opts.shared,
+        ),
         state: Mutex::new(State::default()),
         wake: Condvar::new(),
         changed: Condvar::new(),
@@ -501,6 +517,12 @@ pub fn run(opts: Options) -> Result<()> {
         std::thread::Builder::new()
             .name("scheduler".into())
             .spawn(move || scheduler(&d))?;
+    }
+    {
+        let d = Arc::clone(&d);
+        std::thread::Builder::new()
+            .name("health".into())
+            .spawn(move || crate::health::run(&d))?;
     }
     #[cfg(unix)]
     {
@@ -566,6 +588,11 @@ fn side_worker(d: &Daemon) {
         });
         d.state.lock().unwrap().stops.remove(&id);
         let stopped = stop.load(Ordering::Relaxed);
+        crate::health::after_job(
+            d,
+            &job,
+            result.as_ref().err().map(|e| format!("{e:#}")).as_deref(),
+        );
         match result {
             Ok(summary) => {
                 eprintln!("{}: {summary}", if stopped { "stopped" } else { "done" });
@@ -633,6 +660,12 @@ fn worker(d: &Daemon) {
             _ => run_hash(d, &mut db, &job),
         };
         let ok = result.is_ok();
+        // a mirror that no longer matches, or a scheduled job that failed: tell someone
+        crate::health::after_job(
+            d,
+            &job,
+            result.as_ref().err().map(|e| format!("{e:#}")).as_deref(),
+        );
         match result {
             Ok(summary) => {
                 eprintln!("done: {summary}");
@@ -1345,6 +1378,7 @@ fn check_roots(d: &Daemon, present: &mut HashMap<String, bool>) -> Result<()> {
         if (back || due) && !d.pending_index(&key) {
             if back {
                 eprintln!("{key} is back");
+                d.health.ask(); // and read its health
             }
             let reason = if back { "returned" } else { "scheduled" };
             d.enqueue("index", Some(key), reason, JobOpts::default());
@@ -1441,6 +1475,8 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
             json!({ "ok": true, "report": report::dupes(&ro()?, min, limit)? })
         }
         "scans" => json!({ "ok": true, "scans": report::scans(&ro()?)? }),
+        // read every drive's health now (and keep it): `backdown health`
+        "health" => crate::health::respond(d)?,
         other => bail!("unknown command {other:?}"),
     })
 }
