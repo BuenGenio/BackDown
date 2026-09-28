@@ -6,7 +6,11 @@
 //! sent as text, and every file response carries a CSP sandbox), and open SQLite files immutable.
 //! Inside containers (archives, disk images, mail), peek.rs reads bounded ranges on a time budget,
 //! turns HTML mail into plain text, and picks an entry only by its name in the container's own
-//! listing; entries go out with the same headers as the file bytes.
+//! listing; entries go out with the same headers as the file bytes. mailbox.rs threads an mbox (by
+//! id) or a Maildir (an indexed folder, its messages read by their index ids) from headers alone,
+//! on the same kind of budget. A filesystem inside a disk image (/api/fs, and /api/entry with
+//! `part`) is picked by its partition number in the image's own table, and a file in it by its
+//! path through that filesystem's own folder listings.
 //! Nothing here writes to a source: the index is opened read-only per request, and GET /api/volumes
 //! runs the same unprivileged, read-only disk probe as `backdown volumes`. The requests that do
 //! something, POST /api/rescan (daemon only) and POST /api/open (hand a file or folder to the desktop),
@@ -212,7 +216,12 @@ fn handle(ctx: &Ctx, req: Request) {
             plain(403, "missing X-BackDown header")
         } else {
             let r = if path == "/api/plan" {
-                new_plan(ctx, param("to"), param("from"))
+                new_plan(
+                    ctx,
+                    param("to"),
+                    param("from"),
+                    param("skip_junk") == Some("1"),
+                )
             } else {
                 start_apply(ctx, param("id"))
             };
@@ -430,7 +439,7 @@ fn decode(s: &str) -> String {
 }
 
 /// Make and save a filing plan into the folder `to`, from the drives `from` (root ids; default all).
-fn new_plan(ctx: &Ctx, to: Option<&str>, from: Option<&str>) -> Result<Value> {
+fn new_plan(ctx: &Ctx, to: Option<&str>, from: Option<&str>, skip_junk: bool) -> Result<Value> {
     let to = PathBuf::from(to.context("where should the archive go?")?.trim());
     if !to.is_absolute() {
         bail!("the archive folder must be a full path, like /media/archive/Archive");
@@ -450,15 +459,18 @@ fn new_plan(ctx: &Ctx, to: Option<&str>, from: Option<&str>) -> Result<Value> {
         .filter_map(|id| recognise::load(&db, id).ok().flatten().map(|(r, _)| r))
         .collect();
     let ov = overlap::overlaps(&db, &list, &mut |_| {})?;
-    let mut p = plan::make(
-        &db,
-        &to,
-        only.as_deref(),
-        &plan::Schema::default(),
-        &list,
-        &ov,
-    )?;
-    p.schema = "built-in".into();
+    // caches, previews and build output can be left out: they're regenerable, but then the drives
+    // they're on can't be wiped whole (those files have no copy)
+    let schema = plan::Schema {
+        skip_junk,
+        ..plan::Schema::default()
+    };
+    let mut p = plan::make(&db, &to, only.as_deref(), &schema, &list, &ov)?;
+    p.schema = if skip_junk {
+        "built-in, caches left out".into()
+    } else {
+        "built-in".into()
+    };
     if p.items.is_empty() {
         bail!("nothing to file: are the drives recognised yet (What's here)?");
     }
@@ -866,6 +878,22 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
             }
         }
         "/api/search" => json!(browse::search(&db, &dir()?, param("q").unwrap_or(""), 300)?),
+        // ranked search by name (find.rs): under `dir`, or on every drive without it
+        "/api/find" => {
+            let within = param("dir")
+                .filter(|d| !d.is_empty())
+                .map(browse::path_of)
+                .transpose()?;
+            json!(backdown_core::find::find(
+                &db,
+                &backdown_core::find::Query {
+                    q: param("q").unwrap_or(""),
+                    within: within.as_deref(),
+                    earlier: param("earlier") == Some("1"),
+                    limit: num("limit", 200)? as usize,
+                }
+            )?)
+        }
         "/api/dupes" => {
             let min = fmt::parse_size(param("min").unwrap_or("1M"))?;
             json!(report::dupes(&db, min, 200)?)
@@ -890,12 +918,18 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
             param("q").unwrap_or(""),
             num("limit", 200)? as usize,
         )?,
+        "/api/threads" | "/api/thread" | "/api/mail-kind" => {
+            crate::mailbox::api(&db, path, &|name| get(params, name))?
+        }
         "/api/archive" => peek::archive(
             &file()?,
             num("limit", 10_000)? as usize,
             param("quick").is_some(),
         )?,
         "/api/disk" => peek::disk(&file()?, param("path"))?,
+        "/api/fs" => peek::fs_list(&file()?, param("part").unwrap_or("0"), param("path"))?,
+        // a SQL dump's schema and data sizes (sqldump.rs), a few seconds of reading at a time
+        "/api/sqldump" => crate::sqldump::schema(id()?, &file()?, param("more"))?,
         // this machine's disks and what's on them: the same read-only probe as `backdown volumes`
         // (sysfs and udev, diskutil, or PowerShell), with the volumes the index covers marked
         "/api/volumes" => {
@@ -1252,7 +1286,11 @@ fn inner(ctx: &Ctx, req: Request, path: &str, params: &[(String, String)]) {
         let (file, _) = source(&db, param("id").context("missing id")?.parse()?)?;
         let max = param("max").map(str::parse).transpose()?;
         if path == "/api/entry" {
-            peek::entry(&file, param("name").context("missing name")?, max)
+            let name = param("name").context("missing name")?;
+            match param("part") {
+                Some(part) => peek::fs_entry(&file, part, name, max),
+                None => peek::entry(&file, name, max),
+            }
         } else {
             peek::attachment(
                 &file,
@@ -1490,6 +1528,9 @@ fn ui_asset(name: &str) -> Option<(&'static [u8], &'static str)> {
         "viewers.js" => "text/javascript; charset=utf-8",
         "icons.js" => "text/javascript; charset=utf-8",
         "extras.js" => "text/javascript; charset=utf-8",
+        "mailbox.js" => "text/javascript; charset=utf-8",
+        "sqldump.js" => "text/javascript; charset=utf-8",
+        "search.js" => "text/javascript; charset=utf-8",
         "favicon.svg" => "image/svg+xml",
         "vendor/pdf.min.mjs" => "text/javascript; charset=utf-8",
         "vendor/pdf.worker.min.mjs" => "text/javascript; charset=utf-8",

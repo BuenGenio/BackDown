@@ -1,7 +1,8 @@
 // BackDown browser: folders as they were at any scan, with versions, copies and file viewers.
 import { fileIcon, folderIcon, driveIcon, kindOf } from './icons.js';
-import { openViewer, openDiff, openGit, previewInto } from './viewers.js';
+import { openViewer, openDiff, openGit, openMaildir, previewInto } from './viewers.js';
 import { squarify, compareListings, menu, closeMenu, menuOpen, toast } from './extras.js';
+import { mountFind, find, foundHtml, setScope, setEarlier, more as findMore } from './search.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -77,7 +78,7 @@ async function go(dirKey, { push = true, select = null, scan = S.scan } = {}) {
   const root = S.roots.find(r => atob64(dirKey).startsWith(atob64(r.key)));
   if (!root) return;
   const rootChanged = S.root?.id !== root.id;
-  if (rootChanged) scan = null;
+  if (rootChanged && scan === S.scan) scan = null; // the old drive's scan; one asked for (a search hit's) stays
   let listing;
   try { listing = await api('ls', { dir: dirKey, scan: scan ?? '' }); } catch (e) { return toastError(e); }
   if (push && S.dir && (S.dir !== dirKey || S.mode !== 'browse')) { S.back.push({ dir: S.dir, scan: S.scan }); S.fwd = []; }
@@ -172,8 +173,15 @@ function renderBanner() {
   if (S.scan == null || S.scan === L.latest_scan) {
     // a git repository: its history is one click away
     const repo = S.entries.some(e => e.kind === 'dir' && e.name === '.git');
-    b.hidden = !repo;
+    const mail = !repo && maildirHere();
+    b.hidden = !repo && !mail;
     if (repo) { b.className = 'banner'; b.innerHTML = `This folder is a git repository. <button class="btn sm" type="button" id="banner-git">View history</button>`; }
+    // a Maildir: its mail as threaded conversations, rather than folders of numbered files
+    else if (mail) {
+      b.className = 'banner';
+      b.innerHTML = `${mail.inside ? `These files are the messages of the mailbox <b>${esc(mail.name)}</b> (Maildir).` : 'This folder is a mailbox (Maildir).'}
+        <button class="btn sm" type="button" id="banner-mail">Open as mailbox</button>`;
+    }
     return;
   }
   const gone = S.entries.filter(e => e.later === 'deleted').length, changed = S.entries.filter(e => e.later === 'changed').length;
@@ -182,6 +190,19 @@ function renderBanner() {
     ${gone ? `${gone} item${gone === 1 ? ' has' : 's have'} since been deleted (struck through).` : ''}
     ${changed ? `${changed} changed later.` : ''}
     <button class="btn sm" type="button" id="banner-now">Back to now</button>`;
+}
+
+// the Maildir shown here: this folder when it holds cur/ and new/, or the one whose cur/, new/ or
+// tmp/ this is (its files named like "1698765432.M5P6Q7.host:2,S")
+const MAILDIR_FILE = /^\d{9,11}\.[^/]+$/;
+function maildirHere() {
+  const dirs = new Set(S.entries.filter(e => e.kind === 'dir').map(e => e.name));
+  if (dirs.has('cur') && dirs.has('new')) return { key: S.dir, name: S.listing.name, inside: false };
+  const up = S.listing.crumbs.at(-2);
+  if (up && ['cur', 'new', 'tmp'].includes(S.listing.name) && S.entries.some(e => e.kind === 'file' && MAILDIR_FILE.test(e.name))) {
+    return { key: up.key, name: S.listing.crumbs.length === 2 ? S.root.name : up.name, inside: true };
+  }
+  return null;
 }
 
 // ---------- the folder view
@@ -358,13 +379,20 @@ async function renderInfo() {
       <dl class="kv"><dt>Contains</dt><dd>${count(e.files)} files</dd><dt>Size</dt><dd>${bytes(e.size)}</dd><dt>Newest file</dt><dd>${when(e.mtime)}</dd>
       ${e.versions > 1 ? `<dt>Changed</dt><dd>${e.versions - 1} time${e.versions === 2 ? '' : 's'} across scans</dd>` : ''}</dl>
       <button class="btn" type="button" id="open-dir">Open</button>
-      <button class="btn" type="button" id="git-dir" hidden>Git history</button>`;
+      <button class="btn" type="button" id="git-dir" hidden>Git history</button>
+      <button class="btn" type="button" id="mail-dir" hidden>Open as mailbox</button>`;
     $('#open-dir').onclick = () => go(e.key);
     // a repository: offer its history when the folder holds a .git
     api('ls', { dir: e.key, scan: S.scan ?? '' }).then(l => {
       if (l.entries.some(x => x.kind === 'dir' && x.name === '.git')) {
         const b = $('#git-dir'); if (!b) return;
         b.hidden = false; b.onclick = () => openGit(e.key, e.name);
+      }
+      // a Maildir (cur/ and new/ inside): open its mail as conversations
+      const sub = new Set(l.entries.filter(x => x.kind === 'dir').map(x => x.name));
+      if (sub.has('cur') && sub.has('new')) {
+        const b = $('#mail-dir'); if (!b) return;
+        b.hidden = false; b.onclick = () => openMaildir(e.key, e.name);
       }
     }).catch(() => {});
     return;
@@ -806,7 +834,7 @@ async function showCurrent() {
 // ---------- keyboard shortcuts help
 
 const HELP = [
-  ['Moving around', [[['Enter'], 'Open'], [['Alt+↑'], 'Parent folder'], [['Alt+←', 'Backspace'], 'Back'], [['Alt+→'], 'Forward'], [['Ctrl+L'], 'Type a location'], [['Ctrl+F'], 'Search this folder']]],
+  ['Moving around', [[['Enter'], 'Open'], [['Alt+↑'], 'Parent folder'], [['Alt+←', 'Backspace'], 'Back'], [['Alt+→'], 'Forward'], [['Ctrl+L'], 'Type a location'], [['Ctrl+F'], 'Search'], [['Ctrl+Shift+F'], 'Search every drive']]],
   ['Selecting', [[['Arrows'], 'Move'], [['Shift+Arrows'], 'Extend the selection'], [['Ctrl+A'], 'Select all'], [['Esc'], 'Clear the selection'], [['Drag'], 'Select an area'], [['Shift+F10', 'Menu'], 'Actions for the selection']]],
   ['Views', [[['Ctrl+1'], 'Grid'], [['Ctrl+2'], 'List'], [['Ctrl+3'], 'Photo gallery'], [['Ctrl+4'], 'Size map'], [['Ctrl+H'], 'Show hidden files'], [['Ctrl+I'], 'Details pane']]],
   ['Tabs', [[['Alt+N'], 'New tab'], [['Alt+W'], 'Close tab'], [['Alt+PgDn'], 'Next tab'], [['Alt+PgUp'], 'Previous tab'], [['Ctrl+Enter'], 'Open a folder in a new tab'], [['Middle-click'], 'Open a folder in a new tab']]],
@@ -845,19 +873,19 @@ function closeSearch(rerender = true) {
   $('#search-btn').setAttribute('aria-pressed', 'false');
   if (rerender && S.mode === 'search') { S.mode = 'browse'; renderAll(); }
 }
+// this folder or every drive, ranked (search.js, find.rs)
 async function runSearch(q) {
   if (!q.trim()) { S.mode = 'browse'; renderAll(); return; }
-  let hits;
-  try { hits = await api('search', { dir: S.dir, q }); } catch (e) { return toastError(e); }
+  let res;
+  try { res = await find(q, S.dir); } catch (e) { return toastError(e); }
+  if (!res || $('#searchbox').hidden || $('#q').value !== q) return; // a newer search, or none any more
+  const keep = S.mode === 'search' ? $('#view').scrollTop : 0;
   S.mode = 'search';
   renderPath(); $('#banner').hidden = true;
-  $('#view').innerHTML = hits.length ? `<table class="list"><thead><tr><th>Name</th><th>Folder</th><th class="n">Size</th><th>Modified</th></tr></thead><tbody>${hits.map(h => `
-    <tr data-hit-dir="${h.kind === 'dir' ? h.key : h.dir_key}" data-hit-sel="${h.kind === 'dir' ? '' : h.key}">
-      <td><div class="nmc">${h.kind === 'dir' ? folderIcon(20) : fileIcon(h.name, 20)}<span>${esc(h.name)}</span></div></td>
-      <td class="path" title="${esc(h.path)}">${esc(h.path.slice(0, h.path.length - h.name.length))}</td>
-      <td class="n">${bytes(h.size)}</td><td>${when(h.mtime)}</td></tr>`).join('')}</tbody></table>`
-    : `<div class="empty"><div><h2>No matches</h2><p>Nothing named like “${esc(q)}” in this folder.</p></div></div>`;
+  $('#view').innerHTML = foundHtml(res, q);
+  $('#view').scrollTop = keep;
 }
+const rerunSearch = () => { if (!$('#searchbox').hidden && $('#q').value.trim()) runSearch($('#q').value); };
 
 let dupesMin = '1M';
 async function showDupes() {
@@ -976,7 +1004,7 @@ async function openEntityPath(key, isFile) {
 
 // ---------- Plan: file the old drives into one archive (propose, read, dry-run, apply)
 
-const PL = { id: null, data: null, list: [], dry: null, fresh: false, to: '' };
+const PL = { id: null, data: null, list: [], dry: null, fresh: false, to: '', ents: null, junk: false };
 
 async function showPlan(id = PL.id) {
   S.mode = 'plan';
@@ -985,6 +1013,8 @@ async function showPlan(id = PL.id) {
   $('#banner').hidden = true; $('#info').hidden = true; $('#timebar').hidden = true;
   $('#view').innerHTML = '<div class="empty"><p>Loading…</p></div>';
   PL.list = await api('plans').catch(() => []);
+  // what's regenerable on each drive (caches, previews, build output), for "leave them out"
+  if (!PL.ents) api('entities').then(d => { PL.ents = d; if (S.mode === 'plan') junkSize(); }).catch(() => {});
   if (id == null && PL.list.length) id = PL.list[0].id;
   PL.id = id; PL.dry = null;
   PL.data = id != null ? await api('plan', { id }).catch(() => null) : null;
@@ -1001,7 +1031,8 @@ function renderPlan() {
         <input id="pl-to" list="pl-roots" spellcheck="false" placeholder="${esc(guess)}" value="${esc(PL.to)}"></label>
       <datalist id="pl-roots">${S.roots.map(r => `<option value="${esc(r.path.replace(/[\\/]+$/, ''))}/Archive">`).join('')}</datalist>
       <div class="pl-from"><span class="muted">File these drives:</span>${S.roots.map(r => `<label class="chk"><input type="checkbox" class="pl-src" value="${r.id}" checked> ${esc(r.name)}</label>`).join('')}</div>
-      <p class="note">The archive's own drive is never a source. A plan only proposes: nothing is copied until you apply it, and nothing is ever deleted.</p>
+      <label class="chk pl-junk"><input type="checkbox" id="pl-junk"${PL.junk ? ' checked' : ''}> Leave out caches, previews and build output <span class="muted" id="pl-junk-size"></span></label>
+      <p class="note">The archive's own drive is never a source. A plan only proposes: nothing is copied until you apply it, and nothing is ever deleted. Caches and build output can be made again by the programs that made them; left out, the drive they're on can't be freed entirely, because they have no copy.</p>
       <button class="btn primary" type="button" id="pl-make">Make plan</button></section>`;
   const picker = PL.list.length > 1 ? `<select id="pl-pick" aria-label="Plans">${PL.list.map(p => `<option value="${p.id}"${p.id === PL.id ? ' selected' : ''}>Plan ${p.id} · ${esc(day(p.created_at))} · ${esc(p.state)}</option>`).join('')}</select>` : '';
   if (!PL.data) {
@@ -1012,7 +1043,7 @@ function renderPlan() {
     const groups = [['copy', 'Copy'], ['copy-unique', 'Copy only what’s unique'], ['skip', 'Not copied']];
     v.innerHTML = `<div class="plan">
       <div class="pl-head">
-        <div><h2>Plan ${PL.id}</h2><p class="muted">into <code>${esc(p.target)}</code> · made ${esc(when(p.created_at))} · <span class="pill ${state === 'done' ? 'ok' : state === 'partial' ? 'warn' : ''}">${esc(state)}</span></p></div>
+        <div><h2>Plan ${PL.id}</h2><p class="muted">into <code>${esc(p.target)}</code> · made ${esc(when(p.created_at))}${/caches left out/.test(p.schema || '') ? ' · caches left out' : ''} · <span class="pill ${state === 'done' ? 'ok' : state === 'partial' ? 'warn' : ''}">${esc(state)}</span></p></div>
         <div class="pl-acts">${picker}<button class="btn" type="button" id="pl-newbtn">New plan</button>
           <button class="btn" type="button" id="pl-dry">Dry run</button>
           <button class="btn primary" type="button" id="pl-go"${S.daemon ? '' : ' disabled title="Copying runs in the BackDown service: backdown apply ' + PL.id + ' --go"'}>Apply: copy ${bytes(p.copy_bytes)}</button></div>
@@ -1032,6 +1063,9 @@ function renderPlan() {
     </div>`;
   }
   $('#pl-make')?.addEventListener('click', makePlan);
+  $('#pl-junk')?.addEventListener('change', e => { PL.junk = e.target.checked; });
+  document.querySelectorAll('.pl-src').forEach(c => c.addEventListener('change', junkSize));
+  junkSize();
   $('#pl-newbtn')?.addEventListener('click', () => { const f = $('#pl-form'); f.hidden = !f.hidden; if (!f.hidden) $('#pl-to').focus(); });
   $('#pl-pick')?.addEventListener('change', e => showPlan(+e.target.value));
   $('#pl-dry')?.addEventListener('click', async () => {
@@ -1050,12 +1084,26 @@ function renderPlan() {
   });
 }
 
+// how much the ticked drives hold in regenerable things (as recognised)
+function junkSize() {
+  const el = $('#pl-junk-size');
+  if (!el || !PL.ents) return;
+  const ids = new Set([...document.querySelectorAll('.pl-src:checked')].map(c => +c.value));
+  let n = 0;
+  for (const r of PL.ents.roots || []) {
+    const root = S.roots.find(x => x.path === r.root);
+    if (!root || !ids.has(root.id)) continue;
+    n += r.junk.reduce((a, j) => a + j.bytes, 0) + r.entities.reduce((a, e) => a + e.junk.reduce((b, j) => b + j.bytes, 0), 0);
+  }
+  el.textContent = n ? `(${bytes(n)} on these drives)` : '';
+}
+
 async function makePlan() {
   const to = $('#pl-to').value.trim() || $('#pl-to').placeholder;
   const from = [...document.querySelectorAll('.pl-src:checked')].map(c => c.value).join(',');
   PL.to = to;
   $('#pl-make').disabled = true;
-  const r = await fetch(`/api/plan?${new URLSearchParams({ to, from })}`, { method: 'POST', headers: { 'X-BackDown': '1' }, credentials: 'same-origin' });
+  const r = await fetch(`/api/plan?${new URLSearchParams({ to, from, skip_junk: PL.junk ? 1 : '' })}`, { method: 'POST', headers: { 'X-BackDown': '1' }, credentials: 'same-origin' });
   const j = await r.json().catch(() => ({}));
   if (!r.ok || j.error) { $('#pl-make').disabled = false; return toastError(new Error(j.error || r.statusText)); }
   PL.fresh = false;
@@ -2029,10 +2077,14 @@ document.addEventListener('click', e => {
   if (t.closest('#pathbar') && !t.closest('.crumb') && e.detail >= 2) return editPath();
   if (t.closest('#banner-now')) return setScan(S.timeline.length - 1);
   if (t.closest('#banner-git')) return openGit(S.dir, S.listing.name);
+  if (t.closest('#banner-mail')) { const m = maildirHere(); return m && openMaildir(m.key, m.name); }
   const th = t.closest('#view th[data-sort]');
   if (th) { const k = th.dataset.sort; S.sort = { key: k, asc: S.sort.key === k ? !S.sort.asc : k === 'name' }; return renderView(); }
+  if (t.closest('[data-find-more]')) { findMore(); return rerunSearch(); }
+  if (t.closest('[data-find-scope]')) { setScope('all'); return rerunSearch(); }
+  if (t.closest('[data-find-earlier]')) { setEarlier(true); return rerunSearch(); }
   const hit = t.closest('[data-hit-dir]');
-  if (hit) return go(hit.dataset.hitDir, { select: hit.dataset.hitSel || null, scan: null });
+  if (hit) return go(hit.dataset.hitDir, { select: hit.dataset.hitSel || null, scan: hit.dataset.hitScan ? +hit.dataset.hitScan : null });
   const item = t.closest('#view [data-key]');
   if (item) {
     if (e.detail >= 2 && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
@@ -2063,6 +2115,7 @@ $('#info-btn').onclick = () => { S.info = !S.info; localStorage.setItem('bd.info
 $('#search-btn').onclick = () => $('#searchbox').hidden ? openSearch() : closeSearch();
 $('#q').addEventListener('input', e => { clearTimeout(searchTimer); searchTimer = setTimeout(() => runSearch(e.target.value), 220); });
 $('#q').addEventListener('keydown', e => { if (e.key === 'Escape') { closeSearch(); $('#view').focus(); } });
+mountFind(rerunSearch);
 $('#dupes-btn').onclick = showDupes;
 $('#activity-btn').onclick = showActivity;
 $('#entities-btn').onclick = showEntities;
@@ -2076,6 +2129,7 @@ document.addEventListener('keydown', e => {
   if (!$('#viewer').hidden || menuOpen() || document.querySelector('.help-wrap')) return; // they have their own keys
   const typing = e.target.closest('input, textarea, select');
   const ctrl = e.ctrlKey || e.metaKey, k = e.key;
+  if (ctrl && e.shiftKey && (k === 'F' || k === 'f')) { e.preventDefault(); setScope('all'); openSearch(); return rerunSearch(); }
   if (ctrl && k === 'f') { e.preventDefault(); return openSearch(); }
   if (ctrl && k === 'i') { e.preventDefault(); return $('#info-btn').click(); }
   if (ctrl && !e.shiftKey && ['1', '2', '3', '4'].includes(k)) { e.preventDefault(); return setView(VIEWS[+k - 1]); }

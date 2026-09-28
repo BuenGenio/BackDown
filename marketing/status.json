@@ -81,6 +81,32 @@
       }
     },
     {
+      "state": "done",
+      "text": {
+        "en": "Browsing without restoring: mailboxes as threaded conversations, SQL dumps as schemas, the files inside disk images, and search across every drive at once",
+        "es": "Explorar sin restaurar: buzones como conversaciones agrupadas, volcados SQL como esquemas, los archivos dentro de las imágenes de disco y búsqueda en todos los discos a la vez",
+        "pt-br": "Navegar sem restaurar: caixas de correio como conversas agrupadas, dumps SQL como esquemas, os arquivos dentro de imagens de disco e busca em todos os discos de uma vez",
+        "de": "Durchsuchen ohne Wiederherstellen: Postfächer als Konversationen, SQL-Dumps als Schemas, die Dateien in Disk-Images und Suche über alle Laufwerke auf einmal",
+        "pl": "Przeglądanie bez przywracania: skrzynki pocztowe jako wątki, zrzuty SQL jako schematy, pliki wewnątrz obrazów dysków i wyszukiwanie na wszystkich dyskach naraz",
+        "cs": "Procházení bez obnovy: schránky jako vlákna konverzací, SQL dumpy jako schémata, soubory uvnitř obrazů disků a hledání na všech discích najednou",
+        "sk": "Prehliadanie bez obnovy: schránky ako vlákna konverzácií, SQL dumpy ako schémy, súbory vo vnútri obrazov diskov a hľadanie na všetkých diskoch naraz",
+        "uk": "Перегляд без відновлення: поштові скриньки як ланцюжки листування, SQL-дампи як схеми, файли всередині образів дисків і пошук одразу на всіх дисках"
+      }
+    },
+    {
+      "state": "done",
+      "text": {
+        "en": "Where things came from, and when: iPhone backups, Time Machine sets, SQL dumps and backup scripts now say when they were made or last copied",
+        "es": "De dónde viene cada cosa, y cuándo: las copias de iPhone, los conjuntos de Time Machine, los volcados SQL y los scripts de copia indican cuándo se hicieron o se copiaron por última vez",
+        "pt-br": "De onde veio cada coisa, e quando: backups de iPhone, conjuntos do Time Machine, dumps SQL e scripts de backup agora dizem quando foram feitos ou copiados pela última vez",
+        "de": "Woher etwas stammt, und wann: iPhone-Backups, Time-Machine-Sätze, SQL-Dumps und Backup-Skripte sagen jetzt, wann sie erstellt oder zuletzt kopiert wurden",
+        "pl": "Skąd coś pochodzi i kiedy: kopie iPhone’a, zestawy Time Machine, zrzuty SQL i skrypty kopii zapasowych mówią teraz, kiedy powstały lub zostały ostatnio skopiowane",
+        "cs": "Odkud co pochází a kdy: zálohy iPhonu, sady Time Machine, SQL dumpy a zálohovací skripty teď říkají, kdy vznikly nebo kdy byly naposledy zkopírovány",
+        "sk": "Odkiaľ čo pochádza a kedy: zálohy iPhonu, sady Time Machine, SQL dumpy a zálohovacie skripty teraz hovoria, kedy vznikli alebo kedy boli naposledy skopírované",
+        "uk": "Звідки що походить і коли: резервні копії iPhone, набори Time Machine, SQL-дампи та скрипти резервного копіювання тепер кажуть, коли їх створено або востаннє скопійовано"
+      }
+    },
+    {
       "state": "doing",
       "text": {
         "en": "Pre-orders for BackDown Pro, with licence keys that are checked offline",

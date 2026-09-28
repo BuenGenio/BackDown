@@ -677,7 +677,7 @@ impl Zip {
 // ---- compressed streams and tar
 
 #[derive(Clone, Copy, PartialEq, Debug)]
-enum Codec {
+pub(crate) enum Codec {
     Plain,
     Gzip,
     Bzip2,
@@ -686,7 +686,7 @@ enum Codec {
 }
 
 impl Codec {
-    fn sniff(head: &[u8]) -> Codec {
+    pub(crate) fn sniff(head: &[u8]) -> Codec {
         if head.starts_with(&[0x1F, 0x8B]) {
             Codec::Gzip
         } else if head.starts_with(b"BZh") {
@@ -710,7 +710,7 @@ impl Codec {
         }
     }
 
-    fn open(self, f: File) -> Result<Box<dyn Read + Send>> {
+    pub(crate) fn open(self, f: File) -> Result<Box<dyn Read + Send>> {
         let r = BufReader::with_capacity(1 << 16, f);
         Ok(match self {
             Codec::Plain => Box::new(r),
@@ -1493,7 +1493,7 @@ pub fn slides(path: &Path) -> Result<Value> {
 
 // ---- mail: single messages (.eml) and mbox files
 
-fn blank(line: &[u8]) -> bool {
+pub(crate) fn blank(line: &[u8]) -> bool {
     line == b"\n" || line == b"\r\n"
 }
 
@@ -1509,12 +1509,16 @@ fn has_clock(l: &[u8]) -> bool {
 
 /// An mbox separator: "From " at the start of a line, after a blank line (or looking like
 /// "From sender Mon Jan  1 12:00:00 2024", for writers that don't leave one).
-fn is_from_line(line: &[u8], prev_blank: bool) -> bool {
+pub(crate) fn is_from_line(line: &[u8], prev_blank: bool) -> bool {
     line.starts_with(b"From ") && (prev_blank || has_clock(line))
 }
 
 /// One line into `buf`, keeping at most `cap` bytes of it; returns the whole line's length.
-fn line_capped(r: &mut impl BufRead, buf: &mut Vec<u8>, cap: usize) -> io::Result<usize> {
+pub(crate) fn line_capped(
+    r: &mut impl BufRead,
+    buf: &mut Vec<u8>,
+    cap: usize,
+) -> io::Result<usize> {
     buf.clear();
     let mut total = 0;
     loop {
@@ -1536,7 +1540,7 @@ fn line_capped(r: &mut impl BufRead, buf: &mut Vec<u8>, cap: usize) -> io::Resul
     }
 }
 
-fn addrs(a: Option<&mail_parser::Address>) -> String {
+pub(crate) fn addrs(a: Option<&mail_parser::Address>) -> String {
     a.map(|a| {
         a.iter()
             .filter_map(|x| match (x.name(), x.address()) {
@@ -2775,6 +2779,10 @@ pub fn disk(path: &Path, dir: Option<&str>) -> Result<Value> {
     }
     Ok(Value::Object(out))
 }
+
+// the files inside a disk image's filesystems (FAT, exFAT, ext2/3/4, NTFS)
+mod fsview;
+pub use fsview::{fs_entry, fs_list};
 
 #[cfg(test)]
 mod tests {

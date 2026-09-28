@@ -53,7 +53,7 @@ use rusqlite::types::ValueRef;
 use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 
-use crate::{Db, hash, paths};
+use crate::{Db, find, hash, paths};
 
 const BATCH: u64 = 20_000;
 const EXAMPLES: usize = 5;
@@ -1013,8 +1013,8 @@ fn import_volume(
     };
 
     let mut insert = conn.prepare_cached(
-        "INSERT OR IGNORE INTO files (root_id, path, dir, size, mtime, first_scan, last_scan, current)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, 1)",
+        "INSERT OR IGNORE INTO files (root_id, path, dir, size, mtime, first_scan, last_scan, current, lname)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, 1, ?7)",
     )?;
     let mut save = conn.prepare_cached(
         "UPDATE legacy_imports SET next_file = ?2, next_offset = ?3, files = ?4, bytes = ?5,
@@ -1057,7 +1057,8 @@ fn import_volume(
         while let Some((rec, end)) = rd.next(&mut t)? {
             let path = [root, &rec.path[v.legacy_root.len()..]].concat();
             let dir = parent(&path);
-            if insert.execute(params![root_id, path, dir, rec.size, rec.mtime, scan])? == 0 {
+            let name = find::lname(&paths::from_bytes(&path));
+            if insert.execute(params![root_id, path, dir, rec.size, rec.mtime, scan, name])? == 0 {
                 t.duplicates += 1;
             } else {
                 t.files += 1;
@@ -1181,8 +1182,8 @@ fn write_dirs(conn: &Connection, root_id: i64, scan: i64, root: &[u8]) -> Result
         }
     }
     let mut insert = conn.prepare_cached(
-        "INSERT INTO dirs (root_id, path, parent, files, bytes, newest, first_scan, last_scan, current)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, 1)",
+        "INSERT INTO dirs (root_id, path, parent, files, bytes, newest, first_scan, last_scan, current, lname)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, 1, ?8)",
     )?;
     let mut all = Totals::default();
     for (path, t) in &dirs {
@@ -1194,7 +1195,8 @@ fn write_dirs(conn: &Connection, root_id: i64, scan: i64, root: &[u8]) -> Result
             t.files as i64,
             t.bytes as i64,
             t.newest,
-            scan
+            scan,
+            find::lname(&paths::from_bytes(path))
         ])?;
         if path == root {
             all = *t;
