@@ -212,7 +212,12 @@ fn handle(ctx: &Ctx, req: Request) {
             plain(403, "missing X-BackDown header")
         } else {
             let r = if path == "/api/plan" {
-                new_plan(ctx, param("to"), param("from"))
+                new_plan(
+                    ctx,
+                    param("to"),
+                    param("from"),
+                    param("skip_junk") == Some("1"),
+                )
             } else {
                 start_apply(ctx, param("id"))
             };
@@ -430,7 +435,7 @@ fn decode(s: &str) -> String {
 }
 
 /// Make and save a filing plan into the folder `to`, from the drives `from` (root ids; default all).
-fn new_plan(ctx: &Ctx, to: Option<&str>, from: Option<&str>) -> Result<Value> {
+fn new_plan(ctx: &Ctx, to: Option<&str>, from: Option<&str>, skip_junk: bool) -> Result<Value> {
     let to = PathBuf::from(to.context("where should the archive go?")?.trim());
     if !to.is_absolute() {
         bail!("the archive folder must be a full path, like /media/archive/Archive");
@@ -450,15 +455,18 @@ fn new_plan(ctx: &Ctx, to: Option<&str>, from: Option<&str>) -> Result<Value> {
         .filter_map(|id| recognise::load(&db, id).ok().flatten().map(|(r, _)| r))
         .collect();
     let ov = overlap::overlaps(&db, &list, &mut |_| {})?;
-    let mut p = plan::make(
-        &db,
-        &to,
-        only.as_deref(),
-        &plan::Schema::default(),
-        &list,
-        &ov,
-    )?;
-    p.schema = "built-in".into();
+    // caches, previews and build output can be left out: they're regenerable, but then the drives
+    // they're on can't be wiped whole (those files have no copy)
+    let schema = plan::Schema {
+        skip_junk,
+        ..plan::Schema::default()
+    };
+    let mut p = plan::make(&db, &to, only.as_deref(), &schema, &list, &ov)?;
+    p.schema = if skip_junk {
+        "built-in, caches left out".into()
+    } else {
+        "built-in".into()
+    };
     if p.items.is_empty() {
         bail!("nothing to file: are the drives recognised yet (What's here)?");
     }

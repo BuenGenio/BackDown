@@ -976,7 +976,7 @@ async function openEntityPath(key, isFile) {
 
 // ---------- Plan: file the old drives into one archive (propose, read, dry-run, apply)
 
-const PL = { id: null, data: null, list: [], dry: null, fresh: false, to: '' };
+const PL = { id: null, data: null, list: [], dry: null, fresh: false, to: '', ents: null, junk: false };
 
 async function showPlan(id = PL.id) {
   S.mode = 'plan';
@@ -985,6 +985,8 @@ async function showPlan(id = PL.id) {
   $('#banner').hidden = true; $('#info').hidden = true; $('#timebar').hidden = true;
   $('#view').innerHTML = '<div class="empty"><p>Loading…</p></div>';
   PL.list = await api('plans').catch(() => []);
+  // what's regenerable on each drive (caches, previews, build output), for "leave them out"
+  if (!PL.ents) api('entities').then(d => { PL.ents = d; if (S.mode === 'plan') junkSize(); }).catch(() => {});
   if (id == null && PL.list.length) id = PL.list[0].id;
   PL.id = id; PL.dry = null;
   PL.data = id != null ? await api('plan', { id }).catch(() => null) : null;
@@ -1001,7 +1003,8 @@ function renderPlan() {
         <input id="pl-to" list="pl-roots" spellcheck="false" placeholder="${esc(guess)}" value="${esc(PL.to)}"></label>
       <datalist id="pl-roots">${S.roots.map(r => `<option value="${esc(r.path.replace(/[\\/]+$/, ''))}/Archive">`).join('')}</datalist>
       <div class="pl-from"><span class="muted">File these drives:</span>${S.roots.map(r => `<label class="chk"><input type="checkbox" class="pl-src" value="${r.id}" checked> ${esc(r.name)}</label>`).join('')}</div>
-      <p class="note">The archive's own drive is never a source. A plan only proposes: nothing is copied until you apply it, and nothing is ever deleted.</p>
+      <label class="chk pl-junk"><input type="checkbox" id="pl-junk"${PL.junk ? ' checked' : ''}> Leave out caches, previews and build output <span class="muted" id="pl-junk-size"></span></label>
+      <p class="note">The archive's own drive is never a source. A plan only proposes: nothing is copied until you apply it, and nothing is ever deleted. Caches and build output can be made again by the programs that made them; left out, the drive they're on can't be freed entirely, because they have no copy.</p>
       <button class="btn primary" type="button" id="pl-make">Make plan</button></section>`;
   const picker = PL.list.length > 1 ? `<select id="pl-pick" aria-label="Plans">${PL.list.map(p => `<option value="${p.id}"${p.id === PL.id ? ' selected' : ''}>Plan ${p.id} · ${esc(day(p.created_at))} · ${esc(p.state)}</option>`).join('')}</select>` : '';
   if (!PL.data) {
@@ -1012,7 +1015,7 @@ function renderPlan() {
     const groups = [['copy', 'Copy'], ['copy-unique', 'Copy only what’s unique'], ['skip', 'Not copied']];
     v.innerHTML = `<div class="plan">
       <div class="pl-head">
-        <div><h2>Plan ${PL.id}</h2><p class="muted">into <code>${esc(p.target)}</code> · made ${esc(when(p.created_at))} · <span class="pill ${state === 'done' ? 'ok' : state === 'partial' ? 'warn' : ''}">${esc(state)}</span></p></div>
+        <div><h2>Plan ${PL.id}</h2><p class="muted">into <code>${esc(p.target)}</code> · made ${esc(when(p.created_at))}${/caches left out/.test(p.schema || '') ? ' · caches left out' : ''} · <span class="pill ${state === 'done' ? 'ok' : state === 'partial' ? 'warn' : ''}">${esc(state)}</span></p></div>
         <div class="pl-acts">${picker}<button class="btn" type="button" id="pl-newbtn">New plan</button>
           <button class="btn" type="button" id="pl-dry">Dry run</button>
           <button class="btn primary" type="button" id="pl-go"${S.daemon ? '' : ' disabled title="Copying runs in the BackDown service: backdown apply ' + PL.id + ' --go"'}>Apply: copy ${bytes(p.copy_bytes)}</button></div>
@@ -1032,6 +1035,9 @@ function renderPlan() {
     </div>`;
   }
   $('#pl-make')?.addEventListener('click', makePlan);
+  $('#pl-junk')?.addEventListener('change', e => { PL.junk = e.target.checked; });
+  document.querySelectorAll('.pl-src').forEach(c => c.addEventListener('change', junkSize));
+  junkSize();
   $('#pl-newbtn')?.addEventListener('click', () => { const f = $('#pl-form'); f.hidden = !f.hidden; if (!f.hidden) $('#pl-to').focus(); });
   $('#pl-pick')?.addEventListener('change', e => showPlan(+e.target.value));
   $('#pl-dry')?.addEventListener('click', async () => {
@@ -1050,12 +1056,26 @@ function renderPlan() {
   });
 }
 
+// how much the ticked drives hold in regenerable things (as recognised)
+function junkSize() {
+  const el = $('#pl-junk-size');
+  if (!el || !PL.ents) return;
+  const ids = new Set([...document.querySelectorAll('.pl-src:checked')].map(c => +c.value));
+  let n = 0;
+  for (const r of PL.ents.roots || []) {
+    const root = S.roots.find(x => x.path === r.root);
+    if (!root || !ids.has(root.id)) continue;
+    n += r.junk.reduce((a, j) => a + j.bytes, 0) + r.entities.reduce((a, e) => a + e.junk.reduce((b, j) => b + j.bytes, 0), 0);
+  }
+  el.textContent = n ? `(${bytes(n)} on these drives)` : '';
+}
+
 async function makePlan() {
   const to = $('#pl-to').value.trim() || $('#pl-to').placeholder;
   const from = [...document.querySelectorAll('.pl-src:checked')].map(c => c.value).join(',');
   PL.to = to;
   $('#pl-make').disabled = true;
-  const r = await fetch(`/api/plan?${new URLSearchParams({ to, from })}`, { method: 'POST', headers: { 'X-BackDown': '1' }, credentials: 'same-origin' });
+  const r = await fetch(`/api/plan?${new URLSearchParams({ to, from, skip_junk: PL.junk ? 1 : '' })}`, { method: 'POST', headers: { 'X-BackDown': '1' }, credentials: 'same-origin' });
   const j = await r.json().catch(() => ({}));
   if (!r.ok || j.error) { $('#pl-make').disabled = false; return toastError(new Error(j.error || r.statusText)); }
   PL.fresh = false;

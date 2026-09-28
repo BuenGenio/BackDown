@@ -468,6 +468,8 @@ a.btn{color:inherit;text-decoration:none}
 .pl-to input{height:34px;border:1px solid var(--line-2);border-radius:8px;background:var(--view);color:var(--ink);font:13px var(--mono);padding:0 10px}
 .pl-from{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;font-size:.88rem}
 .pl-new .btn{align-self:flex-start}
+.pl-junk{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;font-size:.88rem}
+.pl-junk input{margin:0;accent-color:var(--accent)}
 .pl-dry{border-radius:10px;border:1px solid color-mix(in srgb,var(--info) 30%,transparent)}
 .pl-journal{font-size:.9rem}.warn-t{color:var(--warn);font-weight:600}
 .pl-drives{width:100%}
