@@ -73,6 +73,29 @@ CREATE TABLE IF NOT EXISTS entities (
     computed_at INTEGER NOT NULL,
     data        TEXT NOT NULL         -- JSON: recognise::RootEntities
 );
+-- filing plans (plan.rs) and the journal of applying them (apply.rs): one row per file copied,
+-- found already there, skipped as a duplicate, or in conflict; the proof of what happened
+CREATE TABLE IF NOT EXISTS plans (
+    id         INTEGER PRIMARY KEY,
+    created_at INTEGER NOT NULL,
+    target     TEXT NOT NULL,
+    data       TEXT NOT NULL,         -- JSON: plan::Plan
+    state      TEXT NOT NULL          -- new | running | done | partial
+);
+CREATE TABLE IF NOT EXISTS journal (
+    id      INTEGER PRIMARY KEY,
+    plan_id INTEGER NOT NULL REFERENCES plans(id),
+    item    INTEGER NOT NULL,
+    src     BLOB NOT NULL,
+    dest    BLOB,
+    size    INTEGER NOT NULL,
+    mtime   INTEGER NOT NULL,
+    sha256  BLOB,
+    state   TEXT NOT NULL,            -- copied | already-there | duplicate | conflict | failed
+    error   TEXT,
+    at      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS journal_src ON journal(plan_id, src);
 ";
 const VERSION: i64 = 2;
 

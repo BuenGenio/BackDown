@@ -11,6 +11,7 @@ use serde_json::json;
 
 mod client;
 mod daemon;
+mod filing;
 mod insight;
 mod license;
 mod locations;
@@ -155,6 +156,34 @@ enum Cmd {
         #[arg(long)]
         refresh: bool,
     },
+    /// Propose where everything on the old drives goes in one archive, and why (saved, so it can be
+    /// applied)
+    Plan {
+        /// The archive folder (on the drive that will keep everything)
+        #[arg(long)]
+        to: Option<PathBuf>,
+        /// Only file these drives (default: every indexed drive but the archive's)
+        #[arg(long)]
+        from: Vec<PathBuf>,
+        /// Your own filing schema (start from `backdown plan --print-schema`)
+        #[arg(long)]
+        schema: Option<PathBuf>,
+        /// Print the built-in schema and exit
+        #[arg(long)]
+        print_schema: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Plans made so far
+    Plans,
+    /// Apply a plan: show what it would do, or with --go copy, verify and journal every file
+    /// (never deletes anything)
+    Apply {
+        plan: i64,
+        /// Actually copy (without it: a dry run)
+        #[arg(long)]
+        go: bool,
+    },
     /// Your BackDown Pro licence: add a key, or show the one you have
     License {
         #[command(subcommand)]
@@ -269,7 +298,13 @@ fn run(cli: Cli) -> Result<ExitCode> {
     if !cli.local
         && !matches!(
             cli.cmd,
-            Cmd::Serve { .. } | Cmd::Entities { .. } | Cmd::Overlaps { .. } | Cmd::Report { .. }
+            Cmd::Serve { .. }
+                | Cmd::Entities { .. }
+                | Cmd::Overlaps { .. }
+                | Cmd::Report { .. }
+                | Cmd::Plan { .. }
+                | Cmd::Plans
+                | Cmd::Apply { .. }
         )
         && let Some(c) = client::Client::connect(cli.db.as_deref())
     {
@@ -377,6 +412,31 @@ fn local(db_path: &Path, cmd: Cmd) -> Result<ExitCode> {
             output,
             refresh,
         } => return insight::report(&db, html, output.as_deref(), refresh),
+        Cmd::Plan {
+            to,
+            from,
+            schema,
+            print_schema,
+            json,
+        } => {
+            if print_schema {
+                print!("{}", backdown_core::plan::DEFAULT_SCHEMA);
+                return Ok(ExitCode::SUCCESS);
+            }
+            let to =
+                to.context("where should the archive go? --to <folder on the archive drive>")?;
+            return filing::make_plan(
+                &db,
+                filing::PlanArgs {
+                    to: &to,
+                    from: &from,
+                    schema: schema.as_deref(),
+                    json,
+                },
+            );
+        }
+        Cmd::Plans => return filing::list_plans(&db),
+        Cmd::Apply { plan, go } => return filing::run_apply(&mut db, plan, go),
         Cmd::Serve { port, no_open } => {
             drop(db);
             serve::serve(db_path, port, !no_open)?;
@@ -514,7 +574,10 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
         | Cmd::License { .. }
         | Cmd::Entities { .. }
         | Cmd::Overlaps { .. }
-        | Cmd::Report { .. } => {
+        | Cmd::Report { .. }
+        | Cmd::Plan { .. }
+        | Cmd::Plans
+        | Cmd::Apply { .. } => {
             unreachable!("handled in run")
         }
     }

@@ -628,6 +628,14 @@ fn rules(db: &Db, root: &[u8], m: &Markers) -> Result<Vec<Candidate>> {
                         .join(", ")
                 },
             ));
+            // the domain with the most mailboxes names the store when nothing better does
+            if let Some((main, _)) = domains
+                .iter()
+                .filter(|(d, _)| looks_like_domain(d))
+                .max_by(|a, b| a.1.cmp(b.1).then(b.0.cmp(a.0)))
+            {
+                c.facts.push(("Main domain".into(), main.clone()));
+            }
             placed.extend(mbs.iter().cloned());
             out.push(c);
         }
