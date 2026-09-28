@@ -12,10 +12,12 @@ use serde_json::json;
 mod client;
 mod daemon;
 mod filing;
+mod health;
 mod insight;
 mod license;
 mod locations;
 mod mailbox;
+mod notifier;
 mod peek;
 mod rescuing;
 mod serve;
@@ -110,6 +112,13 @@ enum Cmd {
     /// Every disk and partition on this machine: what's on it, and what BackDown can do with it
     /// (read-only; needs no root)
     Volumes {
+        #[arg(long)]
+        json: bool,
+    },
+    /// How each drive is doing: SMART verdict, temperature, bad sectors, wear, and what changed
+    /// since its first reading (read now, without root; kept in the index). Exits 2 when a
+    /// connected drive is failing
+    Health {
         #[arg(long)]
         json: bool,
     },
@@ -464,6 +473,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
             };
         }
         Cmd::Volumes { json } => return run_volumes(cli.db, json),
+        // through the daemon when it runs (it keeps the readings), else here
+        Cmd::Health { json } => return health::command(cli.db, cli.local, json),
         // reads a drive and writes elsewhere; never opens the index (it may run under sudo)
         Cmd::Rescue { action } => return rescuing::run(action),
         _ => {}
@@ -726,7 +737,8 @@ fn local(db_path: &Path, cmd: Cmd, use_daemon: bool) -> Result<ExitCode> {
         | Cmd::License { .. }
         | Cmd::ImportLegacy { .. }
         | Cmd::Rescue { .. }
-        | Cmd::Volumes { .. } => {
+        | Cmd::Volumes { .. }
+        | Cmd::Health { .. } => {
             unreachable!("handled in run")
         }
     }
@@ -865,7 +877,8 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
         | Cmd::Dedup { .. }
         | Cmd::Mail { .. }
         | Cmd::Rescue { .. }
-        | Cmd::Volumes { .. } => {
+        | Cmd::Volumes { .. }
+        | Cmd::Health { .. } => {
             unreachable!("handled in run")
         }
     }
