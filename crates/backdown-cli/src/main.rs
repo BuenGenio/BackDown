@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
-use backdown_core::{Db, fmt, hash, index, report};
+use backdown_core::{Db, fmt, hash, index, legacy, report};
 use clap::{Parser, Subcommand};
 use serde_json::json;
 
@@ -78,6 +78,29 @@ enum Cmd {
         #[command(flatten)]
         hashing: HashArgs,
     },
+    /// Import the index the pre-Rust scripts wrote (bd-index.sh, bd-hash.py), so their crawling
+    /// and hashing aren't repeated
+    #[command(after_long_help = LEGACY_HELP)]
+    ImportLegacy {
+        /// The scripts' `index` folder
+        index_dir: PathBuf,
+        /// bd-hash.py's hashes.db: attach its SHA-256s to the files they belong to
+        #[arg(long, value_name = "HASHES_DB")]
+        hashes: Option<PathBuf>,
+        /// A drive mounted somewhere else now: LEGACY_PATH=PATH_NOW (repeatable; a legacy folder
+        /// maps everything below it)
+        #[arg(long, value_name = "LEGACY=NOW")]
+        map: Vec<String>,
+        /// Import only this volume, a folder name in INDEX_DIR (repeatable; default: all)
+        #[arg(long, value_name = "NAME")]
+        volume: Vec<String>,
+        /// Replace what the index already holds for a root, or for roots nested with it
+        #[arg(long)]
+        replace: bool,
+        /// Read everything and show what would be imported, writing nothing
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Finished scans, oldest first
     Scans {
         #[arg(long)]
@@ -125,6 +148,29 @@ enum Cmd {
         action: LicenseCmd,
     },
 }
+
+const LEGACY_HELP: &str = "\
+The legacy index is the `index` folder the pre-Rust scripts wrote:
+
+  <vol>/chunks.list      bd-plan.py's crawl plan, one `R<TAB>dir` or `F<TAB>dir` per line;
+                         its first line, `F<TAB>/mount/point`, names the drive's root
+  <vol>/chunks/<id>.tsv  one chunk, from `find -printf '%s\\t%T@\\t%p\\n'`: size, mtime
+                         (seconds.fraction) and the raw path; <id>.done marks it finished
+  <vol>.tsv              every finished chunk, merged (read when present and up to date)
+  hashes.db              bd-hash.py's table h(path, size, mtime, sha256)
+
+Each volume becomes a root with one finished scan, dated from its chunks. Chunks that never
+finished are left out and counted; the next `backdown index` adds their files. A hash attaches
+where the path, size and mtime (to the second) still match. Safe to run again: an interrupted
+import resumes, a finished one is left alone. Stop the daemon while importing.
+
+Afterwards `dupes` and `check` work straight away, and `backdown index <root>` with the drive
+mounted finds its files unchanged and keeps their hashes.
+
+Examples:
+  backdown import-legacy ~/scripts/index --hashes ~/scripts/index/hashes.db --dry-run
+  backdown import-legacy ~/scripts/index --hashes ~/scripts/index/hashes.db \\
+      --map /media/olduser/Photos=/mnt/photos";
 
 #[derive(Subcommand)]
 enum LicenseCmd {
@@ -231,10 +277,20 @@ fn run(cli: Cli) -> Result<ExitCode> {
     }
     // a running daemon owns the index: hand the work to it (unless told not to)
     if !cli.local
-        && !matches!(cli.cmd, Cmd::Serve { .. })
+        && !matches!(cli.cmd, Cmd::Serve { .. } | Cmd::ImportLegacy { .. })
         && let Some(c) = client::Client::connect(cli.db.as_deref())
     {
         return via_daemon(c, cli.cmd);
+    }
+    if let Cmd::ImportLegacy { dry_run: false, .. } = cli.cmd
+        && !cli.local
+        && client::Client::connect(cli.db.as_deref()).is_some()
+    {
+        anyhow::bail!(
+            "a BackDown daemon is running and owns the index; stop it for the import \
+             (`systemctl --user stop backdown`, or `sudo systemctl stop backdown` for the system service), \
+             then start it again"
+        );
     }
     let db_path = match cli.db {
         Some(p) => p,
@@ -257,6 +313,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
 }
 
 fn local(db_path: &Path, cmd: Cmd) -> Result<ExitCode> {
+    if let Cmd::ImportLegacy { .. } = cmd {
+        return import_legacy(db_path, cmd);
+    }
     let mut db = Db::open(db_path)?;
     match cmd {
         Cmd::Index {
@@ -338,7 +397,11 @@ fn local(db_path: &Path, cmd: Cmd) -> Result<ExitCode> {
                 println!("daemon: not running (backdown service install, or backdown daemon)");
             }
         }
-        Cmd::Daemon { .. } | Cmd::Open | Cmd::Service { .. } | Cmd::License { .. } => {
+        Cmd::Daemon { .. }
+        | Cmd::Open
+        | Cmd::Service { .. }
+        | Cmd::License { .. }
+        | Cmd::ImportLegacy { .. } => {
             unreachable!("handled in run")
         }
     }
@@ -453,11 +516,234 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
         | Cmd::Daemon { .. }
         | Cmd::Open
         | Cmd::Service { .. }
-        | Cmd::License { .. } => {
+        | Cmd::License { .. }
+        | Cmd::ImportLegacy { .. } => {
             unreachable!("handled in run")
         }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+fn import_legacy(db_path: &Path, cmd: Cmd) -> Result<ExitCode> {
+    let Cmd::ImportLegacy {
+        index_dir,
+        hashes,
+        map,
+        volume,
+        replace,
+        dry_run,
+    } = cmd
+    else {
+        unreachable!("called for import-legacy only")
+    };
+    let maps = map
+        .iter()
+        .map(|m| {
+            let (from, to) = m
+                .split_once('=')
+                .filter(|(f, t)| !f.is_empty() && !t.is_empty())
+                .with_context(|| format!("--map {m:?}: expected LEGACY_PATH=PATH_NOW"))?;
+            Ok((PathBuf::from(from), std::path::absolute(to)?))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    // a dry run reads the index, never creates or migrates it
+    let mut db = if !dry_run {
+        Db::open(db_path)?
+    } else if db_path.exists() {
+        Db::open_read_only(db_path)?
+    } else {
+        Db::open(Path::new(":memory:"))?
+    };
+    let opts = legacy::Options {
+        hashes,
+        maps,
+        volumes: volume,
+        replace,
+        dry_run,
+    };
+    let r = legacy::import(&mut db, &index_dir, &opts, &mut |p| {
+        let pct = if p.total > 0 {
+            100.0 * p.done as f64 / p.total as f64
+        } else {
+            100.0
+        };
+        live(&match p.stage {
+            "hashes" => format!(
+                "hashes.db: {} of {} rows ({pct:.0}%), {} attached",
+                fmt::count(p.done),
+                fmt::count(p.total),
+                fmt::count(p.files)
+            ),
+            "folders" => format!(
+                "{}: folder totals for {} files",
+                p.volume,
+                fmt::count(p.files)
+            ),
+            _ => format!(
+                "{}: {} files, {pct:.0}% of {} read",
+                p.volume,
+                fmt::count(p.files),
+                fmt::bytes(p.total)
+            ),
+        });
+    })?;
+    clear();
+    print_legacy(&r);
+    Ok(ExitCode::SUCCESS)
+}
+
+fn print_legacy(r: &legacy::Report) {
+    let did = |done: &str, would: &str| if r.dry_run { would } else { done }.to_string();
+    for v in &r.volumes {
+        println!(
+            "{}: {} → {}{}",
+            v.name,
+            v.legacy_root.display(),
+            v.root.display(),
+            if v.mounted {
+                ""
+            } else {
+                " (not mounted here now)"
+            }
+        );
+        let t = &v.tally;
+        match v.outcome {
+            legacy::Outcome::Empty => {
+                println!(
+                    "  nothing to import: no finished chunk and no {}.tsv",
+                    v.name
+                );
+                continue;
+            }
+            legacy::Outcome::AlreadyImported => {
+                println!(
+                    "  imported already (scan {}): {} files, {}; left as it is",
+                    v.scan.unwrap_or(0),
+                    fmt::count(t.files),
+                    fmt::bytes(t.bytes)
+                );
+                continue;
+            }
+            _ => {}
+        }
+        if v.merge_outdated {
+            println!(
+                "  read {} ({}.tsv is older than its chunks)",
+                v.source, v.name
+            );
+        } else {
+            println!("  read {}", v.source);
+        }
+        if v.chunks_unfinished > 0 {
+            println!(
+                "  {} of {} planned chunks never finished: their files aren't imported (the next \
+                 `backdown index` adds them), e.g.",
+                v.chunks_unfinished, v.chunks_planned
+            );
+            for e in &v.unfinished_examples {
+                println!("      {e}");
+            }
+        }
+        if v.chunks_from_earlier_plans > 0 {
+            println!(
+                "  {} finished chunks from an earlier plan were read too, as `bd-index.sh merge` does",
+                v.chunks_from_earlier_plans
+            );
+        }
+        for p in &v.replaced {
+            println!(
+                "  {} what the index held for {}",
+                did("replaced", "would replace"),
+                p.display()
+            );
+        }
+        let resumed = match v.outcome {
+            legacy::Outcome::Resumed { from_files } => {
+                format!("resumed after {} files: ", fmt::count(from_files))
+            }
+            _ => String::new(),
+        };
+        println!(
+            "  {resumed}{} {} files, {}{} · crawled {}",
+            did("imported", "would import"),
+            fmt::count(t.files),
+            fmt::bytes(t.bytes),
+            v.scan.map_or(String::new(), |s| format!(" as scan {s}")),
+            utc(v.finished_at)
+        );
+        let mut skipped = Vec::new();
+        for (n, what) in [
+            (t.malformed, "malformed lines"),
+            (t.truncated, "cut-off last lines"),
+            (t.outside_root, "paths outside the root"),
+            (t.duplicates, "paths listed twice (the first was kept)"),
+        ] {
+            if n > 0 {
+                skipped.push(format!("{n} {what}"));
+            }
+        }
+        if !skipped.is_empty() {
+            println!("  skipped {}", skipped.join(", "));
+            for e in &t.examples {
+                println!("      {e:?}");
+            }
+        }
+        if t.rejoined > 0 {
+            println!("  rejoined {} names holding a newline", t.rejoined);
+        }
+    }
+    if !r.not_selected.is_empty() {
+        println!("not selected: {}", r.not_selected.join(", "));
+    }
+    if !r.ignored.is_empty() {
+        println!(
+            "ignored, not volumes (no <name>/chunks.list): {}",
+            r.ignored.join(", ")
+        );
+    }
+    match (&r.hashes, &r.hashes_unused) {
+        (Some(h), _) if r.dry_run => println!(
+            "hashes.db: {} rows, {} of them for files on these volumes",
+            fmt::count(h.rows),
+            fmt::count(h.for_volumes)
+        ),
+        (Some(h), _) => {
+            println!(
+                "hashes.db: {} rows: {} attached, {} there already, {} stale (size or mtime changed \
+                 since), {} for files not in the index",
+                fmt::count(h.rows),
+                fmt::count(h.attached),
+                fmt::count(h.already),
+                fmt::count(h.stale),
+                fmt::count(h.unmatched)
+            );
+            if h.conflicting + h.unusable + h.empty > 0 {
+                println!(
+                    "  kept {} files' own different hash; skipped {} unusable rows and {} empty files",
+                    h.conflicting, h.unusable, h.empty
+                );
+            }
+        }
+        (None, Some(p)) => println!(
+            "note: {} wasn't used; pass --hashes {} to attach its hashes",
+            p.display(),
+            p.display()
+        ),
+        _ => {}
+    }
+    if r.dry_run {
+        println!("dry run: nothing was written");
+    } else if r.volumes.iter().any(|v| {
+        !matches!(
+            v.outcome,
+            legacy::Outcome::AlreadyImported | legacy::Outcome::Empty
+        )
+    }) {
+        println!(
+            "next: with each drive mounted, `backdown index <root>` (as a user that can read all of it) \
+             finds its files unchanged and keeps their hashes"
+        );
+    }
 }
 
 fn open_ui() -> Result<ExitCode> {

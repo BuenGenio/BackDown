@@ -9,6 +9,7 @@ pub mod db;
 pub mod fmt;
 pub mod hash;
 pub mod index;
+pub mod legacy;
 pub mod paths;
 pub mod report;
 
