@@ -5,53 +5,79 @@
     {
       "state": "done",
       "text": {
-        "en": "File browser: an Activity view of what BackDown is doing right now and when each drive is scanned next",
-        "es": "Explorador de archivos: una vista Actividad con lo que BackDown está haciendo ahora mismo y cuándo le toca a cada disco el próximo escaneo",
-        "pt-br": "Navegador de arquivos: uma tela Atividade que mostra o que o BackDown está fazendo agora e quando será a próxima varredura de cada disco",
-        "de": "Dateibrowser: eine Aktivitätsansicht, die zeigt, was BackDown gerade tut und wann jedes Laufwerk als Nächstes gescannt wird",
-        "pl": "Przeglądarka plików: widok Aktywność, który pokazuje, co BackDown robi w tej chwili i kiedy przypada następny skan każdego dysku",
-        "cs": "Prohlížeč souborů: zobrazení Aktivita, které ukazuje, co BackDown právě dělá a kdy se jednotlivé disky příště proskenují",
-        "sk": "Prehliadač súborov: zobrazenie Aktivita, ktoré ukazuje, čo BackDown práve robí a kedy sa jednotlivé disky nabudúce preskenujú",
-        "uk": "Файловий браузер: подання «Активність», яке показує, що BackDown робить просто зараз і коли кожен диск скануватиметься наступного разу"
+        "en": "Recognising what things are (mail stores, Time Machine sets, phone backups, systems, repositories, photo libraries) and where they came from",
+        "es": "Reconocer qué es cada cosa (buzones de correo, copias de Time Machine, copias de teléfonos, sistemas, repositorios, bibliotecas de fotos) y de dónde viene",
+        "pt-br": "Identificar o que é cada coisa (caixas de e-mail, conjuntos do Time Machine, backups de celular, sistemas, repositórios, bibliotecas de fotos) e de onde veio",
+        "de": "Erkennen, was was ist (Postfächer, Time-Machine-Backups, Smartphone-Backups, Systeme, Repositorys, Fotobibliotheken) und woher es stammt",
+        "pl": "Rozpoznawanie, co jest czym (archiwa poczty, zestawy Time Machine, kopie zapasowe telefonów, systemy, repozytoria, biblioteki zdjęć) i skąd pochodzi",
+        "cs": "Rozpoznávání, co je co (poštovní schránky, sady Time Machine, zálohy telefonů, systémy, repozitáře, knihovny fotek) a odkud to pochází",
+        "sk": "Rozpoznávanie, čo je čo (poštové schránky, zálohy Time Machine, zálohy telefónov, systémy, repozitáre, knižnice fotografií) a odkiaľ to pochádza",
+        "uk": "Розпізнавання, що є що (поштові скриньки, набори Time Machine, резервні копії телефонів, системи, репозиторії, фототеки) і звідки воно взялося"
       }
     },
     {
       "state": "done",
       "text": {
-        "en": "File browser: right-click menus, open with your system app, download a copy, filters, sorting, a photo gallery and a size map",
-        "es": "Explorador de archivos: menús con clic derecho, abrir con la aplicación de tu sistema, descargar una copia, filtros, ordenación, una galería de fotos y un mapa de tamaños",
-        "pt-br": "Navegador de arquivos: menus do botão direito, abrir com o app do seu sistema, baixar uma cópia, filtros, ordenação, uma galeria de fotos e um mapa de tamanhos",
-        "de": "Dateibrowser: Rechtsklickmenüs, Öffnen mit der passenden App Ihres Systems, Herunterladen einer Kopie, Filter, Sortierung, eine Fotogalerie und eine Größenkarte",
-        "pl": "Przeglądarka plików: menu pod prawym przyciskiem myszy, otwieranie w aplikacji systemowej, pobieranie kopii, filtry, sortowanie, galeria zdjęć i mapa rozmiarów",
-        "cs": "Prohlížeč souborů: nabídky pod pravým tlačítkem, otevření v systémové aplikaci, stažení kopie, filtry, řazení, galerie fotek a mapa velikostí",
-        "sk": "Prehliadač súborov: ponuky pod pravým tlačidlom, otvorenie v systémovej aplikácii, stiahnutie kópie, filtre, zoradenie, galéria fotografií a mapa veľkostí",
-        "uk": "Файловий браузер: меню правої кнопки миші, відкриття в системному застосунку, завантаження копії, фільтри, сортування, фотогалерея і карта розмірів"
+        "en": "A generated report: every drive, what's on it, how much exists elsewhere, and which drives are safe to wipe",
+        "es": "Un informe generado automáticamente: cada disco, qué contiene, cuánto está ya en otro lugar y qué discos se pueden borrar sin riesgo",
+        "pt-br": "Um relatório gerado automaticamente: cada disco, o que há nele, quanto já existe em outro lugar e quais discos podem ser apagados com segurança",
+        "de": "Ein automatisch erstellter Bericht: jedes Laufwerk, was darauf liegt, wie viel davon anderswo vorhanden ist und welche Laufwerke sicher löschbar sind",
+        "pl": "Automatycznie generowany raport: każdy dysk, co na nim jest, ile z tego istnieje gdzie indziej i które dyski można bezpiecznie wyczyścić",
+        "cs": "Automaticky vytvořený report: každý disk, co na něm je, kolik z toho existuje jinde a které disky lze bezpečně smazat",
+        "sk": "Automaticky vytvorený report: každý disk, čo na ňom je, koľko z toho existuje inde a ktoré disky môžete bezpečne vymazať",
+        "uk": "Автоматичний звіт: кожен диск, що на ньому є, скільки з цього вже є деінде і які диски можна безпечно стерти"
       }
     },
     {
       "state": "done",
       "text": {
-        "en": "Compare any folder between two scans: what was added, removed and changed, and by how much",
-        "es": "Compara cualquier carpeta entre dos escaneos: qué se ha añadido, eliminado y cambiado, y cuánto",
-        "pt-br": "Comparar qualquer pasta entre duas varreduras: o que foi adicionado, removido e alterado, e em quanto",
-        "de": "Jeden Ordner zwischen zwei Scans vergleichen: was hinzugefügt, entfernt und geändert wurde, und um wie viel",
-        "pl": "Porównywanie dowolnego folderu między dwoma skanami: co dodano, usunięto i zmieniono oraz o ile",
-        "cs": "Porovnání libovolné složky mezi dvěma skeny: co přibylo, co ubylo, co se změnilo a o kolik",
-        "sk": "Porovnanie ľubovoľného priečinka medzi dvoma skenmi: čo pribudlo, čo ubudlo, čo sa zmenilo a o koľko",
-        "uk": "Порівняння будь-якої теки між двома скануваннями: що додано, видалено та змінено — і наскільки"
+        "en": "A filing plan and verified, journaled copying into one archive, plus mirrors that keep a second copy checked",
+        "es": "Un plan de organización y una copia verificada y con registro a un único archivo, además de espejos que mantienen comprobada una segunda copia",
+        "pt-br": "Um plano de organização e cópia verificada, registrada no journal, para um único acervo, além de espelhos que mantêm uma segunda cópia sempre conferida",
+        "de": "Ein Ablageplan und verifiziertes Kopieren mit Journal in ein einziges Archiv, dazu Spiegelungen als laufend geprüfte zweite Kopie",
+        "pl": "Plan uporządkowania plików i zweryfikowane kopiowanie z dziennikiem do jednego archiwum, a także kopie lustrzane, dzięki którym druga kopia jest stale sprawdzana",
+        "cs": "Plán roztřídění a ověřené kopírování se žurnálem do jednoho archivu, k tomu zrcadla jako průběžně kontrolovaná druhá kopie",
+        "sk": "Plán zatriedenia a overené kopírovanie so žurnálom do jedného archívu, k tomu zrkadlá ako priebežne kontrolovaná druhá kópia",
+        "uk": "План впорядкування й перевірене копіювання з журналом в один архів, а також дзеркала, що тримають другу копію завжди перевіреною"
+      }
+    },
+    {
+      "state": "done",
+      "text": {
+        "en": "Every disk and partition on the computer, classified, and importing the original scripts' index",
+        "es": "Clasificación de todos los discos y particiones del ordenador e importación del índice de los scripts originales",
+        "pt-br": "Classificação de todos os discos e partições do computador e importação do índice dos scripts originais",
+        "de": "Klassifizierung aller Datenträger und Partitionen im Computer und Import des Index aus den ursprünglichen Skripten",
+        "pl": "Klasyfikacja wszystkich dysków i partycji w komputerze oraz import indeksu z pierwotnych skryptów",
+        "cs": "Klasifikace všech disků a oddílů v počítači a import indexu z původních skriptů",
+        "sk": "Klasifikácia všetkých diskov a oddielov v počítači a import indexu z pôvodných skriptov",
+        "uk": "Класифікація всіх дисків і розділів комп’ютера та імпорт індексу з початкових скриптів"
       }
     },
     {
       "state": "doing",
       "text": {
-        "en": "Viewers for spreadsheets, presentations, email, archives and disk images",
-        "es": "Visores de hojas de cálculo, presentaciones, correo, archivos comprimidos e imágenes de disco",
-        "pt-br": "Visualizadores de planilhas, apresentações, e-mails, arquivos compactados e imagens de disco",
-        "de": "Viewer für Tabellen, Präsentationen, E-Mails, Archive und Disk-Images",
-        "pl": "Podgląd arkuszy kalkulacyjnych, prezentacji, poczty e-mail, archiwów i obrazów dysków",
-        "cs": "Prohlížeče tabulek, prezentací, e-mailů, archivů a obrazů disků",
-        "sk": "Prehliadače tabuliek, prezentácií, e-mailov, archívov a obrazov diskov",
-        "uk": "Переглядачі електронних таблиць, презентацій, пошти, архівів і образів дисків"
+        "en": "Freeing up drives: tick what to wipe, move what exists only there, and delete only what has a verified copy",
+        "es": "Liberar discos: marca lo que quieres borrar, mueve lo que solo está ahí y elimina únicamente lo que tenga una copia verificada",
+        "pt-br": "Liberar discos: marque o que apagar, mova o que só existe ali e exclua apenas o que tiver cópia verificada",
+        "de": "Laufwerke freigeben: auswählen, was gelöscht werden soll, verschieben, was nur dort liegt, und nur löschen, was eine verifizierte Kopie hat",
+        "pl": "Zwalnianie dysków: zaznacz, co wyczyścić, przenieś to, co jest tylko tam, i usuń wyłącznie to, co ma zweryfikowaną kopię",
+        "cs": "Uvolňování disků: zaškrtnete, co se má smazat, přesunete, co existuje jen tam, a smaže se jen to, co má ověřenou kopii",
+        "sk": "Uvoľňovanie diskov: zaškrtnete, čo sa má vymazať, presuniete, čo existuje len tam, a zmaže sa len to, čo má overenú kópiu",
+        "uk": "Звільнення дисків: позначте, що стерти, перенесіть те, що є тільки там, а видалено буде лише те, що має перевірену копію"
+      }
+    },
+    {
+      "state": "doing",
+      "text": {
+        "en": "Rescue: copy a failing drive or memory card safely, then find deleted photos, documents and lost partitions",
+        "es": "Rescate: copia sin riesgo un disco o una tarjeta de memoria que está fallando y luego encuentra fotos y documentos borrados y particiones perdidas",
+        "pt-br": "Resgate: copie com segurança um disco ou cartão de memória que está falhando e depois encontre fotos e documentos apagados e partições perdidas",
+        "de": "Datenrettung: ein ausfallendes Laufwerk oder eine Speicherkarte sicher kopieren, dann gelöschte Fotos und Dokumente sowie verlorene Partitionen wiederfinden",
+        "pl": "Ratowanie danych: bezpiecznie skopiuj padający dysk lub kartę pamięci, a potem odnajdź usunięte zdjęcia, dokumenty i utracone partycje",
+        "cs": "Záchrana dat: bezpečně zkopírujete odcházející disk nebo paměťovou kartu a pak najdete smazané fotky, dokumenty a ztracené oddíly",
+        "sk": "Záchrana dát: bezpečne skopírujete zlyhávajúci disk alebo pamäťovú kartu a potom nájdete zmazané fotografie, dokumenty a stratené oddiely",
+        "uk": "Порятунок даних: безпечно скопіюйте диск, що виходить з ладу, або карту пам’яті, а потім знайдіть видалені фото, документи й втрачені розділи"
       }
     },
     {
@@ -70,27 +96,14 @@
     {
       "state": "next",
       "text": {
-        "en": "<code>backdown volumes</code>: find and classify every drive and partition, including encrypted and empty ones",
-        "es": "<code>backdown volumes</code>: encuentra y clasifica todos los discos y particiones, incluidos los cifrados y los vacíos",
-        "pt-br": "<code>backdown volumes</code>: encontrar e classificar cada disco e partição, incluindo os criptografados e os vazios",
-        "de": "<code>backdown volumes</code>: jedes Laufwerk und jede Partition finden und einordnen, auch verschlüsselte und leere",
-        "pl": "<code>backdown volumes</code>: wykrywanie i klasyfikowanie wszystkich dysków i partycji, także zaszyfrowanych i pustych",
-        "cs": "<code>backdown volumes</code>: vyhledá a roztřídí všechny disky a oddíly, včetně šifrovaných a prázdných",
-        "sk": "<code>backdown volumes</code>: nájde a roztriedi všetky disky a oddiely vrátane šifrovaných a prázdnych",
-        "uk": "<code>backdown volumes</code>: пошук і класифікація всіх дисків і розділів, зокрема зашифрованих і порожніх"
-      }
-    },
-    {
-      "state": "next",
-      "text": {
-        "en": "Import indexes made by the original scripts, so no drive is read twice",
-        "es": "Importar los índices creados por los scripts originales, para no leer ningún disco dos veces",
-        "pt-br": "Importar os índices criados pelos scripts originais, para que nenhum disco seja lido duas vezes",
-        "de": "Indizes der ursprünglichen Skripte importieren, damit kein Laufwerk zweimal gelesen werden muss",
-        "pl": "Import indeksów utworzonych przez pierwotne skrypty, żeby żaden dysk nie był czytany dwa razy",
-        "cs": "Import indexů vytvořených původními skripty, aby se žádný disk nečetl dvakrát",
-        "sk": "Import indexov vytvorených pôvodnými skriptmi, aby sa žiadny disk nečítal dvakrát",
-        "uk": "Імпорт індексів, створених початковими скриптами, щоб жоден диск не довелося читати двічі"
+        "en": "The next preview release, with all of the above",
+        "es": "La próxima versión preliminar, con todo lo anterior",
+        "pt-br": "A próxima versão prévia, com tudo o que está acima",
+        "de": "Die nächste Vorschauversion mit allem oben Genannten",
+        "pl": "Następna wersja zapoznawcza, a w niej wszystko powyższe",
+        "cs": "Další náhledová verze se vším výše uvedeným",
+        "sk": "Ďalšia predbežná verzia so všetkým uvedeným vyššie",
+        "uk": "Наступна попередня версія з усім переліченим вище"
       }
     }
   ],
@@ -153,7 +166,7 @@
     },
     {
       "version": "v0.3",
-      "state": "next",
+      "state": "now",
       "when": [
         2026,
         4
@@ -181,7 +194,7 @@
     },
     {
       "version": "v0.4",
-      "state": "later",
+      "state": "now",
       "when": [
         2027,
         1

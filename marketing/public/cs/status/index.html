@@ -96,13 +96,14 @@
   <div class="wrap">
    <div class="head"><span class="eyebrow">Rozpracováno</span><h2>Na čem pracujeme.</h2><p>Aktuální etapa práce, popořadě.</p></div>
    <ul class="work card">
-    <li class="w-done"><span class="wi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span><span class="wt">Prohlížeč souborů: zobrazení Aktivita, které ukazuje, co BackDown právě dělá a kdy se jednotlivé disky příště proskenují</span><span class="tag live">Hotovo</span></li>
-    <li class="w-done"><span class="wi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span><span class="wt">Prohlížeč souborů: nabídky pod pravým tlačítkem, otevření v systémové aplikaci, stažení kopie, filtry, řazení, galerie fotek a mapa velikostí</span><span class="tag live">Hotovo</span></li>
-    <li class="w-done"><span class="wi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span><span class="wt">Porovnání libovolné složky mezi dvěma skeny: co přibylo, co ubylo, co se změnilo a o kolik</span><span class="tag live">Hotovo</span></li>
-    <li class="w-doing"><span class="wi"><span class="spin" aria-hidden="true"></span></span><span class="wt">Prohlížeče tabulek, prezentací, e-mailů, archivů a obrazů disků</span><span class="tag dev">Probíhá</span></li>
+    <li class="w-done"><span class="wi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span><span class="wt">Rozpoznávání, co je co (poštovní schránky, sady Time Machine, zálohy telefonů, systémy, repozitáře, knihovny fotek) a odkud to pochází</span><span class="tag live">Hotovo</span></li>
+    <li class="w-done"><span class="wi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span><span class="wt">Automaticky vytvořený report: každý disk, co na něm je, kolik z toho existuje jinde a které disky lze bezpečně smazat</span><span class="tag live">Hotovo</span></li>
+    <li class="w-done"><span class="wi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span><span class="wt">Plán roztřídění a ověřené kopírování se žurnálem do jednoho archivu, k tomu zrcadla jako průběžně kontrolovaná druhá kopie</span><span class="tag live">Hotovo</span></li>
+    <li class="w-done"><span class="wi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span><span class="wt">Klasifikace všech disků a oddílů v počítači a import indexu z původních skriptů</span><span class="tag live">Hotovo</span></li>
+    <li class="w-doing"><span class="wi"><span class="spin" aria-hidden="true"></span></span><span class="wt">Uvolňování disků: zaškrtnete, co se má smazat, přesunete, co existuje jen tam, a smaže se jen to, co má ověřenou kopii</span><span class="tag dev">Probíhá</span></li>
+    <li class="w-doing"><span class="wi"><span class="spin" aria-hidden="true"></span></span><span class="wt">Záchrana dat: bezpečně zkopírujete odcházející disk nebo paměťovou kartu a pak najdete smazané fotky, dokumenty a ztracené oddíly</span><span class="tag dev">Probíhá</span></li>
     <li class="w-doing"><span class="wi"><span class="spin" aria-hidden="true"></span></span><span class="wt">Předobjednávky BackDown Pro s licenčními klíči, které se ověřují offline</span><span class="tag dev">Probíhá</span></li>
-    <li class="w-next"><span class="wi"><span class="ring" aria-hidden="true"></span></span><span class="wt"><code>backdown volumes</code>: vyhledá a roztřídí všechny disky a oddíly, včetně šifrovaných a prázdných</span><span class="tag plan">Na řadě</span></li>
-    <li class="w-next"><span class="wi"><span class="ring" aria-hidden="true"></span></span><span class="wt">Import indexů vytvořených původními skripty, aby se žádný disk nečetl dvakrát</span><span class="tag plan">Na řadě</span></li>
+    <li class="w-next"><span class="wi"><span class="ring" aria-hidden="true"></span></span><span class="wt">Další náhledová verze se vším výše uvedeným</span><span class="tag plan">Na řadě</span></li>
    </ul>
   </div>
  </section>
@@ -117,11 +118,11 @@
     <li class="ms ms-now"><span class="ms-dot" aria-hidden="true"></span><div class="ms-body card">
      <div class="ms-top"><span class="mono">v0.2</span><span class="tag dev">Probíhá</span><span class="when">4. čtvrtletí 2026</span></div>
      <h3>Náhledová verze CLI</h3><p>Jeden rychlý binární soubor pro Linux, macOS a Windows: indexuje, hashuje, hledá duplikáty, dokáže, že disk lze bezpečně smazat, projde kterýkoli dřívější sken a běží jako služba na pozadí.</p></div></li>
-    <li class="ms ms-next"><span class="ms-dot" aria-hidden="true"></span><div class="ms-body card">
-     <div class="ms-top"><span class="mono">v0.3</span><span class="tag plan">Další</span><span class="when">4. čtvrtletí 2026</span></div>
+    <li class="ms ms-now"><span class="ms-dot" aria-hidden="true"></span><div class="ms-body card">
+     <div class="ms-top"><span class="mono">v0.3</span><span class="tag dev">Probíhá</span><span class="when">4. čtvrtletí 2026</span></div>
      <h3>Rozpoznávání a reporty</h3><p>Pozná, co je která složka zač (poštovní archivy, sady Time Machine, zálohy telefonů, knihovny fotek, repozitáře git) a odkud pochází, a pak sepíše report s verdiktem pro každý disk.</p></div></li>
-    <li class="ms ms-later"><span class="ms-dot" aria-hidden="true"></span><div class="ms-body card">
-     <div class="ms-top"><span class="mono">v0.4</span><span class="tag plan">Plánováno</span><span class="when">1. čtvrtletí 2027</span></div>
+    <li class="ms ms-now"><span class="ms-dot" aria-hidden="true"></span><div class="ms-body card">
+     <div class="ms-top"><span class="mono">v0.4</span><span class="tag dev">Probíhá</span><span class="when">1. čtvrtletí 2027</span></div>
      <h3>Plánovač a kopírování se žurnálem</h3><p>Navrhne čisté uspořádání archivu, zkopíruje do něj data, každý krok zapíše do žurnálu a znovu ověří hashem – a teprve pak uvolní staré disky.</p></div></li>
     <li class="ms ms-later"><span class="ms-dot" aria-hidden="true"></span><div class="ms-body card">
      <div class="ms-top"><span class="mono">v0.5</span><span class="tag plan">Plánováno</span><span class="when">1. čtvrtletí 2027</span></div>
