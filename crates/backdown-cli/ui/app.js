@@ -3,6 +3,7 @@ import { fileIcon, folderIcon, driveIcon, kindOf } from './icons.js';
 import { openViewer, openDiff, openGit, openMaildir, previewInto } from './viewers.js';
 import { squarify, compareListings, menu, closeMenu, menuOpen, toast } from './extras.js';
 import { mountFind, find, foundHtml, setScope, setEarlier, more as findMore } from './search.js';
+import { showSettings, proGate, loadFeatures, checkUpdates } from './settings.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -16,9 +17,18 @@ export async function api(path, params = {}) {
   const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== ''));
   const r = await fetch(`/api/${path}?${q}`, { credentials: 'same-origin' });
   const j = await r.json().catch(() => ({ error: r.statusText }));
-  if (!r.ok || j.error) throw new Error(j.error || r.statusText);
+  if (!r.ok || j.error) { const e = new Error(j.error || r.statusText); e.refusal = j.needs ? j : null; throw e; }
   return j;
 }
+
+// a view of its own (Activity, Settings, …): the sidebar and header follow
+export function enterView(mode) {
+  S.mode = mode;
+  closeSearch(false);
+  renderTabs(); renderPlaces(); renderPath();
+  $('#banner').hidden = true; $('#info').hidden = true; $('#timebar').hidden = true;
+}
+export const daemonState = () => S.daemon;
 
 const S = {
   roots: [], root: null, dir: null, scan: null, timeline: [], listing: null, entries: [],
@@ -36,10 +46,7 @@ async function boot() {
   const st = data.status;
   $('#status-files').textContent = summary(st);
   renderPlaces();
-  if (!S.roots.length) {
-    $('#view').innerHTML = `<div class="empty"><div>${driveIcon()}<h2>Nothing indexed yet</h2><p>Index a drive first, then reload:<br><code>backdown index /media/my-drive</code></p></div></div>`;
-    return;
-  }
+  if (!S.roots.length) return showActivity();
   const saved = sessionStorage.getItem('bd.dir');
   const start = saved && S.roots.some(r => atob64(saved).startsWith(atob64(r.key))) ? saved : S.roots[0].key;
   await go(start, { push: false });
@@ -70,6 +77,7 @@ function renderPlaces() {
   $('#plan-btn').setAttribute('aria-current', String(S.mode === 'plan'));
   $('#wipe-btn').setAttribute('aria-current', String(S.mode === 'wipe'));
   $('#rescue-btn').setAttribute('aria-current', String(S.mode === 'rescue'));
+  $('#settings-btn').setAttribute('aria-current', String(S.mode === 'settings'));
 }
 
 // ---------- navigation
@@ -152,7 +160,7 @@ function renderPath() {
     return;
   }
   if (S.mode !== 'browse') {
-    $('#pathbar').innerHTML = `<span class="crumb" style="cursor:default">${{ dupes: 'Duplicates', activity: 'Activity', entities: 'What’s here', plan: 'Plan', wipe: 'Free up', rescue: 'Rescue' }[S.mode] || 'Search'}</span>`;
+    $('#pathbar').innerHTML = `<span class="crumb" style="cursor:default">${{ dupes: 'Duplicates', activity: 'Activity', entities: 'What’s here', plan: 'Plan', wipe: 'Free up', rescue: 'Rescue', settings: 'Settings' }[S.mode] || 'Search'}</span>`;
     return;
   }
   $('#pathbar').innerHTML = S.listing.crumbs.map((c, i) =>
@@ -776,6 +784,7 @@ function tabTitle(t) {
   if (t.mode === 'plan') return 'Plan';
   if (t.mode === 'wipe') return 'Free up';
   if (t.mode === 'rescue') return 'Rescue';
+  if (t.mode === 'settings') return 'Settings';
   if (t.mode === 'compare') return `Compare · ${t.cmp?.listing?.name || ''}`;
   if (!t.listing) return S.roots.find(r => t.dir && atob64(t.dir).startsWith(atob64(r.key)))?.name || '…';
   return t.listing.crumbs.length > 1 ? t.listing.name : t.root?.name || t.listing.name;
@@ -824,6 +833,7 @@ async function showCurrent() {
   if (S.mode === 'plan') return showPlan();
   if (S.mode === 'wipe') return showWipe();
   if (S.mode === 'rescue') return showRescue();
+  if (S.mode === 'settings') return showSettings();
   if (S.mode === 'compare' && S.cmp) return renderCompare();
   S.mode = 'browse';
   if (!S.listing) return S.dir ? go(S.dir, { push: false, scan: null }) : showActivity();
@@ -986,7 +996,7 @@ function entityCard(e, r) {
     <button class="rowlink ent-path" type="button" data-ent-open="${e.key}" data-ent-file="${e.is_file ? 1 : ''}" title="Open ${esc(e.path)}">${esc(rel)}</button>
     <div class="ent-meta">${[yearsOf(e), e.is_file ? '' : `${count(e.files)} files`, e.confidence < 0.8 ? `${Math.round(e.confidence * 100)}% sure` : ''].filter(Boolean).map(esc).join(' · ')}</div>
     ${e.facts.length ? `<dl class="ent-facts">${e.facts.filter(([k]) => k !== 'Size').map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl>` : ''}
-    ${e.provenance.length ? `<ul class="ent-prov">${e.provenance.map(p => `<li>${esc(p)}</li>`).join('')}</ul>` : ''}
+    ${e.provenance.length ? `<ul class="ent-prov">${e.provenance.map(p => `<li>${esc(p)}</li>`).join('')}</ul>` : e.provenance_locked ? '<p class="ent-junk">Where it came from is part of BackDown Pro. <button class="rowlink" type="button" data-set-go="licence">Add a licence key</button></p>' : ''}
     ${share != null ? `<div class="ent-else"><div class="meter"><i style="width:${(share * 100).toFixed(1)}%"></i></div><span>${Math.floor(share * 100)}% exists elsewhere${ov.containers[0] ? `, mostly in <button class="rowlink" type="button" data-ent-open="${ov.containers[0].key}">${esc(ov.containers[0].label)}</button>` : ''}</span></div>` : ''}
     ${junk ? `<p class="ent-junk">${bytes(junk)} regenerable: ${esc([...new Set(e.junk.map(j => j.why))].slice(0, 3).join(', '))}</p>` : ''}
     ${e.low_value ? '<p class="ent-junk">Probably not worth keeping as a unit.</p>' : ''}
@@ -1011,6 +1021,7 @@ async function showPlan(id = PL.id) {
   closeSearch(false);
   renderTabs(); renderPlaces(); renderPath();
   $('#banner').hidden = true; $('#info').hidden = true; $('#timebar').hidden = true;
+  if (proGate('plan')) return;
   $('#view').innerHTML = '<div class="empty"><p>Loading…</p></div>';
   PL.list = await api('plans').catch(() => []);
   // what's regenerable on each drive (caches, previews, build output), for "leave them out"
@@ -1129,6 +1140,7 @@ function showWipe(pre = null) {
   closeSearch(false);
   renderTabs(); renderPlaces(); renderPath();
   $('#banner').hidden = true; $('#info').hidden = true; $('#timebar').hidden = true;
+  if (proGate('wipe')) return;
   if (pre) {
     WP.sel = new Map();
     for (const p of pre) if (!pre.some(o => under(p.path, o.path))) WP.sel.set(p.key, p);
@@ -1942,7 +1954,12 @@ function renderActivity() {
         <span class="pill">${REASON[j.reason] || ''}</span>
         <span class="muted" title="${esc(when(j.finished_at))}">${rel(j.finished_at)}${j.started_at && j.finished_at ? ` · took ${dur(j.finished_at - j.started_at)}` : ''}</span></li>`).join('')}</ol>`
     : '<p class="muted pad">Nothing has run since the daemon started.</p>';
+  const welcome = S.roots.length ? '' : `<section class="act-card welcome"><div class="act-head"><h2>Welcome to BackDown</h2></div>
+      <p>Nothing is indexed yet. Below are the drives connected to this computer: choose <b>Index this</b> on each one you want to know about. BackDown only reads them.</p>
+      <p class="muted">Each drive appears on the left when its scan is done. Then <b>Duplicates</b> shows what's stored twice, <b>What's here</b> what things are, and its <b>Report</b> button the whole picture.</p>
+      <form class="welcome-folder" id="welcome-folder"><label>Or a folder: <input id="welcome-path" spellcheck="false" placeholder="${esc(d.db.includes('\\') ? 'D:\\Photos' : '/media/me/Photos')}"></label><button class="btn sm" type="submit">Index it</button></form></section>`;
   view.innerHTML = `<div class="activity">
+    ${welcome}
     ${now_}
     <section><h3>Up next</h3>${queue}</section>
     <section><h3>Drives and schedule</h3>${drivesTable(d.drives, true)}</section>
@@ -1960,7 +1977,8 @@ function renderActivity() {
 }
 
 function drivesTable(drives, live) {
-  if (!drives.length) return '<p class="muted pad">No drives indexed yet: <code>backdown index /media/my-drive</code></p>';
+  if (!drives.length) return live ? '<p class="muted pad">No drives indexed yet: choose <b>Index this</b> on one below.</p>'
+    : '<p class="muted pad">No drives indexed yet: <code>backdown index /media/my-drive</code></p>';
   const label = x => ({
     scanning: '<span class="pill busy">Scanning now</span>', queued: '<span class="pill busy">Waiting its turn</span>',
     away: '<span class="pill off">Not connected</span>', due: '<span class="pill warn">Due now</span>',
@@ -2026,6 +2044,8 @@ function goUp() { const c = S.listing?.crumbs; if (c && c.length > 1) go(c.at(-2
 function toastError(e) {
   const b = $('#banner');
   b.className = 'banner warn'; b.hidden = false; b.textContent = e.message || String(e);
+  // a Pro feature: say how to get it
+  if (e.refusal) b.insertAdjacentHTML('beforeend', ` <button class="btn sm" type="button" data-set-go="licence">Add a licence key</button>`);
 }
 
 // ---------- wiring
@@ -2122,6 +2142,17 @@ $('#entities-btn').onclick = showEntities;
 $('#plan-btn').onclick = () => showPlan();
 $('#wipe-btn').onclick = () => showWipe();
 $('#rescue-btn').onclick = showRescue;
+$('#settings-btn').onclick = () => showSettings();
+// first run: index a folder by its path
+document.addEventListener('submit', e => {
+  if (e.target.id !== 'welcome-folder') return;
+  e.preventDefault();
+  const path = $('#welcome-path').value.trim();
+  if (!path) return $('#welcome-path').focus();
+  fetch(`/api/index?${new URLSearchParams({ path })}`, { method: 'POST', headers: { 'X-BackDown': '1' }, credentials: 'same-origin' })
+    .then(r => r.json().then(j => { if (!r.ok || j.error) throw new Error(j.error || r.statusText); toast('Indexing: it shows up on the left when it’s done'); if (!polling) pollDaemon(true); }))
+    .catch(toastError);
+});
 $('#time').addEventListener('input', e => setScan(+e.target.value));
 $('#time-now').onclick = () => setScan(S.timeline.length - 1);
 
@@ -2179,7 +2210,9 @@ document.addEventListener('error', e => {
 try { const so = JSON.parse(localStorage.getItem('bd.sort')); if (so?.key) S.sort = so; } catch {}
 setView(S.view);
 setupFilters();
+loadFeatures();
 boot().then(restoreTabs).then(() => pollDaemon(true));
+checkUpdates();
 
 // tabs survive a reload of the page (not of the browser): reopened lazily, each loads when shown
 function restoreTabs() {

@@ -6,11 +6,13 @@ use std::process::ExitCode;
 
 use anyhow::{Context, Result};
 use backdown_core::{Db, fmt, hash, index, legacy, report, volumes};
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use serde_json::json;
 
+mod app;
 mod client;
 mod daemon;
+mod desktop;
 mod filing;
 mod insight;
 mod license;
@@ -20,7 +22,10 @@ mod peek;
 mod rescuing;
 mod serve;
 mod service;
+mod settings;
 mod sqldump;
+mod tiers;
+mod update;
 
 #[derive(Parser)]
 #[command(
@@ -134,13 +139,13 @@ enum Cmd {
     /// Run in the background: rescan drives, hash, serve the web UI. Usually started by
     /// `backdown service install` rather than by hand
     Daemon {
-        /// Port for the web UI on 127.0.0.1
-        #[arg(long, default_value_t = 8787)]
+        /// Port for the web UI on 127.0.0.1 (0: any free one)
+        #[arg(long, default_value_t = 8787, env = "BACKDOWN_PORT")]
         port: u16,
         /// Rescan each drive this often (e.g. 12h, 1d; `never` to scan only on request or when a
-        /// drive comes back)
-        #[arg(long, default_value = "24h")]
-        rescan_every: String,
+        /// drive comes back). Default: as set in Settings (24h unless changed there)
+        #[arg(long)]
+        rescan_every: Option<String>,
         /// Machine-wide service: index in /var/lib/backdown, socket in /run/backdown, shared with
         /// the `backdown` group (set by the system unit)
         #[arg(long)]
@@ -148,6 +153,42 @@ enum Cmd {
     },
     /// Open the running daemon's web UI in your browser
     Open,
+    /// Open BackDown in a window of its own, starting its background service first if need be
+    /// (what the applications menu, Start menu and BackDown.app run)
+    App {
+        /// Only make sure the background service runs (for starting at login)
+        #[arg(long)]
+        no_window: bool,
+        /// Print the browser command instead of running it
+        #[arg(long)]
+        print: bool,
+        /// A Chromium-family browser to use (default: Chrome, Chromium, Edge or Brave, whichever
+        /// is installed; else your default browser)
+        #[arg(long, env = "BACKDOWN_BROWSER")]
+        browser: Option<PathBuf>,
+    },
+    /// Add BackDown to your applications menu, ~/Applications or the Start menu (or remove it)
+    Desktop {
+        #[command(subcommand)]
+        action: desktop::DesktopCmd,
+    },
+    /// Is there a newer BackDown? Install it (verified against the release's SHA-256 sums)
+    Update {
+        /// Only say whether there is one (exits 10 when there is)
+        #[arg(long)]
+        check: bool,
+        /// Ask GitHub now instead of using today's answer
+        #[arg(long)]
+        refresh: bool,
+        /// Put back the version the last update replaced
+        #[arg(long)]
+        rollback: bool,
+        /// stable or preview (default: as in Settings; previews while this is a preview)
+        #[arg(long)]
+        channel: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
     /// Run the daemon as a service (systemd): install, uninstall or check it
     Service {
         #[command(subcommand)]
@@ -313,6 +354,8 @@ enum LicenseCmd {
     },
     /// Show the licence you have (exits 1 without one)
     Show,
+    /// What's free, what's Pro, and what this copy may use
+    Features,
 }
 
 #[derive(Subcommand)]
@@ -352,7 +395,33 @@ struct HashArgs {
 }
 
 fn main() -> ExitCode {
-    match run(Cli::parse()) {
+    // BackDown.app, or backdown.exe double-clicked in Explorer: the app
+    if app::double_clicked() {
+        return match app::run(app::Args {
+            no_window: false,
+            print: false,
+            browser: std::env::var_os("BACKDOWN_BROWSER").map(PathBuf::from),
+        }) {
+            Ok(code) => code,
+            Err(e) => {
+                eprintln!("backdown: {e:#}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+    let matches = Cli::command().get_matches();
+    let cli = match Cli::from_arg_matches(&matches) {
+        Ok(c) => c,
+        Err(e) => e.exit(),
+    };
+    // Pro features, as tiers.rs's table says (everything is unlocked in previews)
+    if let Some(sub) = matches.subcommand_name()
+        && let Err(e) = tiers::gate_command(sub)
+    {
+        eprintln!("backdown: {e:#}");
+        return ExitCode::FAILURE;
+    }
+    match run(cli) {
         Ok(code) => code,
         Err(e) => {
             eprintln!("backdown: {e:#}");
@@ -377,17 +446,48 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 (locations::state_dir(), locations::runtime_dir())
             };
             let db = cli.db.unwrap_or_else(|| state_dir.join("index.db"));
+            // the option wins; else Settings (settings.json in the state folder), 24h by default
+            settings::init(&state_dir, system, rescan_every.is_some());
+            let every = rescan_every.unwrap_or_else(|| settings::load().rescan_every);
             daemon::run(daemon::Options {
                 db,
                 state_dir,
                 runtime_dir,
                 port,
-                rescan_every: daemon::parse_every(&rescan_every)?,
+                rescan_every: daemon::parse_every(&every)?,
                 shared: system,
+                rescan_flag: false,
             })?;
             return Ok(ExitCode::SUCCESS);
         }
-        Cmd::Open => return open_ui(),
+        Cmd::Open => return app::open_in_browser(),
+        Cmd::App {
+            no_window,
+            print,
+            browser,
+        } => {
+            return app::run(app::Args {
+                no_window,
+                print,
+                browser,
+            });
+        }
+        Cmd::Desktop { action } => return desktop::run(action),
+        Cmd::Update {
+            check,
+            refresh,
+            rollback,
+            channel,
+            json,
+        } => {
+            return update::run(update::Args {
+                check,
+                refresh,
+                rollback,
+                channel,
+                json,
+            });
+        }
         Cmd::Service { action } => {
             return match action {
                 ServiceCmd::Install {
@@ -403,6 +503,10 @@ fn run(cli: Cli) -> Result<ExitCode> {
             return match action {
                 LicenseCmd::Add { key } => license::add(&key),
                 LicenseCmd::Show => license::show(),
+                LicenseCmd::Features => {
+                    tiers::print_features();
+                    Ok(ExitCode::SUCCESS)
+                }
             };
         }
         Cmd::Volumes { json } => return run_volumes(cli.db, json),
@@ -461,6 +565,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
 }
 
 fn local(db_path: &Path, cmd: Cmd) -> Result<ExitCode> {
+    // junk rules added in Settings count here too
+    settings::apply_to_core(&settings::load());
     if let Cmd::ImportLegacy { .. } = cmd {
         return import_legacy(db_path, cmd);
     }
@@ -627,6 +733,9 @@ fn local(db_path: &Path, cmd: Cmd) -> Result<ExitCode> {
         }
         Cmd::Daemon { .. }
         | Cmd::Open
+        | Cmd::App { .. }
+        | Cmd::Desktop { .. }
+        | Cmd::Update { .. }
         | Cmd::Service { .. }
         | Cmd::License { .. }
         | Cmd::ImportLegacy { .. }
@@ -757,6 +866,9 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
         Cmd::Serve { .. }
         | Cmd::Daemon { .. }
         | Cmd::Open
+        | Cmd::App { .. }
+        | Cmd::Desktop { .. }
+        | Cmd::Update { .. }
         | Cmd::Service { .. }
         | Cmd::License { .. }
         | Cmd::ImportLegacy { .. }
@@ -995,30 +1107,6 @@ fn print_legacy(r: &legacy::Report) {
              finds its files unchanged and keeps their hashes"
         );
     }
-}
-
-fn open_ui() -> Result<ExitCode> {
-    for file in locations::candidate_ui_files() {
-        let Ok(raw) = std::fs::read(&file) else {
-            continue;
-        };
-        let v: serde_json::Value = serde_json::from_slice(&raw)
-            .with_context(|| format!("can't read {}", file.display()))?;
-        let (Some(port), Some(token)) = (v["port"].as_u64(), v["token"].as_str()) else {
-            continue;
-        };
-        let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port as u16));
-        if std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_secs(1)).is_err() {
-            continue; // written by a daemon that isn't running now
-        }
-        let url = format!("http://127.0.0.1:{port}/?t={token}");
-        eprintln!("opening {url}");
-        serve::open(&url);
-        return Ok(ExitCode::SUCCESS);
-    }
-    anyhow::bail!(
-        "no BackDown daemon is running. Start one with `backdown service install` (or `backdown daemon`), or browse without it: `backdown serve`"
-    )
 }
 
 /// `backdown volumes`: probe the disks, then mark what the index covers, if there is an index.

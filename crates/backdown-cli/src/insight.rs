@@ -57,6 +57,8 @@ pub fn recognised(
             }
         }
     }
+    // where things came from is a Pro feature (tiers.rs); stored results keep it either way
+    crate::tiers::strip_provenance(out.iter_mut().map(|(r, _)| r));
     Ok(out)
 }
 

@@ -16,11 +16,16 @@ pub struct PlanArgs<'a> {
 }
 
 pub fn make_plan(db: &Db, a: PlanArgs) -> Result<ExitCode> {
-    let schema = match a.schema {
-        Some(p) => plan::parse_schema(
-            &std::fs::read_to_string(p).with_context(|| format!("can't read {}", p.display()))?,
-        )?,
-        None => plan::Schema::default(),
+    let (schema, custom) = match a.schema {
+        Some(p) => (
+            plan::parse_schema(
+                &std::fs::read_to_string(p)
+                    .with_context(|| format!("can't read {}", p.display()))?,
+            )?,
+            false,
+        ),
+        // yours from Settings, if you've edited it there; else the built-in one
+        None => crate::settings::schema()?,
     };
     let target = if a.to.is_absolute() {
         a.to.to_path_buf()
@@ -58,7 +63,13 @@ pub fn make_plan(db: &Db, a: PlanArgs) -> Result<ExitCode> {
     p.schema = a
         .schema
         .map(|s| s.display().to_string())
-        .unwrap_or_else(|| "built-in".into());
+        .unwrap_or_else(|| {
+            if custom {
+                "yours (Settings)".into()
+            } else {
+                "built-in".into()
+            }
+        });
     let id = plan::save(db, &p)?;
     if a.json {
         println!(

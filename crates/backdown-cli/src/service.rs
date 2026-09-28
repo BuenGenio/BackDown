@@ -122,7 +122,8 @@ fn user_unit_path() -> PathBuf {
 const SYSTEM_UNIT_PATH: &str = "/etc/systemd/system/backdown.service";
 
 fn exe() -> Result<PathBuf> {
-    Ok(dunce::canonicalize(std::env::current_exe()?)?)
+    // (inside an AppImage, the AppImage itself: its mount point goes away)
+    crate::app::self_exe()
 }
 
 fn systemctl(system: bool, args: &[&str]) -> Result<std::process::Output> {

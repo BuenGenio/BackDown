@@ -166,8 +166,11 @@ fn handle(ctx: &Ctx, req: Request) {
         let _ = req.respond(plain(403, "wrong host"));
         return;
     }
-    // the link carries the token once; swap it for a cookie and drop it from the address bar
-    if path == "/" && param("t") == Some(ctx.token.as_str()) {
+    // the link carries the token once (or a one-time code from `backdown app`/`open`, which keeps
+    // the token off command lines); swap it for a cookie and drop it from the address bar
+    if path == "/"
+        && (param("t") == Some(ctx.token.as_str()) || param("c").is_some_and(crate::app::redeem))
+    {
         let resp = Response::empty(StatusCode(303))
             .with_header(header("Location", "/"))
             .with_header(header(
@@ -193,8 +196,23 @@ fn handle(ctx: &Ctx, req: Request) {
     if !cookie_ok {
         let _ = req.respond(plain(
             401,
-            "Open BackDown with `backdown open` (or the link `backdown serve` printed).",
+            "This BackDown window has expired: open BackDown again from your applications (or run `backdown open`, or use the link `backdown serve` printed).",
         ));
+        return;
+    }
+    // Pro features, as tiers.rs's table says: a 402 that explains what's needed
+    if let Some(refusal) = crate::tiers::gate_endpoint(path) {
+        let _ = req.respond(json_resp(&refusal).with_status_code(402));
+        return;
+    }
+    // Settings, licence, updates and launching (settings.rs, with the same POST rules)
+    if crate::settings::handles(path) {
+        let env = crate::settings::Env {
+            daemon: ctx.daemon.as_ref(),
+            desktop: ctx.desktop,
+            db: &ctx.db,
+        };
+        crate::settings::handle(req, path, &params, env);
         return;
     }
     if *req.method() == Method::Post && path == "/api/open" {
@@ -460,16 +478,16 @@ fn new_plan(ctx: &Ctx, to: Option<&str>, from: Option<&str>, skip_junk: bool) ->
         .collect();
     let ov = overlap::overlaps(&db, &list, &mut |_| {})?;
     // caches, previews and build output can be left out: they're regenerable, but then the drives
-    // they're on can't be wiped whole (those files have no copy)
-    let schema = plan::Schema {
-        skip_junk,
-        ..plan::Schema::default()
-    };
+    // they're on can't be wiped whole (those files have no copy). The schema is yours from
+    // Settings if you've edited it.
+    let (mut schema, custom) = crate::settings::schema()?;
+    schema.skip_junk |= skip_junk;
     let mut p = plan::make(&db, &to, only.as_deref(), &schema, &list, &ov)?;
-    p.schema = if skip_junk {
-        "built-in, caches left out".into()
-    } else {
-        "built-in".into()
+    p.schema = match (custom, schema.skip_junk) {
+        (false, true) => "built-in, caches left out".into(),
+        (false, false) => "built-in".into(),
+        (true, true) => "yours (Settings), caches left out".into(),
+        (true, false) => "yours (Settings)".into(),
     };
     if p.items.is_empty() {
         bail!("nothing to file: are the drives recognised yet (What's here)?");
@@ -704,10 +722,11 @@ fn start_rescue(ctx: &Ctx, params: &[(String, String)]) -> Result<Value> {
 /// The report as HTML (to view) or Markdown (to save), from what's stored and indexed now.
 fn report(ctx: &Ctx, md: bool) -> Result<(String, bool)> {
     let db = ro_db(ctx)?;
-    let rec: Vec<_> = recognise::root_ids(&db)?
+    let mut rec: Vec<_> = recognise::root_ids(&db)?
         .into_iter()
         .filter_map(|id| recognise::load(&db, id).ok().flatten())
         .collect();
+    crate::tiers::strip_provenance(rec.iter_mut().map(|(r, _)| r));
     let list: Vec<_> = rec.iter().map(|(r, _)| r.clone()).collect();
     let ov = overlap::overlaps(&db, &list, &mut |_| {})?;
     let s = summary::build(&db, &rec, &ov, &mut |_| {})?;
@@ -797,7 +816,9 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
                     roots.push(v);
                 }
             }
-            json!({ "roots": roots, "daemon": ctx.daemon.is_some() })
+            let mut v = json!({ "roots": roots, "daemon": ctx.daemon.is_some() });
+            crate::tiers::redact_provenance(&mut v);
+            v
         }
         "/api/mirrors" => json!(
             backdown_core::mirror::list(&db)?
@@ -1531,6 +1552,7 @@ fn ui_asset(name: &str) -> Option<(&'static [u8], &'static str)> {
         "mailbox.js" => "text/javascript; charset=utf-8",
         "sqldump.js" => "text/javascript; charset=utf-8",
         "search.js" => "text/javascript; charset=utf-8",
+        "settings.js" => "text/javascript; charset=utf-8",
         "favicon.svg" => "image/svg+xml",
         "vendor/pdf.min.mjs" => "text/javascript; charset=utf-8",
         "vendor/pdf.worker.min.mjs" => "text/javascript; charset=utf-8",

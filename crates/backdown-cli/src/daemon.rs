@@ -29,6 +29,8 @@ pub struct Options {
     pub rescan_every: Option<Duration>,
     /// system-wide service: files and the socket are shared with the `backdown` group
     pub shared: bool,
+    /// --rescan-every was given (it wins over Settings at startup)
+    pub rescan_flag: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -122,7 +124,8 @@ pub struct Daemon {
     pub started_at: i64,
     /// the machine-wide service: its sandbox reads only, so it never wipes
     pub shared: bool,
-    pub rescan_every: Option<Duration>,
+    /// changeable while it runs (Settings)
+    rescan_every: Mutex<Option<Duration>>,
     state: Mutex<State>,
     wake: Condvar,
     changed: Condvar,
@@ -135,6 +138,19 @@ fn now() -> i64 {
 }
 
 impl Daemon {
+    pub fn rescan_every(&self) -> Option<Duration> {
+        *self.rescan_every.lock().unwrap()
+    }
+
+    /// A new rescan interval (Settings): the scheduler uses it at its next look.
+    pub fn set_rescan_every(&self, every: Option<Duration>) {
+        *self.rescan_every.lock().unwrap() = every;
+        let mut st = self.state.lock().unwrap();
+        st.recheck = true;
+        st.version += 1;
+        self.changed.notify_all();
+    }
+
     pub fn enqueue(
         &self,
         kind: &'static str,
@@ -362,7 +378,7 @@ impl Daemon {
             .collect();
         // the plan: when each drive is scanned next, and why not if it isn't
         let now = now();
-        let every = self.rescan_every.map(|d| d.as_secs() as i64);
+        let every = self.rescan_every().map(|d| d.as_secs() as i64);
         let drives: Vec<Value> = st
             .drives
             .iter()
@@ -398,7 +414,7 @@ impl Daemon {
             "db": self.db.display().to_string(),
             "pid": std::process::id(),
             "started_at": self.started_at,
-            "rescan_every_secs": self.rescan_every.map(|d| d.as_secs()),
+            "rescan_every_secs": self.rescan_every().map(|d| d.as_secs()),
             "checked_at": st.checked_at,
             "current": current,
             "side": side,
@@ -419,11 +435,12 @@ pub fn run(opts: Options) -> Result<()> {
     }
     Db::open(&opts.db)?; // create or migrate before anything reads it
     let db = dunce::canonicalize(&opts.db)?;
+    crate::settings::init(&opts.state_dir, opts.shared, opts.rescan_flag);
     let d = Arc::new(Daemon {
         db: db.clone(),
         started_at: now(),
         shared: opts.shared,
-        rescan_every: opts.rescan_every,
+        rescan_every: Mutex::new(opts.rescan_every),
         state: Mutex::new(State::default()),
         wake: Condvar::new(),
         changed: Condvar::new(),
@@ -436,7 +453,24 @@ pub fn run(opts: Options) -> Result<()> {
     // the local web UI, with a token that survives restarts so bookmarks keep working
     let ui_file = opts.state_dir.join(locations::UI_FILE);
     let token = existing_token(&ui_file).map_or_else(serve::new_token, Ok)?;
-    let (server, port) = serve::bind(opts.port)?;
+    // after an update on Windows the old daemon may still hold the port for a moment
+    let (server, port) = {
+        let mut tries = if std::env::var_os("BACKDOWN_BIND_WAIT").is_some() {
+            40
+        } else {
+            1
+        };
+        loop {
+            match serve::bind(opts.port) {
+                Ok(x) => break x,
+                Err(_) if tries > 1 => {
+                    tries -= 1;
+                    std::thread::sleep(Duration::from_millis(250));
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    };
     write_private(
         &ui_file,
         &serde_json::to_vec_pretty(
@@ -475,6 +509,7 @@ pub fn run(opts: Options) -> Result<()> {
             .name("control".into())
             .spawn(move || control::serve(&d, socket))?;
     }
+    crate::update::spawn_checker(opts.shared);
     notify::send("READY=1\nSTATUS=idle");
     serve::run(server, db, token, port, Some(d), !opts.shared);
     Ok(())
@@ -622,13 +657,16 @@ fn worker(d: &Daemon) {
         }
         if ok && job.kind == "index" {
             d.state.lock().unwrap().recheck = true;
-            // hash after every scan, so this scan's versions keep a provable fingerprint
+            // hash after every scan, so this scan's versions keep a provable fingerprint (with
+            // the readers per drive, and retries, from Settings)
+            let s = crate::settings::load();
             d.enqueue(
                 "hash",
                 None,
                 "after-scan",
                 JobOpts {
-                    jobs_per_device: 1,
+                    jobs_per_device: s.hash_jobs.max(1),
+                    retry_errors: s.hash_retry_errors,
                     ..JobOpts::default()
                 },
             );
@@ -1302,7 +1340,7 @@ fn check_roots(d: &Daemon, present: &mut HashMap<String, bool>) -> Result<()> {
         }
         let back = was == Some(false);
         let due = d
-            .rescan_every
+            .rescan_every()
             .is_some_and(|every| last.is_none_or(|t| now - t >= every.as_secs() as i64));
         if (back || due) && !d.pending_index(&key) {
             if back {
