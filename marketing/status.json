@@ -109,6 +109,19 @@
     {
       "state": "doing",
       "text": {
+        "en": "Rescans in seconds, free for everyone: the drive's own change log (FSEvents on macOS, the USN journal on Windows) and reading NTFS's master file table directly, with a full scan whenever anything can't be vouched for",
+        "es": "Nuevos escaneos en segundos, gratis para todos: el propio registro de cambios del disco (FSEvents en macOS, el diario USN en Windows) y la lectura directa de la tabla maestra de archivos de NTFS, con un escaneo completo cuando algo no se puede garantizar",
+        "pt-br": "Novas varreduras em segundos, grátis para todos: o próprio registro de alterações do disco (FSEvents no macOS, o diário USN no Windows) e a leitura direta da tabela mestra de arquivos do NTFS, com uma varredura completa sempre que algo não puder ser garantido",
+        "de": "Erneute Scans in Sekunden, kostenlos für alle: das eigene Änderungsprotokoll des Laufwerks (FSEvents unter macOS, das USN-Journal unter Windows) und das direkte Lesen der Master File Table von NTFS, mit einem vollständigen Scan, sobald sich etwas nicht verbürgen lässt",
+        "pl": "Ponowny skan w kilka sekund, za darmo dla wszystkich: własny dziennik zmian dysku (FSEvents w macOS, dziennik USN w Windows) i bezpośredni odczyt głównej tabeli plików NTFS, z pełnym skanem zawsze, gdy czegoś nie da się potwierdzić",
+        "cs": "Opakovaný sken během pár sekund, zdarma pro všechny: vlastní záznam změn disku (FSEvents v macOS, žurnál USN ve Windows) a přímé čtení hlavní tabulky souborů NTFS, s úplným skenem vždy, když něco nejde zaručit",
+        "sk": "Opakovaný sken za pár sekúnd, zadarmo pre všetkých: vlastný záznam zmien disku (FSEvents v macOS, žurnál USN vo Windows) a priame čítanie hlavnej tabuľky súborov NTFS, s úplným skenom vždy, keď sa niečo nedá zaručiť",
+        "uk": "Повторне сканування за секунди, безкоштовно для всіх: власний журнал змін диска (FSEvents у macOS, журнал USN у Windows) і пряме читання головної таблиці файлів NTFS, з повним скануванням щоразу, коли щось не можна гарантувати"
+      }
+    },
+    {
+      "state": "doing",
+      "text": {
         "en": "Pre-orders for BackDown Pro, with licence keys that are checked offline",
         "es": "Reservas de BackDown Pro, con claves de licencia que se comprueban sin conexión",
         "pt-br": "Pré-venda do BackDown Pro, com chaves de licença verificadas offline",
