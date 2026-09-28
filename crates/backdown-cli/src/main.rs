@@ -1133,6 +1133,13 @@ fn print_check(c: &report::Check, list: bool, json: bool) -> Result<ExitCode> {
         for (p, size) in &c.unique_files {
             println!("{:>10}  {p}", fmt::bytes(*size));
         }
+        if c.unique.files > c.unique_files.len() as u64 {
+            println!(
+                "  … and {} smaller ones (the largest {} are listed)",
+                fmt::count(c.unique.files - c.unique_files.len() as u64),
+                fmt::count(report::UNIQUE_LISTED)
+            );
+        }
         for (p, e) in &c.unreadable_files {
             println!("{:>10}  {p}  ({e})", "unreadable");
         }

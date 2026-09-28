@@ -128,6 +128,9 @@ pub struct Check {
     pub safe: bool,
 }
 
+/// How many of the unique files a check names (the largest); its totals always count them all.
+pub const UNIQUE_LISTED: u64 = 20_000;
+
 /// Is `dir` safe to wipe? Every non-empty file under it needs a SHA-256-identical copy somewhere
 /// outside it. A hardlink doesn't count: it is the same data on the same disk.
 pub fn check(db: &Db, dir: &Path) -> Result<Check> {
@@ -141,9 +144,14 @@ pub fn check_indexed(db: &Db, dir: &Path) -> Result<Check> {
     let dir = dir.to_path_buf();
     let prefix = paths::dir_prefix(&dir);
     let n = prefix.len() as i64;
+    // everything below `dir` is one range of the path index: [prefix, prefix with its last byte + 1)
+    let mut hi = prefix.clone();
+    if let Some(last) = hi.last_mut() {
+        *last += 1; // a separator is never 0xFF
+    }
     let indexed: i64 = db.conn.query_row(
-        "SELECT COUNT(*) FROM files WHERE current = 1 AND substr(path, 1, ?1) = ?2",
-        params![n, prefix],
+        "SELECT COUNT(*) FROM files WHERE current = 1 AND path >= ?1 AND path < ?2",
+        params![prefix, hi],
         |r| r.get(0),
     )?;
     if indexed == 0 {
@@ -161,9 +169,9 @@ pub fn check_indexed(db: &Db, dir: &Path) -> Result<Check> {
                       AND substr(g.path, 1, ?1) <> ?2
                       AND NOT (f.ino IS NOT NULL AND g.dev = f.dev AND g.ino = f.ino))
          FROM files f
-         WHERE f.current = 1 AND substr(f.path, 1, ?1) = ?2",
+         WHERE f.current = 1 AND f.path >= ?2 AND f.path < ?3",
     )?;
-    let rows = stmt.query_map(params![n, prefix], |r| {
+    let rows = stmt.query_map(params![n, prefix, hi], |r| {
         Ok((
             r.get::<_, Vec<u8>>(0)?,
             r.get::<_, i64>(1)?,
@@ -185,6 +193,8 @@ pub fn check_indexed(db: &Db, dir: &Path) -> Result<Check> {
         safe: false,
     };
     let mut by_dir: BTreeMap<String, Tally> = BTreeMap::new();
+    let mut largest: std::collections::BinaryHeap<std::cmp::Reverse<(u64, String)>> =
+        std::collections::BinaryHeap::new();
     for row in rows {
         let (path, size, error, verified) = row?;
         let (path, size) = (paths::from_bytes(&path), size as u64);
@@ -205,9 +215,23 @@ pub fn check_indexed(db: &Db, dir: &Path) -> Result<Check> {
                 None => ".".to_string(),
             };
             by_dir.entry(top).or_default().add(size);
-            c.unique_files.push((path.display().to_string(), size));
+            // the largest ones by name (a drive can hold millions: the totals count them all)
+            if (largest.len() as u64) < UNIQUE_LISTED
+                || largest
+                    .peek()
+                    .is_some_and(|std::cmp::Reverse((s, _))| size > *s)
+            {
+                largest.push(std::cmp::Reverse((size, path.display().to_string())));
+                if largest.len() as u64 > UNIQUE_LISTED {
+                    largest.pop();
+                }
+            }
         }
     }
+    c.unique_files = largest
+        .into_iter()
+        .map(|std::cmp::Reverse((size, p))| (p, size))
+        .collect();
     c.unique_by_dir = by_dir
         .into_iter()
         .map(|(dir, t)| UniqueDir {
