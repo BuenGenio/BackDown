@@ -409,15 +409,18 @@ async function mboxView(e) {
 }
 
 // One file from inside a container, previewed in `host`: images, audio/video, PDFs, text and code;
-// anything else as hex. Everything is fetched from `url` (an /api/entry link).
-async function entryPreview(host, url, name, size) {
+// anything else as hex. Everything is fetched from `url` (an /api/entry link). `streams`: the
+// server streams this entry at any size (a file in a disk image's filesystem), so only previews
+// that would load it whole are held back when it's big.
+async function entryPreview(host, url, name, size, streams = false) {
   const x = ext(name), k = kindOf(name), base = leaf(name);
   const big = size != null && size > ENTRY_MAX;
   host.innerHTML = `<div class="pv-head"><span class="pv-name" title="${esc(name)}">${esc(base)}</span><span class="v-meta">${size != null ? bytes(size) : ''}</span>
-    ${big ? '' : `<a class="btn sm" href="${url}&dl=1" download="${esc(base)}">Download</a>`}</div><div class="pv-body"></div>`;
+    ${big && !streams ? '' : `<a class="btn sm" href="${url}&dl=1" download="${esc(base)}">Download</a>`}</div><div class="pv-body"></div>`;
   const body = host.querySelector('.pv-body');
   const alive = () => body.isConnected; // a newer preview replaced this one
-  if (big) { body.innerHTML = `<p class="note pad">Too large to open from inside the container (the limit is ${bytes(ENTRY_MAX)}).</p>`; return; }
+  if (big && streams && x === 'pdf') { body.innerHTML = '<p class="note pad">Too large to preview here: download it to open it.</p>'; return; }
+  if (big && !streams) { body.innerHTML = `<p class="note pad">Too large to open from inside the container (the limit is ${bytes(ENTRY_MAX)}).</p>`; return; }
   try {
     if (k === 'image') { body.innerHTML = `<div class="pv-center"><img class="pk-img big" src="${url}" alt="${esc(base)}"></div>`; return; }
     if (k === 'audio' || k === 'video') { body.innerHTML = `<div class="pv-center"><${k} controls preload="metadata" src="${url}"></${k}></div>`; return; }
@@ -462,8 +465,9 @@ async function pdfInto(host, url, alive, maxPages = 30) {
 
 // A two-pane browser over a container's folders: a sortable list, and a preview of the chosen
 // file. `open(path)` lists a folder as { dirs: [{name, size?, count?, mtime?}], files: [{name,
-// base, size, mtime, ...}], note? }; `url(path, file)` is where that file's bytes are.
-function browseInto(host, { rootName, open, url }) {
+// base, size, mtime, ...}], note? }; `url(path, file)` is where that file's bytes are. A row's
+// `badges` are shown by its name, and a file with `unreadable` says why instead of a preview.
+function browseInto(host, { rootName, open, url, streams = false }) {
   const st = { path: [], sort: { key: 'name', asc: true }, rows: [] };
   host.innerHTML = `<div class="arc"><div class="arc-list"><nav class="acrumbs" aria-label="Folder"></nav><div class="arc-note"></div><table class="list"><thead></thead><tbody></tbody></table></div>
     <div class="arc-pv"><div class="v-center"><p class="note">Select a file to preview it.</p></div></div></div>`;
@@ -481,7 +485,7 @@ function browseInto(host, { rootName, open, url }) {
     const col = (k, label, n) => `<th data-k="${k}" class="${n ? 'n' : ''}" ${key === k ? `aria-sort="${asc ? 'ascending' : 'descending'}"` : ''}>${label}</th>`;
     q('thead').innerHTML = `<tr>${col('name', 'Name')}${col('size', 'Size', 1)}${col('mtime', 'Modified')}</tr>`;
     q('tbody').innerHTML = st.rows.map((r, i) => `<tr data-i="${i}">
-      <td><div class="nmc">${r.dir ? folderIcon(20) : fileIcon(r.base, 20)}<span class="nm">${esc(name(r))}</span>${r.link ? `<span class="dim">→ ${esc(r.link)}</span>` : ''}${r.encrypted ? '<span class="bdg">encrypted</span>' : ''}</div></td>
+      <td><div class="nmc">${r.dir ? folderIcon(20) : fileIcon(r.base, 20)}<span class="nm">${esc(name(r))}</span>${r.link ? `<span class="dim">→ ${esc(r.link)}</span>` : ''}${r.encrypted ? '<span class="bdg">encrypted</span>' : ''}${(r.badges || []).map(b => `<span class="bdg">${esc(b)}</span>`).join('')}</div></td>
       <td class="n">${r.dir ? (r.count != null ? `<span class="dim">${r.count.toLocaleString()} item${r.count === 1 ? '' : 's'} · </span>${bytes(r.size)}` : '') : r.size != null ? bytes(r.size) : '—'}</td>
       <td>${r.mtime ? when(r.mtime) : ''}</td></tr>`).join('') || '<tr><td colspan="3" class="dim">Empty folder</td></tr>';
     q('.arc-list').scrollTop = 0;
@@ -501,7 +505,8 @@ function browseInto(host, { rootName, open, url }) {
     const r = st.rows[+tr.dataset.i];
     if (r.dir) { st.path.push(r.name); return void draw().catch(fail); }
     host.querySelectorAll('tbody tr').forEach(x => x.classList.toggle('sel', x === tr));
-    entryPreview(q('.arc-pv'), url(st.path, r), r.name, r.size);
+    if (r.unreadable) { q('.arc-pv').innerHTML = `<div class="v-center"><div class="v-msg"><h3>${esc(r.name)}</h3><p>${esc(r.unreadable)}</p></div></div>`; return; }
+    entryPreview(q('.arc-pv'), url(st.path, r), r.name, r.size, streams);
   });
   return draw();
 }
@@ -552,14 +557,20 @@ const DISK_NAMES = {
   vhd: 'Virtual PC / Hyper-V disk (VHD)', vhdx: 'Hyper-V virtual disk (VHDX)',
 };
 const fsText = fs => fs ? `${esc(fs.kind)}${fs.label ? ` “${esc(fs.label)}”` : ''}` : '<span class="dim">not recognised</span>';
+// the filesystems whose files can be listed (peek.rs fsview, over backdown_core::fsread)
+const browsable = fs => !!fs && /^(FAT(12|16|32)?|exFAT|ext[234]|NTFS)$/.test(fs.kind);
+const browseBtn = (part, fs) => `<button class="btn sm" type="button" data-part="${part}" data-root="${esc(fs.label || fs.kind)}">Browse files</button>`;
 
 // Disk images: what the headers and tables say (partitions and their filesystems, a virtual disk's
-// size), and an ISO's files. False if the server doesn't recognise the image.
+// size), an ISO's files, and the files in each partition whose filesystem can be read (the whole
+// image's, or the largest partition's, open at once). False if the server doesn't recognise it.
 async function diskView(e) {
   const d = await api('disk', { id: e.id });
   if (!live(e)) return true;
   if (d.format === 'unknown') return false;
   const title = DISK_NAMES[d.format] || d.format, parts = d.partitions || [];
+  const whole = browsable(d.fs), iso = d.format === 'iso9660';
+  const layoutless = !d.table && !d.fs && !['raw', 'iso9660', 'dmg'].includes(d.format);
   $('#v-tools').innerHTML = `<span class="v-meta">${esc(title)}${d.virtual_size ? ` · ${bytes(d.virtual_size)}` : ''}</span>`;
   const summary = `<div class="disk">
     <h3>${esc(title)}${d.label ? ` · ${esc(d.label)}` : ''}</h3>
@@ -568,24 +579,61 @@ async function diskView(e) {
       ${d.table ? `<dt>Partition table</dt><dd>${esc(d.table)}</dd>` : ''}
       ${d.fs ? `<dt>Filesystem</dt><dd>${fsText(d.fs)}${d.fs.size ? ` · ${bytes(d.fs.size)}` : ''}</dd>` : ''}
       ${(d.details || []).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
-    ${parts.length ? `<table class="list parts"><thead><tr><th class="n">#</th><th>Type</th><th>Name</th><th>Filesystem</th><th class="n">Start</th><th class="n">Size</th></tr></thead>
-      <tbody>${parts.map(p => `<tr><td class="n">${p.index}</td><td title="${esc(p.code)}">${esc(p.type)}${p.bootable ? ' <span class="bdg">boot</span>' : ''}</td><td>${esc(p.name || '')}</td>
-        <td>${fsText(p.fs)}</td><td class="n">${bytes(p.start)}</td><td class="n">${bytes(p.size)}</td></tr>`).join('')}</tbody></table>` : ''}
+    ${iso && parts.some(p => browsable(p.fs)) ? '<p class="fs-pick"><button class="btn sm" type="button" data-part="iso">Browse the disc</button> or a partition below.</p>' : ''}
+    ${parts.length ? `<table class="list parts"><thead><tr><th class="n">#</th><th>Type</th><th>Name</th><th>Filesystem</th><th class="n">Start</th><th class="n">Size</th><th></th></tr></thead>
+      <tbody>${parts.map(p => `<tr data-row="${p.index}"><td class="n">${p.index}</td><td title="${esc(p.code)}">${esc(p.type)}${p.bootable ? ' <span class="bdg">boot</span>' : ''}</td><td>${esc(p.name || '')}</td>
+        <td>${fsText(p.fs)}</td><td class="n">${bytes(p.start)}</td><td class="n">${bytes(p.size)}</td><td class="n">${browsable(p.fs) ? browseBtn(p.index, p.fs) : ''}</td></tr>`).join('')}</tbody></table>` : ''}
     ${d.dmg_parts ? `<h4>Partitions</h4><ul class="pv-list">${d.dmg_parts.map(p => `<li>${esc(p.name)} <span>${bytes(p.size)}</span></li>`).join('')}</ul>` : ''}
+    ${layoutless ? '<p class="note">To browse the files inside, convert it to a raw image first (for example with <code>qemu-img convert -O raw</code>).</p>' : ''}
   </div>`;
-  if (d.format !== 'iso9660') { $('#vbody').innerHTML = `<div class="v-text">${summary}</div>`; return true; }
+  const first = whole ? { part: '0', fs: d.fs } : parts.filter(p => browsable(p.fs)).sort((a, b) => b.size - a.size).map(p => ({ part: String(p.index), fs: p.fs }))[0];
+  if (!iso && !first) { $('#vbody').innerHTML = `<div class="v-text">${summary}</div>`; return true; }
   $('#vbody').innerHTML = `<div class="iso-view">${summary}<div class="iso-files"></div></div>`;
+  let host = $('#vbody .iso-files');
   const list = r => ({
     dirs: r.entries.filter(x => x.dir).map(x => ({ name: x.name, mtime: x.mtime })),
     files: r.entries.filter(x => !x.dir).map(x => ({ ...x, base: x.name })),
     note: r.truncated ? `Showing the first ${r.entries.length.toLocaleString()} entries.` : '',
   });
-  await browseInto($('#vbody .iso-files'), {
-    rootName: d.label || 'Disc',
-    open: async path => list(path.length ? await api('disk', { id: e.id, path: path.join('/') }) : d),
-    url: (path, f) => entryUrl(e.id, [...path, f.name].join('/')),
+  const show = (part, root) => {
+    $('#vbody').querySelectorAll('.parts tr[data-row]').forEach(tr => tr.classList.toggle('cur', tr.dataset.row === part));
+    const fresh = host.cloneNode(false); // without the last browser's listeners
+    host.replaceWith(fresh);
+    host = fresh;
+    if (part !== 'iso') return fsBrowse(host, e, part, root);
+    return browseInto(host, {
+      rootName: d.label || 'Disc',
+      open: async path => list(path.length ? await api('disk', { id: e.id, path: path.join('/') }) : d),
+      url: (path, f) => entryUrl(e.id, [...path, f.name].join('/')),
+    });
+  };
+  $('#vbody .disk').addEventListener('click', ev => {
+    const b = ev.target.closest('button[data-part]');
+    if (b) show(b.dataset.part, b.dataset.root).catch(err => { if (live(e)) host.innerHTML = `<p class="note pad">${esc(err.message || err)}</p>`; });
   });
+  if (iso) await show('iso');
+  else await show(first.part, first.fs.label || first.fs.kind).catch(err => { if (live(e)) host.innerHTML = `<p class="note pad">${esc(err.message || err)}</p>`; });
   return true;
+}
+
+// The files of the filesystem in partition `part` of a disk image ("0": the whole image), listed
+// folder by folder by the server; a file is asked for by its path in those listings.
+function fsBrowse(host, e, part, rootName) {
+  const SHOW = new Set(['compressed', 'sparse', 'encrypted']);
+  const badges = x => (x.flags || []).filter(f => SHOW.has(f));
+  const list = r => ({
+    dirs: r.entries.filter(x => x.dir).map(x => ({ name: x.name, mtime: x.mtime, badges: badges(x) })),
+    files: r.entries.filter(x => !x.dir).map(x => ({
+      ...x, base: x.name, badges: badges(x), size: x.link != null ? null : x.size,
+      unreadable: x.unreadable || (x.link != null ? `A link to ${x.link}. Links are shown, not followed.` : null),
+    })),
+    note: [r.truncated ? `Showing the first ${r.entries.length.toLocaleString()} entries of this folder.` : '', ...(r.fs.notes || []).map(n => `${n[0].toUpperCase()}${n.slice(1)}.`)].filter(Boolean).join(' '),
+  });
+  return browseInto(host, {
+    rootName, streams: true,
+    open: async path => list(await api('fs', { id: e.id, part, path: path.join('/') })),
+    url: (path, f) => `${entryUrl(e.id, [...path, f.name].join('/'))}&part=${encodeURIComponent(part)}`,
+  });
 }
 
 // a disk image in a few lines, for the details pane

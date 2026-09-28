@@ -423,6 +423,9 @@ a.btn{color:inherit;text-decoration:none}
 .disk h4{font-size:.74rem;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-3);margin:16px 0 6px}
 .list.parts{max-width:980px;margin-top:6px}
 .list.parts th{position:static}
+.list.parts td .btn{margin:-3px 0}
+.list.parts tr.cur td{background:color-mix(in srgb,var(--accent) 12%,var(--view))}
+.fs-pick{margin:10px 0 0;font-size:.84rem;color:var(--ink-2)}
 .pv-table{max-height:260px;overflow:hidden}
 .pv-table .grid-table{width:100%;min-width:0;font-size:11px}
 .pv-table .grid-table td{max-width:90px;padding:3px 6px}
