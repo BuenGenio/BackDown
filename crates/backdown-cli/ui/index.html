@@ -37,14 +37,27 @@
    </div>
    <div class="hb-group">
     <button id="search-btn" class="hb-btn" type="button" title="Search (Ctrl+F)" aria-label="Search" aria-pressed="false"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button>
+    <button id="filter-btn" class="hb-btn" type="button" title="Filter by type, size and date" aria-label="Filters" aria-pressed="false" aria-controls="filterbar"><svg viewBox="0 0 24 24"><path d="M4 5h16l-6 7.5V19l-4 1v-7.5z"/></svg></button>
+    <button id="sort-btn" class="hb-btn" type="button" title="Sort" aria-label="Sort" aria-haspopup="menu"><svg viewBox="0 0 24 24"><path d="M7 4v16M4 17l3 3 3-3M17 20V4M14 7l3-3 3 3"/></svg></button>
     <div class="seg" role="group" aria-label="View">
      <button id="view-grid" type="button" title="Grid view (Ctrl+1)" aria-label="Grid view" aria-pressed="true"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg></button>
      <button id="view-list" type="button" title="List view (Ctrl+2)" aria-label="List view" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg></button>
+     <button id="view-gallery" type="button" title="Photo gallery (Ctrl+3)" aria-label="Photo gallery" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/></svg></button>
+     <button id="view-treemap" type="button" title="Size map (Ctrl+4)" aria-label="Size map" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M12 4v16M12 13h9M3 10h9"/></svg></button>
     </div>
     <button id="info-btn" class="hb-btn" type="button" title="Details (Ctrl+I)" aria-label="Details" aria-pressed="false"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg></button>
    </div>
   </header>
 
+  <div class="tabs" id="tabs" role="tablist" aria-label="Tabs" hidden></div>
+  <div class="filterbar" id="filterbar" hidden>
+   <label>Type <select id="f-type"></select></label>
+   <label>Size <select id="f-size"></select></label>
+   <label>Modified <select id="f-date"></select></label>
+   <label class="chk"><input type="checkbox" id="f-hidden"> Hidden files <kbd>Ctrl+H</kbd></label>
+   <span class="f-count" id="f-count"></span>
+   <button class="btn sm" id="f-clear" type="button">Clear</button>
+  </div>
   <div class="banner" id="banner" hidden></div>
 
   <div class="content">
@@ -59,6 +72,7 @@
     <div class="tb-ticks" id="ticks" aria-hidden="true"></div>
    </div>
    <span class="tb-label" id="time-label">Now</span>
+   <button class="btn sm" id="time-compare" type="button" title="What changed in this folder between two scans">Compare…</button>
    <button class="btn sm" id="time-now" type="button" hidden>Back to now</button>
   </footer>
  </main>

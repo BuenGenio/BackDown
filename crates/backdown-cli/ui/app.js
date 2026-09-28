@@ -1,6 +1,7 @@
 // BackDown browser: folders as they were at any scan, with versions, copies and file viewers.
 import { fileIcon, folderIcon, driveIcon, kindOf } from './icons.js';
 import { openViewer, openDiff, openGit, previewInto } from './viewers.js';
+import { squarify, compareListings, menu, closeMenu, menuOpen, toast } from './extras.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -22,6 +23,7 @@ const S = {
   roots: [], root: null, dir: null, scan: null, timeline: [], listing: null, entries: [],
   view: localStorage.getItem('bd.view') || 'grid', sort: { key: 'name', asc: true },
   sel: new Set(), anchor: null, back: [], fwd: [], mode: 'browse', info: localStorage.getItem('bd.info') === '1',
+  filter: { type: 'all', size: 'any', date: 'any' }, hidden: localStorage.getItem('bd.hidden') === '1', cmp: null,
 };
 
 // ---------- boot
@@ -126,6 +128,8 @@ async function setScan(idx) {
 }
 
 function renderAll() {
+  renderTabs();
+  $('#timebar').hidden = S.mode !== 'browse' || S.timeline.length < 2;
   renderPlaces();
   renderPath();
   renderBanner();
@@ -137,6 +141,11 @@ function renderAll() {
 }
 
 function renderPath() {
+  if (S.mode === 'compare' && S.cmp?.listing) {
+    $('#pathbar').innerHTML = `<span class="crumb-tag">Compare</span>` + S.cmp.listing.crumbs.map((c, i) =>
+      `${i ? '<span class="crumb-sep">›</span>' : ''}<button class="crumb" type="button" data-key="${c.key}" title="${esc(c.name)}">${esc(i === 0 ? S.root.name : c.name)}</button>`).join('');
+    return;
+  }
   if (S.mode !== 'browse') {
     $('#pathbar').innerHTML = `<span class="crumb" style="cursor:default">${{ dupes: 'Duplicates', activity: 'Activity' }[S.mode] || 'Search'}</span>`;
     return;
@@ -176,15 +185,94 @@ function renderBanner() {
 function sorted() {
   const { key, asc } = S.sort;
   const dir = asc ? 1 : -1;
-  const val = e => key === 'name' ? e.name : key === 'size' ? e.size : key === 'mtime' ? e.mtime : key === 'copies' ? e.copies : e.versions;
-  return [...S.entries].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'dir' ? -1 : 1)
-    || (key === 'name' ? dir * collator.compare(a.name, b.name) : dir * (val(a) - val(b)) || collator.compare(a.name, b.name)));
+  const val = e => key === 'size' ? e.size : key === 'mtime' ? e.mtime : key === 'copies' ? e.copies : e.versions;
+  const ext = e => e.kind === 'dir' || !e.name.includes('.') ? '' : e.name.slice(e.name.lastIndexOf('.') + 1).toLowerCase();
+  return S.entries.filter(shown).sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'dir' ? -1 : 1)
+    || (key === 'name' ? dir * collator.compare(a.name, b.name)
+      : key === 'type' ? dir * collator.compare(ext(a), ext(b)) || collator.compare(a.name, b.name)
+        : dir * (val(a) - val(b)) || collator.compare(a.name, b.name)));
+}
+
+// ---------- filters: type, size, modified, hidden files
+
+const TYPES = [['all', 'Any'], ['dir', 'Folders'], ['image', 'Images'], ['video', 'Videos'], ['audio', 'Audio'], ['doc', 'Documents'],
+  ['pdf', 'PDFs'], ['sheet', 'Spreadsheets'], ['slides', 'Presentations'], ['text', 'Text'], ['code', 'Code'],
+  ['data', 'Data and databases'], ['archive', 'Archives'], ['disk', 'Disk images'], ['mail', 'Email'], ['other', 'Other files']];
+const SIZES = [['any', 'Any', 0, Infinity], ['s', 'Under 1 MB', 0, 1e6], ['m', '1 MB – 100 MB', 1e6, 1e8], ['l', '100 MB – 1 GB', 1e8, 1e9], ['xl', 'Over 1 GB', 1e9, Infinity]];
+const DATES = [['any', 'Any time'], ['7', 'In the past week'], ['30', 'In the past month'], ['365', 'In the past year'], ['old', 'More than a year ago']];
+const filtering = () => S.filter.type !== 'all' || S.filter.size !== 'any' || S.filter.date !== 'any';
+const isHidden = e => e.name.startsWith('.') || e.name.endsWith('~');
+
+function shown(e) {
+  if (!S.hidden && isHidden(e)) return false;
+  const f = S.filter;
+  if (f.type !== 'all') {
+    if (f.type === 'dir') { if (e.kind !== 'dir') return false; }
+    else {
+      if (e.kind === 'dir') return false;
+      const k = kindOf(e.name);
+      const ok = f.type === 'data' ? ['data', 'sql', 'db'].includes(k) : f.type === 'text' ? ['text', 'diff'].includes(k)
+        : f.type === 'other' ? k === 'file' : k === f.type;
+      if (!ok) return false;
+    }
+  }
+  if (f.size !== 'any') {
+    const [, , lo, hi] = SIZES.find(x => x[0] === f.size);
+    if (e.size < lo || e.size >= hi) return false;
+  }
+  if (f.date !== 'any') {
+    const age = Date.now() / 1000 - e.mtime;
+    if (f.date === 'old' ? age < 365 * 86400 : age > +f.date * 86400) return false;
+  }
+  return true;
+}
+
+function setupFilters() {
+  const opts = list => list.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+  $('#f-type').innerHTML = opts(TYPES); $('#f-size').innerHTML = opts(SIZES); $('#f-date').innerHTML = opts(DATES);
+  for (const [id, f] of [['#f-type', 'type'], ['#f-size', 'size'], ['#f-date', 'date']]) {
+    $(id).addEventListener('change', e => { S.filter = { ...S.filter, [f]: e.target.value }; renderView(); });
+  }
+  $('#f-hidden').addEventListener('change', toggleHidden);
+  $('#f-clear').onclick = clearFilters;
+  syncFilterUI();
+}
+function syncFilterUI() {
+  $('#f-type').value = S.filter.type; $('#f-size').value = S.filter.size; $('#f-date').value = S.filter.date;
+  $('#f-hidden').checked = S.hidden;
+  $('#filter-btn').classList.toggle('on', filtering());
+}
+function clearFilters() { S.filter = { type: 'all', size: 'any', date: 'any' }; syncFilterUI(); renderView(); }
+function toggleFilters(show = $('#filterbar').hidden) {
+  $('#filterbar').hidden = !show;
+  $('#filter-btn').setAttribute('aria-pressed', String(show));
+  if (show) $('#f-type').focus();
+}
+function toggleHidden() {
+  S.hidden = !S.hidden;
+  localStorage.setItem('bd.hidden', S.hidden ? '1' : '0');
+  syncFilterUI();
+  if (S.mode === 'browse') renderView();
+  toast(S.hidden ? 'Showing hidden files' : 'Hiding hidden files');
+}
+
+function sortMenu() {
+  const b = $('#sort-btn').getBoundingClientRect();
+  const set = (key, asc) => { S.sort = { key, asc }; localStorage.setItem('bd.sort', JSON.stringify(S.sort)); if (S.mode === 'browse') renderView(); };
+  menu(b.right - 200, b.bottom + 4, [
+    ...[['name', 'Name'], ['size', 'Size'], ['mtime', 'Modified'], ['type', 'Type'], ['copies', 'Copies'], ['versions', 'Versions']].map(([k, l]) => ({
+      label: l, checked: S.sort.key === k, act: () => set(k, S.sort.key === k ? S.sort.asc : k === 'name' || k === 'type'),
+    })),
+    { sep: 1 },
+    { label: 'Ascending', checked: S.sort.asc, act: () => set(S.sort.key, true) },
+    { label: 'Descending', checked: !S.sort.asc, act: () => set(S.sort.key, false) },
+  ]);
 }
 
 // a real picture for images the browser can show (small enough to load for a thumbnail)
-function thumb(e) {
+function thumb(e, extra = '') {
   if (kindOf(e.name) !== 'image' || e.size > 25e6 || /\.(tiff?|heic|heif|raw|cr2|nef|arw|dng|psd)$/i.test(e.name)) return '';
-  return `<img class="thumb" src="/api/content?id=${e.id}" alt="" loading="lazy" decoding="async" data-name="${esc(e.name)}">`;
+  return `<img class="thumb ${extra}" src="/api/content?id=${e.id}" alt="" loading="lazy" decoding="async" data-name="${esc(e.name)}">`;
 }
 
 function badges(e) {
@@ -198,12 +286,20 @@ function badges(e) {
 
 function renderView() {
   const v = $('#view');
-  if (S.mode === 'search' || S.mode === 'dupes') return; // rendered by their own functions
+  if (S.mode !== 'browse' || !S.listing) return; // search, duplicates, activity and compare draw themselves
   const items = sorted();
+  const hiddenBy = S.entries.length - items.length;
+  $('#f-count').textContent = hiddenBy ? `${items.length} of ${S.entries.length} shown` : '';
+  $('#filter-btn').classList.toggle('on', filtering());
   if (!items.length) {
-    v.innerHTML = `<div class="empty"><div>${folderIcon(72)}<h2>Empty folder</h2><p>${S.scan != null ? 'Nothing was here at this scan.' : 'Nothing indexed in this folder.'}</p></div></div>`;
+    v.innerHTML = hiddenBy
+      ? `<div class="empty"><div><h2>Nothing to show</h2><p>${hiddenBy} item${hiddenBy === 1 ? ' is' : 's are'} hidden by ${filtering() ? 'the filters' : 'the hidden-files setting'}.</p>
+          <p>${filtering() ? '<button class="btn" type="button" id="clear-filters">Clear filters</button> ' : ''}${!S.hidden && S.entries.some(isHidden) ? '<button class="btn" type="button" id="show-hidden">Show hidden files</button>' : ''}</p></div></div>`
+      : `<div class="empty"><div>${folderIcon(72)}<h2>Empty folder</h2><p>${S.scan != null ? 'Nothing was here at this scan.' : 'Nothing indexed in this folder.'}</p></div></div>`;
     return;
   }
+  if (S.view === 'gallery') return renderGallery(v, items);
+  if (S.view === 'treemap') return renderTreemap(v, items);
   if (S.view === 'grid') {
     v.innerHTML = `<div class="grid" role="listbox" aria-multiselectable="true">${items.map(e => `
       <div class="tile${S.sel.has(e.key) ? ' sel' : ''}${e.later === 'deleted' && S.scan != null ? ' ghost' : ''}" role="option" aria-selected="${S.sel.has(e.key)}" data-key="${e.key}" title="${esc(e.name)}">
@@ -302,8 +398,419 @@ async function renderInfo() {
 
 function openEntry(e) {
   if (e.kind === 'dir') return go(e.key);
-  const files = sorted().filter(x => x.kind === 'file');
+  // in the gallery, the viewer steps through its photos and videos only
+  const files = sorted().filter(x => x.kind === 'file' && (S.view !== 'gallery' || MEDIA.has(kindOf(x.name))));
   openViewer(e, files);
+}
+
+// ---------- photo gallery and size map
+
+const MEDIA = new Set(['image', 'video']);
+function renderGallery(v, items) {
+  const media = items.filter(e => e.kind === 'file' && MEDIA.has(kindOf(e.name)));
+  const dirs = items.filter(e => e.kind === 'dir');
+  const sel = e => `${S.sel.has(e.key) ? ' sel' : ''}${e.later === 'deleted' && S.scan != null ? ' ghost' : ''}`;
+  v.innerHTML = (dirs.length ? `<div class="g-dirs">${dirs.map(e => `<button class="g-dir${sel(e)}" type="button" data-key="${e.key}" title="${esc(e.name)}">${folderIcon(18)}<span>${esc(e.name)}</span></button>`).join('')}</div>` : '')
+    + (media.length ? `<div class="gallery">${media.map(e => {
+      const pic = kindOf(e.name) === 'video'
+        ? `<video src="/api/content?id=${e.id}#t=0.5" preload="metadata" muted playsinline></video><span class="g-play" aria-hidden="true">▶</span>`
+        : thumb(e, 'g-img') || `<div class="g-icon">${fileIcon(e.name, 64)}</div>`;
+      return `<figure class="ph${sel(e)}" data-key="${e.key}" title="${esc(e.name)}">${pic}<figcaption><span>${esc(e.name)}</span><small>${day(e.mtime)}</small></figcaption></figure>`;
+    }).join('')}</div>`
+      : `<div class="empty"><div><h2>No photos or videos here</h2><p>${dirs.length ? 'Open a folder above, or switch' : 'Switch'} back to the grid with Ctrl+1.</p></div></div>`);
+}
+
+// colours per kind of file, as in the icons
+const TM_COLOR = { text: '#8a8f98', code: '#5b6b8c', data: '#2e8b57', sql: '#b8800e', db: '#1f8a8a', image: '#8e5bd1', pdf: '#d8432b',
+  doc: '#3b6fd8', sheet: '#2e8b57', slides: '#d97a1b', archive: '#8a6a3e', audio: '#c2458a', video: '#7a4fd6', disk: '#55606e',
+  mail: '#3b8fd8', diff: '#2e8b57', file: '#8a8f98' };
+function renderTreemap(v, items) {
+  const sized = items.filter(e => e.size > 0);
+  const total = sized.reduce((s, e) => s + e.size, 0);
+  if (!total) { v.innerHTML = '<div class="empty"><div><h2>Nothing here takes up space</h2></div></div>'; return; }
+  const W = Math.max(200, v.clientWidth - 28), H = Math.max(220, v.clientHeight - 28 - 34);
+  // tiles too small to see or click are gathered into one "smaller items" tile
+  const minArea = 40 * 26, big = [], small = [];
+  for (const e of sized) (e.size / total * W * H >= minArea ? big : small).push(e);
+  const rest = small.reduce((s, e) => s + e.size, 0);
+  const cells = squarify([...big.map(e => ({ size: e.size, e })), ...(rest ? [{ size: rest, rest: small.length }] : [])], { x: 0, y: 0, w: W, h: H });
+  const label = (c, name, size) => c.w > 60 && c.h > 34 ? `<span class="tm-n">${esc(name)}</span><span class="tm-s">${bytes(size)}</span>`
+    : c.w > 38 && c.h > 18 ? `<span class="tm-s">${bytes(size)}</span>` : '';
+  const empty = items.length - sized.length;
+  v.innerHTML = `<div class="tm-head"><b>${bytes(total)}</b> in ${count(items.length)} item${items.length === 1 ? '' : 's'}${empty ? ` · ${empty} empty not shown` : ''}${small.length ? ` · ${small.length} small ones grouped` : ''} · double-click a folder to go in</div>
+    <div class="treemap" style="width:${W}px;height:${H}px">${cells.map(c => {
+      const at = `left:${c.x.toFixed(1)}px;top:${c.y.toFixed(1)}px;width:${c.w.toFixed(1)}px;height:${c.h.toFixed(1)}px`;
+      if (c.item.rest) return `<div class="tm rest" style="${at}" title="${c.item.rest} smaller items · ${bytes(c.item.size)}">${label(c, `${c.item.rest} smaller items`, c.item.size)}</div>`;
+      const e = c.item.e;
+      const color = e.kind === 'dir' ? 'var(--folder)' : TM_COLOR[kindOf(e.name)] || TM_COLOR.file;
+      const nest = e.kind === 'dir' && c.w > 110 && c.h > 70;
+      return `<div class="tm ${e.kind}${S.sel.has(e.key) ? ' sel' : ''}${e.later === 'deleted' && S.scan != null ? ' ghost' : ''}" data-key="${e.key}" style="${at};--c:${color}" title="${esc(e.name)} · ${bytes(e.size)} · ${(100 * e.size / total).toFixed(1)}%"${nest ? ` data-nest="${e.key}" data-w="${c.w}" data-h="${c.h}"` : ''}>${label(c, e.name, e.size)}</div>`;
+    }).join('')}</div>`;
+  nestTreemap(v);
+}
+
+// a second level inside the bigger folder tiles, so a folder that is mostly one subfolder still shows
+// where its bytes are (double-click an inner folder to go straight there)
+let tmSeq = 0;
+async function nestTreemap(v) {
+  const seq = ++tmSeq, scan = S.scan;
+  const tiles = [...v.querySelectorAll('.tm[data-nest]')].sort((a, b) => b.dataset.w * b.dataset.h - a.dataset.w * a.dataset.h).slice(0, 16);
+  await Promise.all(tiles.map(async el => {
+    const listing = await api('ls', { dir: el.dataset.nest, scan: scan ?? '' }).catch(() => null);
+    if (!listing || seq !== tmSeq || !el.isConnected) return;
+    const kids = listing.entries.filter(e => e.size > 0 && (S.hidden || !isHidden(e)));
+    const W = +el.dataset.w - 12, H = +el.dataset.h - 34;
+    if (!kids.length || W < 40 || H < 30) return;
+    const total = kids.reduce((n, e) => n + e.size, 0), big = [], small = [];
+    for (const e of kids) (e.size / total * W * H >= 18 * 14 ? big : small).push(e);
+    const rest = small.reduce((n, e) => n + e.size, 0);
+    const cells = squarify([...big.map(e => ({ size: e.size, e })), ...(rest ? [{ size: rest, rest: small.length }] : [])], { x: 0, y: 0, w: W, h: H });
+    el.insertAdjacentHTML('beforeend', `<div class="tm-in" style="width:${W}px;height:${H}px">${cells.map(c => {
+      const at = `left:${c.x.toFixed(1)}px;top:${c.y.toFixed(1)}px;width:${c.w.toFixed(1)}px;height:${c.h.toFixed(1)}px`;
+      if (c.item.rest) return `<div class="tm2 rest" style="${at}" title="${c.item.rest} smaller items · ${bytes(c.item.size)}"></div>`;
+      const e = c.item.e, color = e.kind === 'dir' ? 'var(--folder)' : TM_COLOR[kindOf(e.name)] || TM_COLOR.file;
+      return `<div class="tm2 ${e.kind}" style="${at};--c:${color}" title="${esc(e.name)} · ${bytes(e.size)}"${e.kind === 'dir' ? ` data-go="${e.key}"` : ''}>${c.w > 56 && c.h > 18 ? `<span>${esc(e.name)}</span>` : ''}</div>`;
+    }).join('')}</div>`);
+  }));
+}
+let tmTimer;
+new ResizeObserver(() => {
+  if (S.mode === 'browse' && S.view === 'treemap') { clearTimeout(tmTimer); tmTimer = setTimeout(renderView, 120); }
+}).observe($('#view'));
+
+// ---------- compare a folder between two scans
+
+const delta = r => (r.b?.size || 0) - (r.a?.size || 0);
+const signed = n => n === 0 ? '±0' : `${n > 0 ? '+' : '−'}${bytes(Math.abs(n))}`;
+const TEXTISH = new Set(['text', 'code', 'data', 'sql', 'diff']);
+
+async function startCompare(dirKey = S.dir, a, b) {
+  const tl = S.timeline;
+  if (tl.length < 2) return toastError(new Error('This drive has only one scan so far: there is nothing to compare with yet.'));
+  const latest = tl.at(-1).id;
+  b = b ?? latest;
+  a = a ?? (S.scan != null && S.scan !== latest ? S.scan : tl.at(-2).id);
+  S.cmp = { dir: dirKey, a, b, same: false, listing: S.listing };
+  S.mode = 'compare';
+  closeSearch(false);
+  await renderCompare();
+}
+
+async function renderCompare() {
+  const c = S.cmp, v = $('#view');
+  renderPlaces(); renderTabs();
+  $('#banner').hidden = true; $('#timebar').hidden = true; $('#info').hidden = true;
+  v.innerHTML = '<div class="empty"><p>Comparing…</p></div>';
+  const ls = scan => api('ls', { dir: c.dir, scan }).catch(() => null);
+  const [la, lb] = await Promise.all([ls(c.a), ls(c.b)]);
+  if (S.mode !== 'compare' || S.cmp !== c) return;
+  c.listing = lb || la || c.listing;
+  renderPath(); renderTabs();
+  const rows = compareListings(la?.entries || [], lb?.entries || []);
+  const order = { changed: 0, added: 1, removed: 2, same: 3 };
+  rows.sort((x, y) => order[x.status] - order[y.status] || Math.abs(delta(y)) - Math.abs(delta(x)) || collator.compare((x.b || x.a).name, (y.b || y.a).name));
+  const of = st => rows.filter(r => r.status === st);
+  const sum = (list, f) => list.reduce((n, r) => n + f(r), 0);
+  const [added, removed, changed, same] = ['added', 'removed', 'changed', 'same'].map(of);
+  const scans = sel => S.timeline.map(p => `<option value="${p.id}"${p.id === sel ? ' selected' : ''}>${esc(when(p.finished_at))}</option>`).join('');
+  const list = rows.filter(r => c.same || r.status !== 'same');
+  const pill = { added: 'ok', removed: 'off', changed: 'warn', same: '' };
+  v.innerHTML = `<div class="cmp-bar">
+      <label>From <select id="cmp-a">${scans(c.a)}</select></label>
+      <button class="hb-btn" id="cmp-swap" type="button" title="Swap the scans" aria-label="Swap the scans"><svg viewBox="0 0 24 24"><path d="M7 7h13M16 3l4 4-4 4M17 17H4M8 13l-4 4 4 4"/></svg></button>
+      <label>to <select id="cmp-b">${scans(c.b)}</select></label>
+      <span class="cmp-sum"><span class="pill ok">${added.length} added · ${bytes(sum(added, r => r.b.size))}</span>
+        <span class="pill off">${removed.length} removed · ${bytes(sum(removed, r => r.a.size))}</span>
+        <span class="pill warn">${changed.length} changed · ${signed(sum(changed, delta))}</span></span>
+      <label class="chk"><input type="checkbox" id="cmp-same"${c.same ? ' checked' : ''}> show ${same.length} unchanged</label>
+      <button class="btn sm" id="cmp-close" type="button">Done</button></div>
+    ${!la ? '<p class="note pad">This folder didn’t exist at the first scan: everything in it is new.</p>' : !lb ? '<p class="note pad">This folder is gone by the second scan.</p>' : ''}
+    ${list.length ? `<table class="list cmp"><thead><tr><th></th><th>Name</th><th class="n">Before</th><th class="n">After</th><th class="n">Change</th><th>Modified</th></tr></thead><tbody>${list.map(r => {
+      const e = r.b || r.a;
+      return `<tr data-cmp="${e.key}" class="${r.status}" title="${e.kind === 'dir' ? 'Double-click to compare inside' : r.status === 'changed' && TEXTISH.has(kindOf(e.name)) ? 'Double-click to see the differences' : 'Double-click to open'}">
+        <td><span class="pill ${pill[r.status]}">${r.status}</span></td>
+        <td><div class="nmc">${e.kind === 'dir' ? folderIcon(20) : fileIcon(e.name, 20)}<span class="nm">${esc(e.name)}</span></div></td>
+        <td class="n">${r.a ? bytes(r.a.size) : '—'}</td><td class="n">${r.b ? bytes(r.b.size) : '—'}</td>
+        <td class="n ${delta(r) > 0 ? 'up' : delta(r) < 0 ? 'down' : ''}">${signed(delta(r))}</td><td>${when(e.mtime)}</td></tr>`;
+    }).join('')}</tbody></table>`
+      : `<div class="empty"><div><h2>No differences</h2><p>${same.length ? 'Everything in this folder is the same at both scans.' : 'This folder is empty at both scans.'}</p></div></div>`}`;
+  $('#cmp-a').onchange = e => { c.a = +e.target.value; renderCompare(); };
+  $('#cmp-b').onchange = e => { c.b = +e.target.value; renderCompare(); };
+  $('#cmp-swap').onclick = () => { [c.a, c.b] = [c.b, c.a]; renderCompare(); };
+  $('#cmp-same').onchange = e => { c.same = e.target.checked; renderCompare(); };
+  $('#cmp-close').onclick = exitCompare;
+  c.rows = rows;
+}
+
+function compareOpen(key) {
+  const r = S.cmp.rows?.find(x => (x.b || x.a).key === key);
+  if (!r) return;
+  const e = r.b || r.a;
+  if (e.kind === 'dir') { S.cmp = { ...S.cmp, dir: e.key }; return renderCompare(); }
+  if (r.status === 'changed' && r.a.id && r.b.id && TEXTISH.has(kindOf(e.name))) return openDiff(r.a.id, r.b.id);
+  openViewer(e, []);
+}
+
+function exitCompare() {
+  const dir = S.cmp?.dir || S.dir;
+  S.cmp = null; S.mode = 'browse';
+  go(dir, { push: false, scan: null });
+}
+
+// ---------- actions: context menu, download, the desktop
+
+const sepOf = p => p.includes('\\') && !p.includes('/') ? '\\' : '/';
+const pathOf = e => `${S.listing.path.replace(/[\\/]+$/, '')}${sepOf(S.listing.path)}${e.name}`;
+
+async function copyText(t) {
+  try { await navigator.clipboard.writeText(t); }
+  catch { const a = document.createElement('textarea'); a.value = t; document.body.append(a); a.select(); document.execCommand('copy'); a.remove(); }
+  toast('Copied');
+}
+function download(e) {
+  const a = document.createElement('a');
+  a.href = `/api/content?id=${e.id}&download=1`; a.download = e.name;
+  document.body.append(a); a.click(); a.remove();
+}
+async function openDesktop(params) {
+  const r = await fetch(`/api/open?${new URLSearchParams(params)}`, { method: 'POST', headers: { 'X-BackDown': '1' }, credentials: 'same-origin' });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || j.error) return toastError(new Error(j.error || r.statusText));
+  toast(params.reveal || params.dir ? 'Shown in your file manager' : 'Opened with your system app');
+}
+function showDetails() { if (!S.info) $('#info-btn').click(); }
+function selectAll() { S.sel = new Set(sorted().map(x => x.key)); paintSelection(); renderInfo(); }
+
+function itemMenu(x, y) {
+  const ents = [...S.sel].map(k => S.entries.find(e => e.key === k)).filter(Boolean);
+  const one = ents.length === 1 ? ents[0] : null;
+  let items;
+  if (!ents.length) items = folderMenu();
+  else if (one?.kind === 'dir') items = [
+    { label: 'Open', hint: 'Enter', act: () => go(one.key) },
+    { label: 'Open in new tab', hint: 'Ctrl+Enter', act: () => newTab(one.key) },
+    { label: 'Show in file manager', act: () => openDesktop({ dir: one.key }) },
+    { sep: 1 },
+    { label: 'Size map', act: async () => { await go(one.key); setView('treemap'); } },
+    { label: 'Compare with an earlier scan…', act: () => startCompare(one.key), disabled: S.timeline.length < 2 },
+    { sep: 1 },
+    { label: 'Copy path', act: () => copyText(pathOf(one)) },
+    { label: 'Details', hint: 'Ctrl+I', act: showDetails },
+  ];
+  else if (one) items = [
+    { label: 'Open', hint: 'Enter', act: () => openEntry(one) },
+    { label: 'Open with system app', act: () => openDesktop({ id: one.id }), disabled: !one.id },
+    { label: 'Show in file manager', act: () => openDesktop({ id: one.id, reveal: 1 }), disabled: !one.id },
+    { label: 'Download a copy', act: () => download(one), disabled: !one.id },
+    { sep: 1 },
+    { label: 'Copy path', act: () => copyText(pathOf(one)) },
+    { label: 'Details', hint: 'Ctrl+I', act: showDetails },
+  ];
+  else {
+    const files = ents.filter(e => e.kind === 'file' && e.id);
+    items = [
+      { label: files.length > 20 ? 'Download copies (the first 20)' : `Download ${files.length} cop${files.length === 1 ? 'y' : 'ies'}`, disabled: !files.length,
+        act: () => files.slice(0, 20).forEach((f, i) => setTimeout(() => download(f), i * 300)) },
+      { label: 'Copy paths', act: () => copyText(ents.map(pathOf).join('\n')) },
+      { sep: 1 },
+      { label: `Details (${ents.length} selected)`, hint: 'Ctrl+I', act: showDetails },
+    ];
+  }
+  menu(x, y, items);
+}
+
+function folderMenu() {
+  return [
+    { label: 'New tab', hint: 'Alt+N', act: () => newTab(S.dir) },
+    { label: 'Select all', hint: 'Ctrl+A', act: selectAll },
+    { sep: 1 },
+    ...[['grid', 'Grid', 'Ctrl+1'], ['list', 'List', 'Ctrl+2'], ['gallery', 'Photo gallery', 'Ctrl+3'], ['treemap', 'Size map', 'Ctrl+4']]
+      .map(([v, l, h]) => ({ label: l, hint: h, checked: S.view === v, act: () => setView(v) })),
+    { sep: 1 },
+    { label: 'Show hidden files', hint: 'Ctrl+H', checked: S.hidden, act: toggleHidden },
+    { label: 'Filters…', act: () => toggleFilters(true) },
+    { label: 'Sort by…', act: sortMenu },
+    { sep: 1 },
+    { label: 'Compare with an earlier scan…', act: () => startCompare(S.dir), disabled: S.timeline.length < 2 },
+    { label: 'Show in file manager', act: () => openDesktop({ dir: S.dir }) },
+    { label: 'Copy path', act: () => copyText(S.listing.path) },
+    { sep: 1 },
+    { label: 'Keyboard shortcuts', hint: '?', act: showHelp },
+  ];
+}
+
+$('#view').addEventListener('contextmenu', e => {
+  if (S.mode !== 'browse' || !S.listing) return;
+  e.preventDefault();
+  const item = e.target.closest('[data-key]');
+  if (item && !S.sel.has(item.dataset.key)) select(item.dataset.key);
+  if (!item && S.sel.size) { S.sel.clear(); paintSelection(); renderInfo(); }
+  itemMenu(e.clientX, e.clientY);
+});
+
+// ---------- drag to select an area
+
+let band = null, suppressClick = false;
+$('#view').addEventListener('pointerdown', e => {
+  if (e.button !== 0 || S.mode !== 'browse' || S.view === 'treemap' || e.pointerType === 'touch') return;
+  if (e.target.closest('[data-key], button, input, select, a, th, video')) return;
+  const v = $('#view'), r = v.getBoundingClientRect();
+  if (e.clientX - r.left > v.clientWidth || e.clientY - r.top > v.clientHeight) return; // the scrollbar
+  band = { x: e.clientX - r.left + v.scrollLeft, y: e.clientY - r.top + v.scrollTop, base: e.ctrlKey || e.metaKey || e.shiftKey ? new Set(S.sel) : new Set(), el: null, id: e.pointerId, frame: 0 };
+});
+$('#view').addEventListener('pointermove', e => {
+  if (!band || e.pointerId !== band.id) return;
+  const v = $('#view'), r = v.getBoundingClientRect();
+  const x = e.clientX - r.left + v.scrollLeft, y = e.clientY - r.top + v.scrollTop;
+  if (!band.el) {
+    if (Math.hypot(x - band.x, y - band.y) < 5) return;
+    band.el = document.createElement('div'); band.el.className = 'band'; v.append(band.el);
+    v.setPointerCapture(e.pointerId);
+  }
+  // near an edge: scroll
+  if (e.clientY > r.bottom - 28) v.scrollTop += 18; else if (e.clientY < r.top + 28) v.scrollTop -= 18;
+  band.rect = { L: Math.min(x, band.x), T: Math.min(y, band.y), W: Math.abs(x - band.x), H: Math.abs(y - band.y) };
+  Object.assign(band.el.style, { left: `${band.rect.L}px`, top: `${band.rect.T}px`, width: `${band.rect.W}px`, height: `${band.rect.H}px` });
+  cancelAnimationFrame(band.frame);
+  band.frame = requestAnimationFrame(bandSelect);
+});
+// select what the band touches (once a frame while dragging, and once more on release)
+function bandSelect() {
+  if (!band?.rect) return;
+  const v = $('#view'), r = v.getBoundingClientRect(), { L, T, W, H } = band.rect;
+  const sel = new Set(band.base);
+  for (const it of v.querySelectorAll('[data-key]')) {
+    const b = it.getBoundingClientRect(), ix = b.left - r.left + v.scrollLeft, iy = b.top - r.top + v.scrollTop;
+    if (ix < L + W && ix + b.width > L && iy < T + H && iy + b.height > T) sel.add(it.dataset.key);
+  }
+  S.sel = sel; paintSelection();
+}
+const endBand = e => {
+  if (!band || e.pointerId !== band.id) return;
+  if (band.el) {
+    cancelAnimationFrame(band.frame); bandSelect();
+    band.el.remove(); suppressClick = true; S.anchor = [...S.sel].at(-1) ?? null; renderInfo();
+  }
+  band = null;
+};
+$('#view').addEventListener('pointerup', endBand);
+$('#view').addEventListener('pointercancel', endBand);
+
+// ---------- typing a location
+
+function editPath() {
+  if (S.mode !== 'browse' || !S.listing) return;
+  closeSearch(false);
+  $('#pathbar').innerHTML = `<input id="path-input" type="text" spellcheck="false" autocomplete="off" aria-label="Location: type a path and press Enter" value="${esc(S.listing.path)}">`;
+  const inp = $('#path-input');
+  inp.focus(); inp.select();
+  inp.addEventListener('keydown', async e => {
+    e.stopPropagation();
+    if (e.key === 'Escape') { e.preventDefault(); renderPath(); $('#view').focus(); }
+    else if (e.key === 'Enter') { e.preventDefault(); await goPath(inp.value); }
+  });
+  inp.addEventListener('blur', () => setTimeout(() => { if ($('#path-input') && document.activeElement !== $('#path-input')) renderPath(); }, 150));
+}
+async function goPath(text) {
+  let t = text.trim();
+  if (!t) return;
+  // "Old-Laptop/home/alex": a drive's name stands for its path
+  const first = t.split(/[\\/]/)[0], r = S.roots.find(x => x.name === first);
+  if (r && !/^([\\/]|[A-Za-z]:)/.test(t)) t = r.path.replace(/[\\/]+$/, '') + t.slice(first.length);
+  try {
+    const res = await api('resolve', { path: t });
+    await go(res.dir, { select: res.select || null, scan: null });
+    $('#view').focus();
+  } catch (e) { toastError(e); }
+}
+
+// ---------- tabs
+
+// tabs saved by an earlier load of this page, read before anything renders (which would overwrite them)
+const savedTabs = (() => { try { return JSON.parse(sessionStorage.getItem('bd.tabs')); } catch { return null; } })();
+const TAB_FIELDS = ['root', 'dir', 'scan', 'listing', 'entries', 'timeline', 'mode', 'sel', 'anchor', 'back', 'fwd', 'view', 'sort', 'filter', 'cmp'];
+let tabs = [], tabAt = 0;
+const snap = () => Object.fromEntries(TAB_FIELDS.map(f => [f, S[f]]));
+function tabTitle(t) {
+  if (t.mode === 'activity') return 'Activity';
+  if (t.mode === 'dupes') return 'Duplicates';
+  if (t.mode === 'compare') return `Compare · ${t.cmp?.listing?.name || ''}`;
+  if (!t.listing) return S.roots.find(r => t.dir && atob64(t.dir).startsWith(atob64(r.key)))?.name || '…';
+  return t.listing.crumbs.length > 1 ? t.listing.name : t.root?.name || t.listing.name;
+}
+function renderTabs() {
+  if (!tabs.length) tabs = [snap()];
+  tabs[tabAt] = snap();
+  const bar = $('#tabs');
+  bar.hidden = tabs.length < 2;
+  if (bar.hidden) { try { sessionStorage.removeItem('bd.tabs'); } catch {} return; }
+  bar.innerHTML = tabs.map((t, i) => `<div class="tab" role="tab" aria-selected="${i === tabAt}" data-tab="${i}" title="${esc(t.listing?.path || tabTitle(t))}">
+      <span class="tab-n">${esc(tabTitle(t))}</span><button class="tab-x" type="button" data-tab-close="${i}" aria-label="Close tab" title="Close tab (Alt+W)">×</button></div>`).join('');
+  try { sessionStorage.setItem('bd.tabs', JSON.stringify({ at: tabAt, dirs: tabs.map(t => t.dir) })); } catch {}
+}
+async function newTab(dirKey = S.dir) {
+  if (!dirKey) return;
+  if (!tabs.length) tabs = [snap()];
+  tabs[tabAt] = snap();
+  tabs.splice(tabAt + 1, 0, { ...snap(), mode: 'browse', back: [], fwd: [], sel: new Set(), anchor: null, cmp: null, scan: null });
+  tabAt++;
+  Object.assign(S, tabs[tabAt]);
+  await go(dirKey, { push: false, scan: null });
+  renderTabs();
+}
+async function switchTab(i) {
+  if (i === tabAt || !tabs[i]) return;
+  tabs[tabAt] = snap();
+  tabAt = i;
+  Object.assign(S, tabs[i]);
+  await showCurrent();
+}
+function closeTab(i = tabAt) {
+  if (tabs.length < 2) return;
+  tabs[tabAt] = snap();
+  tabs.splice(i, 1);
+  if (i < tabAt) tabAt--;
+  tabAt = Math.min(tabAt, tabs.length - 1);
+  Object.assign(S, tabs[tabAt]);
+  showCurrent();
+}
+async function showCurrent() {
+  setViewButtons(); syncFilterUI(); closeSearch(false);
+  if (S.mode === 'activity') return showActivity();
+  if (S.mode === 'dupes') return showDupes();
+  if (S.mode === 'compare' && S.cmp) return renderCompare();
+  S.mode = 'browse';
+  if (!S.listing) return go(S.dir, { push: false, scan: null });
+  $('#timebar').hidden = S.timeline.length < 2;
+  renderAll();
+}
+
+// ---------- keyboard shortcuts help
+
+const HELP = [
+  ['Moving around', [[['Enter'], 'Open'], [['Alt+↑'], 'Parent folder'], [['Alt+←', 'Backspace'], 'Back'], [['Alt+→'], 'Forward'], [['Ctrl+L'], 'Type a location'], [['Ctrl+F'], 'Search this folder']]],
+  ['Selecting', [[['Arrows'], 'Move'], [['Shift+Arrows'], 'Extend the selection'], [['Ctrl+A'], 'Select all'], [['Esc'], 'Clear the selection'], [['Drag'], 'Select an area'], [['Shift+F10', 'Menu'], 'Actions for the selection']]],
+  ['Views', [[['Ctrl+1'], 'Grid'], [['Ctrl+2'], 'List'], [['Ctrl+3'], 'Photo gallery'], [['Ctrl+4'], 'Size map'], [['Ctrl+H'], 'Show hidden files'], [['Ctrl+I'], 'Details pane']]],
+  ['Tabs', [[['Alt+N'], 'New tab'], [['Alt+W'], 'Close tab'], [['Alt+PgDn'], 'Next tab'], [['Alt+PgUp'], 'Previous tab'], [['Ctrl+Enter'], 'Open a folder in a new tab'], [['Middle-click'], 'Open a folder in a new tab']]],
+  ['File viewer', [[['←', '→'], 'Previous and next file'], [['Esc'], 'Close']]],
+  ['Anywhere', [[['?'], 'This list']]],
+];
+function showHelp() {
+  closeMenu();
+  if (document.querySelector('.help-wrap')) return;
+  const d = document.createElement('div');
+  d.className = 'help-wrap';
+  d.innerHTML = `<div class="help" role="dialog" aria-modal="true" aria-labelledby="help-t">
+    <header><h2 id="help-t">Keyboard shortcuts</h2><button class="hb-btn" type="button" data-help-close aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
+    <div class="help-cols">${HELP.map(([group, rows]) => `<section><h3>${group}</h3><dl>${rows.map(([keys, what]) =>
+      `<dt>${keys.map(k => `<kbd>${k}</kbd>`).join(' or ')}</dt><dd>${what}</dd>`).join('')}</dl></section>`).join('')}</div></div>`;
+  document.body.append(d);
+  const prev = document.activeElement;
+  d.querySelector('[data-help-close]').focus();
+  const close = () => { d.remove(); document.removeEventListener('keydown', onKey, true); prev?.focus?.(); };
+  const onKey = e => { if (e.key === 'Escape' || e.key === '?') { e.preventDefault(); e.stopPropagation(); close(); } };
+  document.addEventListener('keydown', onKey, true);
+  d.addEventListener('click', e => { if (e.target === d || e.target.closest('[data-help-close]')) close(); });
 }
 
 // ---------- search and duplicates
@@ -337,7 +844,7 @@ async function runSearch(q) {
 let dupesMin = '1M';
 async function showDupes() {
   S.mode = 'dupes';
-  renderPlaces(); renderPath(); $('#banner').hidden = true; $('#info').hidden = true; $('#timebar').hidden = true;
+  renderTabs(); renderPlaces(); renderPath(); $('#banner').hidden = true; $('#info').hidden = true; $('#timebar').hidden = true;
   $('#view').innerHTML = '<div class="empty"><p>Loading duplicates…</p></div>';
   let d;
   try { d = await api('dupes', { min: dupesMin }); } catch (e) { return toastError(e); }
@@ -465,7 +972,7 @@ let activityClock;
 function showActivity() {
   S.mode = 'activity';
   closeSearch(false);
-  renderPlaces(); renderPath();
+  renderTabs(); renderPlaces(); renderPath();
   $('#banner').hidden = true; $('#info').hidden = true; $('#timebar').hidden = true;
   renderActivity();
   pollDaemon(true);
@@ -600,21 +1107,39 @@ function toastError(e) {
 
 // ---------- wiring
 
+const VIEWS = ['grid', 'list', 'gallery', 'treemap'];
 function setView(v) {
-  S.view = v; localStorage.setItem('bd.view', v);
-  $('#view-grid').setAttribute('aria-pressed', String(v === 'grid'));
-  $('#view-list').setAttribute('aria-pressed', String(v === 'list'));
+  S.view = VIEWS.includes(v) ? v : 'grid';
+  localStorage.setItem('bd.view', S.view);
+  setViewButtons();
   if (S.mode === 'browse') renderView();
 }
+function setViewButtons() { for (const x of VIEWS) $(`#view-${x}`).setAttribute('aria-pressed', String(S.view === x)); }
 
 document.addEventListener('click', e => {
   const t = e.target;
+  if (suppressClick) { suppressClick = false; if (t.closest('#view')) return; }
+  const tab = t.closest('[data-tab-close]');
+  if (tab) return closeTab(+tab.dataset.tabClose);
+  const tb = t.closest('[data-tab]');
+  if (tb) return switchTab(+tb.dataset.tab);
+  if (t.closest('#clear-filters')) return clearFilters();
+  const inner = t.closest('[data-go]');
+  if (inner && e.detail >= 2) return go(inner.dataset.go);
+  if (t.closest('#show-hidden')) return toggleHidden();
+  const cr = t.closest('[data-cmp]');
+  if (cr) {
+    document.querySelectorAll('tr.sel[data-cmp]').forEach(x => x.classList.remove('sel')); cr.classList.add('sel');
+    if (e.detail >= 2) compareOpen(cr.dataset.cmp);
+    return;
+  }
   const rs = t.closest('[data-rescan]');
   if (rs) { rs.classList.add('spin'); return rescan(rs.dataset.rescan); }
   const place = t.closest('.place[data-key]');
   if (place) { $('#timebar').hidden = S.timeline.length < 2; return go(place.dataset.key, { scan: null }); }
   const crumb = t.closest('.crumb[data-key]');
-  if (crumb) return go(crumb.dataset.key);
+  if (crumb) return S.mode === 'compare' ? (S.cmp = { ...S.cmp, dir: crumb.dataset.key }, renderCompare()) : go(crumb.dataset.key);
+  if (t.closest('#pathbar') && !t.closest('.crumb') && e.detail >= 2) return editPath();
   if (t.closest('#banner-now')) return setScan(S.timeline.length - 1);
   if (t.closest('#banner-git')) return openGit(S.dir, S.listing.name);
   const th = t.closest('th[data-sort]');
@@ -629,11 +1154,24 @@ document.addEventListener('click', e => {
     }
     return select(item.dataset.key, e);
   }
+  if (t.closest('#tabs')) return;
   if (t.closest('#view') && S.mode === 'browse') { S.sel.clear(); paintSelection(); renderInfo(); }
 });
 $('#back').onclick = goBack; $('#fwd').onclick = goFwd;
-$('#view-grid').onclick = () => setView('grid');
-$('#view-list').onclick = () => setView('list');
+for (const v of VIEWS) $(`#view-${v}`).onclick = () => setView(v);
+$('#filter-btn').onclick = () => toggleFilters();
+$('#sort-btn').onclick = sortMenu;
+$('#time-compare').onclick = () => startCompare(S.dir);
+// middle-click: a folder opens in a new tab, a tab closes
+document.addEventListener('mousedown', e => { if (e.button === 1 && e.target.closest('#view [data-key], #tabs [data-tab]')) e.preventDefault(); });
+document.addEventListener('auxclick', e => {
+  if (e.button !== 1) return;
+  const tb = e.target.closest('#tabs [data-tab]');
+  if (tb) return closeTab(+tb.dataset.tab);
+  const item = e.target.closest('#view [data-key]');
+  const en = item && S.mode === 'browse' && S.entries.find(x => x.key === item.dataset.key);
+  if (en?.kind === 'dir') newTab(en.key);
+});
 $('#info-btn').onclick = () => { S.info = !S.info; localStorage.setItem('bd.info', S.info ? '1' : '0'); renderInfo(); };
 $('#search-btn').onclick = () => $('#searchbox').hidden ? openSearch() : closeSearch();
 $('#q').addEventListener('input', e => { clearTimeout(searchTimer); searchTimer = setTimeout(() => runSearch(e.target.value), 220); });
@@ -644,26 +1182,42 @@ $('#time').addEventListener('input', e => setScan(+e.target.value));
 $('#time-now').onclick = () => setScan(S.timeline.length - 1);
 
 document.addEventListener('keydown', e => {
-  if (!$('#viewer').hidden) return; // the viewer has its own keys
-  const typing = e.target.closest('input, textarea');
-  if ((e.ctrlKey || e.metaKey) && e.key === 'f') { e.preventDefault(); return openSearch(); }
-  if ((e.ctrlKey || e.metaKey) && e.key === 'i') { e.preventDefault(); return $('#info-btn').click(); }
-  if ((e.ctrlKey || e.metaKey) && e.key === '1') { e.preventDefault(); return setView('grid'); }
-  if ((e.ctrlKey || e.metaKey) && e.key === '2') { e.preventDefault(); return setView('list'); }
+  if (!$('#viewer').hidden || menuOpen() || document.querySelector('.help-wrap')) return; // they have their own keys
+  const typing = e.target.closest('input, textarea, select');
+  const ctrl = e.ctrlKey || e.metaKey, k = e.key;
+  if (ctrl && k === 'f') { e.preventDefault(); return openSearch(); }
+  if (ctrl && k === 'i') { e.preventDefault(); return $('#info-btn').click(); }
+  if (ctrl && !e.shiftKey && ['1', '2', '3', '4'].includes(k)) { e.preventDefault(); return setView(VIEWS[+k - 1]); }
+  if (ctrl && (k === 'l' || k === 'L')) { e.preventDefault(); return editPath(); }
+  if (ctrl && (k === 'h' || k === 'H')) { e.preventDefault(); return toggleHidden(); }
+  // tabs: Alt, since browsers keep Ctrl+T/W/Tab for their own tabs
+  if (e.altKey && !ctrl && (k === 'n' || k === 'N')) { e.preventDefault(); return newTab(); }
+  if (e.altKey && !ctrl && (k === 'w' || k === 'W')) { e.preventDefault(); return closeTab(); }
+  if (e.altKey && !ctrl && (k === 'PageDown' || k === 'PageUp') && tabs.length > 1) {
+    e.preventDefault(); return switchTab((tabAt + (k === 'PageDown' ? 1 : -1) + tabs.length) % tabs.length);
+  }
   if (typing) return;
+  if (k === '?' || k === 'F1') { e.preventDefault(); return showHelp(); }
+  if (S.mode === 'compare') { if (k === 'Escape') exitCompare(); return; }
   if (e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); return goBack(); }
   if (e.altKey && e.key === 'ArrowRight') { e.preventDefault(); return goFwd(); }
   if (e.altKey && e.key === 'ArrowUp') { e.preventDefault(); return goUp(); }
   if (S.mode !== 'browse') { if (e.key === 'Escape') { S.mode = 'browse'; renderAll(); } return; }
-  const k = e.key;
+  if (k === 'ContextMenu' || (e.shiftKey && k === 'F10')) {
+    e.preventDefault();
+    const at = S.anchor && document.querySelector(`#view [data-key="${CSS.escape(S.anchor)}"]`);
+    const b = (at || $('#view')).getBoundingClientRect();
+    return itemMenu(b.left + Math.min(40, b.width / 2), b.top + Math.min(40, b.height / 2));
+  }
   if (k === 'Backspace') { e.preventDefault(); return goBack(); }
-  if ((e.ctrlKey || e.metaKey) && k === 'a') { e.preventDefault(); S.sel = new Set(S.entries.map(x => x.key)); paintSelection(); return renderInfo(); }
+  if (ctrl && k === 'a') { e.preventDefault(); return selectAll(); }
   if (k === 'Escape') { S.sel.clear(); paintSelection(); return renderInfo(); }
   const arrows = { ArrowRight: [1, 0], ArrowLeft: [-1, 0], ArrowDown: [0, 1], ArrowUp: [0, -1] };
   if (arrows[k]) { e.preventDefault(); const [dx, dy] = S.view === 'grid' ? arrows[k] : [0, arrows[k][0] + arrows[k][1]]; return move(dx, dy, e); }
   if ((k === 'Enter' || k === ' ') && S.anchor) {
     e.preventDefault();
     const en = S.entries.find(x => x.key === S.anchor);
+    if (en && ctrl && en.kind === 'dir') return newTab(en.key);
     if (en) openEntry(en);
   }
 });
@@ -677,5 +1231,18 @@ document.addEventListener('error', e => {
   }
 }, true);
 
+try { const so = JSON.parse(localStorage.getItem('bd.sort')); if (so?.key) S.sort = so; } catch {}
 setView(S.view);
-boot().then(() => pollDaemon(true));
+setupFilters();
+boot().then(restoreTabs).then(() => pollDaemon(true));
+
+// tabs survive a reload of the page (not of the browser): reopened lazily, each loads when shown
+function restoreTabs() {
+  const saved = savedTabs;
+  if (!saved?.dirs?.length || saved.dirs.length < 2 || !S.listing) return;
+  tabs = saved.dirs.map(dir => ({ ...snap(), dir, listing: null, entries: [], mode: 'browse', back: [], fwd: [], sel: new Set(), anchor: null, cmp: null, scan: null }));
+  tabAt = Math.min(saved.at || 0, tabs.length - 1);
+  const here = tabs.findIndex(t => t.dir === S.dir);
+  if (here >= 0) { tabs[here] = snap(); tabAt = here; renderTabs(); }
+  else { tabs[tabAt] = { ...tabs[tabAt] }; Object.assign(S, tabs[tabAt]); showCurrent(); }
+}

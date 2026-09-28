@@ -4,9 +4,10 @@
 //! require a random per-run token, passed once in the URL and then kept in a SameSite=Strict cookie;
 //! serve file bytes only by index id, never by arbitrary path; never serve active content (HTML is
 //! sent as text, and every file response carries a CSP sandbox), and open SQLite files immutable.
-//! Nothing here writes to a source: the index is opened read-only per request. The one state-changing
-//! request, POST /api/rescan (daemon only), also needs an `X-BackDown` header, which a cross-site page
-//! can't send without a CORS preflight this server never grants.
+//! Nothing here writes to a source: the index is opened read-only per request. The requests that do
+//! something, POST /api/rescan (daemon only) and POST /api/open (hand a file or folder to the desktop),
+//! also need an `X-BackDown` header, which a cross-site page can't send without a CORS preflight this
+//! server never grants. /api/open never opens anything executable, and is off for the system service.
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -33,6 +34,9 @@ struct Ctx {
     token: String,
     hosts: Vec<String>,
     daemon: Option<Arc<Daemon>>,
+    /// running as the person at the screen (not the system service), so files can be handed to
+    /// their desktop's apps
+    desktop: bool,
 }
 
 pub fn new_token() -> Result<String> {
@@ -51,7 +55,14 @@ pub fn bind(port: u16) -> Result<(Server, u16)> {
 
 /// Serve the UI until the process ends. With a daemon, the UI also shows its activity and can
 /// queue rescans.
-pub fn run(server: Server, db: PathBuf, token: String, port: u16, daemon: Option<Arc<Daemon>>) {
+pub fn run(
+    server: Server,
+    db: PathBuf,
+    token: String,
+    port: u16,
+    daemon: Option<Arc<Daemon>>,
+    desktop: bool,
+) {
     let ctx = Arc::new(Ctx {
         db,
         token,
@@ -61,6 +72,7 @@ pub fn run(server: Server, db: PathBuf, token: String, port: u16, daemon: Option
             format!("[::1]:{port}"),
         ],
         daemon,
+        desktop,
     });
     for req in server.incoming_requests() {
         let ctx = Arc::clone(&ctx);
@@ -82,7 +94,7 @@ pub fn serve(db: &Path, port: u16, open_browser: bool) -> Result<()> {
     if open_browser {
         open(&url);
     }
-    run(server, db, token, port, None);
+    run(server, db, token, port, None, true);
     Ok(())
 }
 
@@ -171,6 +183,19 @@ fn handle(ctx: &Ctx, req: Request) {
         ));
         return;
     }
+    if *req.method() == Method::Post && path == "/api/open" {
+        let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
+        let resp = if !marked {
+            plain(403, "missing X-BackDown header")
+        } else {
+            match open_on_desktop(ctx, param("id"), param("dir"), param("reveal") == Some("1")) {
+                Ok(v) => json_resp(&v),
+                Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
+            }
+        };
+        let _ = req.respond(resp);
+        return;
+    }
     if *req.method() == Method::Post && path == "/api/rescan" {
         let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
         let resp = match (marked, &ctx.daemon) {
@@ -214,7 +239,8 @@ fn handle(ctx: &Ctx, req: Request) {
             .iter()
             .find(|h| h.field.equiv("Range"))
             .map(|h| h.value.as_str().to_string());
-        return content(ctx, req, param("id"), range.as_deref());
+        let download = param("download") == Some("1");
+        return content(ctx, req, param("id"), range.as_deref(), download);
     }
     let result = api(ctx, path, &params);
     let resp = match result {
@@ -315,6 +341,21 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
             json!(browse::list(&db, &dir()?, scan)?)
         }
         "/api/file" => json!(browse::file(&db, id()?)?),
+        // a typed path -> the folder to show (and the file to select), if it's in the index
+        "/api/resolve" => {
+            let typed = PathBuf::from(param("path").context("missing path")?.trim());
+            if browse::list(&db, &typed, None).is_ok() {
+                json!({ "dir": browse::key(&typed) })
+            } else {
+                let parent = typed.parent().context("not in the index")?;
+                let listing = browse::list(&db, parent, None).context("that isn't in the index")?;
+                let key = browse::key(&typed);
+                if !listing.entries.iter().any(|e| e.key == key) {
+                    bail!("{} isn't in the index", typed.display());
+                }
+                json!({ "dir": browse::key(parent), "select": key })
+            }
+        }
         "/api/search" => json!(browse::search(&db, &dir()?, param("q").unwrap_or(""), 300)?),
         "/api/dupes" => {
             let min = fmt::parse_size(param("min").unwrap_or("1M"))?;
@@ -365,7 +406,7 @@ fn mime(name: &str) -> &'static str {
     }
 }
 
-fn content(ctx: &Ctx, req: Request, id: Option<&str>, range: Option<&str>) {
+fn content(ctx: &Ctx, req: Request, id: Option<&str>, range: Option<&str>, download: bool) {
     let result = (|| -> Result<(PathBuf, u64)> {
         let db = ro_db(ctx)?;
         let id: i64 = id.context("missing id")?.parse()?;
@@ -419,7 +460,228 @@ fn content(ctx: &Ctx, req: Request, id: Option<&str>, range: Option<&str>) {
             &format!("bytes {start}-{end}/{size}"),
         ));
     }
+    if download {
+        // "download a copy": save under its own name (RFC 6266/5987, so any name survives)
+        let ascii: String = name
+            .chars()
+            .map(|c| {
+                if c.is_ascii_graphic() && c != '"' && c != '\\' || c == ' ' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        resp.add_header(header(
+            "Content-Disposition",
+            &format!(
+                "attachment; filename=\"{ascii}\"; filename*=UTF-8''{}",
+                pct_encode(&name)
+            ),
+        ));
+    }
     let _ = req.respond(resp);
+}
+
+fn pct_encode(s: &str) -> String {
+    s.bytes()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || b"-._~".contains(&b) {
+                (b as char).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
+        .collect()
+}
+
+/// Kinds of file the desktop would run rather than show: never opened from the browser.
+const RUNNABLE: &[&str] = &[
+    "exe",
+    "msi",
+    "msix",
+    "bat",
+    "cmd",
+    "com",
+    "scr",
+    "pif",
+    "cpl",
+    "ps1",
+    "psm1",
+    "vbs",
+    "vbe",
+    "js",
+    "jse",
+    "wsf",
+    "wsh",
+    "hta",
+    "lnk",
+    "url",
+    "reg",
+    "jar",
+    "sh",
+    "bash",
+    "zsh",
+    "csh",
+    "ksh",
+    "fish",
+    "command",
+    "tool",
+    "app",
+    "desktop",
+    "appimage",
+    "run",
+    "bin",
+    "py",
+    "pyw",
+    "pl",
+    "rb",
+    "php",
+    "deb",
+    "rpm",
+    "pkg",
+    "mpkg",
+    "apk",
+    "xpi",
+    "workflow",
+    "terminal",
+    "scpt",
+    "applescript",
+];
+
+/// POST /api/open?id=<file>|dir=<key>[&reveal=1]: open a file with its default app, or show a file
+/// or folder in the file manager. Only indexed things that are still on disk.
+fn open_on_desktop(ctx: &Ctx, id: Option<&str>, dir: Option<&str>, reveal: bool) -> Result<Value> {
+    if !ctx.desktop {
+        bail!("the system-wide BackDown service has no desktop to open things on");
+    }
+    let db = ro_db(ctx)?;
+    let (path, is_dir) = match (id, dir) {
+        (Some(id), _) => {
+            let (path, _) = browse::resolve_content(&db, id.parse().context("bad id")?)?
+                .context("this version isn't on any connected drive any more")?;
+            (path, false)
+        }
+        (None, Some(key)) => {
+            let path = browse::path_of(key)?;
+            browse::list(&db, &path, None).context("that folder isn't in the index")?;
+            (path, true)
+        }
+        _ => bail!("missing id or dir"),
+    };
+    if !path.exists() {
+        bail!("{} isn't there any more", path.display());
+    }
+    if !is_dir && !reveal {
+        let ext = path
+            .extension()
+            .map(|e| e.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        #[cfg(unix)]
+        // an executable bit alone proves little (FAT and NTFS mounts set it on every file), so
+        // it counts only on a program or a script
+        let executable = {
+            use std::os::unix::fs::PermissionsExt;
+            let mut magic = [0u8; 4];
+            std::fs::metadata(&path).is_ok_and(|m| m.permissions().mode() & 0o111 != 0)
+                && File::open(&path)
+                    .and_then(|mut f| f.read(&mut magic))
+                    .is_ok()
+                && (magic.starts_with(b"#!")
+                    || magic == *b"\x7fELF"
+                    || [0xfeedface_u32, 0xfeedfacf, 0xcafebabe]
+                        .iter()
+                        .any(|m| magic == m.to_be_bytes() || magic == m.to_le_bytes()))
+        };
+        #[cfg(not(unix))]
+        let executable = false;
+        if RUNNABLE.contains(&ext.as_str()) || executable {
+            bail!("BackDown doesn't open programs or scripts; use “Show in file manager” instead");
+        }
+    }
+    desktop_open(&path, reveal && !is_dir)?;
+    Ok(json!({ "ok": true, "path": path.display().to_string() }))
+}
+
+fn desktop_open(path: &Path, reveal: bool) -> Result<()> {
+    let mut cmd = if cfg!(target_os = "macos") {
+        let mut c = Command::new("open");
+        if reveal {
+            c.arg("-R");
+        }
+        c.arg(path);
+        c
+    } else if cfg!(windows) {
+        // explorer.exe, not `cmd /c start`: no shell ever parses the file name
+        let mut c = Command::new("explorer.exe");
+        if reveal {
+            c.arg(format!("/select,{}", path.display()));
+        } else {
+            c.arg(path);
+        }
+        c
+    } else {
+        // freedesktop: select the file in the file manager if one answers on D-Bus, else open its folder
+        if reveal {
+            let uri = format!(
+                "file://{}",
+                pct_encode(&path.display().to_string()).replace("%2F", "/")
+            );
+            let shown = Command::new("gdbus")
+                .args([
+                    "call",
+                    "--session",
+                    "--dest",
+                    "org.freedesktop.FileManager1",
+                    "--object-path",
+                    "/org/freedesktop/FileManager1",
+                    "--method",
+                    "org.freedesktop.FileManager1.ShowItems",
+                ])
+                .arg(format!("['{uri}']"))
+                .arg("")
+                .output()
+                .is_ok_and(|o| o.status.success());
+            if shown {
+                return Ok(());
+            }
+        }
+        let mut c = Command::new("xdg-open");
+        c.arg(if reveal {
+            path.parent().unwrap_or(path)
+        } else {
+            path
+        });
+        c
+    };
+    let mut child = cmd
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .context("no desktop opener here")?;
+    // openers hand off and exit quickly; a failure (no display, no app for the type) shows up here
+    for _ in 0..40 {
+        if let Some(status) = child.try_wait()? {
+            if status.success() || cfg!(windows) {
+                return Ok(()); // explorer.exe exits 1 even when it worked
+            }
+            let mut err = String::new();
+            if let Some(mut e) = child.stderr.take() {
+                let _ = e.read_to_string(&mut err);
+            }
+            bail!(
+                "the desktop couldn't open it{}",
+                if err.trim().is_empty() {
+                    String::new()
+                } else {
+                    format!(": {}", err.trim())
+                }
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    Ok(()) // still running after 4 s: it's showing the file
 }
 
 fn parse_range(range: Option<&str>, size: u64) -> Option<(u64, u64)> {
@@ -631,6 +893,7 @@ fn ui_asset(name: &str) -> Option<(&'static [u8], &'static str)> {
         "app.js" => "text/javascript; charset=utf-8",
         "viewers.js" => "text/javascript; charset=utf-8",
         "icons.js" => "text/javascript; charset=utf-8",
+        "extras.js" => "text/javascript; charset=utf-8",
         "favicon.svg" => "image/svg+xml",
         "vendor/pdf.min.mjs" => "text/javascript; charset=utf-8",
         "vendor/pdf.worker.min.mjs" => "text/javascript; charset=utf-8",

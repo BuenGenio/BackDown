@@ -374,7 +374,7 @@ pub fn run(opts: Options) -> Result<()> {
             .spawn(move || control::serve(&d, socket))?;
     }
     notify::send("READY=1\nSTATUS=idle");
-    serve::run(server, db, token, port, Some(d));
+    serve::run(server, db, token, port, Some(d), !opts.shared);
     Ok(())
 }
 
