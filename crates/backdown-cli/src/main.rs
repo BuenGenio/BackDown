@@ -227,7 +227,8 @@ enum Cmd {
         /// Move what exists only in these paths here first (verified), instead of leaving it
         #[arg(long)]
         move_to: Option<PathBuf>,
-        /// Don't re-read each file and its copy; trust the index's hashes (faster, a little less safe)
+        /// Don't re-read each file and its copy; trust the index's hashes (faster, a little less
+        /// safe). Copies must still be there, as last scanned
         #[arg(long)]
         trust_index: bool,
         /// Actually wipe

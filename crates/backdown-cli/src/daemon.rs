@@ -149,6 +149,7 @@ impl Daemon {
                 match reason {
                     "after-scan" => " (after a scan)",
                     "after-apply" => " (after copying into it)",
+                    "after-wipe" => " (after wiping)",
                     "scheduled" => " (scheduled)",
                     "returned" => " (the drive is back)",
                     _ => "",
@@ -496,16 +497,32 @@ fn worker(d: &Daemon) {
             if let Some(id) = job.opts.wipe
                 && let Ok((paths, move_to, _)) = backdown_core::wipe::load(&db, id)
             {
-                let mut roots: Vec<String> = Vec::new();
-                for p in paths.iter().chain(move_to.iter()) {
-                    if let Some(r) = root_holding(&db, p)
-                        && !roots.contains(&r)
-                    {
-                        roots.push(r);
+                let mut roots: Vec<(String, bool)> = Vec::new();
+                for (p, wiped) in paths
+                    .iter()
+                    .map(|p| (p, true))
+                    .chain(move_to.iter().map(|m| (m, false)))
+                {
+                    if let Some(r) = root_holding(&db, p) {
+                        match roots.iter_mut().find(|(x, _)| *x == r) {
+                            Some(e) => e.1 |= wiped,
+                            None => roots.push((r, wiped)),
+                        }
                     }
                 }
-                for r in roots {
-                    d.enqueue("index", Some(r), "after-apply", JobOpts::default());
+                for (r, wiped) in roots {
+                    // a drive this wipe emptied is empty on purpose: the scan mustn't take it for
+                    // an unplugged drive's bare mount point (it's still there, or it wouldn't count)
+                    let emptied = wiped && ok && Path::new(&r).is_dir();
+                    d.enqueue(
+                        "index",
+                        Some(r),
+                        "after-wipe",
+                        JobOpts {
+                            allow_empty: emptied,
+                            ..JobOpts::default()
+                        },
+                    );
                 }
             }
         }

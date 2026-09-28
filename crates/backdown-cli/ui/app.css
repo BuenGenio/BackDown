@@ -483,3 +483,63 @@ a.btn{color:inherit;text-decoration:none}
 .vol-disk{margin-bottom:10px}.vol-head{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;margin:6px 2px}
 .act-drives td small.muted{display:block}
 .activity h3 .btn{margin-left:8px;vertical-align:middle;text-transform:none;letter-spacing:0}
+
+/* Free up: pick what to wipe, see what has a copy elsewhere, confirm */
+.wipe .pl-head p{max-width:72ch}
+.wp-cols{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:14px;align-items:start}
+@media(max-width:980px){.wp-cols{grid-template-columns:minmax(0,1fr)}}
+.wp-side{display:flex;flex-direction:column;gap:14px;position:sticky;top:0}
+@media(max-width:980px){.wp-side{position:static}}
+.wp-pick{padding:12px 6px;gap:4px}
+.wp-pick h3{padding:0 10px}
+.wp-row{display:flex;align-items:center;gap:6px;padding:2px 8px 2px calc(6px + var(--d,0) * 22px);border-radius:8px;min-height:32px}
+.wp-row:hover{background:var(--hover)}
+.wp-row.drive{font-weight:600}
+.wp-row.on .wp-name{color:var(--accent)}
+.wp-tw{width:22px;height:22px;display:grid;place-items:center;flex:none;border:0;background:none;color:var(--ink-3);border-radius:5px;padding:0;cursor:pointer}
+.wp-tw:hover{background:var(--line)}
+.wp-tw svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;transition:transform .15s}
+.wp-tw[aria-expanded="true"] svg{transform:rotate(90deg)}
+.wp-lab{display:flex;align-items:center;gap:7px;min-width:0;flex:1;cursor:pointer}
+.wp-lab input{flex:none;margin:0;accent-color:var(--accent)}
+.wp-lab svg{flex:none;width:18px;height:18px}
+.wp-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wp-kind{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-3);white-space:nowrap}
+.wp-meta{display:flex;gap:8px;align-items:center;flex:none}
+.wp-size{font-variant-numeric:tabular-nums;color:var(--ink-2);font-size:.84rem;min-width:66px;text-align:right}
+.wp-group{padding:8px 8px 2px 64px;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-3)}
+#wp-assess{gap:0}
+#wp-assess.stale>:not(h3){opacity:.55;transition:opacity .2s}
+.wp-item{border-top:1px solid var(--line);padding:10px 0;display:flex;flex-direction:column;gap:6px}
+#wp-assess h3+.wp-item{border-top:0}
+.wp-item.refused{opacity:.85}
+.wp-item code,.wp-total code,.wp-hist code{font:12px var(--mono);word-break:break-all}
+.wp-path{color:var(--ink-2)}
+.wp-x{border:0;background:none;color:var(--ink-3);font-size:1.15rem;line-height:1;cursor:pointer;padding:2px 6px;border-radius:5px;margin-left:4px}
+.wp-x:hover{background:var(--hover);color:var(--ink)}
+.wp-item .pl-what{align-items:center}.wp-item .pl-what b{margin-right:auto;overflow-wrap:anywhere}
+.wp-item .pl-size{font-weight:600;font-size:.86rem;color:var(--ink-2)}
+.wp-bar{display:flex;height:8px;border-radius:99px;overflow:hidden;background:var(--line)}
+.wp-bar i{display:block;height:100%}
+.wp-bar .k,.dot.k{background:var(--good)}.wp-bar .o,.dot.o{background:var(--warn)}.dot.u{background:var(--ink-3)}
+.wp-facts{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px;font-size:.86rem}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px;vertical-align:1px}
+.wp-total{font-size:.9rem;border-top:1px solid var(--line);padding-top:10px;margin:0}
+.wp-total:empty{display:none}
+.wp-opts{gap:8px}
+.wp-opts h3{margin-top:6px}.wp-opts h3:first-child{margin-top:0}
+.wp-chk{display:flex;align-items:center;gap:8px;font-size:.9rem;cursor:pointer}
+.wp-chk input{margin:0;accent-color:var(--accent)}
+.wp-input{height:34px;border:1px solid var(--line-2);border-radius:8px;background:var(--view);color:var(--ink);font:13px var(--mono);padding:0 10px;width:100%;min-width:0}
+.wp-opts>.wp-input{margin-left:24px;width:calc(100% - 24px)}
+.wp-opts>small{margin-left:24px}
+.wp-opts>small:empty{display:none}
+.wp-confirm{display:flex;flex-direction:column;gap:6px;font-size:.9rem;margin-top:6px}
+.wp-confirm b{font-family:var(--mono);font-size:.86rem}
+.wp-opts .btn{align-self:flex-start}
+.wp-opts .note{margin:0}
+.wp-hist{width:100%}
+.wp-hist td{vertical-align:top;white-space:normal}
+.wp-hist td:first-child{white-space:nowrap}
+.wp-hist td:nth-child(2){width:45%}
+.wp-hist td small{display:block;margin-top:3px;font-size:.78rem}

@@ -12,6 +12,9 @@
 //! something, POST /api/rescan (daemon only) and POST /api/open (hand a file or folder to the desktop),
 //! also need an `X-BackDown` header, which a cross-site page can't send without a CORS preflight this
 //! server never grants. /api/open never opens anything executable, and is off for the system service.
+//! POST /api/wipe (daemon only, never the system service) deletes: it re-checks the selection the
+//! way `backdown wipe` does and needs the drive names typed back, and the daemon re-reads every file
+//! and its copy before deleting it.
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -21,7 +24,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 use backdown_core::{
-    Db, apply, browse, fmt, overlap, paths, plan, recognise, report, summary, volumes,
+    Db, apply, browse, fmt, overlap, paths, plan, recognise, report, summary, volumes, wipe,
 };
 
 use crate::daemon::Daemon;
@@ -214,6 +217,25 @@ fn handle(ctx: &Ctx, req: Request) {
                 start_apply(ctx, param("id"))
             };
             match r {
+                Ok(v) => json_resp(&v),
+                Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
+            }
+        };
+        let _ = req.respond(resp);
+        return;
+    }
+    if *req.method() == Method::Post && path == "/api/wipe" {
+        let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
+        let resp = if !marked {
+            plain(403, "missing X-BackDown header")
+        } else {
+            match start_wipe(
+                ctx,
+                param("keys"),
+                param("move_to"),
+                param("confirm"),
+                param("trust") == Some("1"),
+            ) {
                 Ok(v) => json_resp(&v),
                 Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
             }
@@ -429,6 +451,107 @@ fn start_apply(ctx: &Ctx, id: Option<&str>) -> Result<Value> {
     Ok(json!({ "ok": true, "job": job }))
 }
 
+/// Why this browser can't start a wipe, if it can't.
+fn wipe_blocker(ctx: &Ctx) -> Option<&'static str> {
+    if ctx.daemon.is_none() {
+        Some("wiping runs in the BackDown service: `backdown wipe PATH` in a terminal")
+    } else if !ctx.desktop {
+        Some(
+            "the machine-wide service only reads: wipe from your own BackDown (`backdown --local wipe PATH`)",
+        )
+    } else {
+        None
+    }
+}
+
+/// A selection as the browser sends it: index keys, comma-separated.
+fn wipe_paths(keys: Option<&str>) -> Result<Vec<PathBuf>> {
+    let paths: Vec<PathBuf> = keys
+        .unwrap_or("")
+        .split(',')
+        .filter(|k| !k.is_empty())
+        .map(browse::path_of)
+        .collect::<Result<_>>()?;
+    if paths.is_empty() {
+        bail!("nothing selected");
+    }
+    Ok(paths)
+}
+
+/// What wiping the selection would do, as `backdown wipe` prints it, plus whether it can be
+/// started from here.
+fn wipe_assess(ctx: &Ctx, db: &Db, keys: Option<&str>) -> Result<Value> {
+    let paths = wipe_paths(keys)?;
+    let a = wipe::assess(db, &paths, Some(&ctx.db))?;
+    let mut v = json!(a);
+    for (it, p) in v["items"]
+        .as_array_mut()
+        .context("assessment")?
+        .iter_mut()
+        .zip(&paths)
+    {
+        it["connected"] = json!(p.exists());
+        it["key"] = json!(browse::key(p));
+    }
+    v["why_not"] = json!(wipe_blocker(ctx));
+    Ok(v)
+}
+
+/// Record a wipe and queue it: the checks of `backdown wipe --go`, confirmed by typing the drive
+/// names the assessment asked for.
+fn start_wipe(
+    ctx: &Ctx,
+    keys: Option<&str>,
+    move_to: Option<&str>,
+    confirm: Option<&str>,
+    trust_index: bool,
+) -> Result<Value> {
+    if let Some(why) = wipe_blocker(ctx) {
+        bail!(why);
+    }
+    let d = ctx.daemon.as_ref().context("no daemon")?;
+    let paths = wipe_paths(keys)?;
+    let move_to = move_to
+        .map(str::trim)
+        .filter(|m| !m.is_empty())
+        .map(PathBuf::from);
+    if let Some(m) = &move_to {
+        if !m.is_absolute() {
+            bail!("the folder to move things to must be a full path");
+        }
+        if paths.iter().any(|p| m.starts_with(p)) {
+            bail!("the folder to move things to is inside what's being wiped");
+        }
+    }
+    let db = Db::open(&ctx.db)?;
+    let a = wipe::assess(&db, &paths, Some(&ctx.db))?;
+    if let Some(it) = a.items.iter().find(|i| i.refused.is_some()) {
+        bail!(
+            "{} can't be wiped: {}",
+            it.path,
+            it.refused.as_deref().unwrap_or_default()
+        );
+    }
+    if let Some(p) = paths.iter().find(|p| !p.exists()) {
+        bail!("{} isn't there: connect its drive", p.display());
+    }
+    if confirm.map(str::trim) != Some(a.confirm.as_str()) {
+        bail!("type {} to confirm", a.confirm);
+    }
+    let id = wipe::record(&db, &paths, move_to.as_deref())?;
+    let job = d.enqueue(
+        "wipe",
+        Some(format!("wipe {id}")),
+        "requested",
+        crate::daemon::JobOpts {
+            wipe: Some(id),
+            trust_index,
+            ..Default::default()
+        },
+    );
+    Ok(json!({ "ok": true, "id": id, "job": job }))
+}
+
 /// The report as HTML (to view) or Markdown (to save), from what's stored and indexed now.
 fn report(ctx: &Ctx, md: bool) -> Result<(String, bool)> {
     let db = ro_db(ctx)?;
@@ -557,6 +680,13 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
         "/api/plan-dry" => {
             let mut db = db;
             json!(apply::apply(&mut db, id()?, true, &mut |_| {})?)
+        }
+        "/api/wipe-assess" => wipe_assess(ctx, &db, param("keys"))?,
+        "/api/wipes" => json!(wipe::history(&db)?),
+        // free space where things would be moved to (the nearest folder up that exists)
+        "/api/room" => {
+            let p = PathBuf::from(param("path").context("missing path")?.trim());
+            json!({ "free": p.is_absolute().then(|| wipe::room(&p)).flatten() })
         }
         "/api/overlaps" => {
             let stored: Vec<_> = recognise::root_ids(&db)?

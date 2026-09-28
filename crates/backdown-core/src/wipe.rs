@@ -15,6 +15,8 @@
 //!
 //! `--trust-index` skips the re-reads and relies on the index's hashes (much faster; right after a
 //! fresh scan and hash of both sides it's nearly as safe, but not quite: a file can rot quietly).
+//! The copy must still be there, with the size and modification time the index has for it: an
+//! index that hasn't seen a drive emptied yet mustn't vouch for copies that are gone.
 
 use std::fs;
 use std::path::{MAIN_SEPARATOR_STR, Path, PathBuf};
@@ -101,10 +103,22 @@ fn now() -> i64 {
 /// system's own filesystem that isn't inside a home folder. Other drives are fine wherever they're
 /// mounted (/media, /mnt, /data, …).
 pub fn refusal(path: &Path, index: Option<&Path>) -> Option<String> {
-    if let Some(ix) = index
-        && (ix.starts_with(path) || path.starts_with(ix.parent().unwrap_or(ix)))
-    {
-        return Some("it holds BackDown's own index".into());
+    if let Some(ix) = index {
+        // a folder holding the index, the index and its -wal/-shm files, and BackDown's own data
+        // folder (where the index usually lives); not whatever else sits beside an index kept elsewhere
+        let dir = ix.parent().unwrap_or(ix);
+        let sidecar = path.parent() == Some(dir)
+            && path
+                .file_name()
+                .zip(ix.file_name())
+                .is_some_and(|(n, i)| n.to_string_lossy().starts_with(&*i.to_string_lossy()));
+        let own_dir = dir
+            .file_name()
+            .is_some_and(|n| n.eq_ignore_ascii_case("backdown"))
+            && path.starts_with(dir);
+        if ix.starts_with(path) || sidecar || own_dir {
+            return Some("it holds BackDown's own index".into());
+        }
     }
     let s = path.to_string_lossy().replace('\\', "/");
     let lower = s.to_lowercase();
@@ -274,6 +288,11 @@ fn place_of(db: &Db, p: &[u8]) -> String {
     }
 }
 
+/// Free space where things would be moved to: at `move_to`, or the nearest folder up that exists.
+pub fn room(move_to: &Path) -> Option<u64> {
+    crate::apply::free_space(move_to)
+}
+
 /// What wiping `paths` would do, from the index (nothing is read or written).
 pub fn assess(db: &Db, paths: &[PathBuf], index: Option<&Path>) -> Result<Assessment> {
     if paths.is_empty() {
@@ -434,7 +453,25 @@ pub fn history(db: &Db) -> Result<Vec<serde_json::Value>> {
 }
 
 /// Carry out wipe `id` (made by `record`). See the module doc for what is and isn't deleted.
+/// A wipe that stops with an error is recorded as failed, with the reason.
 pub fn wipe(
+    db: &mut Db,
+    id: i64,
+    trust_index: bool,
+    index: Option<&Path>,
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<Stats> {
+    let r = run(db, id, trust_index, index, progress);
+    if let Err(e) = &r {
+        let _ = db.conn.execute(
+            "UPDATE wipes SET state = 'failed', summary = ?2 WHERE id = ?1",
+            params![id, format!("{e:#}")],
+        );
+    }
+    r
+}
+
+fn run(
     db: &mut Db,
     id: i64,
     trust_index: bool,
@@ -464,7 +501,7 @@ pub fn wipe(
     let mut row_q = db.conn.prepare_cached(
         "SELECT size, mtime, sha256, dev, ino FROM files WHERE path = ?1 AND current = 1",
     )?;
-    let mut copies_q = db.conn.prepare_cached("SELECT path, dev, ino FROM files WHERE current = 1 AND sha256 = ?1 AND error IS NULL LIMIT 20")?;
+    let mut copies_q = db.conn.prepare_cached("SELECT path, dev, ino, mtime FROM files WHERE current = 1 AND sha256 = ?1 AND error IS NULL LIMIT 20")?;
     let mut journal = db.conn.prepare_cached(
         "INSERT INTO deletions(wipe_id, path, size, sha256, proof, proof_how, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
     )?;
@@ -547,26 +584,34 @@ pub fn wipe(
             if size == 0 {
                 proof = Some((Vec::new(), "empty"));
             } else {
-                let cands: Vec<(Vec<u8>, Option<i64>, Option<i64>)> = copies_q
+                let cands: Vec<CopyRow> = copies_q
                     .query_map(params![actual], |r| {
                         Ok((
                             r.get::<_, Vec<u8>>(0)?,
                             r.get::<_, Option<i64>>(1)?,
                             r.get::<_, Option<i64>>(2)?,
+                            r.get::<_, i64>(3)?,
                         ))
                     })?
                     .filter_map(Result::ok)
-                    .filter(|(g, gd, gi)| {
+                    .filter(|(g, gd, gi, _)| {
                         !sel.contains(g) && !(ino.is_some() && *gd == dev && *gi == ino)
                     })
                     .collect();
-                for (g, _, _) in cands {
-                    if trust_index {
-                        proof = Some((g, "index"));
-                        break;
-                    }
+                for (g, _, _, gm) in cands {
                     let gp = paths::from_bytes(&g);
-                    if fs::metadata(&gp).is_ok_and(|m| m.len() == size)
+                    let Ok(gmeta) = fs::metadata(&gp) else {
+                        continue; // gone, or its drive isn't connected
+                    };
+                    if trust_index {
+                        // not re-read, but still there as the index knows it
+                        if gmeta.len() == size && mtime(&gmeta) == gm {
+                            proof = Some((g, "index"));
+                            break;
+                        }
+                        continue;
+                    }
+                    if gmeta.len() == size
                         && hash_file(&gp).is_ok_and(|h| h.as_slice() == actual.as_slice())
                     {
                         proof = Some((g, "re-read"));
@@ -687,6 +732,9 @@ pub fn wipe(
     Ok(st)
 }
 
+/// path, dev, ino, mtime of a possible copy
+type CopyRow = (Vec<u8>, Option<i64>, Option<i64>, i64);
+
 /// size, mtime, sha256, dev, ino of a file's current row
 type IndexRow = (i64, i64, Option<Vec<u8>>, Option<i64>, Option<i64>);
 
@@ -729,6 +777,24 @@ mod tests {
             )
             .is_some()
         );
+    }
+
+    #[test]
+    fn never_the_index() {
+        let ix = Path::new("/home/alex/.local/share/backdown/index.db");
+        for p in [
+            "/home/alex/.local",
+            "/home/alex/.local/share/backdown/index.db",
+            "/home/alex/.local/share/backdown/index.db-wal",
+            "/home/alex/.local/share/backdown/ui.json",
+        ] {
+            assert!(refusal(Path::new(p), Some(ix)).is_some(), "{p}");
+        }
+        // an index kept beside other things (`--db /home/alex/work/index.db`): only it is off-limits
+        let ix = Path::new("/home/alex/work/index.db");
+        assert!(refusal(Path::new("/home/alex/work"), Some(ix)).is_some());
+        assert!(refusal(Path::new("/home/alex/work/index.db-shm"), Some(ix)).is_some());
+        assert!(refusal(Path::new("/home/alex/work/Old Stick"), Some(ix)).is_none());
     }
 
     #[test]

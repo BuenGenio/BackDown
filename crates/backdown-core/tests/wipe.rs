@@ -152,3 +152,20 @@ fn wipe_deletes_only_what_is_kept_and_moves_the_rest() {
         .unwrap();
     assert_eq!(state, "done", "{summary}");
 }
+
+#[test]
+fn trusting_the_index_still_needs_the_copy_to_be_there() {
+    let tmp = tempfile::tempdir().unwrap();
+    let a = tmp.path().join("media/STICK");
+    let b = tmp.path().join("media/ARCHIVE");
+    write(&a.join("p.jpg"), &blob(1, 20_000));
+    write(&b.join("p.jpg"), &blob(1, 20_000));
+    let mut db = Db::open(&tmp.path().join("i.db")).unwrap();
+    scan_all(&mut db, &[&a, &b]);
+    // the stick goes, and the index hasn't seen it yet: its row still says "a copy is here"
+    fs::remove_file(a.join("p.jpg")).unwrap();
+    let id = wipe::record(&db, std::slice::from_ref(&b), None).unwrap();
+    let st = wipe::wipe(&mut db, id, true, None, &mut |_, _| {}).unwrap();
+    assert_eq!((st.deleted, st.left_no_copy), (0, 1));
+    assert!(b.join("p.jpg").exists(), "the last copy stays");
+}

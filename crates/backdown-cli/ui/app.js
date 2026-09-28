@@ -67,6 +67,7 @@ function renderPlaces() {
   $('#activity-btn').setAttribute('aria-current', String(S.mode === 'activity'));
   $('#entities-btn').setAttribute('aria-current', String(S.mode === 'entities'));
   $('#plan-btn').setAttribute('aria-current', String(S.mode === 'plan'));
+  $('#wipe-btn').setAttribute('aria-current', String(S.mode === 'wipe'));
 }
 
 // ---------- navigation
@@ -149,7 +150,7 @@ function renderPath() {
     return;
   }
   if (S.mode !== 'browse') {
-    $('#pathbar').innerHTML = `<span class="crumb" style="cursor:default">${{ dupes: 'Duplicates', activity: 'Activity', entities: 'What’s here', plan: 'Plan' }[S.mode] || 'Search'}</span>`;
+    $('#pathbar').innerHTML = `<span class="crumb" style="cursor:default">${{ dupes: 'Duplicates', activity: 'Activity', entities: 'What’s here', plan: 'Plan', wipe: 'Free up' }[S.mode] || 'Search'}</span>`;
     return;
   }
   $('#pathbar').innerHTML = S.listing.crumbs.map((c, i) =>
@@ -595,6 +596,7 @@ function itemMenu(x, y) {
     { sep: 1 },
     { label: 'Size map', act: async () => { await go(one.key); setView('treemap'); } },
     { label: 'Compare with an earlier scan…', act: () => startCompare(one.key), disabled: S.timeline.length < 2 },
+    { label: 'Free up: wipe what has a copy…', act: () => wipeThese([one]) },
     { sep: 1 },
     { label: 'Copy path', act: () => copyText(pathOf(one)) },
     { label: 'Details', hint: 'Ctrl+I', act: showDetails },
@@ -604,6 +606,7 @@ function itemMenu(x, y) {
     { label: 'Open with system app', act: () => openDesktop({ id: one.id }), disabled: !one.id },
     { label: 'Show in file manager', act: () => openDesktop({ id: one.id, reveal: 1 }), disabled: !one.id },
     { label: 'Download a copy', act: () => download(one), disabled: !one.id },
+    { label: 'Free up: wipe if it has a copy…', act: () => wipeThese([one]) },
     { sep: 1 },
     { label: 'Copy path', act: () => copyText(pathOf(one)) },
     { label: 'Details', hint: 'Ctrl+I', act: showDetails },
@@ -614,12 +617,15 @@ function itemMenu(x, y) {
       { label: files.length > 20 ? 'Download copies (the first 20)' : `Download ${files.length} cop${files.length === 1 ? 'y' : 'ies'}`, disabled: !files.length,
         act: () => files.slice(0, 20).forEach((f, i) => setTimeout(() => download(f), i * 300)) },
       { label: 'Copy paths', act: () => copyText(ents.map(pathOf).join('\n')) },
+      { label: `Free up: wipe what has a copy (${ents.length})…`, act: () => wipeThese(ents) },
       { sep: 1 },
       { label: `Details (${ents.length} selected)`, hint: 'Ctrl+I', act: showDetails },
     ];
   }
   menu(x, y, items);
 }
+
+const wipeThese = ents => showWipe(ents.map(e => ({ key: e.key, path: pathOf(e), label: e.name })));
 
 function folderMenu() {
   return [
@@ -635,6 +641,7 @@ function folderMenu() {
     { sep: 1 },
     { label: 'Compare with an earlier scan…', act: () => startCompare(S.dir), disabled: S.timeline.length < 2 },
     { label: 'Show in file manager', act: () => openDesktop({ dir: S.dir }) },
+    { label: 'Free up this folder…', act: () => showWipe([{ key: S.dir, path: S.listing.path, label: S.listing.crumbs.length > 1 ? S.listing.name : S.root.name }]) },
     { label: 'Copy path', act: () => copyText(S.listing.path) },
     { sep: 1 },
     { label: 'Keyboard shortcuts', hint: '?', act: showHelp },
@@ -738,6 +745,7 @@ function tabTitle(t) {
   if (t.mode === 'dupes') return 'Duplicates';
   if (t.mode === 'entities') return 'What’s here';
   if (t.mode === 'plan') return 'Plan';
+  if (t.mode === 'wipe') return 'Free up';
   if (t.mode === 'compare') return `Compare · ${t.cmp?.listing?.name || ''}`;
   if (!t.listing) return S.roots.find(r => t.dir && atob64(t.dir).startsWith(atob64(r.key)))?.name || '…';
   return t.listing.crumbs.length > 1 ? t.listing.name : t.root?.name || t.listing.name;
@@ -784,6 +792,7 @@ async function showCurrent() {
   if (S.mode === 'dupes') return showDupes();
   if (S.mode === 'entities') return showEntities();
   if (S.mode === 'plan') return showPlan();
+  if (S.mode === 'wipe') return showWipe();
   if (S.mode === 'compare' && S.cmp) return renderCompare();
   S.mode = 'browse';
   if (!S.listing) return S.dir ? go(S.dir, { push: false, scan: null }) : showActivity();
@@ -1050,13 +1059,299 @@ async function makePlan() {
   showPlan(j.id);
 }
 
+// ---------- Free up: wipe what has a verified copy elsewhere, move or keep what exists only here
+//
+// The tree picks what to wipe (drives, folders, recognised things); the server says, from the index,
+// how much of it has an identical copy outside the selection and where. The daemon does the wiping:
+// it re-reads each file and its copy before deleting, and journals every deletion.
+
+const WP = { sel: new Map(), open: new Set(), lists: new Map(), ents: null, cov: null, a: null, err: null, seq: 0,
+  checking: false, busy: false, only: 'move', to: '', room: null, trust: false, typed: '', history: [], targets: [] };
+const WIPE_MAX = 200; // items in one selection: more is a folder's worth, so tick the folder
+const isFull = p => /^([\\/]|[A-Za-z]:[\\/])/.test(p);
+// `p` is inside the folder `d` (not `d` itself)
+const under = (p, d) => { const b = d.replace(/[\\/]+$/, ''); return p.length > b.length && p.startsWith(b) && /[\\/]/.test(p[b.length]); };
+
+function showWipe(pre = null) {
+  if (pre?.length > WIPE_MAX) return toastError(new Error(`Pick at most ${WIPE_MAX} items at a time, or the folder that holds them`));
+  S.mode = 'wipe';
+  closeSearch(false);
+  renderTabs(); renderPlaces(); renderPath();
+  $('#banner').hidden = true; $('#info').hidden = true; $('#timebar').hidden = true;
+  if (pre) {
+    WP.sel = new Map();
+    for (const p of pre) if (!pre.some(o => under(p.path, o.path))) WP.sel.set(p.key, p);
+    WP.typed = '';
+    // show where the picked things are
+    for (const p of WP.sel.values()) for (const r of S.roots) if (under(p.path, r.path)) WP.open.add(r.key);
+  }
+  WP.a = null; WP.err = null;
+  layoutWipe();
+  // what's recognised on each drive, and how much of each drive exists elsewhere, fill in as they come
+  api('entities').then(d => { WP.ents = d; renderWipePick(); }).catch(() => {});
+  api('overlaps').then(o => { WP.cov = new Map(o.map(x => [x.unit.key + ':' + x.unit.level, x])); renderWipePick(); }).catch(() => {});
+  api('plans').then(p => { WP.targets = [...new Set(p.map(x => x.target))]; renderWipeTargets(); }).catch(() => {});
+  loadWipeHistory();
+  assessWipe();
+  if (WP.to) checkRoom();
+}
+
+function layoutWipe() {
+  $('#view').innerHTML = `<div class="plan wipe">
+    <div class="pl-head"><div><h2>Free up drives</h2>
+      <p class="muted">Tick what to wipe. A file is deleted only when an identical copy exists outside what you ticked, and both still read the same. What exists only here is moved to a folder you choose first, or left where it is.</p></div></div>
+    <div class="wp-cols">
+      <section class="card-ish wp-pick"><h3>What to wipe</h3><div id="wp-tree" role="tree" aria-label="Drives, folders and recognised things"></div></section>
+      <div class="wp-side">
+        <section class="card-ish" id="wp-assess" aria-live="polite"></section>
+        <section class="card-ish wp-opts">
+          <h3>What exists only here</h3>
+          <label class="wp-chk"><input type="radio" name="wp-only" value="move"${WP.only === 'move' ? ' checked' : ''}> Move it first, to</label>
+          <input id="wp-to" class="wp-input" list="wp-targets" spellcheck="false" autocomplete="off" placeholder="a folder on another drive" value="${esc(WP.to)}" aria-label="Folder to move what exists only here to">
+          <datalist id="wp-targets"></datalist>
+          <small id="wp-room" class="muted"></small>
+          <label class="wp-chk"><input type="radio" name="wp-only" value="leave"${WP.only === 'leave' ? ' checked' : ''}> Leave it where it is</label>
+          <h3>Before deleting</h3>
+          <label class="wp-chk"><input type="checkbox" id="wp-trust"${WP.trust ? ' checked' : ''}> Trust the index: don't re-read each file and its copy</label>
+          <small class="muted">Faster. Copies must still be there as last scanned, but a file that quietly went bad since its last hash wouldn’t be noticed.</small>
+          <label class="wp-confirm"><span>Type <b id="wp-names">…</b> to confirm</span>
+            <input id="wp-typed" class="wp-input" spellcheck="false" autocomplete="off" value="${esc(WP.typed)}"></label>
+          <button class="btn primary" type="button" id="wp-go" disabled>Wipe</button>
+          <p class="note" id="wp-why"></p>
+        </section>
+      </div>
+    </div>
+    <section id="wp-hist"></section>
+  </div>`;
+  const root = $('#view .wipe');
+  root.addEventListener('change', onWipeChange);
+  root.addEventListener('input', onWipeInput);
+  root.addEventListener('click', onWipeClick);
+  renderWipePick(); renderWipeTargets(); renderWipeAssess(); renderWipeHist();
+}
+
+function renderWipePick(focus = null) {
+  const el = $('#wp-tree');
+  if (S.mode !== 'wipe' || !el) return;
+  el.innerHTML = S.roots.length ? S.roots.map(r => {
+    const cov = WP.cov?.get(`${r.key}:drive`);
+    const share = cov && cov.unit.bytes ? cov.elsewhere / cov.unit.bytes : null;
+    const ents = WP.ents?.roots?.find(x => x.root === r.path)?.entities || [];
+    const open = WP.open.has(r.key);
+    return `<div class="wp-drive">${pickRow({ key: r.key, path: r.path, label: r.name, bytes: r.bytes, dir: true, drive: true,
+      extra: share != null ? `<span class="pill ${share >= 0.999 ? 'ok' : ''}" title="Of this drive’s bytes, how much has an identical copy on another drive">${Math.floor(share * 100)}% exists elsewhere</span>` : '' }, 0)}
+      ${open ? `<div role="group">${ents.length ? `<div class="wp-group">Recognised</div>${ents.map(e => pickRow({ key: e.key, path: e.path, label: e.title, kind: e.label, bytes: e.bytes }, 1)).join('')}<div class="wp-group">Folders and files</div>` : ''}${kids(r.key, 1)}</div>` : ''}</div>`;
+  }).join('') : '<p class="muted pad">Nothing indexed yet.</p>';
+  if (focus) el.querySelector(focus)?.focus();
+}
+
+function pickRow(n, depth) {
+  const covered = [...WP.sel.values()].find(s => under(n.path, s.path));
+  const on = WP.sel.has(n.key) || !!covered;
+  const open = WP.open.has(n.key);
+  return `<div class="wp-row${n.drive ? ' drive' : ''}${on ? ' on' : ''}" role="treeitem"${n.dir ? ` aria-expanded="${open}"` : ''} style="--d:${depth}">
+    ${n.dir ? `<button class="wp-tw" type="button" data-wp-tw="${n.key}" aria-expanded="${open}" aria-label="${open ? 'Collapse' : 'Expand'} ${esc(n.label)}"><svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></button>` : '<span class="wp-tw"></span>'}
+    <label class="wp-lab" title="${esc(covered ? `Included in ${covered.label}` : n.path)}"><input type="checkbox" data-wp-key="${n.key}" data-wp-path="${esc(n.path)}" data-wp-label="${esc(n.label)}"${on ? ' checked' : ''}${covered ? ' disabled' : ''}>
+      ${n.drive ? driveIcon() : n.kind ? '' : n.dir ? folderIcon(18) : fileIcon(n.label, 18)}${n.kind ? `<span class="wp-kind">${esc(n.kind)}</span>` : ''}<span class="wp-name">${esc(n.label)}</span></label>
+    <span class="wp-meta">${n.extra || ''}${n.copies ? `<span class="pill ok" title="Identical copies elsewhere">${n.copies} cop${n.copies === 1 ? 'y' : 'ies'}</span>` : ''}<span class="wp-size">${bytes(n.bytes || 0)}</span></span>
+  </div>`;
+}
+
+// a folder's contents in the tree, biggest first (loaded when it's first opened)
+function kids(key, depth) {
+  let l = WP.lists.get(key);
+  if (!l) {
+    WP.lists.set(key, l = { loading: true });
+    api('ls', { dir: key }).then(x => WP.lists.set(key, x)).catch(e => WP.lists.set(key, { error: e.message })).finally(() => renderWipePick());
+  }
+  if (l.loading) return `<div class="wp-row muted" style="--d:${depth}"><span class="wp-tw"></span>Loading…</div>`;
+  if (l.error) return `<div class="wp-row muted" style="--d:${depth}"><span class="wp-tw"></span>${esc(l.error)}</div>`;
+  if (!l.entries.length) return `<div class="wp-row muted" style="--d:${depth}"><span class="wp-tw"></span>Empty</div>`;
+  const list = [...l.entries].sort((a, b) => b.size - a.size), shown = list.slice(0, 300);
+  const base = l.path.replace(/[\\/]+$/, '') + sepOf(l.path);
+  return shown.map(e => pickRow({ key: e.key, path: base + e.name, label: e.name, bytes: e.size, dir: e.kind === 'dir', copies: e.kind === 'file' ? e.copies : 0 }, depth)
+      + (e.kind === 'dir' && WP.open.has(e.key) ? kids(e.key, depth + 1) : '')).join('')
+    + (list.length > shown.length ? `<div class="wp-row muted" style="--d:${depth}"><span class="wp-tw"></span>and ${count(list.length - shown.length)} smaller items</div>` : '');
+}
+
+function renderWipeTargets() {
+  const dl = $('#wp-targets');
+  if (!dl) return;
+  const sugg = [...WP.targets, ...S.roots.map(r => r.path)].filter((p, i, a) => a.indexOf(p) === i);
+  dl.innerHTML = sugg.map(p => `<option value="${esc(p)}">`).join('');
+  const to = $('#wp-to');
+  if (!to.value && sugg[0]) to.placeholder = `e.g. ${sugg[0]}`;
+}
+
+async function assessWipe() {
+  const seq = ++WP.seq;
+  if (!WP.sel.size) { WP.a = null; WP.err = null; WP.checking = false; return renderWipeAssess(); }
+  WP.checking = true; renderWipeAssess();
+  try {
+    const a = await api('wipe-assess', { keys: [...WP.sel.keys()].join(',') });
+    if (seq !== WP.seq) return;
+    WP.a = a; WP.err = null;
+  } catch (e) {
+    if (seq !== WP.seq) return;
+    WP.a = null; WP.err = e.message;
+  }
+  WP.checking = false;
+  renderWipeAssess();
+}
+
+function renderWipeAssess() {
+  const el = $('#wp-assess');
+  if (S.mode !== 'wipe' || !el) return;
+  const a = WP.a;
+  el.classList.toggle('stale', WP.checking && !!a);
+  const head = `<h3>What would happen${WP.checking && a ? ' <span class="muted">· checking…</span>' : ''}</h3>`;
+  if (!WP.sel.size) el.innerHTML = head + '<p class="muted">Tick a drive, a folder or something recognised on it. Nothing is deleted until you confirm.</p>';
+  else if (WP.err) el.innerHTML = head + `<p class="warn-t">${esc(WP.err)}</p>`;
+  else if (!a) el.innerHTML = head + '<p class="muted">Checking what has a copy elsewhere…</p>';
+  else el.innerHTML = head + a.items.map(it => {
+    const label = WP.sel.get(it.key)?.label || it.path;
+    const w = n => it.bytes ? (100 * n / it.bytes).toFixed(2) : 0;
+    return `<div class="wp-item${it.refused ? ' refused' : ''}">
+      <div class="pl-what"><b>${esc(label)}</b><span class="pl-size">${bytes(it.bytes)} · ${count(it.files)} files</span>
+        <button class="wp-x" type="button" data-wp-rm="${it.key}" aria-label="Remove ${esc(label)}" title="Remove">×</button></div>
+      <code class="wp-path">${esc(it.path)}</code>
+      ${it.refused ? `<p class="warn-t">Can’t be wiped: ${esc(it.refused)}</p>` : `
+      <div class="wp-bar" aria-hidden="true"><i class="k" style="width:${w(it.kept_bytes)}%"></i><i class="o" style="width:${w(it.only_bytes)}%"></i></div>
+      <ul class="wp-facts">
+        <li><span class="dot k"></span>${it.kept_files ? `${bytes(it.kept_bytes)} has` : 'None of it has'} an identical copy elsewhere${it.copies.length ? `: ${it.copies.map(c => `${bytes(c.bytes)} in <code>${esc(c.path)}</code>`).join(', ')}` : ''}</li>
+        ${it.only_files ? `<li><span class="dot o"></span>${bytes(it.only_bytes)} (${count(it.only_files)} files) exists only here</li>` : ''}
+        ${it.unreadable_files ? `<li><span class="dot u"></span>${count(it.unreadable_files)} files couldn’t be read at the last scan: left in place</li>` : ''}
+        ${it.connected ? '' : '<li class="warn-t">Its drive isn’t connected: connect it to wipe</li>'}
+      </ul>`}</div>`;
+  }).join('') + '<p class="wp-total" id="wp-total"></p>';
+  updateWipeGo();
+}
+
+// the parts of the form that depend on the assessment and the choices, updated in place so typing isn't interrupted
+function updateWipeGo() {
+  const go = $('#wp-go');
+  if (!go || S.mode !== 'wipe') return;
+  const a = WP.a, to = WP.to.trim(), move = WP.only === 'move' && !!to;
+  // moving to the drive being freed keeps those bytes on it
+  const toDrive = move ? S.roots.find(r => to === r.path || under(to, r.path)) : null;
+  const same = it => !!toDrive && it.drive === toDrive.name;
+  const freed = a ? a.kept_bytes + (move ? a.items.filter(it => !it.refused && !same(it)).reduce((n, it) => n + it.only_bytes, 0) : 0) : 0;
+  let why = '';
+  if (!WP.sel.size) why = 'Tick what to wipe first.';
+  else if (!a) why = WP.err ? '' : 'Checking…';
+  else if (a.items.some(i => i.refused)) why = 'Some of the selection can’t be wiped: untick it.';
+  else if (a.items.some(i => !i.connected)) why = 'Connect the drive first: every file is read again before it’s deleted.';
+  else if (WP.only === 'move' && a.only_bytes && !to) why = 'Choose a folder to move what exists only here to, or leave it where it is.';
+  else if (move && !isFull(to)) why = 'The folder to move things to must be a full path.';
+  else if (move && [...WP.sel.values()].some(s => to.replace(/[\\/]+$/, '') === s.path.replace(/[\\/]+$/, '') || under(to, s.path))) why = 'The folder to move things to is inside what’s being wiped.';
+  else if (move && a.only_bytes && WP.room != null && WP.room < a.only_bytes) why = `There’s only ${bytes(WP.room)} free there, and ${bytes(a.only_bytes)} to move.`;
+  else if (!freed) why = move && a.only_bytes ? `${toDrive.name} is the drive being freed: moving there frees nothing. Pick a folder on another drive.` : 'Nothing here has a copy elsewhere, so nothing would be deleted.';
+  else if (a.why_not) why = `${a.why_not[0].toUpperCase()}${a.why_not.slice(1)}.`;
+  else if (WP.typed.trim() !== a.confirm) why = `Type ${a.confirm} to confirm.`;
+  go.disabled = !!why || WP.busy;
+  go.textContent = a && freed ? `Wipe ${bytes(freed)}` : 'Wipe';
+  $('#wp-why').textContent = why;
+  $('#wp-names').textContent = a?.confirm || '…';
+  const room = $('#wp-room');
+  room.textContent = [WP.only === 'move' && to && WP.room != null ? `${bytes(WP.room)} free there` : '',
+    a?.items.some(it => it.only_bytes && same(it)) ? `on ${toDrive.name}, which is being freed: what’s moved there stays on it` : ''].filter(Boolean).join(' · ');
+  const total = $('#wp-total');
+  if (total && a) total.innerHTML = !a.only_bytes ? `Deletes <b>${bytes(a.kept_bytes)}</b>: all of it has a copy elsewhere.`
+    : `${a.kept_bytes ? `Deletes <b>${bytes(a.kept_bytes)}</b> that has a copy elsewhere.` : 'Nothing here has a copy elsewhere.'} <b>${bytes(a.only_bytes)}</b> exists only here: ${move ? `moved to <code>${esc(to)}</code> and checked, then deleted here` : 'left where it is'}.`;
+}
+
+async function checkRoom() {
+  const to = WP.to.trim();
+  WP.room = null;
+  if (isFull(to)) { try { WP.room = (await api('room', { path: to })).free; } catch {} }
+  if (WP.to.trim() === to) updateWipeGo();
+}
+
+function onWipeChange(e) {
+  const t = e.target;
+  if (t.matches('[data-wp-key]')) {
+    const { wpKey: key, wpPath: path, wpLabel: label } = t.dataset;
+    if (t.checked) {
+      if (WP.sel.size >= WIPE_MAX) { t.checked = false; return toastError(new Error(`Pick at most ${WIPE_MAX} items at a time, or the folder that holds them`)); }
+      for (const [k, s] of WP.sel) if (under(s.path, path)) WP.sel.delete(k); // the new tick covers them
+      WP.sel.set(key, { key, path, label });
+    } else WP.sel.delete(key);
+    WP.typed = ''; $('#wp-typed').value = '';
+    renderWipePick(`[data-wp-key="${CSS.escape(key)}"]`);
+    return assessWipe();
+  }
+  if (t.name === 'wp-only') { WP.only = t.value; return updateWipeGo(); }
+  if (t.id === 'wp-trust') WP.trust = t.checked;
+}
+function onWipeInput(e) {
+  const t = e.target;
+  if (t.id === 'wp-typed') { WP.typed = t.value; updateWipeGo(); }
+  if (t.id === 'wp-to') {
+    WP.to = t.value; WP.only = 'move';
+    document.querySelector('input[name="wp-only"][value="move"]').checked = true;
+    clearTimeout(WP.roomTimer); WP.roomTimer = setTimeout(checkRoom, 300);
+    updateWipeGo();
+  }
+}
+function onWipeClick(e) {
+  const tw = e.target.closest('[data-wp-tw]');
+  if (tw) {
+    const k = tw.dataset.wpTw;
+    if (!WP.open.delete(k)) WP.open.add(k);
+    return renderWipePick(`[data-wp-tw="${CSS.escape(k)}"]`);
+  }
+  const rm = e.target.closest('[data-wp-rm]');
+  if (rm) {
+    WP.sel.delete(rm.dataset.wpRm);
+    WP.typed = ''; $('#wp-typed').value = '';
+    renderWipePick();
+    return assessWipe();
+  }
+  if (e.target.closest('#wp-go')) return startWipe();
+}
+
+async function startWipe() {
+  const a = WP.a, to = WP.to.trim();
+  if (!a) return;
+  WP.busy = true; updateWipeGo();
+  const q = new URLSearchParams({ keys: [...WP.sel.keys()].join(','), confirm: WP.typed.trim() });
+  if (WP.only === 'move' && to) q.set('move_to', to);
+  if (WP.trust) q.set('trust', '1');
+  const r = await fetch(`/api/wipe?${q}`, { method: 'POST', headers: { 'X-BackDown': '1' }, credentials: 'same-origin' }).catch(e => ({ ok: false, json: async () => ({ error: e.message }) }));
+  const j = await r.json().catch(() => ({}));
+  WP.busy = false;
+  if (!r.ok || j.error) { updateWipeGo(); return toastError(new Error(j.error || r.statusText)); }
+  toast('Wiping: follow it below or in Activity');
+  WP.sel.clear(); WP.a = null; WP.typed = ''; $('#wp-typed').value = '';
+  renderWipePick(); renderWipeAssess(); loadWipeHistory();
+  if (!polling) pollDaemon(true);
+}
+
+function loadWipeHistory() { api('wipes').then(h => { WP.history = h; renderWipeHist(); }).catch(() => {}); }
+
+function renderWipeHist() {
+  const el = $('#wp-hist');
+  if (S.mode !== 'wipe' || !el) return;
+  const live = new Map((S.daemon ? [S.daemon.current, ...S.daemon.queued] : []).filter(j => j?.kind === 'wipe').map(j => [j.path, j]));
+  if (!WP.history.length) { el.innerHTML = ''; return; }
+  const STATE = { done: 'ok', partial: 'warn', failed: 'warn' };
+  el.innerHTML = `<h3>Wipes</h3><table class="list wp-hist"><thead><tr><th>When</th><th>What</th><th>What existed only there</th><th>Result</th></tr></thead><tbody>
+    ${WP.history.map(w => {
+      const j = live.get(`wipe ${w.id}`);
+      const state = j ? `<span class="pill busy">${j === S.daemon.current ? `wiping${j.progress ? ` · ${esc(j.progress)}` : ''}` : 'queued'}</span>`
+        : `<span class="pill ${STATE[w.state] || ''}">${esc(w.state === 'new' ? 'waiting' : w.state === 'running' ? 'stopped' : w.state)}</span>`;
+      return `<tr><td>${esc(when(w.created_at))}</td><td>${w.paths.map(p => `<code>${esc(p)}</code>`).join('<br>')}</td>
+        <td>${w.move_to ? `moved to <code>${esc(w.move_to)}</code>` : 'left in place'}</td><td>${state}${w.summary ? `<small class="muted">${esc(w.summary)}</small>` : ''}</td></tr>`;
+    }).join('')}</tbody></table>`;
+}
+
 // ---------- the daemon: activity, rescans, live refresh
 //
 // Long polls /api/daemon: the daemon answers as soon as something changes (at most once a second while
 // a job reports progress) or after 50 s, so an idle browser costs about one small request a minute.
 // Nothing is asked while the tab is hidden; coming back asks at once.
 
-let lastDone = null, shownFail = 0, polling = false, pollTimer, busyKey = '', clockSkew = 0;
+let finishedSeen = null, lastDone, shownFail = 0, polling = false, pollTimer, busyKey = '', clockSkew = 0;
 async function pollDaemon(fresh = false) {
   clearTimeout(pollTimer);
   if (polling || document.hidden) return;
@@ -1078,7 +1373,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) poll
 
 const jobName = j => j.kind === 'index' ? `Scan ${rootName(j.path)}` : j.kind === 'entities' ? 'Recognise what’s on the drives'
   : j.kind === 'apply' ? `Apply ${j.path || 'a plan'}` : j.kind === 'mirror-sync' ? `Sync ${j.path || 'a mirror'}`
-  : j.kind === 'mirror-verify' ? `Verify ${j.path || 'a mirror'}` : 'Hash new and changed files';
+  : j.kind === 'mirror-verify' ? `Verify ${j.path || 'a mirror'}` : j.kind === 'wipe' ? `Free up (${j.path || 'a wipe'})` : 'Hash new and changed files';
 const rootName = p => S.roots.find(r => r.path === p)?.name || (p || '').split(/[\\/]/).filter(Boolean).pop() || p;
 
 async function applyDaemon(d) {
@@ -1089,11 +1384,11 @@ async function applyDaemon(d) {
   if (S.daemon) {
     const cur = d.current, q = d.queued.length, c = cur?.counts;
     st.innerHTML = cur
-      ? `<span class="act"><span class="pulse"></span>${cur.kind === 'index' ? `Scanning ${esc(rootName(cur.path))}` : 'Hashing'}${c ? ` · ${pct(cur) != null ? Math.round(pct(cur) * 100) + '%' : count(c.files) + ' files'}` : ''}</span>${q ? `<span>${q} more queued</span>` : ''}`
+      ? `<span class="act"><span class="pulse"></span>${cur.kind === 'index' ? `Scanning ${esc(rootName(cur.path))}` : cur.kind === 'hash' ? 'Hashing' : esc(jobName(cur))}${c ? ` · ${pct(cur) != null ? Math.round(pct(cur) * 100) + '%' : count(c.files) + ' files'}` : ''}</span>${q ? `<span>${q} more queued</span>` : ''}`
       : `<span class="act idle">Up to date</span><span>${d.rescan_every_secs ? `rescans every ${dur(d.rescan_every_secs)}` : 'rescans on request'}</span>`;
     // a job finished: fresh sizes, timeline and (unless looking at the past) the open folder
     const done = d.recent.find(j => j.state === 'done');
-    if (lastDone !== null && done && done.id !== lastDone) {
+    if (lastDone !== undefined && done && done.id !== lastDone) {
       const data = await api('roots').catch(() => null);
       if (data) { S.roots = data.roots; $('#status-files').textContent = summary(data.status); renderPlaces(); }
       if (S.mode === 'browse' && done.kind === 'index' && S.root && done.path === S.root.path) {
@@ -1101,11 +1396,19 @@ async function applyDaemon(d) {
         if (S.scan == null) await go(S.dir, { push: false, scan: null, select: S.anchor });
       }
     }
-    if (done) lastDone = done.id;
+    lastDone = done ? done.id : 0; // 0: nothing had finished yet, so the first job that does counts
     // a plan was applied: show its journal
     if (done && done.kind === 'apply' && done.id === lastDone && S.mode === 'plan' && done.finished_at > d.now - 5) showPlan(PL.id);
     // recognition finished: refresh What's here if it's on screen
     if (done && done.kind === 'entities' && done.id === lastDone && S.mode === 'entities' && done.finished_at > d.now - 5) showEntities();
+    // a wipe finished, or a drive was scanned again (any since the last answer, not only the latest):
+    // fresh history and folder sizes in Free up
+    const fin = d.recent.filter(j => j.finished_at);
+    if (finishedSeen && fin.some(j => !finishedSeen.has(j.id) && (j.kind === 'wipe' || j.kind === 'index'))) {
+      WP.lists.clear();
+      if (S.mode === 'wipe') { loadWipeHistory(); renderWipePick(); }
+    }
+    finishedSeen = new Set(fin.map(j => j.id));
     const failed = d.recent.find(j => j.state === 'failed');
     if (failed && failed.id > shownFail && failed.finished_at > d.now - 60 && S.mode !== 'activity') toastError(new Error(`${jobName(failed)} failed: ${failed.error}`));
     if (failed) shownFail = Math.max(shownFail, failed.id);
@@ -1114,6 +1417,7 @@ async function applyDaemon(d) {
   const key = JSON.stringify([had, !!S.daemon, S.daemon?.current?.path, S.daemon?.queued.map(j => j.path)]);
   if (key !== busyKey) { busyKey = key; renderPlaces(); }
   if (S.mode === 'activity') renderActivity();
+  if (S.mode === 'wipe') renderWipeHist();
 }
 
 async function rescan(rootId) {
@@ -1154,7 +1458,7 @@ function eta(j, now) {
   if (p == null || p < 0.02 || took < 15) return '';
   return `about ${dur(took * (1 - p) / p)} left`;
 }
-const REASON = { requested: 'you asked', scheduled: 'scheduled', returned: 'drive came back', 'after-scan': 'after a scan', 'after-apply': 'after copying' };
+const REASON = { requested: 'you asked', scheduled: 'scheduled', returned: 'drive came back', 'after-scan': 'after a scan', 'after-apply': 'after copying', 'after-wipe': 'after wiping' };
 const JOB_ICON = {
   index: '<svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg>',
   hash: '<svg viewBox="0 0 24 24"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></svg>',
@@ -1162,6 +1466,7 @@ const JOB_ICON = {
   apply: '<svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>',
   'mirror-sync': '<svg viewBox="0 0 24 24"><path d="M4 7h13l-3-3M20 17H7l3 3"/></svg>',
   'mirror-verify': '<svg viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"/><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/></svg>',
+  wipe: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
 };
 
 let activityClock;
@@ -1423,6 +1728,7 @@ $('#dupes-btn').onclick = showDupes;
 $('#activity-btn').onclick = showActivity;
 $('#entities-btn').onclick = showEntities;
 $('#plan-btn').onclick = () => showPlan();
+$('#wipe-btn').onclick = () => showWipe();
 $('#time').addEventListener('input', e => setScan(+e.target.value));
 $('#time-now').onclick = () => setScan(S.timeline.length - 1);
 
