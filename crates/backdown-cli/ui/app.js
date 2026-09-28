@@ -3,6 +3,7 @@ import { fileIcon, folderIcon, driveIcon, kindOf } from './icons.js';
 import { openViewer, openDiff, openGit, openMaildir, previewInto } from './viewers.js';
 import { squarify, compareListings, menu, closeMenu, menuOpen, toast } from './extras.js';
 import { mountFind, find, foundHtml, setScope, setEarlier, more as findMore } from './search.js';
+import { mountHealth, daemonChanged, healthOfDisk, healthOfPath, pill, dot, mirrorNote, healthHead, notesSection } from './health.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -60,7 +61,7 @@ function renderPlaces() {
     <div class="place-row">
       <button class="place" type="button" data-key="${r.key}" aria-current="${S.root?.id === r.id && S.mode === 'browse'}" title="${esc(r.path)}">
         <span class="pi">${driveIcon()}</span><span class="pn">${esc(r.name)}</span>
-        <span class="ps">${bytes(r.bytes)} · ${count(r.files)} files</span>
+        <span class="ps">${dot(healthOfPath(r.path))}${bytes(r.bytes)} · ${count(r.files)} files</span>
       </button>
       ${S.daemon?.running ? `<button class="rescan${busy.has(r.path) ? ' spin' : ''}" type="button" data-rescan="${r.id}" title="Rescan ${esc(r.name)} now" aria-label="Rescan ${esc(r.name)}"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg></button>` : ''}
     </div>`).join('');
@@ -1411,6 +1412,21 @@ const RS_WHAT = [
   ['parts', 'It looks empty, or a partition vanished', 'Look for file systems the partition table no longer lists. Nothing on the drive is changed.'],
 ];
 
+// "Copy it now" on a failing drive (health.js): Rescue, set up to copy that drive
+function rescueDrive(device, title) {
+  Object.assign(RS, { src: { path: device, title, kind: 'disk' }, what: 'image', dest: '', range: null, access: null });
+  showRescue();
+  checkAccess();
+  // once the list of drives is in, show the chosen one
+  const t0 = Date.now();
+  const reveal = () => {
+    const on = document.querySelector('.rs-opt.on');
+    if (on) on.scrollIntoView({ block: 'center' });
+    else if (S.mode === 'rescue' && Date.now() - t0 < 5000) setTimeout(reveal, 150);
+  };
+  reveal();
+}
+
 function showRescue() {
   S.mode = 'rescue';
   closeSearch(false);
@@ -1731,6 +1747,7 @@ async function applyDaemon(d) {
   let fin = [], prevSeen = null;
   S.daemon = d.running ? d : null;
   if (d.running) clockSkew = d.now - Date.now() / 1000;
+  daemonChanged(d); // drive health or notifications changed: health.js fetches them again
   const st = $('#status-act');
   if (S.daemon) {
     const cur = d.current, q = d.queued.length, c = cur?.counts;
@@ -1842,7 +1859,7 @@ function probeVolumes() {
 // every disk and partition here (probed when Activity opens, or on "Look again"; never on a timer)
 function connectedDrives() {
   const v = ACT.volumes;
-  const head = `<h3>Connected drives <button class="btn sm" type="button" id="vol-again"${ACT.probing ? ' disabled' : ''}>${ACT.probing ? 'Looking…' : 'Look again'}</button></h3>`;
+  const head = `<h3>Connected drives <button class="btn sm" type="button" id="vol-again"${ACT.probing ? ' disabled' : ''}>${ACT.probing ? 'Looking…' : 'Look again'}</button>${healthHead()}</h3>`;
   if (!v) return `<section>${head}<p class="muted pad">Looking…</p></section>`;
   if (v.error) return `<section>${head}<p class="muted pad">${esc(v.error)}</p></section>`;
   const STATE = { system: ['off', 'system'], mounted: ['ok', 'mounted'], mountable: ['warn', 'not mounted'], encrypted: ['warn', 'encrypted'],
@@ -1857,7 +1874,7 @@ function connectedDrives() {
       <td>${esc(vol.fs_name || vol.fs || '—')}</td><td class="n">${bytes(vol.size || 0)}</td><td><span class="pill ${cls}">${label}</span>${vol.note ? `<small class="muted">${esc(vol.note)}</small>` : ''}</td><td>${act}</td></tr>`
       + (vol.holders || []).map(rows).join('');
   };
-  return `<section>${head}${v.disks.map(dk => `<div class="vol-disk"><div class="vol-head"><b>${esc(dk.model || dk.name)}</b>
+  return `<section>${head}${v.disks.map(dk => `<div class="vol-disk"><div class="vol-head"><b>${esc(dk.model || dk.name)}</b>${pill(healthOfDisk(dk))}
       <span class="muted">${esc(dk.device)} · ${bytes(dk.size || 0)} · ${esc(dk.transport || '')}${dk.rotational ? ' · spinning disk' : dk.rotational === false ? ' · solid state' : ''}${dk.system ? ' · system disk' : ''}</span></div>
       <table class="list act-drives"><tbody>${dk.volumes.map(rows).join('')}</tbody></table></div>`).join('')}
     ${(v.notes || []).map(n => `<p class="muted pad">${esc(n)}</p>`).join('')}</section>`;
@@ -1944,12 +1961,13 @@ function renderActivity() {
     : '<p class="muted pad">Nothing has run since the daemon started.</p>';
   view.innerHTML = `<div class="activity">
     ${now_}
+    ${notesSection()}
     <section><h3>Up next</h3>${queue}</section>
     <section><h3>Drives and schedule</h3>${drivesTable(d.drives, true)}</section>
     ${connectedDrives()}
     ${ACT.mirrors?.length ? `<section><h3>Mirrors</h3><ol class="act-list">${ACT.mirrors.map(m => `
       <li class="${m.last_verify_ok === false ? 'failed' : 'done'}"><span class="ji ${m.last_verify_ok === false ? 'failed' : 'done'}">${JOB_ICON['mirror-sync']}</span>
-        <span class="jn">${esc(rootName(m.source))} → ${esc(m.target)}<small>${esc(m.last_verify_summary || 'not verified yet')}</small></span>
+        <span class="jn">${esc(rootName(m.source))} → ${esc(m.target)}<small>${esc(m.last_verify_summary || 'not verified yet')}</small>${mirrorNote(m)}</span>
         <span class="pill ${m.connected ? 'ok' : 'off'}">${m.connected ? 'both drives here' : 'a drive isn’t connected'}</span>
         <span class="muted">synced ${rel(m.last_sync)} · verified ${rel(m.last_verify)}</span></li>`).join('')}</ol></section>` : ''}
     <section><h3>Recent</h3>${recent}</section>
@@ -1969,7 +1987,7 @@ function drivesTable(drives, live) {
   const next = x => x.state === 'away' ? 'when it’s plugged back in' : x.state === 'on-request' ? '—' : x.state === 'scanning' ? 'now' : x.state === 'queued' ? 'next in line' : x.next_at ? rel(x.next_at) : '—';
   return `<table class="list act-drives"><thead><tr><th>Drive</th><th>Status</th><th>Last scan</th>${live ? '<th>Next scan</th>' : ''}<th class="n">Files</th><th class="n">Size</th>${live ? '<th></th>' : ''}</tr></thead><tbody>
     ${drives.map(x => { const r = S.roots.find(r => r.path === x.path); return `<tr>
-      <td><b>${esc(rootName(x.path))}</b><small class="muted">${esc(x.path)}</small></td>
+      <td><b>${esc(rootName(x.path))}</b>${pill(healthOfPath(x.path), { small: true })}<small class="muted">${esc(x.path)}</small></td>
       <td>${live ? label(x) : ''}</td>
       <td title="${esc(when(x.last_scan_at))}">${x.last_scan_at ? rel(x.last_scan_at) : 'never finished'}</td>
       ${live ? `<td>${next(x)}</td>` : ''}
@@ -2179,6 +2197,7 @@ document.addEventListener('error', e => {
 try { const so = JSON.parse(localStorage.getItem('bd.sort')); if (so?.key) S.sort = so; } catch {}
 setView(S.view);
 setupFilters();
+mountHealth({ onRescue: rescueDrive, onChange: () => { renderPlaces(); if (S.mode === 'activity') renderActivity(); } });
 boot().then(restoreTabs).then(() => pollDaemon(true));
 
 // tabs survive a reload of the page (not of the browser): reopened lazily, each loads when shown

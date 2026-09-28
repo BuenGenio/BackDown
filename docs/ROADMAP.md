@@ -84,6 +84,8 @@ Tauri 2 shell + Svelte 5, sharing Innards' tokens and components.
 
 ## v0.6 — Mirrors, scheduling, health (3 weeks, Apr 2027)
 
+**Status, 29 Sep 2026: health, notifications and scheduling built** (pulled forward): `backdown health [--json]` and the daemon read every drive's SMART data without root (Linux: udisks2 over D-Bus, smartctl where allowed, hwmon; macOS: `diskutil info`, smartctl; Windows: `Get-PhysicalDisk`, `Get-StorageReliabilityCounter`), keep readings in the index by serial so a drive's history follows it, and turn changes into warnings (new reallocated/pending/uncorrectable sectors, rising cable errors, NVMe wear and spare, temperature spikes, the drive saying it's failing). In the browser: a health pill per drive (Activity, the schedule, the sidebar), details with sparklines, a banner for a failing drive with "Copy it now" into Rescue, "this mirror drive is dying" on mirrors. Desktop notifications (notify-send, osascript, a PowerShell toast), deduplicated and rate-limited, for a drive getting worse, a mirror that no longer matches, a scheduled job that failed; listed in Activity with read/unread; `GET/POST /api/notify-settings`. `backdown service install` on macOS (LaunchAgent) and Windows (a scheduled task at logon) too. Not yet: SMART self-tests, a timer-based mirror verify outside the daemon.
+
 - Scheduled mirror verify (systemd timer / launchd), drift notifications
 - SMART trends per drive (reuse `innards-core` probe); "this mirror drive is dying" warnings
 - Hardlink/reflink dedup inside the archive as an opt-in post-step

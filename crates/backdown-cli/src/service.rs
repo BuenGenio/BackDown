@@ -1,6 +1,8 @@
 //! `backdown service install|uninstall|status`: run the daemon under the OS service manager.
 //!
-//! Linux (systemd) for now. A user service runs as you, with no extra privileges. The system
+//! macOS: a LaunchAgent (service/launchd.rs); Windows: a scheduled task at logon
+//! (service/task.rs); both run as you, while you're logged in. Linux (systemd), below: a user
+//! service runs as you, with no extra privileges. The system
 //! service runs as the `backdown` user with CAP_DAC_READ_SEARCH (read any file, write none) and a
 //! sandbox that makes the whole filesystem read-only to it except /var/lib/backdown, and cuts it off
 //! from the network except localhost: the kernel enforces "never writes to a source" and "no network".
@@ -11,6 +13,9 @@ use std::process::{Command, ExitCode};
 use anyhow::{Context, Result, bail};
 
 use crate::locations;
+
+mod launchd;
+mod task;
 
 const NAME: &str = "backdown.service";
 
@@ -76,8 +81,8 @@ NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=read-only
 PrivateTmp=yes
-# no hardware devices, no other processes, no leftover IPC (relax PrivateDevices/ProcSubset when
-# drive-health probing lands)
+# no hardware devices, no other processes, no leftover IPC (drive health comes from udisks over
+# D-Bus, which needs neither)
 PrivateDevices=yes
 ProtectProc=invisible
 ProcSubset=pid
@@ -147,6 +152,18 @@ fn check(out: std::process::Output, what: &str) -> Result<()> {
 
 pub fn install(system: bool, start: bool, print: bool) -> Result<ExitCode> {
     let exe = exe()?;
+    if !print && (exe.starts_with("/tmp") || exe.starts_with(std::env::temp_dir())) {
+        eprintln!(
+            "note: {} is in a temporary folder; the service will break when it's cleaned up. Move backdown somewhere permanent (e.g. ~/.local/bin or /usr/local/bin) and install again.",
+            exe.display()
+        );
+    }
+    if cfg!(target_os = "macos") {
+        return launchd::install(&exe, system, start, print);
+    }
+    if cfg!(windows) {
+        return task::install(&exe, system, start, print);
+    }
     let unit = if system {
         system_unit(&exe)
     } else {
@@ -158,13 +175,7 @@ pub fn install(system: bool, start: bool, print: bool) -> Result<ExitCode> {
     }
     if !cfg!(target_os = "linux") {
         bail!(
-            "`backdown service` supports Linux (systemd) so far; elsewhere, start `backdown daemon` from your login items"
-        );
-    }
-    if exe.starts_with("/tmp") || exe.starts_with(std::env::temp_dir()) {
-        eprintln!(
-            "note: {} is in a temporary folder; the service will break when it's cleaned up. Move backdown somewhere permanent (e.g. ~/.local/bin or /usr/local/bin) and install again.",
-            exe.display()
+            "`backdown service` supports Linux (systemd), macOS and Windows; elsewhere, start `backdown daemon` from your login items"
         );
     }
     let path = if system {
@@ -274,8 +285,14 @@ fn ensure_system_user() -> Result<()> {
 }
 
 pub fn uninstall(system: bool) -> Result<ExitCode> {
+    if cfg!(target_os = "macos") {
+        return launchd::uninstall(system);
+    }
+    if cfg!(windows) {
+        return task::uninstall(system);
+    }
     if !cfg!(target_os = "linux") {
-        bail!("`backdown service` supports Linux (systemd) so far");
+        bail!("`backdown service` supports Linux (systemd), macOS and Windows");
     }
     let path = if system {
         PathBuf::from(SYSTEM_UNIT_PATH)
@@ -313,8 +330,14 @@ pub fn uninstall(system: bool) -> Result<ExitCode> {
 }
 
 pub fn status(system: bool) -> Result<ExitCode> {
+    if cfg!(target_os = "macos") {
+        return launchd::status(system);
+    }
+    if cfg!(windows) {
+        return task::status(system);
+    }
     if !cfg!(target_os = "linux") {
-        bail!("`backdown service` supports Linux (systemd) so far");
+        bail!("`backdown service` supports Linux (systemd), macOS and Windows");
     }
     let path = if system {
         PathBuf::from(SYSTEM_UNIT_PATH)
@@ -341,6 +364,16 @@ pub fn status(system: bool) -> Result<ExitCode> {
         state(&["is-enabled", NAME]),
         active
     );
+    print_daemon()?;
+    Ok(if active == "active" {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(3)
+    })
+}
+
+/// What the running daemon (if one answers) is doing.
+fn print_daemon() -> Result<()> {
     match crate::client::Client::connect(None) {
         Some(mut c) => {
             let s = c.request(&serde_json::json!({ "cmd": "status" }))?;
@@ -361,6 +394,11 @@ pub fn status(system: bool) -> Result<ExitCode> {
                 None => println!("  now: idle"),
             }
         }
+        None if cfg!(windows) => {
+            println!(
+                "  (the terminal can't ask the daemon what it's doing on Windows yet: `backdown open` shows it)"
+            )
+        }
         None => println!(
             "  no daemon answering on {}",
             locations::candidate_sockets()
@@ -370,9 +408,5 @@ pub fn status(system: bool) -> Result<ExitCode> {
                 .join(" or ")
         ),
     }
-    Ok(if active == "active" {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::from(3)
-    })
+    Ok(())
 }
