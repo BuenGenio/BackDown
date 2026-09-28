@@ -55,7 +55,7 @@
       }
     },
     {
-      "state": "doing",
+      "state": "done",
       "text": {
         "en": "Freeing up drives: tick what to wipe, move what exists only there, and delete only what has a verified copy",
         "es": "Liberar discos: marca lo que quieres borrar, mueve lo que solo está ahí y elimina únicamente lo que tenga una copia verificada",
@@ -68,7 +68,7 @@
       }
     },
     {
-      "state": "doing",
+      "state": "done",
       "text": {
         "en": "Rescue: copy a failing drive or memory card safely, then find deleted photos, documents and lost partitions",
         "es": "Rescate: copia sin riesgo un disco o una tarjeta de memoria que está fallando y luego encuentra fotos y documentos borrados y particiones perdidas",
