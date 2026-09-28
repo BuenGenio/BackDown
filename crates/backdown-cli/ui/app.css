@@ -454,3 +454,29 @@ a.btn{color:inherit;text-decoration:none}
 .ent-else{display:flex;flex-direction:column;gap:4px;font-size:.78rem;color:var(--ink-2)}
 .ent-else .meter{height:5px}.ent-else .meter i{background:var(--good)}
 .ent-junk{margin:0;font-size:.78rem;color:var(--ink-3)}
+
+/* Plan */
+.plan{max-width:1100px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+.plan h3{font-size:.78rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3);margin:14px 0 2px}
+.pl-head{display:flex;flex-wrap:wrap;gap:10px 20px;align-items:flex-start;justify-content:space-between}
+.pl-head h2{margin:0;font-size:1.25rem}.pl-head p{margin:4px 0 0}
+.pl-acts{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.pl-acts select{height:32px;border:1px solid var(--line-2);border-radius:8px;background:var(--view);color:var(--ink);font:inherit;padding:0 8px}
+.card-ish{background:var(--view);border:1px solid var(--line);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.card-ish h3{margin:0}
+.pl-to{display:flex;flex-direction:column;gap:6px;font-weight:600;font-size:.88rem}
+.pl-to input{height:34px;border:1px solid var(--line-2);border-radius:8px;background:var(--view);color:var(--ink);font:13px var(--mono);padding:0 10px}
+.pl-from{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;font-size:.88rem}
+.pl-new .btn{align-self:flex-start}
+.pl-dry{border-radius:10px;border:1px solid color-mix(in srgb,var(--info) 30%,transparent)}
+.pl-journal{font-size:.9rem}.warn-t{color:var(--warn);font-weight:600}
+.pl-drives{width:100%}
+.pl-drives td:first-child{max-width:0;width:45%}
+.pl-drives td small{display:block;font-size:.74rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pl-items{display:flex;flex-direction:column;gap:6px}
+.pl-item{background:var(--view);border:1px solid var(--line);border-radius:10px;padding:10px 14px;display:flex;flex-direction:column;gap:3px;border-left:4px solid var(--good)}
+.pl-item.copy-unique{border-left-color:var(--info)}.pl-item.skip{border-left-color:var(--line-2);opacity:.8}
+.pl-what{display:flex;justify-content:space-between;gap:12px}.pl-size{font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pl-src-path{font:12px var(--mono);color:var(--ink-2);text-align:left;padding:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.pl-dest code{font:12.5px var(--mono);background:var(--hover);padding:1px 6px;border-radius:5px}
+.pl-why{font-size:.82rem;color:var(--ink-3)}

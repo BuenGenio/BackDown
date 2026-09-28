@@ -79,6 +79,8 @@ pub struct JobOpts {
     pub allow_empty: bool,
     pub jobs_per_device: usize,
     pub retry_errors: bool,
+    /// apply: the plan to carry out
+    pub plan: Option<i64>,
 }
 
 #[derive(Default)]
@@ -139,6 +141,7 @@ impl Daemon {
                     .unwrap_or_default(),
                 match reason {
                     "after-scan" => " (after a scan)",
+                    "after-apply" => " (after copying into it)",
                     "scheduled" => " (scheduled)",
                     "returned" => " (the drive is back)",
                     _ => "",
@@ -439,6 +442,7 @@ fn worker(d: &Daemon) {
         let result = match job.kind {
             "index" => run_index(d, &mut db, &job),
             "entities" => run_entities(d, &db, &job),
+            "apply" => run_apply(d, &mut db, &job),
             _ => run_hash(d, &mut db, &job),
         };
         let ok = result.is_ok();
@@ -477,6 +481,12 @@ fn worker(d: &Daemon) {
                 },
             );
         }
+        if job.kind == "apply" {
+            // the archive's copies only count as proof once its drive is indexed and hashed again
+            if let Some(root) = job.opts.plan.and_then(|id| archive_root(&db, id)) {
+                d.enqueue("index", Some(root), "after-apply", JobOpts::default());
+            }
+        }
         if ok && job.kind == "hash" {
             // then say what the drives hold, now that duplicates are known
             d.enqueue("entities", None, "after-scan", JobOpts::default());
@@ -485,6 +495,65 @@ fn worker(d: &Daemon) {
             notify::send("STATUS=idle");
         }
     }
+}
+
+/// Carry out a filing plan: journaled, verified copies (see backdown_core::apply).
+fn run_apply(d: &Daemon, db: &mut Db, job: &Job) -> Result<String> {
+    use backdown_core::apply;
+    let id = job.opts.plan.context("apply without a plan")?;
+    let st = apply::apply(db, id, false, &mut |p| {
+        let counts = Counts {
+            stage: "copying",
+            files: p.files,
+            total_files: 0,
+            bytes: p.bytes,
+            total_bytes: p.total_bytes,
+        };
+        d.progress(
+            job.id,
+            format!(
+                "{}/{} {} · {} files, {}",
+                p.item,
+                p.items,
+                p.what,
+                fmt::count(p.files),
+                fmt::bytes(p.bytes)
+            ),
+            counts,
+        );
+    })?;
+    let mut s = format!(
+        "plan {id}: copied and verified {} files ({}); {} already there, {} duplicates, {} resumed",
+        fmt::count(st.copied),
+        fmt::bytes(st.copied_bytes),
+        fmt::count(st.already_there),
+        fmt::count(st.duplicates),
+        fmt::count(st.resumed)
+    );
+    if st.conflicts + st.failed > 0 {
+        s += &format!(
+            "; {} conflicts and {} failures need a look",
+            st.conflicts, st.failed
+        );
+    }
+    Ok(s)
+}
+
+/// The indexed root that holds a plan's archive folder, if any.
+fn archive_root(db: &Db, plan: i64) -> Option<String> {
+    let (p, _) = backdown_core::plan::load(db, plan).ok()?;
+    let target = PathBuf::from(&p.target);
+    let mut stmt = db.conn.prepare("SELECT path FROM roots").ok()?;
+    let roots: Vec<PathBuf> = stmt
+        .query_map([], |r| r.get::<_, Vec<u8>>(0))
+        .ok()?
+        .filter_map(|r| r.ok().map(|b| paths::from_bytes(&b)))
+        .collect();
+    roots
+        .into_iter()
+        .filter(|r| target.starts_with(r))
+        .max_by_key(|r| r.as_os_str().len())
+        .map(|r| r.display().to_string())
 }
 
 /// Recognise what's on every drive whose stored results are older than its latest scan.
@@ -695,8 +764,10 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
                 Some("index") => "index",
                 Some("hash") => "hash",
                 Some("entities") => "entities",
-                _ => bail!("kind must be index, hash or entities"),
+                Some("apply") => "apply",
+                _ => bail!("kind must be index, hash, entities or apply"),
             };
+            let plan = req["plan"].as_i64();
             let path = match kind {
                 "index" => {
                     let p = req["path"].as_str().context("index needs a path")?;
@@ -705,6 +776,8 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
                     }
                     Some(p.to_string())
                 }
+                // one queued apply per plan (the label keeps two plans' jobs apart)
+                "apply" => Some(format!("plan {}", plan.context("apply needs a plan")?)),
                 _ => None,
             };
             let opts = JobOpts {
@@ -712,6 +785,7 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
                 allow_empty: req["allow_empty"].as_bool().unwrap_or(false),
                 jobs_per_device: req["jobs"].as_u64().unwrap_or(1) as usize,
                 retry_errors: req["retry_errors"].as_bool().unwrap_or(false),
+                plan,
             };
             json!({ "ok": true, "job": d.enqueue(kind, path, "requested", opts) })
         }

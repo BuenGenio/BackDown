@@ -351,7 +351,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 | Cmd::Report { .. }
                 | Cmd::Plan { .. }
                 | Cmd::Plans
-                | Cmd::Apply { .. }
+                // a dry run only reads; a real one goes to the daemon, the index's one writer
+                | Cmd::Apply { go: false, .. }
         )
         && let Some(c) = client::Client::connect(cli.db.as_deref())
     {
@@ -574,6 +575,18 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
             eprintln!("(the daemon hashes new files next; `backdown status` shows progress)");
         }
         Cmd::Hash { hashing } => hash_first(&mut c, &hashing, &mut follow)?,
+        Cmd::Apply { plan, .. } => {
+            let r = c.request(&json!({ "cmd": "enqueue", "kind": "apply", "plan": plan }))?;
+            let summary = follow(
+                &mut c,
+                r["job"].as_u64().unwrap_or(0),
+                &format!("applying plan {plan}"),
+            )?;
+            eprintln!("{summary}");
+            eprintln!(
+                "(the daemon indexes the archive next, so its copies count as proof; then `backdown check <old drive>`)"
+            );
+        }
         Cmd::Dupes {
             min_size,
             limit,
@@ -641,8 +654,7 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
         | Cmd::Overlaps { .. }
         | Cmd::Report { .. }
         | Cmd::Plan { .. }
-        | Cmd::Plans
-        | Cmd::Apply { .. } => {
+        | Cmd::Plans => {
             unreachable!("handled in run")
         }
     }

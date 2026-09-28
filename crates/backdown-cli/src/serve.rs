@@ -19,7 +19,7 @@ use std::process::Command;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
-use backdown_core::{Db, browse, fmt, overlap, paths, recognise, report, summary};
+use backdown_core::{Db, apply, browse, fmt, overlap, paths, plan, recognise, report, summary};
 
 use crate::daemon::Daemon;
 use crate::peek;
@@ -200,6 +200,24 @@ fn handle(ctx: &Ctx, req: Request) {
         let _ = req.respond(resp);
         return;
     }
+    if *req.method() == Method::Post && (path == "/api/plan" || path == "/api/apply") {
+        let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
+        let resp = if !marked {
+            plain(403, "missing X-BackDown header")
+        } else {
+            let r = if path == "/api/plan" {
+                new_plan(ctx, param("to"), param("from"))
+            } else {
+                start_apply(ctx, param("id"))
+            };
+            match r {
+                Ok(v) => json_resp(&v),
+                Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
+            }
+        };
+        let _ = req.respond(resp);
+        return;
+    }
     if *req.method() == Method::Post && path == "/api/recognise" {
         let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
         let resp = match (marked, &ctx.daemon) {
@@ -333,6 +351,62 @@ fn decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// Make and save a filing plan into the folder `to`, from the drives `from` (root ids; default all).
+fn new_plan(ctx: &Ctx, to: Option<&str>, from: Option<&str>) -> Result<Value> {
+    let to = PathBuf::from(to.context("where should the archive go?")?.trim());
+    if !to.is_absolute() {
+        bail!("the archive folder must be a full path, like /media/archive/Archive");
+    }
+    let only: Option<Vec<i64>> = from
+        .filter(|f| !f.is_empty())
+        .map(|f| {
+            f.split(',')
+                .map(|x| x.parse().context("bad drive id"))
+                .collect::<Result<_>>()
+        })
+        .transpose()?;
+    // plans are written to the index: a short write alongside the daemon, which waits its turn
+    let db = Db::open(&ctx.db)?;
+    let list: Vec<_> = recognise::root_ids(&db)?
+        .into_iter()
+        .filter_map(|id| recognise::load(&db, id).ok().flatten().map(|(r, _)| r))
+        .collect();
+    let ov = overlap::overlaps(&db, &list, &mut |_| {})?;
+    let mut p = plan::make(
+        &db,
+        &to,
+        only.as_deref(),
+        &plan::Schema::default(),
+        &list,
+        &ov,
+    )?;
+    p.schema = "built-in".into();
+    if p.items.is_empty() {
+        bail!("nothing to file: are the drives recognised yet (What's here)?");
+    }
+    Ok(json!({ "ok": true, "id": plan::save(&db, &p)? }))
+}
+
+/// Queue a plan for the daemon to carry out.
+fn start_apply(ctx: &Ctx, id: Option<&str>) -> Result<Value> {
+    let id: i64 = id.context("missing id")?.parse().context("bad id")?;
+    let d = ctx
+        .daemon
+        .as_ref()
+        .context("copying runs in the BackDown service: `backdown apply ID --go` in a terminal")?;
+    plan::load(&ro_db(ctx)?, id)?;
+    let job = d.enqueue(
+        "apply",
+        Some(format!("plan {id}")),
+        "requested",
+        crate::daemon::JobOpts {
+            plan: Some(id),
+            ..Default::default()
+        },
+    );
+    Ok(json!({ "ok": true, "job": job }))
+}
+
 /// The report as HTML (to view) or Markdown (to save), from what's stored and indexed now.
 fn report(ctx: &Ctx, md: bool) -> Result<(String, bool)> {
     let db = ro_db(ctx)?;
@@ -430,6 +504,25 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
                 }
             }
             json!({ "roots": roots, "daemon": ctx.daemon.is_some() })
+        }
+        "/api/plans" => {
+            let mut out = Vec::new();
+            for (id, _, _, state) in apply::plans(&db)? {
+                let (p, _) = plan::load(&db, id)?;
+                out.push(json!({ "id": id, "state": state, "created_at": p.created_at, "target": p.target,
+                    "copy_bytes": p.copy_bytes, "copy_files": p.copy_files, "items": p.items.len(),
+                    "drives": p.drives.iter().map(|d| json!({ "drive": d.drive, "covered": d.covered })).collect::<Vec<_>>() }));
+            }
+            json!(out)
+        }
+        "/api/plan" => {
+            let id: i64 = id()?;
+            let (p, state) = plan::load(&db, id)?;
+            json!({ "id": id, "state": state, "plan": p, "journal": apply::journal_summary(&db, id)? })
+        }
+        "/api/plan-dry" => {
+            let mut db = db;
+            json!(apply::apply(&mut db, id()?, true, &mut |_| {})?)
         }
         "/api/overlaps" => {
             let stored: Vec<_> = recognise::root_ids(&db)?

@@ -66,6 +66,7 @@ function renderPlaces() {
   $('#dupes-btn').setAttribute('aria-current', String(S.mode === 'dupes'));
   $('#activity-btn').setAttribute('aria-current', String(S.mode === 'activity'));
   $('#entities-btn').setAttribute('aria-current', String(S.mode === 'entities'));
+  $('#plan-btn').setAttribute('aria-current', String(S.mode === 'plan'));
 }
 
 // ---------- navigation
@@ -148,7 +149,7 @@ function renderPath() {
     return;
   }
   if (S.mode !== 'browse') {
-    $('#pathbar').innerHTML = `<span class="crumb" style="cursor:default">${{ dupes: 'Duplicates', activity: 'Activity', entities: 'What’s here' }[S.mode] || 'Search'}</span>`;
+    $('#pathbar').innerHTML = `<span class="crumb" style="cursor:default">${{ dupes: 'Duplicates', activity: 'Activity', entities: 'What’s here', plan: 'Plan' }[S.mode] || 'Search'}</span>`;
     return;
   }
   $('#pathbar').innerHTML = S.listing.crumbs.map((c, i) =>
@@ -736,6 +737,7 @@ function tabTitle(t) {
   if (t.mode === 'activity') return 'Activity';
   if (t.mode === 'dupes') return 'Duplicates';
   if (t.mode === 'entities') return 'What’s here';
+  if (t.mode === 'plan') return 'Plan';
   if (t.mode === 'compare') return `Compare · ${t.cmp?.listing?.name || ''}`;
   if (!t.listing) return S.roots.find(r => t.dir && atob64(t.dir).startsWith(atob64(r.key)))?.name || '…';
   return t.listing.crumbs.length > 1 ? t.listing.name : t.root?.name || t.listing.name;
@@ -781,6 +783,7 @@ async function showCurrent() {
   if (S.mode === 'activity') return showActivity();
   if (S.mode === 'dupes') return showDupes();
   if (S.mode === 'entities') return showEntities();
+  if (S.mode === 'plan') return showPlan();
   if (S.mode === 'compare' && S.cmp) return renderCompare();
   S.mode = 'browse';
   if (!S.listing) return S.dir ? go(S.dir, { push: false, scan: null }) : showActivity();
@@ -959,6 +962,94 @@ async function openEntityPath(key, isFile) {
   if (r) go(r.dir, { select: r.select || null, scan: null });
 }
 
+// ---------- Plan: file the old drives into one archive (propose, read, dry-run, apply)
+
+const PL = { id: null, data: null, list: [], dry: null, fresh: false, to: '' };
+
+async function showPlan(id = PL.id) {
+  S.mode = 'plan';
+  closeSearch(false);
+  renderTabs(); renderPlaces(); renderPath();
+  $('#banner').hidden = true; $('#info').hidden = true; $('#timebar').hidden = true;
+  $('#view').innerHTML = '<div class="empty"><p>Loading…</p></div>';
+  PL.list = await api('plans').catch(() => []);
+  if (id == null && PL.list.length) id = PL.list[0].id;
+  PL.id = id; PL.dry = null;
+  PL.data = id != null ? await api('plan', { id }).catch(() => null) : null;
+  renderPlan();
+}
+
+function renderPlan() {
+  const v = $('#view');
+  if (S.mode !== 'plan') return;
+  const guess = S.roots.length ? `${S.roots.at(-1).path.replace(/[\\/]+$/, '')}/Archive` : '';
+  const form = `<section class="pl-new card-ish"${PL.data && !PL.fresh ? ' hidden' : ''} id="pl-form">
+      <h3>New plan</h3>
+      <label class="pl-to">Archive folder, on the drive that will keep everything
+        <input id="pl-to" list="pl-roots" spellcheck="false" placeholder="${esc(guess)}" value="${esc(PL.to)}"></label>
+      <datalist id="pl-roots">${S.roots.map(r => `<option value="${esc(r.path.replace(/[\\/]+$/, ''))}/Archive">`).join('')}</datalist>
+      <div class="pl-from"><span class="muted">File these drives:</span>${S.roots.map(r => `<label class="chk"><input type="checkbox" class="pl-src" value="${r.id}" checked> ${esc(r.name)}</label>`).join('')}</div>
+      <p class="note">The archive's own drive is never a source. A plan only proposes: nothing is copied until you apply it, and nothing is ever deleted.</p>
+      <button class="btn primary" type="button" id="pl-make">Make plan</button></section>`;
+  const picker = PL.list.length > 1 ? `<select id="pl-pick" aria-label="Plans">${PL.list.map(p => `<option value="${p.id}"${p.id === PL.id ? ' selected' : ''}>Plan ${p.id} · ${esc(day(p.created_at))} · ${esc(p.state)}</option>`).join('')}</select>` : '';
+  if (!PL.data) {
+    v.innerHTML = `<div class="plan">${form}<div class="empty"><div><h2>No plan yet</h2><p>A plan proposes where everything on your old drives goes in one archive: mail with mail, phones with phones, each thing as a unit, with the reason for every placement.</p></div></div></div>`;
+  } else {
+    const { plan: p, state, journal } = PL.data;
+    const j = Object.fromEntries(journal.map(([s, n, b]) => [s, { n, b }]));
+    const groups = [['copy', 'Copy'], ['copy-unique', 'Copy only what’s unique'], ['skip', 'Not copied']];
+    v.innerHTML = `<div class="plan">
+      <div class="pl-head">
+        <div><h2>Plan ${PL.id}</h2><p class="muted">into <code>${esc(p.target)}</code> · made ${esc(when(p.created_at))} · <span class="pill ${state === 'done' ? 'ok' : state === 'partial' ? 'warn' : ''}">${esc(state)}</span></p></div>
+        <div class="pl-acts">${picker}<button class="btn" type="button" id="pl-newbtn">New plan</button>
+          <button class="btn" type="button" id="pl-dry">Dry run</button>
+          <button class="btn primary" type="button" id="pl-go"${S.daemon ? '' : ' disabled title="Copying runs in the BackDown service: backdown apply ' + PL.id + ' --go"'}>Apply: copy ${bytes(p.copy_bytes)}</button></div>
+      </div>
+      ${form}
+      ${PL.dry ? `<div class="pl-dry banner">${PL.dry.error ? esc(PL.dry.error) : `Dry run: ${count(PL.dry.would_copy)} files (${bytes(PL.dry.would_copy_bytes)}) would be copied${PL.dry.resumed ? `; ${count(PL.dry.resumed)} are done already` : ''}${PL.dry.duplicates ? `; ${count(PL.dry.duplicates)} are already in the archive` : ''}${PL.dry.conflicts ? `; ${count(PL.dry.conflicts)} destinations exist and will be compared, never overwritten` : ''}. Nothing was written.`}</div>` : ''}
+      ${journal.length ? `<div class="pl-journal"><b>Done so far:</b> ${j.copied ? `${count(j.copied.n)} files copied and verified (${bytes(j.copied.b)})` : 'nothing copied yet'}${j['already-there'] ? ` · ${count(j['already-there'].n)} already there` : ''}${j.duplicate ? ` · ${count(j.duplicate.n)} already in the archive` : ''}${j.conflict ? ` · <span class="warn-t">${count(j.conflict.n)} conflicts</span>` : ''}${j.failed ? ` · <span class="warn-t">${count(j.failed.n)} failed</span>` : ''}</div>` : ''}
+      <h3>Drives</h3>
+      <table class="list pl-drives"><thead><tr><th>Drive</th><th class="n">Size</th><th class="n">To copy</th><th class="n">Already archived</th><th>After applying</th></tr></thead><tbody>
+      ${p.drives.map(d => `<tr><td><b>${esc(d.drive)}</b><small class="muted">${esc(d.path)}</small></td><td class="n">${bytes(d.bytes)}</td><td class="n">${bytes(d.copy)}</td><td class="n">${bytes(d.already)}</td>
+        <td>${d.covered ? '<span class="pill ok">every file will have a copy</span>' : `<span class="pill warn">${bytes(d.not_copied)} stays only here</span>`}</td></tr>`).join('')}</tbody></table>
+      ${groups.map(([a, label]) => { const items = p.items.filter(i => i.action === a); return items.length ? `<h3>${label} <span class="muted">(${items.length})</span></h3><div class="pl-items">${items.map(i => `
+        <div class="pl-item ${a}"><div class="pl-what"><b>${esc(i.what)}</b><span class="pl-size">${bytes(i.bytes)}</span></div>
+          <button class="rowlink pl-src-path" type="button" data-ent-open="${i.source_key}" data-ent-file="${i.is_file ? 1 : ''}">${esc(i.source)}</button>
+          ${a !== 'skip' ? `<div class="pl-dest">→ <code>${esc(i.dest)}</code></div>` : ''}
+          <div class="pl-why">${esc(i.why)}</div></div>`).join('')}</div>` : ''; }).join('')}
+    </div>`;
+  }
+  $('#pl-make')?.addEventListener('click', makePlan);
+  $('#pl-newbtn')?.addEventListener('click', () => { const f = $('#pl-form'); f.hidden = !f.hidden; if (!f.hidden) $('#pl-to').focus(); });
+  $('#pl-pick')?.addEventListener('change', e => showPlan(+e.target.value));
+  $('#pl-dry')?.addEventListener('click', async () => {
+    $('#pl-dry').disabled = true;
+    try { PL.dry = await api('plan-dry', { id: PL.id }); } catch (e) { PL.dry = { error: e.message }; }
+    renderPlan();
+  });
+  $('#pl-go')?.addEventListener('click', async () => {
+    const p = PL.data.plan;
+    if (!confirm(`Copy ${bytes(p.copy_bytes)} (${count(p.copy_files)} files) into ${p.target}?\n\nEvery copy is read back and verified. Nothing is overwritten or deleted.`)) return;
+    const r = await fetch(`/api/apply?id=${PL.id}`, { method: 'POST', headers: { 'X-BackDown': '1' }, credentials: 'same-origin' });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.error) return toastError(new Error(j.error || r.statusText));
+    toast('Copying: follow it in Activity');
+    if (!polling) pollDaemon(true);
+  });
+}
+
+async function makePlan() {
+  const to = $('#pl-to').value.trim() || $('#pl-to').placeholder;
+  const from = [...document.querySelectorAll('.pl-src:checked')].map(c => c.value).join(',');
+  PL.to = to;
+  $('#pl-make').disabled = true;
+  const r = await fetch(`/api/plan?${new URLSearchParams({ to, from })}`, { method: 'POST', headers: { 'X-BackDown': '1' }, credentials: 'same-origin' });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || j.error) { $('#pl-make').disabled = false; return toastError(new Error(j.error || r.statusText)); }
+  PL.fresh = false;
+  showPlan(j.id);
+}
+
 // ---------- the daemon: activity, rescans, live refresh
 //
 // Long polls /api/daemon: the daemon answers as soon as something changes (at most once a second while
@@ -985,7 +1076,8 @@ async function pollDaemon(fresh = false) {
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden) pollDaemon(true); });
 
-const jobName = j => j.kind === 'index' ? `Scan ${rootName(j.path)}` : j.kind === 'entities' ? 'Recognise what’s on the drives' : 'Hash new and changed files';
+const jobName = j => j.kind === 'index' ? `Scan ${rootName(j.path)}` : j.kind === 'entities' ? 'Recognise what’s on the drives'
+  : j.kind === 'apply' ? `Apply ${j.path || 'a plan'}` : 'Hash new and changed files';
 const rootName = p => S.roots.find(r => r.path === p)?.name || (p || '').split(/[\\/]/).filter(Boolean).pop() || p;
 
 async function applyDaemon(d) {
@@ -1009,6 +1101,8 @@ async function applyDaemon(d) {
       }
     }
     if (done) lastDone = done.id;
+    // a plan was applied: show its journal
+    if (done && done.kind === 'apply' && done.id === lastDone && S.mode === 'plan' && done.finished_at > d.now - 5) showPlan(PL.id);
     // recognition finished: refresh What's here if it's on screen
     if (done && done.kind === 'entities' && done.id === lastDone && S.mode === 'entities' && done.finished_at > d.now - 5) showEntities();
     const failed = d.recent.find(j => j.state === 'failed');
@@ -1059,11 +1153,12 @@ function eta(j, now) {
   if (p == null || p < 0.02 || took < 15) return '';
   return `about ${dur(took * (1 - p) / p)} left`;
 }
-const REASON = { requested: 'you asked', scheduled: 'scheduled', returned: 'drive came back', 'after-scan': 'after a scan' };
+const REASON = { requested: 'you asked', scheduled: 'scheduled', returned: 'drive came back', 'after-scan': 'after a scan', 'after-apply': 'after copying' };
 const JOB_ICON = {
   index: '<svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg>',
   hash: '<svg viewBox="0 0 24 24"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></svg>',
   entities: '<svg viewBox="0 0 24 24"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>',
+  apply: '<svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>',
 };
 
 let activityClock;
@@ -1279,6 +1374,7 @@ $('#q').addEventListener('keydown', e => { if (e.key === 'Escape') { closeSearch
 $('#dupes-btn').onclick = showDupes;
 $('#activity-btn').onclick = showActivity;
 $('#entities-btn').onclick = showEntities;
+$('#plan-btn').onclick = () => showPlan();
 $('#time').addEventListener('input', e => setScan(+e.target.value));
 $('#time-now').onclick = () => setScan(S.timeline.length - 1);
 
