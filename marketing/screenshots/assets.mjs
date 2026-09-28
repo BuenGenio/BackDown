@@ -10,6 +10,8 @@ import puppeteer from 'puppeteer-core';
 
 const SITE = new URL('..', import.meta.url).pathname;
 const PUBLIC = join(SITE, 'public');
+const MARK = readFileSync(join(PUBLIC, 'brand/backdown-mark.svg'), 'utf8').trim();
+const MARK_INLINE = MARK.replace('fill="#d8432b"', 'fill="currentColor"');
 const TYPES = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.woff2': 'font/woff2', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp' };
 
 // public/ at /, the OG template at /__og
@@ -17,7 +19,10 @@ const server = createServer((req, res) => {
   const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
   const file = path === '/__og' ? join(SITE, 'og', 'og.html') : join(PUBLIC, normalize(path).replace(/^(\.\.[/\\])+/, ''));
   let body;
-  try { body = readFileSync(file); } catch { return res.writeHead(404).end(); }
+  try {
+    body = readFileSync(file);
+    if (path === '/__og') body = Buffer.from(body.toString().replace('<!-- BRAND_MARK -->', MARK_INLINE));
+  } catch { return res.writeHead(404).end(); }
   res.writeHead(200, { 'Content-Type': TYPES[extname(file)] || 'application/octet-stream' }).end(body);
 }).listen(0, '127.0.0.1');
 await new Promise(r => server.once('listening', r));
@@ -55,9 +60,9 @@ try {
     }
   }
 
-  // the mark from favicon.svg on a full-bleed accent square; the lines stay inside the central 60% (maskable safe zone)
+  // Match the favicon: orange bd on ivory. The entire mark fits inside the maskable safe-zone circle.
   const icon = size => `<html><body style="margin:0"><svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 32 32">
-    <rect width="32" height="32" fill="#d8432b"/><path d="M10 12.5h12M10 16h12M10 19.5h7.5" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></svg></body></html>`;
+    <rect width="32" height="32" fill="#f5f3ec"/><g transform="translate(6.4 8.8) scale(.24)">${MARK.replace('<svg ', '<svg width="80" height="60" ')}</g></svg></body></html>`;
   for (const [name, size] of [['apple-touch-icon.png', 180], ['icon-192.png', 192], ['icon-512.png', 512]]) {
     await page.setViewport({ width: size, height: size, deviceScaleFactor: 1 });
     await page.setContent(icon(size));

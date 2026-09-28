@@ -8,10 +8,10 @@
 <meta name="robots" content="{{@robots}}">
 <link rel="canonical" href="{{@url}}">
 {{@alternates}}
-<link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<link rel="icon" href="/icon-192.png" type="image/png" sizes="192x192">
-<link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<link rel="manifest" href="/site.webmanifest">
+<link rel="icon" href="/favicon.svg?v={{@brand_v}}" type="image/svg+xml">
+<link rel="icon" href="/icon-192.png?v={{@brand_v}}" type="image/png" sizes="192x192">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png?v={{@brand_v}}">
+<link rel="manifest" href="/site.webmanifest?v={{@brand_v}}">
 <meta name="theme-color" content="#f5f3ec" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#141317" media="(prefers-color-scheme: dark)">
 <meta property="og:type" content="website">
@@ -44,7 +44,7 @@
 
 <header class="hdr"><div class="nav-glass" aria-hidden="true"></div>
  <div class="wrap bar">
-  <a href="{{@home}}" class="home"><span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"/></svg></span>BackDown</a>
+  <a href="{{@home}}" class="home" aria-label="BackDown"><span class="mark">{{@brand_mark}}</span>backdown</a>
   <nav aria-label="{{nav.label|attr}}">
    {{@nav}}
    <details class="lang"><summary aria-label="{{lang.label|attr}}: {{lang.name|attr}}">{{@flag}}<span>{{@code}}</span></summary>
@@ -62,7 +62,7 @@
 <footer>
  <div class="wrap">
   <div class="foot-brand">
-   <a href="{{@home}}" class="home"><span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"/></svg></span>BackDown</a>
+   <a href="{{@home}}" class="home" aria-label="BackDown"><span class="mark">{{@brand_mark}}</span>backdown</a>
    <p>{{@footer_privacy}}</p>
   </div>
   <nav class="foot-nav" aria-label="{{footer.label|attr}}">{{@footer_nav}}</nav>

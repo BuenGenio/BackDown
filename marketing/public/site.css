@@ -57,9 +57,9 @@ code{font-family:var(--font-mono);font-size:.84em;background:color-mix(in srgb,v
 @supports((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.nav-glass{background:color-mix(in srgb,var(--bg) 70%,transparent);-webkit-backdrop-filter:blur(20px) saturate(145%);backdrop-filter:blur(20px) saturate(145%)}}
 @media(prefers-reduced-transparency:reduce){.nav-glass{background:var(--bg);backdrop-filter:none;-webkit-backdrop-filter:none}}
 .bar{height:var(--bar-h);display:flex;align-items:center;justify-content:space-between;gap:12px}
-.home{display:flex;align-items:center;gap:10px;text-decoration:none;color:inherit;font-family:var(--font-display);font-weight:800;font-size:1.15rem;letter-spacing:-.03em}
-.mark{width:26px;height:26px;border-radius:8px;background:var(--accent);display:grid;place-items:center;color:var(--accent-ink);flex:none}
-.mark svg{width:16px;height:16px}
+.home{display:flex;align-items:center;gap:10px;text-decoration:none;color:inherit;font-family:var(--font-display);font-weight:800;font-size:1.25rem;letter-spacing:-.045em}
+.mark{width:32px;height:24px;display:grid;place-items:center;color:var(--accent);flex:none}
+.mark svg{display:block;width:100%;height:100%}
 .hdr nav{display:flex;align-items:center;gap:clamp(8px,2.2vw,24px)}
 .hdr nav>a:not(.btn){text-decoration:none;font-weight:500;font-size:.92rem;color:var(--ink-2);padding:6px 2px;border-bottom:2px solid transparent;transition:color .15s var(--ease),border-color .15s var(--ease)}
 .hdr nav>a:not(.btn):hover{color:var(--ink)}.hdr nav>a[aria-current=page]{color:var(--ink);border-color:var(--accent)}
@@ -82,7 +82,7 @@ code{font-family:var(--font-mono);font-size:.84em;background:color-mix(in srgb,v
 .lang a:hover{background:var(--bg-sunk);color:var(--ink)}
 .lang a[aria-current=page]{color:var(--accent);font-weight:600}
 /* narrow phones: logo + language + a long CTA ("Předběžný přístup") must fit in one row */
-@media(max-width:420px){.hdr .home{font-size:1rem;gap:8px}.hdr .mark{width:24px;height:24px}.hdr nav{gap:6px}.lang summary{padding:0 10px}.lang summary span{display:none}.hdr .btn.sm{padding:0 12px}}
+@media(max-width:420px){.bar{gap:8px}.hdr .home{font-size:1rem;gap:6px}.hdr .mark{width:24px;height:18px}.hdr nav{gap:6px}.lang summary{padding:0 8px}.lang summary span{display:none}.hdr .btn.sm{padding:0 8px;font-size:.75rem}}
 
 /* buttons + early-access form */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:46px;padding:0 20px;border-radius:999px;border:1px solid transparent;font:inherit;font-weight:600;font-size:.95rem;text-decoration:none;cursor:pointer;white-space:nowrap;transition:background .15s var(--ease),border-color .15s var(--ease)}

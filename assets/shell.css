@@ -36,9 +36,9 @@ code{font-family:var(--font-mono);font-size:.84em;background:color-mix(in srgb,v
 @supports((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.nav-glass{background:color-mix(in srgb,var(--bg) 70%,transparent);-webkit-backdrop-filter:blur(20px) saturate(145%);backdrop-filter:blur(20px) saturate(145%)}}
 @media(prefers-reduced-transparency:reduce){.nav-glass{background:var(--bg);backdrop-filter:none;-webkit-backdrop-filter:none}}
 .bar{height:100%;display:flex;align-items:center;justify-content:space-between;gap:12px}
-.home{display:flex;align-items:center;gap:10px;text-decoration:none;color:inherit;font-family:var(--font-display);font-weight:800;font-size:1.15rem;letter-spacing:-.03em}
-.home .mark{width:26px;height:26px;border-radius:8px;background:var(--accent);display:grid;place-items:center;color:var(--accent-ink)}
-.home .mark svg{width:16px;height:16px}
+.home{display:flex;align-items:center;gap:10px;text-decoration:none;color:inherit;font-family:var(--font-display);font-weight:800;font-size:1.15rem;letter-spacing:-.03em;white-space:nowrap}
+.home .mark{width:36px;height:27px;display:grid;place-items:center;color:var(--accent);flex:none}
+.home .mark svg{display:block;width:100%;height:100%}
 nav{display:flex;align-items:center;gap:clamp(8px,2vw,20px)}
 nav a{text-decoration:none;font-weight:500;font-size:.92rem;color:var(--ink-2);padding:6px 2px;border-bottom:2px solid transparent;transition:color .15s var(--ease),border-color .15s var(--ease)}
 nav a:hover{color:var(--ink)}nav a.active{color:var(--ink);border-color:var(--accent)}

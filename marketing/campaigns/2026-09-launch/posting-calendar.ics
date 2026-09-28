@@ -1,0 +1,514 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//BackDown//Social campaign drafts//EN
+CALSCALE:GREGORIAN
+X-WR-CALNAME:BackDown campaign drafts
+BEGIN:VEVENT
+UID:P01-linkedin@backdown.io
+DTSTAMP:20260928T120000Z
+DTSTART:20260929T083000Z
+DTEND:20260929T085000Z
+SUMMARY:linkedin: Meet the paired bd
+DESCRIPTION:DRAFT — importing this event does not schedule a social pos
+ t.\nAsset: graphics/P01.png\n\nMeet the new BackDown mark: a lowercase b 
+ and d\, paired in orange.\n\nThe pair is a useful reminder of the questio
+ n behind the product: where is the other copy\, and does it contain the s
+ ame data?\n\nBackDown helps you inventory drives and compare file content
+ s using hashes. The current public alpha includes a command-line tool\, a
+  local file browser and read-only viewers. It is an early preview\, with 
+ more work ahead.\n\nOver the next month\, we'll share practical ways to t
+ hink about old drives\, duplicate files and the evidence behind a backup 
+ decision.\n\nJoin early access for one email when BackDown is ready.\n\nh
+ ttps://backdown.io/?utm_source=linkedin&utm_medium=organic_social&utm_cam
+ paign=bd_launch_2026_09&utm_content=p01#join\n\nPublication conditions (n
+ ot part of the post):\nReview final copy and current release status.
+STATUS:TENTATIVE
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:P01-bluesky@backdown.io
+DTSTAMP:20260928T120000Z
+DTSTART:20260929T150000Z
+DTEND:20260929T152000Z
+SUMMARY:bluesky: Meet the paired bd
+DESCRIPTION:DRAFT — importing this event does not schedule a social pos
+ t.\nAsset: graphics/P01.png\n\nMeet BackDown’s paired bd. Where is the 
+ other copy—and does its content match? Join early access for one email 
+ when BackDown is ready.\nhttps://backdown.io/?utm_source=bluesky&utm_medi
+ um=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p01#join\n\n
+ Publication conditions (not part of the post):\nReview final copy and cur
+ rent release status.
+STATUS:TENTATIVE
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:P02-linkedin@backdown.io
+DTSTAMP:20260928T120000Z
+DTSTART:20261001T083000Z
+DTEND:20261001T085000Z
+SUMMARY:linkedin: The drawer of old drives
+DESCRIPTION:DRAFT — importing this event does not schedule a social pos
+ t.\nAsset: graphics/P02.png\n\nAn old laptop drive. A disk labelled “ba
+ ckup”. Another labelled “backup old”.\n\nThe hard part of sorting t
+ hem is often knowing what each one contains. Which folders came from the 
+ same computer? Which hold something you still need? Which have another co
+ py?\n\nBackDown began with a real drive-consolidation job: years of old d
+ isks needed to become one archive. That experience still shapes the produ
+ ct.\n\nThe current alpha can index a drive and let you browse the invento
+ ry locally. Hashing and duplicate checks add evidence about matching cont
+ ent across the drives you have indexed.\n\nThe next time you plug in a fo
+ rgotten drive\, start by finding out what is there. Join early access for
+  one email when BackDown is ready.\n\nhttps://backdown.io/?utm_source=lin
+ kedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_conten
+ t=p02#join\n\nPublication conditions (not part of the post):\nReview fina
+ l copy and current release status.
+STATUS:TENTATIVE
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:P02-bluesky@backdown.io
+DTSTAMP:20260928T120000Z
+DTSTART:20261001T150000Z
+DTEND:20261001T152000Z
+SUMMARY:bluesky: The drawer of old drives
+DESCRIPTION:DRAFT — importing this event does not schedule a social pos
+ t.\nAsset: graphics/P02.png\n\nWhat is on those old drives? BackDown’s 
+ alpha builds a local inventory. Join early access for one email when Back
+ Down is ready.\nhttps://backdown.io/?utm_source=bluesky&utm_medium=organi
+ c_social&utm_campaign=bd_launch_2026_09&utm_content=p02#join\n\nPublicati
+ on conditions (not part of the post):\nReview final copy and current rele
+ ase status.
+STATUS:TENTATIVE
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:P02-mastodon@backdown.io
+DTSTAMP:20260928T120000Z
+DTSTART:20261001T153000Z
+DTEND:20261001T155000Z
+SUMMARY:[Optional / conditional] mastodon: The drawer of old drives
+DESCRIPTION:DRAFT — importing this event does not schedule a social pos
+ t.\nAsset: graphics/P02.png\n\nWhat is on those old drives? BackDown’s 
+ alpha builds a local inventory. Join early access for one email when Back
+ Down is ready.\nhttps://backdown.io/?utm_source=mastodon&utm_medium=organ
+ ic_social&utm_campaign=bd_launch_2026_09&utm_content=p02#join\n\nPublicat
+ ion conditions (not part of the post):\nAn appropriate Mastodon account i
+ s already active.\nInstance rules permit the post and final adapted copy 
+ fits its limit.\nFounder can reply manually.
+STATUS:TENTATIVE
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:P03-bluesky@backdown.io
+DTSTAMP:20260928T120000Z
+DTSTART:20261003T150000Z
+DTEND:20261003T152000Z
+SUMMARY:bluesky: An identical copy still has a job
+DESCRIPTION:DRAFT — importing this event does not schedule a social pos
+ t.\nAsset: graphics/P03.png\n\nAn identical copy may be a backup you need
+ . BackDown helps identify matches. Join early access for one email when B
+ ackDown is ready.\nhttps://backdown.io/?utm_source=bluesky&utm_medium=org
+ anic_social&utm_campaign=bd_launch_2026_09&utm_content=p03#join\n\nPublic
+ ation conditions (not part of the post):\nReview final copy and current r
+ elease status.
+STATUS:TENTATIVE
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:P04-linkedin@backdown.io
+DTSTAMP:20260928T120000Z
+DTSTART:20261006T083000Z
+DTEND:20261006T085000Z
+SUMMARY:linkedin: Put evidence behind the comparison
+DESCRIPTION:DRAFT — importing this event does not schedule a social pos
+ t.\nAsset: carousel/Before-you-clear-that-drive.pdf\n\nA folder name is a
+  label. A content hash gives you evidence about the file itself.\n\nBackD
+ own uses SHA-256 hashing when checking matching file contents. The public
+  alpha includes index\, hash\, dupes and check commands\, so you can move
+  from a list of files to a more informed view of where the matching copie
+ s are.\n\nThat distinction matters when an archive contains renamed files
+ \, repeated exports and years of copied folders. Familiar names can hide 
+ different contents\; different names can point to matching data.\n\nThe r
+ esult still needs to be read in the context of the drives and files you h
+ ave scanned. It is evidence to inspect when planning your archive.\n\nJoi
+ n early access for one email when BackDown is ready.\n\nhttps://backdown.
+ io/?utm_source=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_
+ 2026_09&utm_content=p04#join\n\nPublication conditions (not part of the p
+ ost):\nReview final copy and current release status.
+STATUS:TENTATIVE
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:P04-bluesky@backdown.io
+DTSTAMP:20260928T120000Z
+DTSTART:20261006T150000Z
+DTEND:20261006T152000Z
+SUMMARY:bluesky: Put evidence behind the comparison
+DESCRIPTION:DRAFT — importing this event does not schedule a social pos
+ t.\nAsset: graphics/P04.png\n\nA filename is a clue. BackDown uses SHA-25
+ 6 to compare file contents. Join early access for one email when BackDown
+  is ready.\nhttps://backdown.io/?utm_source=bluesky&utm_medium=organic_so
+ cial&utm_campaign=bd_launch_2026_09&utm_content=p04#join\n\nPublication c
+ onditions (not part of the post):\nReview final copy and current release 
+ status.
+STATUS:TENTATIVE
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:P04-hacker_news@backdown.io
+DTSTAMP:20260928T120000Z
+DTSTART:20261006T153000Z
+DTEND:20261006T173000Z
+SUMMARY:[Optional / conditional] hacker_news: Show HN launch
+DESCRIPTION:DRAFT — importing this event does not schedule a social pos
+ t.\nAsset: \n\nShow HN: BackDown – local drive inventory and hash-based
+  duplicate checks\n\nSubmission URL: https://backdown.io/download/?utm_so
+ urce=hacker_news&utm_medium=referral&utm_campaign=bd_launch_2026_09&utm_c
+ ontent=show_hn\n\nI’m working on BackDown\, a local drive-inventory and
+  duplicate-checking tool.\n\nBackDown began as a one-off job to consolida
+ te years of old drives into one archive. The original scripts indexed abo
+ ut 27 million files and read and hashed 15 TB in that founding dataset. T
+ hose numbers describe that particular archive\, not a general performance
+  claim.\n\nThe current public build is v0.2.0-alpha.4. It provides index\
+ , hash\, dupes and check commands\, plus a local browser and read-only vi
+ ewers for supported files. Builds cover Linux x86-64 and ARM64\, macOS un
+ iversal\, and Windows x86-64.\n\nDownload and setup notes: https://backdo
+ wn.io/download/\n\nThere is no signup gate. The local edition needs no ac
+ count and sends no telemetry. This is an early alpha\, rather than the pl
+ anned polished native desktop release. Broader planning and copying workf
+ lows are still roadmap work.\n\nUseful feedback would include confusing i
+ nventory results\, content comparisons that need more explanation\, and r
+ eproducible browser or viewer problems. Please use non-sensitive examples
+ \; sharing a private archive is not necessary.\n\nPublication conditions 
+ (not part of the post):\nCurrent public CLI download and installation hav
+ e been verified immediately before submission.\nThe author is free to rep
+ ly for at least two hours after submission.\nThe submission links directl
+ y to /download/ and requires no signup to try the product.
+STATUS:TENTATIVE
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:P05-linkedin@backdown.io
+DTSTAMP:20260928T120000Z
+DTSTART:20261008T083000Z
+DTEND:20261008T085000Z
+SUMMARY:linkedin: An inventory that stays local
+DESCRIPTION:DRAFT — importing this event does not schedule a social pos
+ t.\nAsset: graphics/P05.png\n\nAn archive can contain family photos\, old
+  documents\, project files and records you would never publish.\n\nBackDo
+ wn's local edition is built around keeping that work on your own machine.
+  It needs no account and sends no telemetry. The alpha's file browser is 
+ served locally\, so you can inspect the drives you have indexed without u
+ ploading their contents to a hosted dashboard.\n\nThe public alpha is ava
+ ilable to download without joining the website's early-access list.\n\nLo
+ cal processing is useful when your first task is simply understanding the
+  disks already on your desk.\n\nJoin early access for one email when Back
+ Down is ready.\n\nhttps://backdown.io/?utm_source=linkedin&utm_medium=org
+ anic_social&utm_campaign=bd_launch_2026_09&utm_content=p05#join\n\nPublic
+ ation conditions (not part of the post):\nReview final copy and current r
+ elease status.
+STATUS:TENTATIVE
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:P05-bluesky@backdown.io
+DTSTAMP:20260928T120000Z
+DTSTART:20261008T150000Z
+DTEND:20261008T152000Z
+SUMMARY:bluesky: An inventory that stays local
+DESCRIPTION:DRAFT — importing this event does not schedule a social pos
+ t.\nAsset: graphics/P05.png\n\nBackDown’s local edition needs no accoun
+ t and sends no telemetry. Join early access for one email when BackDown i
+ s ready.\nhttps://backdown.io/?utm_source=bluesky&utm_medium=organic_soci
+ al&utm_campaign=bd_launch_2026_09&utm_content=p05#join\n\nPublication con
+ ditions (not part of the post):\nReview final copy and current release st
+ atus.
+STATUS:TENTATIVE
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:P05-mastodon@backdown.io
+DTSTAMP:20260928T120000Z
+DTSTART:20261008T153000Z
+DTEND:20261008T155000Z
+SUMMARY:[Optional / conditional] mastodon: An inventory that stays local
+DESCRIPTION:DRAFT — importing this event does not schedule a social pos
+ t.\nAsset: graphics/P05.png\n\nBackDown’s local edition needs no accoun
+ t and sends no telemetry. Join early access for one email when BackDown i
+ s ready.\nhttps://backdown.io/?utm_source=mastodon&utm_medium=organic_soc
+ ial&utm_campaign=bd_launch_2026_09&utm_content=p05#join\n\nPublication co
+ nditions (not part of the post):\nAn appropriate Mastodon account is alre
+ ady active.\nInstance rules permit the post and final adapted copy fits i
+ ts limit.\nFounder can reply manually.
+STATUS:TENTATIVE
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:P06-bluesky@backdown.io
+DTSTAMP:20260928T120000Z
+DTSTART:20261010T150000Z
+DTEND:20261010T152000Z
+SUMMARY:bluesky: Keep the path attached
+DESCRIPTION:DRAFT — importing this event does not schedule a social pos
+ t.\nAsset: graphics/P06.png\n\nKeep the drive and folder attached to the 
+ result. Explore BackDown’s local inventory. Join early access for one e
+ mail when BackDown is ready.\nhttps://backdown.io/?utm_source=bluesky&utm
+ _medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p06#joi
+ n\n\nPublication conditions (not part of the post):\nReview final copy an
+ d current release status.
+STATUS:TENTATIVE
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:P07-linkedin@backdown.io
+DTSTAMP:20260928T120000Z
+DTSTART:20261013T083000Z
+DTEND:20261013T085000Z
+SUMMARY:linkedin: Try the public alpha
+DESCRIPTION:DRAFT — importing this event does not schedule a social pos
+ t.\nAsset: graphics/P07.png\n\nBackDown v0.2.0-alpha.4 is available to tr
+ y now.\n\nChoose the build for your machine: Linux x86-64 or ARM64\, macO
+ S universal for Apple silicon and Intel\, or Windows x86-64. The download
+  page includes release checksums and setup notes.\n\nFor a first look\, u
+ se a small folder whose contents you already know. Run the index command\
+ , inspect the local browser\, then try hashing and duplicate checks with 
+ a second known copy. The index\, hash\, dupes and check commands are the 
+ core of this preview.\n\nThe alpha also includes read-only viewers for su
+ pported file types. It is an early release\; clear\, reproducible feedbac
+ k is especially useful.\n\nDownload directly. There is no email signup ga
+ te.\n\nhttps://backdown.io/download/?utm_source=linkedin&utm_medium=organ
+ ic_social&utm_campaign=bd_launch_2026_09&utm_content=p07\n\nPublication c
+ onditions (not part of the post):\nReview final copy and current release 
+ status.
+STATUS:TENTATIVE
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:P07-bluesky@backdown.io
+DTSTAMP:20260928T120000Z
+DTSTART:20261013T150000Z
+DTEND:20261013T152000Z
+SUMMARY:bluesky: Try the public alpha
+DESCRIPTION:DRAFT — importing this event does not schedule a social pos
+ t.\nAsset: graphics/P07.png\n\nTry BackDown v0.2.0-alpha.4: index\, hash\
+ , dupes\, check and a local browser. Linux\, macOS and Windows builds. Di
+ rect download\; no signup gate.\nhttps://backdown.io/download/?utm_source
+ =bluesky&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_con
+ tent=p07\n\nPublication conditions (not part of the post):\nReview final 
+ copy and current release status.
+STATUS:TENTATIVE
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:P08-linkedin@backdown.io
+DTSTAMP:20260928T120000Z
+DTSTART:20261015T083000Z
+DTEND:20261015T085000Z
+SUMMARY:linkedin: The archive that started it
+DESCRIPTION:DRAFT — importing this event does not schedule a social pos
+ t.\nAsset: graphics/P08.png\n\nBackDown began as a one-off job: consolida
+ te years of old disks into one archive and work out which drives could be
+  cleared.\n\nThat founding archive contained about 27 million files. The 
+ original work read and hashed 15 TB\, and uncovered 5.9 TB of duplication
+  on the largest drive. An important mail archive only became clear after 
+ examining the script that had backed it up.\n\nThese are results from tha
+ t one archive\, not a promised saving or a benchmark for every machine.\n
+ \nThe experience gave BackDown a practical focus: make the inventory insp
+ ectable\, compare contents and preserve enough context to understand a re
+ sult.\n\nThe public product is now an alpha. Join early access for one em
+ ail when BackDown is ready.\n\nhttps://backdown.io/?utm_source=linkedin&u
+ tm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p08#j
+ oin\n\nPublication conditions (not part of the post):\nReview final copy 
+ and current release status.
+STATUS:TENTATIVE
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:P08-bluesky@backdown.io
+DTSTAMP:20260928T120000Z
+DTSTART:20261015T150000Z
+DTEND:20261015T152000Z
+SUMMARY:bluesky: The archive that started it
+DESCRIPTION:DRAFT — importing this event does not schedule a social pos
+ t.\nAsset: graphics/P08.png\n\nBackDown began with one archive: 27M files
+ \, 15 TB hashed\, 5.9 TB duplicated. One dataset. Join early access for o
+ ne email when BackDown is ready.\nhttps://backdown.io/?utm_source=bluesky
+ &utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p08
+ #join\n\nPublication conditions (not part of the post):\nReview final cop
+ y and current release status.
+STATUS:TENTATIVE
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:P08-mastodon@backdown.io
+DTSTAMP:20260928T120000Z
+DTSTART:20261015T153000Z
+DTEND:20261015T155000Z
+SUMMARY:[Optional / conditional] mastodon: The archive that started it
+DESCRIPTION:DRAFT — importing this event does not schedule a social pos
+ t.\nAsset: graphics/P08.png\n\nBackDown began with one archive: 27M files
+ \, 15 TB hashed\, 5.9 TB duplicated. One dataset. Join early access for o
+ ne email when BackDown is ready.\nhttps://backdown.io/?utm_source=mastodo
+ n&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p0
+ 8#join\n\nPublication conditions (not part of the post):\nAn appropriate 
+ Mastodon account is already active.\nInstance rules permit the post and f
+ inal adapted copy fits its limit.\nFounder can reply manually.
+STATUS:TENTATIVE
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:P09-bluesky@backdown.io
+DTSTAMP:20260928T120000Z
+DTSTART:20261017T150000Z
+DTEND:20261017T152000Z
+SUMMARY:bluesky: What you can try today
+DESCRIPTION:DRAFT — importing this event does not schedule a social pos
+ t.\nAsset: graphics/P09.png\n\nBackDown’s alpha: inventory\, hashing an
+ d local browsing. Native desktop is planned. Join early access for one em
+ ail when BackDown is ready.\nhttps://backdown.io/?utm_source=bluesky&utm_
+ medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p09#join
+ \n\nPublication conditions (not part of the post):\nReview final copy and
+  current release status.
+STATUS:TENTATIVE
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:P10-linkedin@backdown.io
+DTSTAMP:20260928T120000Z
+DTSTART:20261020T083000Z
+DTEND:20261020T085000Z
+SUMMARY:linkedin: Help make an inventory easier to understand
+DESCRIPTION:DRAFT — importing this event does not schedule a social pos
+ t.\nAsset: graphics/P10.png\n\nUseful early feedback can be very small.\n
+ \nA folder that is hard to recognise. A result whose wording is unclear. 
+ A file preview that does not show what you expected. A question the inven
+ tory leaves unanswered.\n\nBackDown's alpha is ready for that kind of scr
+ utiny. It indexes drives\, checks content matches and lets you inspect re
+ sults in a local browser. The people trying it can help make those result
+ s easier to understand.\n\nIf you have feedback\, describe what you expec
+ ted\, what happened\, your operating system and the version you tried. A 
+ minimal example using non-sensitive files is especially helpful\; there i
+ s no need to share your archive.\n\nWhat would you need an old-drive inve
+ ntory to explain? Reply here. Join early access for one email when BackDo
+ wn is ready.\n\nhttps://backdown.io/?utm_source=linkedin&utm_medium=organ
+ ic_social&utm_campaign=bd_launch_2026_09&utm_content=p10#join\n\nPublicat
+ ion conditions (not part of the post):\nReview final copy and current rel
+ ease status.
+STATUS:TENTATIVE
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:P10-bluesky@backdown.io
+DTSTAMP:20260928T120000Z
+DTSTART:20261020T150000Z
+DTEND:20261020T152000Z
+SUMMARY:bluesky: Help make an inventory easier to understand
+DESCRIPTION:DRAFT — importing this event does not schedule a social pos
+ t.\nAsset: graphics/P10.png\n\nWhat should an old-drive inventory explain
+ ? Tell us what is unclear in BackDown’s alpha. Join early access for on
+ e email when BackDown is ready.\nhttps://backdown.io/?utm_source=bluesky&
+ utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p10#
+ join\n\nPublication conditions (not part of the post):\nReview final copy
+  and current release status.
+STATUS:TENTATIVE
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:P11-linkedin@backdown.io
+DTSTAMP:20260928T120000Z
+DTSTART:20261022T083000Z
+DTEND:20261022T085000Z
+SUMMARY:linkedin: Names do not prove content
+DESCRIPTION:DRAFT — importing this event does not schedule a social pos
+ t.\nAsset: graphics/P11.png\n\nConsider two files both named “holiday.j
+ pg”. They could be different photos.\n\nNow consider “holiday.jpg” 
+ and “holiday-copy.jpg”. They could contain exactly the same photo dat
+ a.\n\nNames help people organise things\, but they do not establish that 
+ file contents match. That becomes a problem when years of exports\, renam
+ ed folders and device backups meet in one archive.\n\nBackDown's alpha us
+ es content hashing as part of its duplicate checks. It helps you investig
+ ate copies by their data\, while keeping the paths available so you can u
+ nderstand where the results came from.\n\nA match is still something to i
+ nterpret within your backup plan. Start with evidence\, then decide which
+  copies serve a purpose.\n\nJoin early access for one email when BackDown
+  is ready.\n\nhttps://backdown.io/?utm_source=linkedin&utm_medium=organic
+ _social&utm_campaign=bd_launch_2026_09&utm_content=p11#join\n\nPublicatio
+ n conditions (not part of the post):\nReview final copy and current relea
+ se status.
+STATUS:TENTATIVE
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:P11-bluesky@backdown.io
+DTSTAMP:20260928T120000Z
+DTSTART:20261022T150000Z
+DTEND:20261022T152000Z
+SUMMARY:bluesky: Names do not prove content
+DESCRIPTION:DRAFT — importing this event does not schedule a social pos
+ t.\nAsset: graphics/P11.png\n\nSame name\, different contents? BackDown u
+ ses hashing to investigate copies. Join early access for one email when B
+ ackDown is ready.\nhttps://backdown.io/?utm_source=bluesky&utm_medium=org
+ anic_social&utm_campaign=bd_launch_2026_09&utm_content=p11#join\n\nPublic
+ ation conditions (not part of the post):\nReview final copy and current r
+ elease status.
+STATUS:TENTATIVE
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:P11-mastodon@backdown.io
+DTSTAMP:20260928T120000Z
+DTSTART:20261022T153000Z
+DTEND:20261022T155000Z
+SUMMARY:[Optional / conditional] mastodon: Names do not prove content
+DESCRIPTION:DRAFT — importing this event does not schedule a social pos
+ t.\nAsset: graphics/P11.png\n\nSame name\, different contents? BackDown u
+ ses hashing to investigate copies. Join early access for one email when B
+ ackDown is ready.\nhttps://backdown.io/?utm_source=mastodon&utm_medium=or
+ ganic_social&utm_campaign=bd_launch_2026_09&utm_content=p11#join\n\nPubli
+ cation conditions (not part of the post):\nAn appropriate Mastodon accoun
+ t is already active.\nInstance rules permit the post and final adapted co
+ py fits its limit.\nFounder can reply manually.
+STATUS:TENTATIVE
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:P12-linkedin@backdown.io
+DTSTAMP:20260928T120000Z
+DTSTART:20261027T093000Z
+DTEND:20261027T095000Z
+SUMMARY:linkedin: From a drawer to an understandable archive
+DESCRIPTION:DRAFT — importing this event does not schedule a social pos
+ t.\nAsset: graphics/P12.png\n\nOver the past month\, we have looked at th
+ e questions behind BackDown: what is on each drive\, where the other copi
+ es are\, and what evidence says their contents match.\n\nThe new paired b
+ d mark brings that idea into the identity. The product is still at an ear
+ ly stage: the public alpha offers indexing\, hashing\, duplicate checks a
+ nd local browsing\, with read-only viewers for supported files.\n\nThe ne
+ xt steps will be shaped by what people find useful and what remains hard 
+ to understand. A clear inventory of an old drive is a good place to start
+ .\n\nIf you have a drawer of disks\, a sprawling archive or a comparison 
+ you cannot quite trust\, follow this account for progress. Join early acc
+ ess for one email when BackDown is ready.\n\nhttps://backdown.io/?utm_sou
+ rce=linkedin&utm_medium=organic_social&utm_campaign=bd_launch_2026_09&utm
+ _content=p12#join\n\nPublication conditions (not part of the post):\nRevi
+ ew final copy and current release status.
+STATUS:TENTATIVE
+TRANSP:TRANSPARENT
+END:VEVENT
+BEGIN:VEVENT
+UID:P12-bluesky@backdown.io
+DTSTAMP:20260928T120000Z
+DTSTART:20261027T160000Z
+DTEND:20261027T162000Z
+SUMMARY:bluesky: From a drawer to an understandable archive
+DESCRIPTION:DRAFT — importing this event does not schedule a social pos
+ t.\nAsset: graphics/P12.png\n\nKnow what is on your drives. Find the matc
+ hing copies. BackDown’s alpha is the start. Join early access for one e
+ mail when BackDown is ready.\nhttps://backdown.io/?utm_source=bluesky&utm
+ _medium=organic_social&utm_campaign=bd_launch_2026_09&utm_content=p12#joi
+ n\n\nPublication conditions (not part of the post):\nReview final copy an
+ d current release status.
+STATUS:TENTATIVE
+TRANSP:TRANSPARENT
+END:VEVENT
+END:VCALENDAR
