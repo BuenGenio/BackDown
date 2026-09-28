@@ -24,7 +24,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 use backdown_core::{
-    Db, apply, browse, fmt, overlap, paths, plan, recognise, report, summary, volumes, wipe,
+    Db, apply, browse, fmt, overlap, paths, plan, recognise, report, rescue, summary, volumes, wipe,
 };
 
 use crate::daemon::Daemon;
@@ -239,6 +239,27 @@ fn handle(ctx: &Ctx, req: Request) {
                 Ok(v) => json_resp(&v),
                 Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
             }
+        };
+        let _ = req.respond(resp);
+        return;
+    }
+    if *req.method() == Method::Post && path == "/api/job-stop" {
+        // stop a queued job, or a running one that can stop (a rescue): the map or results so far stay
+        let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
+        let resp = match (
+            marked,
+            &ctx.daemon,
+            param("id").and_then(|v| v.parse::<u64>().ok()),
+        ) {
+            (false, _, _) => plain(403, "missing X-BackDown header"),
+            (true, None, _) => json_resp(&json!({ "error": "no daemon" })).with_status_code(409),
+            (true, Some(_), None) => {
+                json_resp(&json!({ "error": "missing id" })).with_status_code(400)
+            }
+            (true, Some(d), Some(id)) => match d.stop(id) {
+                Ok(state) => json_resp(&json!({ "ok": true, "state": state })),
+                Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(409),
+            },
         };
         let _ = req.respond(resp);
         return;
@@ -683,6 +704,11 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
         }
         "/api/wipe-assess" => wipe_assess(ctx, &db, param("keys"))?,
         "/api/wipes" => json!(wipe::history(&db)?),
+        // can the daemon read this drive (or image file) directly, and if not, what would let it
+        "/api/rescue-access" => json!(rescue::access(Path::new(
+            param("path").context("missing path")?.trim()
+        ))),
+        "/api/rescues" => json!(rescue::history(&db)?),
         // free space where things would be moved to (the nearest folder up that exists)
         "/api/room" => {
             let p = PathBuf::from(param("path").context("missing path")?.trim());

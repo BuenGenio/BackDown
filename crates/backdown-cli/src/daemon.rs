@@ -10,6 +10,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -35,7 +36,9 @@ pub struct Job {
     pub id: u64,
     pub kind: &'static str, // "index" | "hash" | "entities"
     pub path: Option<String>,
-    pub state: &'static str, // "queued" | "running" | "done" | "failed"
+    pub state: &'static str, // "queued" | "running" | "done" | "failed" | "stopped"
+    /// it can be stopped while it runs (and resumed later where that makes sense)
+    pub stoppable: bool,
     pub progress: String,
     /// the same progress as numbers, for progress bars and time estimates
     pub counts: Option<Counts>,
@@ -86,13 +89,24 @@ pub struct JobOpts {
     /// wipe: which recorded wipe, and whether to trust the index instead of re-reading
     pub wipe: Option<i64>,
     pub trust_index: bool,
+    /// rescue: which recorded rescue
+    pub rescue: Option<i64>,
 }
+
+/// Jobs that can run for hours or days and hardly touch the index (copying a failing drive,
+/// searching a card for lost files): they go in a lane of their own, one at a time, so scans and
+/// hashing carry on meanwhile, and they can be stopped.
+const SIDE: &[&str] = &["rescue"];
 
 #[derive(Default)]
 struct State {
     next: u64,
     jobs: VecDeque<Job>,
     queue: VecDeque<u64>,
+    /// the side lane's queue (see `SIDE`)
+    side: VecDeque<u64>,
+    /// how to ask each running stoppable job to stop
+    stops: HashMap<u64, Arc<AtomicBool>>,
     /// bumped on every change a viewer would notice, so the web UI can wait for the next one
     /// instead of polling (progress counts at most once a second)
     version: u64,
@@ -161,6 +175,7 @@ impl Daemon {
             kind,
             path,
             state: "queued",
+            stoppable: SIDE.contains(&kind),
             progress: String::new(),
             counts: None,
             summary: String::new(),
@@ -172,13 +187,17 @@ impl Daemon {
             finished_at: None,
             opts,
         });
-        st.queue.push_back(id);
+        if SIDE.contains(&kind) {
+            st.side.push_back(id);
+        } else {
+            st.queue.push_back(id);
+        }
         // keep a bounded history of finished jobs
         while st.jobs.len() > 200 {
             match st
                 .jobs
                 .iter()
-                .position(|j| j.state == "done" || j.state == "failed")
+                .position(|j| matches!(j.state, "done" | "failed" | "stopped"))
             {
                 Some(i) => {
                     st.jobs.remove(i);
@@ -190,6 +209,37 @@ impl Daemon {
         self.wake.notify_all();
         self.changed.notify_all();
         id
+    }
+
+    /// Stop job `id`: taken off the queue if it hasn't started; asked to stop at its next
+    /// checkpoint if it's running and can be stopped.
+    pub fn stop(&self, id: u64) -> Result<&'static str> {
+        let mut st = self.state.lock().unwrap();
+        let queued = st.queue.iter().position(|x| *x == id).map(|i| (false, i));
+        if let Some((side, i)) =
+            queued.or_else(|| st.side.iter().position(|x| *x == id).map(|i| (true, i)))
+        {
+            if side {
+                st.side.remove(i);
+            } else {
+                st.queue.remove(i);
+            }
+            if let Some(j) = st.jobs.iter_mut().find(|j| j.id == id) {
+                j.state = "stopped";
+                j.summary = "taken off the queue".into();
+                j.finished_at = Some(now());
+            }
+            st.version += 1;
+            self.changed.notify_all();
+            return Ok("taken off the queue");
+        }
+        match st.stops.get(&id) {
+            Some(flag) => {
+                flag.store(true, Ordering::Relaxed);
+                Ok("stopping")
+            }
+            None => bail!("job {id} isn't waiting, and can't be stopped while it runs"),
+        }
     }
 
     pub fn job(&self, id: u64) -> Option<Job> {
@@ -263,17 +313,26 @@ impl Daemon {
     /// What the daemon is doing, for the CLI and the web UI.
     pub fn snapshot(&self) -> Value {
         let st = self.state.lock().unwrap();
-        let current = st.jobs.iter().find(|j| j.state == "running");
+        let current = st
+            .jobs
+            .iter()
+            .find(|j| j.state == "running" && !SIDE.contains(&j.kind));
+        // the side lane's running job (a rescue), alongside the main one
+        let side = st
+            .jobs
+            .iter()
+            .find(|j| j.state == "running" && SIDE.contains(&j.kind));
         let queued: Vec<&Job> = st
             .queue
             .iter()
+            .chain(st.side.iter())
             .filter_map(|id| st.jobs.iter().find(|j| j.id == *id))
             .collect();
         let recent: Vec<&Job> = st
             .jobs
             .iter()
             .rev()
-            .filter(|j| j.state == "done" || j.state == "failed")
+            .filter(|j| matches!(j.state, "done" | "failed" | "stopped"))
             .take(30)
             .collect();
         // the plan: when each drive is scanned next, and why not if it isn't
@@ -317,6 +376,7 @@ impl Daemon {
             "rescan_every_secs": self.rescan_every.map(|d| d.as_secs()),
             "checked_at": st.checked_at,
             "current": current,
+            "side": side,
             "queued": queued,
             "recent": recent,
             "drives": drives,
@@ -374,6 +434,12 @@ pub fn run(opts: Options) -> Result<()> {
     {
         let d = Arc::clone(&d);
         std::thread::Builder::new()
+            .name("side".into())
+            .spawn(move || side_worker(&d))?;
+    }
+    {
+        let d = Arc::clone(&d);
+        std::thread::Builder::new()
             .name("scheduler".into())
             .spawn(move || scheduler(&d))?;
     }
@@ -413,6 +479,56 @@ fn write_private(path: &Path, data: &[u8], shared: bool) -> Result<()> {
     }
     std::fs::rename(&tmp, path)?;
     Ok(())
+}
+
+// ---------- the side lane: long jobs that hardly write to the index, one at a time, stoppable
+
+fn side_worker(d: &Daemon) {
+    loop {
+        let id = {
+            let mut st = d.state.lock().unwrap();
+            while st.side.is_empty() {
+                st = d.wake.wait(st).unwrap();
+            }
+            st.side.pop_front().expect("checked non-empty")
+        };
+        let Some(job) = d.job(id) else { continue };
+        let stop = Arc::new(AtomicBool::new(false));
+        d.state.lock().unwrap().stops.insert(id, Arc::clone(&stop));
+        d.update(id, |j| {
+            j.state = "running";
+            j.started_at = Some(now());
+        });
+        // its own connection: the rescue record's short writes wait their turn behind the worker's
+        let result = Db::open(&d.db).and_then(|db| match job.kind {
+            "rescue" => run_rescue(d, &db, &job, &stop),
+            k => bail!("{k} doesn't run in the side lane"),
+        });
+        d.state.lock().unwrap().stops.remove(&id);
+        let stopped = stop.load(Ordering::Relaxed);
+        match result {
+            Ok(summary) => {
+                eprintln!("{}: {summary}", if stopped { "stopped" } else { "done" });
+                d.update(id, |j| {
+                    j.state = if stopped { "stopped" } else { "done" };
+                    j.summary = summary;
+                    j.finished_at = Some(now());
+                });
+            }
+            Err(e) => {
+                eprintln!(
+                    "failed: {} {}: {e:#}",
+                    job.kind,
+                    job.path.as_deref().unwrap_or("")
+                );
+                d.update(id, |j| {
+                    j.state = "failed";
+                    j.error = Some(format!("{e:#}"));
+                    j.finished_at = Some(now());
+                });
+            }
+        }
+    }
 }
 
 // ---------- the worker: one job at a time, one writer to the index
@@ -669,6 +785,13 @@ fn run_wipe(d: &Daemon, db: &mut Db, job: &Job) -> Result<String> {
             String::new()
         }
     ))
+}
+
+/// Carry out a recorded rescue (see backdown_core::rescue). Wired to the engines once they land.
+fn run_rescue(_d: &Daemon, db: &Db, job: &Job, _stop: &AtomicBool) -> Result<String> {
+    let id = job.opts.rescue.context("rescue without a record")?;
+    let r = backdown_core::rescue::load(db, id)?;
+    bail!("rescue {id} ({}) can't run yet", r.mode)
 }
 
 /// The indexed root holding `path`, if any.
@@ -966,10 +1089,14 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
                 mirror: None,
                 wipe: req["wipe"].as_i64(),
                 trust_index: req["trust_index"].as_bool().unwrap_or(false),
+                rescue: None,
             };
             json!({ "ok": true, "job": d.enqueue(kind, path, "requested", opts) })
         }
         "job" => json!({ "ok": true, "job": d.job(req["job"].as_u64().context("missing job")?) }),
+        "stop" => {
+            json!({ "ok": true, "state": d.stop(req["job"].as_u64().context("missing job")?)? })
+        }
         "check" => {
             let p = req["path"].as_str().context("check needs a path")?;
             json!({ "ok": true, "report": report::check(&ro()?, Path::new(p))? })
