@@ -19,7 +19,7 @@ use std::process::Command;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
-use backdown_core::{Db, browse, fmt, report};
+use backdown_core::{Db, browse, fmt, overlap, paths, recognise, report, summary};
 
 use crate::daemon::Daemon;
 use crate::peek;
@@ -200,6 +200,21 @@ fn handle(ctx: &Ctx, req: Request) {
         let _ = req.respond(resp);
         return;
     }
+    if *req.method() == Method::Post && path == "/api/recognise" {
+        let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
+        let resp = match (marked, &ctx.daemon) {
+            (false, _) => plain(403, "missing X-BackDown header"),
+            (true, None) => {
+                json_resp(&json!({ "error": "no daemon: run `backdown entities` in a terminal" }))
+                    .with_status_code(409)
+            }
+            (true, Some(d)) => json_resp(
+                &json!({ "ok": true, "job": d.enqueue("entities", None, "requested", Default::default()) }),
+            ),
+        };
+        let _ = req.respond(resp);
+        return;
+    }
     if *req.method() == Method::Post && path == "/api/rescan" {
         let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
         let resp = match (marked, &ctx.daemon) {
@@ -234,6 +249,35 @@ fn handle(ctx: &Ctx, req: Request) {
                 .with_header(header("Content-Security-Policy", UI_CSP))
                 .with_header(header("Cache-Control", "no-store"));
         }
+        let _ = req.respond(resp);
+        return;
+    }
+    if path == "/api/report" {
+        let resp = match report(ctx, param("format") == Some("md")) {
+            Ok((body, md)) => {
+                let r = Response::from_data(body.into_bytes())
+                    .with_header(header(
+                        "Content-Type",
+                        if md {
+                            "text/markdown; charset=utf-8"
+                        } else {
+                            "text/html; charset=utf-8"
+                        },
+                    ))
+                    .with_header(header("Content-Security-Policy", UI_CSP))
+                    .with_header(header("X-Content-Type-Options", "nosniff"))
+                    .with_header(header("Cache-Control", "no-store"));
+                if md {
+                    r.with_header(header(
+                        "Content-Disposition",
+                        "attachment; filename=\"backdown-report.md\"",
+                    ))
+                } else {
+                    r
+                }
+            }
+            Err(e) => plain(500, &format!("{e:#}")),
+        };
         let _ = req.respond(resp);
         return;
     }
@@ -287,6 +331,26 @@ fn decode(s: &str) -> String {
         i += 1;
     }
     String::from_utf8_lossy(&out).into_owned()
+}
+
+/// The report as HTML (to view) or Markdown (to save), from what's stored and indexed now.
+fn report(ctx: &Ctx, md: bool) -> Result<(String, bool)> {
+    let db = ro_db(ctx)?;
+    let rec: Vec<_> = recognise::root_ids(&db)?
+        .into_iter()
+        .filter_map(|id| recognise::load(&db, id).ok().flatten())
+        .collect();
+    let list: Vec<_> = rec.iter().map(|(r, _)| r.clone()).collect();
+    let ov = overlap::overlaps(&db, &list, &mut |_| {})?;
+    let s = summary::build(&db, &rec, &ov, &mut |_| {})?;
+    Ok((
+        if md {
+            summary::markdown(&s)
+        } else {
+            summary::html(&s)
+        },
+        md,
+    ))
 }
 
 /// Queue a scan of one indexed drive (by root id) or of all of them.
@@ -355,10 +419,42 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
             json!(browse::list(&db, &dir()?, scan)?)
         }
         "/api/file" => json!(browse::file(&db, id()?)?),
+        // what's recognised on each drive (as stored: the daemon refreshes it after each scan)
+        "/api/entities" => {
+            let mut roots = Vec::new();
+            for id in recognise::root_ids(&db)? {
+                if let Some((r, fresh)) = recognise::load(&db, id)? {
+                    let mut v = serde_json::to_value(&r)?;
+                    v["fresh"] = json!(fresh);
+                    roots.push(v);
+                }
+            }
+            json!({ "roots": roots, "daemon": ctx.daemon.is_some() })
+        }
+        "/api/overlaps" => {
+            let stored: Vec<_> = recognise::root_ids(&db)?
+                .into_iter()
+                .filter_map(|id| recognise::load(&db, id).ok().flatten().map(|(r, _)| r))
+                .collect();
+            json!(overlap::overlaps(&db, &stored, &mut |_| {})?)
+        }
         // a typed path -> the folder to show (and the file to select), if it's in the index
         "/api/resolve" => {
-            let typed = PathBuf::from(param("path").context("missing path")?.trim());
-            if browse::list(&db, &typed, None).is_ok() {
+            // a typed path, or an entity's key (exact bytes, whatever the OS's path encoding)
+            let typed = match param("key") {
+                Some(k) => browse::path_of(k)?,
+                None => PathBuf::from(param("path").context("missing path")?.trim()),
+            };
+            // a file lists as an empty folder, so ask about files first
+            let is_file: bool = db
+                .conn
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM files WHERE path = ?1 AND current = 1)",
+                    [paths::to_bytes(&typed)],
+                    |r| r.get(0),
+                )
+                .unwrap_or(false);
+            if !is_file && browse::list(&db, &typed, None).is_ok() {
                 json!({ "dir": browse::key(&typed) })
             } else {
                 let parent = typed.parent().context("not in the index")?;

@@ -65,6 +65,7 @@ function renderPlaces() {
     </div>`).join('');
   $('#dupes-btn').setAttribute('aria-current', String(S.mode === 'dupes'));
   $('#activity-btn').setAttribute('aria-current', String(S.mode === 'activity'));
+  $('#entities-btn').setAttribute('aria-current', String(S.mode === 'entities'));
 }
 
 // ---------- navigation
@@ -147,7 +148,7 @@ function renderPath() {
     return;
   }
   if (S.mode !== 'browse') {
-    $('#pathbar').innerHTML = `<span class="crumb" style="cursor:default">${{ dupes: 'Duplicates', activity: 'Activity' }[S.mode] || 'Search'}</span>`;
+    $('#pathbar').innerHTML = `<span class="crumb" style="cursor:default">${{ dupes: 'Duplicates', activity: 'Activity', entities: 'What’s here' }[S.mode] || 'Search'}</span>`;
     return;
   }
   $('#pathbar').innerHTML = S.listing.crumbs.map((c, i) =>
@@ -734,6 +735,7 @@ const snap = () => Object.fromEntries(TAB_FIELDS.map(f => [f, S[f]]));
 function tabTitle(t) {
   if (t.mode === 'activity') return 'Activity';
   if (t.mode === 'dupes') return 'Duplicates';
+  if (t.mode === 'entities') return 'What’s here';
   if (t.mode === 'compare') return `Compare · ${t.cmp?.listing?.name || ''}`;
   if (!t.listing) return S.roots.find(r => t.dir && atob64(t.dir).startsWith(atob64(r.key)))?.name || '…';
   return t.listing.crumbs.length > 1 ? t.listing.name : t.root?.name || t.listing.name;
@@ -778,6 +780,7 @@ async function showCurrent() {
   setViewButtons(); syncFilterUI(); closeSearch(false);
   if (S.mode === 'activity') return showActivity();
   if (S.mode === 'dupes') return showDupes();
+  if (S.mode === 'entities') return showEntities();
   if (S.mode === 'compare' && S.cmp) return renderCompare();
   S.mode = 'browse';
   if (!S.listing) return S.dir ? go(S.dir, { push: false, scan: null }) : showActivity();
@@ -864,6 +867,98 @@ async function showDupes() {
   });
 }
 
+// ---------- What's here: recognised things on every drive, with where they came from
+
+const KIND_COLOR = { 'mail-store': '#3b8fd8', maildir: '#3b8fd8', mdbox: '#3b8fd8', thunderbird: '#3b8fd8', nextcloud: '#1f8a8a',
+  'nextcloud-server': '#1f8a8a', timemachine: '#55606e', 'ios-backup': '#8e5bd1', 'android-backup': '#2e8b57', system: '#b8800e',
+  'home-mac': '#d97a1b', 'home-linux': '#d97a1b', 'home-windows': '#d97a1b', website: '#c2458a', git: '#d8432b', 'sql-dump': '#b8800e',
+  'disk-image': '#55606e', photos: '#8e5bd1', music: '#c2458a', videos: '#7a4fd6', export: '#3b6fd8', downloads: '#8a8f98', recovery: '#8a8f98' };
+const ENT = { kind: 'all', q: '', data: null, overlaps: null };
+const yearsOf = e => { if (!e.oldest || !e.newest) return ''; const a = new Date(e.oldest * 1000).getFullYear(), b = new Date(e.newest * 1000).getFullYear(); return a === b ? `${a}` : `${a}–${b}`; };
+
+async function showEntities() {
+  S.mode = 'entities';
+  closeSearch(false);
+  renderTabs(); renderPlaces(); renderPath();
+  $('#banner').hidden = true; $('#info').hidden = true; $('#timebar').hidden = true;
+  $('#view').innerHTML = '<div class="empty"><p>Loading…</p></div>';
+  try { ENT.data = await api('entities'); } catch (e) { return toastError(e); }
+  renderEntities();
+  // how much of each thing exists elsewhere: slower, so it fills in afterwards
+  api('overlaps').then(o => { ENT.overlaps = new Map(o.map(x => [x.unit.key + ':' + x.unit.level, x])); if (S.mode === 'entities') renderEntities(); }).catch(() => {});
+}
+
+function renderEntities() {
+  const d = ENT.data, v = $('#view');
+  if (S.mode !== 'entities' || !d) return;
+  const roots = d.roots || [];
+  const all = roots.flatMap(r => r.entities);
+  const kinds = [...new Map(all.map(e => [e.kind, e.label])).entries()];
+  const match = e => (ENT.kind === 'all' || e.kind === ENT.kind) && (!ENT.q || `${e.label} ${e.title} ${e.path} ${e.provenance.join(' ')} ${e.facts.map(f => f[1]).join(' ')}`.toLowerCase().includes(ENT.q));
+  const keep = v.scrollTop;
+  const bar = `<div class="ent-bar">
+      <label>Show <select id="ent-kind"><option value="all">Everything (${all.length})</option>${kinds.map(([k, l]) => `<option value="${k}"${k === ENT.kind ? ' selected' : ''}>${esc(l)} (${all.filter(e => e.kind === k).length})</option>`).join('')}</select></label>
+      <input id="ent-q" type="search" placeholder="Filter by name, path or origin" value="${esc(ENT.q)}" aria-label="Filter">
+      <span class="grow"></span>
+      ${d.daemon ? '<button class="btn sm" type="button" id="ent-refresh">Recognise again</button>' : ''}
+      <a class="btn sm" href="/api/report" target="_blank" rel="noopener">Report</a>
+      <a class="btn sm" href="/api/report?format=md" download="backdown-report.md">Markdown</a></div>`;
+  if (!roots.length) {
+    v.innerHTML = bar + `<div class="empty"><div><h2>Nothing recognised yet</h2><p>${d.daemon ? 'BackDown recognises what’s on a drive after it hashes it. Start it now with “Recognise again”.' : 'Run <code>backdown entities</code> in a terminal, then reload.'}</p></div></div>`;
+  } else {
+    v.innerHTML = bar + roots.map(r => {
+      const list = r.entities.filter(match);
+      const drive = ENT.overlaps?.get(`${S.roots.find(x => x.path === r.root)?.key}:drive`);
+      const junk = r.junk.reduce((n, j) => n + j.bytes, 0) + r.entities.reduce((n, e) => n + e.junk.reduce((m, j) => m + j.bytes, 0), 0);
+      return `<section class="ent-drive">
+        <header><h2>${esc(rootName(r.root))}</h2><span class="muted">${esc(r.root)}</span>
+          ${drive ? `<span class="pill ${drive.elsewhere >= drive.unit.bytes && drive.unit.bytes ? 'ok' : ''}">${Math.floor(100 * drive.elsewhere / Math.max(1, drive.unit.bytes))}% exists elsewhere</span>` : ''}
+          ${junk ? `<span class="pill">${bytes(junk)} regenerable</span>` : ''}
+          ${r.fresh ? '' : '<span class="pill warn" title="Scanned again since: recognise again to update">from an earlier scan</span>'}
+          ${r.read_drive ? '' : '<span class="pill off" title="The drive wasn’t connected, so its files couldn’t be read for provenance">drive wasn’t connected</span>'}</header>
+        ${list.length ? `<div class="ents">${list.map(e => entityCard(e, r)).join('')}</div>` : `<p class="muted pad">${r.entities.length ? 'Nothing matches the filter.' : 'Nothing recognised on this drive: no mail stores, backups, systems, repositories or libraries.'}</p>`}
+      </section>`;
+    }).join('');
+  }
+  v.scrollTop = keep;
+  $('#ent-kind').onchange = e => { ENT.kind = e.target.value; renderEntities(); };
+  const q = $('#ent-q');
+  q.oninput = () => { clearTimeout(q._t); q._t = setTimeout(() => { ENT.q = q.value.trim().toLowerCase(); renderEntities(); $('#ent-q').focus(); const i = $('#ent-q'); i.setSelectionRange(i.value.length, i.value.length); }, 200); };
+  $('#ent-refresh')?.addEventListener('click', async () => {
+    const r = await fetch('/api/recognise', { method: 'POST', headers: { 'X-BackDown': '1' }, credentials: 'same-origin' });
+    if (!r.ok) return toastError(new Error((await r.json().catch(() => ({}))).error || r.statusText));
+    toast('Recognising: it shows in Activity, and here when it’s done');
+    if (!polling) pollDaemon(true);
+  });
+}
+
+function entityCard(e, r) {
+  const rel = e.path.startsWith(r.root) ? e.path.slice(r.root.length).replace(/^[\\/]/, '') || '.' : e.path;
+  const ov = ENT.overlaps?.get(`${e.key}:entity`);
+  const junk = e.junk.reduce((n, j) => n + j.bytes, 0);
+  const share = ov && ov.unit.bytes ? ov.elsewhere / ov.unit.bytes : null;
+  return `<article class="ent${e.low_value ? ' low' : ''}" style="--c:${KIND_COLOR[e.kind] || '#8a8f98'}">
+    <div class="ent-top"><span class="ent-kind">${esc(e.label)}</span><span class="ent-size">${bytes(e.bytes)}</span></div>
+    <h3>${esc(e.title)}</h3>
+    <button class="rowlink ent-path" type="button" data-ent-open="${e.key}" data-ent-file="${e.is_file ? 1 : ''}" title="Open ${esc(e.path)}">${esc(rel)}</button>
+    <div class="ent-meta">${[yearsOf(e), e.is_file ? '' : `${count(e.files)} files`, e.confidence < 0.8 ? `${Math.round(e.confidence * 100)}% sure` : ''].filter(Boolean).map(esc).join(' · ')}</div>
+    ${e.facts.length ? `<dl class="ent-facts">${e.facts.filter(([k]) => k !== 'Size').map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl>` : ''}
+    ${e.provenance.length ? `<ul class="ent-prov">${e.provenance.map(p => `<li>${esc(p)}</li>`).join('')}</ul>` : ''}
+    ${share != null ? `<div class="ent-else"><div class="meter"><i style="width:${(share * 100).toFixed(1)}%"></i></div><span>${Math.floor(share * 100)}% exists elsewhere${ov.containers[0] ? `, mostly in <button class="rowlink" type="button" data-ent-open="${ov.containers[0].key}">${esc(ov.containers[0].label)}</button>` : ''}</span></div>` : ''}
+    ${junk ? `<p class="ent-junk">${bytes(junk)} regenerable: ${esc([...new Set(e.junk.map(j => j.why))].slice(0, 3).join(', '))}</p>` : ''}
+    ${e.low_value ? '<p class="ent-junk">Probably not worth keeping as a unit.</p>' : ''}
+  </article>`;
+}
+
+// open an entity's folder (or the folder holding it, with it selected)
+async function openEntityPath(key, isFile) {
+  if (!isFile) {
+    try { await go(key, { scan: null }); return; } catch {}
+  }
+  const r = await api('resolve', { key }).catch(e => { toastError(e); return null; });
+  if (r) go(r.dir, { select: r.select || null, scan: null });
+}
+
 // ---------- the daemon: activity, rescans, live refresh
 //
 // Long polls /api/daemon: the daemon answers as soon as something changes (at most once a second while
@@ -890,7 +985,7 @@ async function pollDaemon(fresh = false) {
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden) pollDaemon(true); });
 
-const jobName = j => j.kind === 'index' ? `Scan ${rootName(j.path)}` : 'Hash new and changed files';
+const jobName = j => j.kind === 'index' ? `Scan ${rootName(j.path)}` : j.kind === 'entities' ? 'Recognise what’s on the drives' : 'Hash new and changed files';
 const rootName = p => S.roots.find(r => r.path === p)?.name || (p || '').split(/[\\/]/).filter(Boolean).pop() || p;
 
 async function applyDaemon(d) {
@@ -914,6 +1009,8 @@ async function applyDaemon(d) {
       }
     }
     if (done) lastDone = done.id;
+    // recognition finished: refresh What's here if it's on screen
+    if (done && done.kind === 'entities' && done.id === lastDone && S.mode === 'entities' && done.finished_at > d.now - 5) showEntities();
     const failed = d.recent.find(j => j.state === 'failed');
     if (failed && failed.id > shownFail && failed.finished_at > d.now - 60 && S.mode !== 'activity') toastError(new Error(`${jobName(failed)} failed: ${failed.error}`));
     if (failed) shownFail = Math.max(shownFail, failed.id);
@@ -966,6 +1063,7 @@ const REASON = { requested: 'you asked', scheduled: 'scheduled', returned: 'driv
 const JOB_ICON = {
   index: '<svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg>',
   hash: '<svg viewBox="0 0 24 24"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></svg>',
+  entities: '<svg viewBox="0 0 24 24"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>',
 };
 
 let activityClock;
@@ -1124,6 +1222,8 @@ document.addEventListener('click', e => {
   const tb = t.closest('[data-tab]');
   if (tb) return switchTab(+tb.dataset.tab);
   if (t.closest('#clear-filters')) return clearFilters();
+  const eo = t.closest('[data-ent-open]');
+  if (eo) return openEntityPath(eo.dataset.entOpen, !!eo.dataset.entFile);
   const inner = t.closest('[data-go]');
   if (inner && e.detail >= 2) return go(inner.dataset.go);
   if (t.closest('#show-hidden')) return toggleHidden();
@@ -1178,6 +1278,7 @@ $('#q').addEventListener('input', e => { clearTimeout(searchTimer); searchTimer 
 $('#q').addEventListener('keydown', e => { if (e.key === 'Escape') { closeSearch(); $('#view').focus(); } });
 $('#dupes-btn').onclick = showDupes;
 $('#activity-btn').onclick = showActivity;
+$('#entities-btn').onclick = showEntities;
 $('#time').addEventListener('input', e => setScan(+e.target.value));
 $('#time-now').onclick = () => setScan(S.timeline.length - 1);
 

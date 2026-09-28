@@ -33,7 +33,7 @@ pub struct Options {
 #[derive(Clone, Debug, Serialize)]
 pub struct Job {
     pub id: u64,
-    pub kind: &'static str, // "index" | "hash"
+    pub kind: &'static str, // "index" | "hash" | "entities"
     pub path: Option<String>,
     pub state: &'static str, // "queued" | "running" | "done" | "failed"
     pub progress: String,
@@ -137,12 +137,11 @@ impl Daemon {
                 path.as_deref()
                     .map(|p| format!(" of {p}"))
                     .unwrap_or_default(),
-                if !auto {
-                    ""
-                } else if kind == "hash" {
-                    " (after a scan)"
-                } else {
-                    " (scheduled)"
+                match reason {
+                    "after-scan" => " (after a scan)",
+                    "scheduled" => " (scheduled)",
+                    "returned" => " (the drive is back)",
+                    _ => "",
                 }
             );
         }
@@ -439,6 +438,7 @@ fn worker(d: &Daemon) {
         ));
         let result = match job.kind {
             "index" => run_index(d, &mut db, &job),
+            "entities" => run_entities(d, &db, &job),
             _ => run_hash(d, &mut db, &job),
         };
         let ok = result.is_ok();
@@ -477,10 +477,53 @@ fn worker(d: &Daemon) {
                 },
             );
         }
+        if ok && job.kind == "hash" {
+            // then say what the drives hold, now that duplicates are known
+            d.enqueue("entities", None, "after-scan", JobOpts::default());
+        }
         if d.state.lock().unwrap().queue.is_empty() {
             notify::send("STATUS=idle");
         }
     }
+}
+
+/// Recognise what's on every drive whose stored results are older than its latest scan.
+fn run_entities(d: &Daemon, db: &Db, job: &Job) -> Result<String> {
+    use backdown_core::recognise;
+    let ids = recognise::root_ids(db)?;
+    let mut done = 0;
+    let mut things = 0;
+    for (i, id) in ids.iter().enumerate() {
+        // after a scan: only drives whose results are out of date; when asked for: all of them
+        if job.reason != "requested" && recognise::load(db, *id)?.is_some_and(|(_, fresh)| fresh) {
+            continue;
+        }
+        let r = recognise::recognise(db, *id, true, &mut |s| {
+            let counts = Counts {
+                stage: "recognising",
+                files: i as u64,
+                total_files: ids.len() as u64,
+                ..Counts::default()
+            };
+            d.progress(
+                job.id,
+                format!("drive {} of {}: {s}", i + 1, ids.len()),
+                counts,
+            );
+        })?;
+        recognise::store(db, &r)?;
+        things += r.entities.len();
+        done += 1;
+    }
+    Ok(if done == 0 {
+        "recognition is up to date".into()
+    } else {
+        format!(
+            "recognised {things} thing{} on {done} drive{}",
+            if things == 1 { "" } else { "s" },
+            if done == 1 { "" } else { "s" }
+        )
+    })
 }
 
 fn run_index(d: &Daemon, db: &mut Db, job: &Job) -> Result<String> {
@@ -651,7 +694,8 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
             let kind = match req["kind"].as_str() {
                 Some("index") => "index",
                 Some("hash") => "hash",
-                _ => bail!("kind must be index or hash"),
+                Some("entities") => "entities",
+                _ => bail!("kind must be index, hash or entities"),
             };
             let path = match kind {
                 "index" => {

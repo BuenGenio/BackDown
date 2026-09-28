@@ -1535,6 +1535,7 @@ fn plist_value(xml: &str, key: &str) -> Option<String> {
 
 fn provenance(
     e: &mut Entity,
+    root: &Path,
     path: &Path,
     scripts: &[(PathBuf, Vec<Transfer>)],
     sync_markers: &[(Vec<u8>, &'static str)],
@@ -1720,14 +1721,19 @@ fn provenance(
         }
     }
     // backup scripts on the same drive that copy something to (or from) a folder with this name
-    let mine = tail(&path.display().to_string(), 2);
+    // Compare the script's destination with this thing's place *on the drive*: the drive was
+    // mounted somewhere else when the script ran (/mnt/backup), so only the part below the drive's
+    // root still means anything. "/mnt/backup/vmail/" matches "vmail" at the drive's top level,
+    // and "…/backups/mail/vmail" matches "backups/mail/vmail".
+    let on_drive: Vec<String> = path
+        .strip_prefix(root)
+        .map(|r| tail(&r.display().to_string(), usize::MAX))
+        .unwrap_or_default();
     for (script, transfers) in scripts {
         for t in transfers {
-            let dest = tail(&t.dest, 2);
-            let matches = !dest.is_empty()
-                && mine.ends_with(&dest[dest.len().saturating_sub(mine.len().min(dest.len()))..])
-                && mine.last() == dest.last();
-            if !matches {
+            let dest = tail(&t.dest, usize::MAX);
+            let n = on_drive.len().min(dest.len());
+            if n == 0 || on_drive[on_drive.len() - n..] != dest[dest.len() - n..] {
                 continue;
             }
             let from = t
@@ -1952,7 +1958,7 @@ pub fn recognise(
             }
         }
         if read_drive {
-            provenance(&mut e, &p, &scripts, &sync_markers);
+            provenance(&mut e, &root_path, &p, &scripts, &sync_markers);
         }
         entities.push(e);
     }
