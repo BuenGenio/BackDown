@@ -7,7 +7,8 @@
 //! Inside containers (archives, disk images, mail), peek.rs reads bounded ranges on a time budget,
 //! turns HTML mail into plain text, and picks an entry only by its name in the container's own
 //! listing; entries go out with the same headers as the file bytes.
-//! Nothing here writes to a source: the index is opened read-only per request. The requests that do
+//! Nothing here writes to a source: the index is opened read-only per request, and GET /api/volumes
+//! runs the same unprivileged, read-only disk probe as `backdown volumes`. The requests that do
 //! something, POST /api/rescan (daemon only) and POST /api/open (hand a file or folder to the desktop),
 //! also need an `X-BackDown` header, which a cross-site page can't send without a CORS preflight this
 //! server never grants. /api/open never opens anything executable, and is off for the system service.
@@ -19,7 +20,9 @@ use std::process::Command;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
-use backdown_core::{Db, apply, browse, fmt, overlap, paths, plan, recognise, report, summary};
+use backdown_core::{
+    Db, apply, browse, fmt, overlap, paths, plan, recognise, report, summary, volumes,
+};
 
 use crate::daemon::Daemon;
 use crate::peek;
@@ -602,6 +605,14 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
             param("quick").is_some(),
         )?,
         "/api/disk" => peek::disk(&file()?, param("path"))?,
+        // this machine's disks and what's on them: the same read-only probe as `backdown volumes`
+        // (sysfs and udev, diskutil, or PowerShell), with the volumes the index covers marked
+        "/api/volumes" => {
+            let mut r = volumes::probe()?;
+            volumes::mark_indexed(&mut r, &db)?;
+            r.index = Some(ctx.db.display().to_string());
+            json!(r)
+        }
         "/api/git" => git(&db, &dir()?, param("rev"))?,
         "/api/diff" => diff(
             &db,

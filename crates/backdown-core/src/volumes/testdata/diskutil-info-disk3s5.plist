@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>APFSContainerReference</key>
+	<string>disk3</string>
+	<key>Bootable</key>
+	<false/>
+	<key>BusProtocol</key>
+	<string>Apple Fabric</string>
+	<key>Content</key>
+	<string>41504653-0000-11AA-AA11-00306543ECAC</string>
+	<key>DeviceBlockSize</key>
+	<integer>512</integer>
+	<key>DeviceIdentifier</key>
+	<string>disk3s5</string>
+	<key>DeviceNode</key>
+	<string>/dev/disk3s5</string>
+	<key>Ejectable</key>
+	<true/>
+	<key>Encryption</key>
+	<true/>
+	<key>FileVault</key>
+	<true/>
+	<key>FilesystemName</key>
+	<string>APFS</string>
+	<key>FilesystemType</key>
+	<string>apfs</string>
+	<key>FilesystemUserVisibleName</key>
+	<string>APFS</string>
+	<key>FreeSpace</key>
+	<integer>0</integer>
+	<key>IOKitSize</key>
+	<integer>494384795648</integer>
+	<key>IORegistryEntryName</key>
+	<string>Data</string>
+	<key>Internal</key>
+	<true/>
+	<key>Locked</key>
+	<false/>
+	<key>MediaName</key>
+	<string></string>
+	<key>MediaType</key>
+	<string>Generic</string>
+	<key>MountPoint</key>
+	<string>/System/Volumes/Data</string>
+	<key>ParentWholeDisk</key>
+	<string>disk3</string>
+	<key>PartitionMapPartition</key>
+	<true/>
+	<key>Removable</key>
+	<false/>
+	<key>RemovableMedia</key>
+	<false/>
+	<key>RemovableMediaOrExternalDevice</key>
+	<true/>
+	<key>Size</key>
+	<integer>494384795648</integer>
+	<key>SolidState</key>
+	<true/>
+	<key>TotalSize</key>
+	<integer>494384795648</integer>
+	<key>VolumeName</key>
+	<string>Data</string>
+	<key>WholeDisk</key>
+	<false/>
+	<key>Writable</key>
+	<true/>
+	<key>WritableMedia</key>
+	<true/>
+	<key>WritableVolume</key>
+	<true/>
+</dict>
+</plist>
