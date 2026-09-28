@@ -145,6 +145,31 @@ CREATE TABLE IF NOT EXISTS rescues (
     result     TEXT,                  -- JSON: the image's totals, what was found
     updated_at INTEGER NOT NULL
 );
+-- drive health (health/): readings of each physical drive's SMART data, kept when they say
+-- something new or once a day, under the drive's serial (or WWN) so its history follows it
+-- between ports and machines; and the notifications the daemon sent about drives, mirrors and
+-- jobs (read or not). Added without a schema bump: older versions just ignore them
+CREATE TABLE IF NOT EXISTS health (
+    id      INTEGER PRIMARY KEY,
+    drive   TEXT NOT NULL,            -- sn:<serial> | wwn:<wwn>
+    at      INTEGER NOT NULL,
+    verdict TEXT NOT NULL,            -- ok | warning | failing | unknown
+    data    TEXT NOT NULL             -- JSON: health::Health
+);
+CREATE INDEX IF NOT EXISTS health_drive ON health(drive, at);
+CREATE TABLE IF NOT EXISTS notifications (
+    id     INTEGER PRIMARY KEY,
+    at     INTEGER NOT NULL,
+    kind   TEXT NOT NULL,             -- health | drift | job
+    key    TEXT NOT NULL,             -- what it's about, so the same thing isn't said twice
+    level  TEXT NOT NULL,             -- info | warning | failing
+    title  TEXT NOT NULL,
+    body   TEXT NOT NULL,
+    drive  TEXT,                      -- a drive's health id, to link to it
+    shown  INTEGER NOT NULL,          -- sent to the desktop (not turned off or held back)
+    read   INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS notifications_key ON notifications(key, at);
 ";
 const VERSION: i64 = 2;
 

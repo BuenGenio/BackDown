@@ -1,0 +1,1860 @@
+{
+ "type": "a{oa{sa{sv}}}",
+ "data": [
+  {
+   "/org/freedesktop/UDisks2/drives/FAKEDISK_FD40EZRX_00ABCD0_FD_WX00A1234567": {
+    "org.freedesktop.UDisks2.Drive": {
+     "Vendor": {
+      "type": "s",
+      "data": ""
+     },
+     "Model": {
+      "type": "s",
+      "data": "FAKEDISK FD40EZRX-00ABCD0"
+     },
+     "Revision": {
+      "type": "s",
+      "data": "01.01A01"
+     },
+     "Serial": {
+      "type": "s",
+      "data": "FD-WX00A1234567"
+     },
+     "WWN": {
+      "type": "s",
+      "data": "0x50014ee00000abde"
+     },
+     "Id": {
+      "type": "s",
+      "data": "FAKEDISK-FD40EZRX-00ABCD0-FD-WX00A1234567"
+     },
+     "Configuration": {
+      "type": "a{sv}",
+      "data": {}
+     },
+     "Media": {
+      "type": "s",
+      "data": ""
+     },
+     "MediaCompatibility": {
+      "type": "as",
+      "data": []
+     },
+     "MediaRemovable": {
+      "type": "b",
+      "data": false
+     },
+     "MediaAvailable": {
+      "type": "b",
+      "data": true
+     },
+     "MediaChangeDetected": {
+      "type": "b",
+      "data": true
+     },
+     "Size": {
+      "type": "t",
+      "data": 4000787030016
+     },
+     "TimeDetected": {
+      "type": "t",
+      "data": 1790455416441289
+     },
+     "TimeMediaDetected": {
+      "type": "t",
+      "data": 1790455416441289
+     },
+     "Optical": {
+      "type": "b",
+      "data": false
+     },
+     "OpticalBlank": {
+      "type": "b",
+      "data": false
+     },
+     "OpticalNumTracks": {
+      "type": "u",
+      "data": 0
+     },
+     "OpticalNumAudioTracks": {
+      "type": "u",
+      "data": 0
+     },
+     "OpticalNumDataTracks": {
+      "type": "u",
+      "data": 0
+     },
+     "OpticalNumSessions": {
+      "type": "u",
+      "data": 0
+     },
+     "RotationRate": {
+      "type": "i",
+      "data": 5400
+     },
+     "ConnectionBus": {
+      "type": "s",
+      "data": ""
+     },
+     "Seat": {
+      "type": "s",
+      "data": "seat0"
+     },
+     "Removable": {
+      "type": "b",
+      "data": false
+     },
+     "Ejectable": {
+      "type": "b",
+      "data": false
+     },
+     "SortKey": {
+      "type": "s",
+      "data": "01hotplug/FD-WX00A1234567"
+     },
+     "CanPowerOff": {
+      "type": "b",
+      "data": false
+     },
+     "SiblingId": {
+      "type": "s",
+      "data": ""
+     }
+    },
+    "org.freedesktop.UDisks2.Drive.Ata": {
+     "SmartSupported": {
+      "type": "b",
+      "data": true
+     },
+     "SmartEnabled": {
+      "type": "b",
+      "data": true
+     },
+     "SmartUpdated": {
+      "type": "t",
+      "data": 1790600000
+     },
+     "SmartFailing": {
+      "type": "b",
+      "data": false
+     },
+     "SmartPowerOnSeconds": {
+      "type": "t",
+      "data": 112327200
+     },
+     "SmartTemperature": {
+      "type": "d",
+      "data": 311.15
+     },
+     "SmartNumAttributesFailing": {
+      "type": "i",
+      "data": 0
+     },
+     "SmartNumAttributesFailedInThePast": {
+      "type": "i",
+      "data": 0
+     },
+     "SmartNumBadSectors": {
+      "type": "x",
+      "data": 10
+     },
+     "SmartSelftestStatus": {
+      "type": "s",
+      "data": "success"
+     },
+     "SmartSelftestPercentRemaining": {
+      "type": "i",
+      "data": 0
+     },
+     "PmSupported": {
+      "type": "b",
+      "data": true
+     },
+     "PmEnabled": {
+      "type": "b",
+      "data": true
+     },
+     "ApmSupported": {
+      "type": "b",
+      "data": false
+     },
+     "ApmEnabled": {
+      "type": "b",
+      "data": false
+     },
+     "AamSupported": {
+      "type": "b",
+      "data": false
+     },
+     "AamEnabled": {
+      "type": "b",
+      "data": false
+     },
+     "AamVendorRecommendedValue": {
+      "type": "i",
+      "data": 0
+     },
+     "WriteCacheSupported": {
+      "type": "b",
+      "data": true
+     },
+     "WriteCacheEnabled": {
+      "type": "b",
+      "data": true
+     },
+     "ReadLookaheadSupported": {
+      "type": "b",
+      "data": true
+     },
+     "ReadLookaheadEnabled": {
+      "type": "b",
+      "data": true
+     },
+     "SecurityEraseUnitMinutes": {
+      "type": "i",
+      "data": 0
+     },
+     "SecurityEnhancedEraseUnitMinutes": {
+      "type": "i",
+      "data": 0
+     },
+     "SecurityFrozen": {
+      "type": "b",
+      "data": true
+     }
+    }
+   },
+   "/org/freedesktop/UDisks2/drives/Fakedisk_NV970_1TB_S0FAKE0NV970124": {
+    "org.freedesktop.UDisks2.Drive": {
+     "Vendor": {
+      "type": "s",
+      "data": ""
+     },
+     "Model": {
+      "type": "s",
+      "data": "Fakedisk NV970 1TB"
+     },
+     "Revision": {
+      "type": "s",
+      "data": "01.01A01"
+     },
+     "Serial": {
+      "type": "s",
+      "data": "S0FAKE0NV970124"
+     },
+     "WWN": {
+      "type": "s",
+      "data": ""
+     },
+     "Id": {
+      "type": "s",
+      "data": "Fakedisk-NV970-1TB-S0FAKE0NV970124"
+     },
+     "Configuration": {
+      "type": "a{sv}",
+      "data": {}
+     },
+     "Media": {
+      "type": "s",
+      "data": ""
+     },
+     "MediaCompatibility": {
+      "type": "as",
+      "data": []
+     },
+     "MediaRemovable": {
+      "type": "b",
+      "data": false
+     },
+     "MediaAvailable": {
+      "type": "b",
+      "data": true
+     },
+     "MediaChangeDetected": {
+      "type": "b",
+      "data": true
+     },
+     "Size": {
+      "type": "t",
+      "data": 1000204886016
+     },
+     "TimeDetected": {
+      "type": "t",
+      "data": 1790455416441289
+     },
+     "TimeMediaDetected": {
+      "type": "t",
+      "data": 1790455416441289
+     },
+     "Optical": {
+      "type": "b",
+      "data": false
+     },
+     "OpticalBlank": {
+      "type": "b",
+      "data": false
+     },
+     "OpticalNumTracks": {
+      "type": "u",
+      "data": 0
+     },
+     "OpticalNumAudioTracks": {
+      "type": "u",
+      "data": 0
+     },
+     "OpticalNumDataTracks": {
+      "type": "u",
+      "data": 0
+     },
+     "OpticalNumSessions": {
+      "type": "u",
+      "data": 0
+     },
+     "RotationRate": {
+      "type": "i",
+      "data": 0
+     },
+     "ConnectionBus": {
+      "type": "s",
+      "data": ""
+     },
+     "Seat": {
+      "type": "s",
+      "data": "seat0"
+     },
+     "Removable": {
+      "type": "b",
+      "data": false
+     },
+     "Ejectable": {
+      "type": "b",
+      "data": false
+     },
+     "SortKey": {
+      "type": "s",
+      "data": "01hotplug/S0FAKE0NV970124"
+     },
+     "CanPowerOff": {
+      "type": "b",
+      "data": false
+     },
+     "SiblingId": {
+      "type": "s",
+      "data": ""
+     }
+    },
+    "org.freedesktop.UDisks2.NVMe.Controller": {
+     "State": {
+      "type": "s",
+      "data": "live"
+     },
+     "ControllerID": {
+      "type": "q",
+      "data": 4
+     },
+     "SubsystemNQN": {
+      "type": "ay",
+      "data": [
+       110,
+       113,
+       110,
+       46,
+       50,
+       48,
+       49,
+       52,
+       46,
+       48,
+       56,
+       46,
+       111,
+       114,
+       103,
+       46,
+       110,
+       118,
+       109,
+       101,
+       120,
+       112,
+       114,
+       101,
+       115,
+       115,
+       58,
+       49,
+       52,
+       52,
+       100,
+       49,
+       52,
+       52,
+       100,
+       83,
+       48,
+       70,
+       65,
+       75,
+       69,
+       48,
+       78,
+       86,
+       57,
+       55,
+       48,
+       49,
+       50,
+       52,
+       0
+      ]
+     },
+     "FGUID": {
+      "type": "s",
+      "data": ""
+     },
+     "NVMeRevision": {
+      "type": "s",
+      "data": "1.3"
+     },
+     "UnallocatedCapacity": {
+      "type": "t",
+      "data": 0
+     },
+     "SmartUpdated": {
+      "type": "t",
+      "data": 1790600000
+     },
+     "SmartCriticalWarning": {
+      "type": "as",
+      "data": [
+       "temperature"
+      ]
+     },
+     "SmartPowerOnHours": {
+      "type": "t",
+      "data": 4210
+     },
+     "SmartTemperature": {
+      "type": "q",
+      "data": 344
+     },
+     "SmartSelftestStatus": {
+      "type": "s",
+      "data": ""
+     },
+     "SmartSelftestPercentRemaining": {
+      "type": "i",
+      "data": -1
+     },
+     "SanitizeStatus": {
+      "type": "s",
+      "data": "never_sanitized"
+     },
+     "SanitizePercentRemaining": {
+      "type": "i",
+      "data": -1
+     }
+    }
+   },
+   "/org/freedesktop/UDisks2/drives/Fakeco_Portable_2TB_000000FAKE01": {
+    "org.freedesktop.UDisks2.Drive": {
+     "Vendor": {
+      "type": "s",
+      "data": "Fakeco"
+     },
+     "Model": {
+      "type": "s",
+      "data": "Portable 2TB"
+     },
+     "Revision": {
+      "type": "s",
+      "data": "01.01A01"
+     },
+     "Serial": {
+      "type": "s",
+      "data": "000000FAKE01"
+     },
+     "WWN": {
+      "type": "s",
+      "data": ""
+     },
+     "Id": {
+      "type": "s",
+      "data": "Portable-2TB-000000FAKE01"
+     },
+     "Configuration": {
+      "type": "a{sv}",
+      "data": {}
+     },
+     "Media": {
+      "type": "s",
+      "data": ""
+     },
+     "MediaCompatibility": {
+      "type": "as",
+      "data": []
+     },
+     "MediaRemovable": {
+      "type": "b",
+      "data": true
+     },
+     "MediaAvailable": {
+      "type": "b",
+      "data": true
+     },
+     "MediaChangeDetected": {
+      "type": "b",
+      "data": true
+     },
+     "Size": {
+      "type": "t",
+      "data": 2000398934016
+     },
+     "TimeDetected": {
+      "type": "t",
+      "data": 1790455416441289
+     },
+     "TimeMediaDetected": {
+      "type": "t",
+      "data": 1790455416441289
+     },
+     "Optical": {
+      "type": "b",
+      "data": false
+     },
+     "OpticalBlank": {
+      "type": "b",
+      "data": false
+     },
+     "OpticalNumTracks": {
+      "type": "u",
+      "data": 0
+     },
+     "OpticalNumAudioTracks": {
+      "type": "u",
+      "data": 0
+     },
+     "OpticalNumDataTracks": {
+      "type": "u",
+      "data": 0
+     },
+     "OpticalNumSessions": {
+      "type": "u",
+      "data": 0
+     },
+     "RotationRate": {
+      "type": "i",
+      "data": 0
+     },
+     "ConnectionBus": {
+      "type": "s",
+      "data": "usb"
+     },
+     "Seat": {
+      "type": "s",
+      "data": "seat0"
+     },
+     "Removable": {
+      "type": "b",
+      "data": true
+     },
+     "Ejectable": {
+      "type": "b",
+      "data": true
+     },
+     "SortKey": {
+      "type": "s",
+      "data": "01hotplug/000000FAKE01"
+     },
+     "CanPowerOff": {
+      "type": "b",
+      "data": true
+     },
+     "SiblingId": {
+      "type": "s",
+      "data": ""
+     }
+    }
+   },
+   "/org/freedesktop/UDisks2/block_devices/sda": {
+    "org.freedesktop.UDisks2.Block": {
+     "Device": {
+      "type": "ay",
+      "data": [
+       47,
+       100,
+       101,
+       118,
+       47,
+       115,
+       100,
+       97,
+       0
+      ]
+     },
+     "PreferredDevice": {
+      "type": "ay",
+      "data": [
+       47,
+       100,
+       101,
+       118,
+       47,
+       115,
+       100,
+       97,
+       0
+      ]
+     },
+     "Symlinks": {
+      "type": "aay",
+      "data": []
+     },
+     "DeviceNumber": {
+      "type": "t",
+      "data": 2048
+     },
+     "Id": {
+      "type": "s",
+      "data": ""
+     },
+     "Size": {
+      "type": "t",
+      "data": 0
+     },
+     "ReadOnly": {
+      "type": "b",
+      "data": false
+     },
+     "Drive": {
+      "type": "o",
+      "data": "/org/freedesktop/UDisks2/drives/FAKEDISK_FD40EZRX_00ABCD0_FD_WX00A1234567"
+     },
+     "MDRaid": {
+      "type": "o",
+      "data": "/"
+     },
+     "MDRaidMember": {
+      "type": "o",
+      "data": "/"
+     },
+     "IdUsage": {
+      "type": "s",
+      "data": ""
+     },
+     "IdType": {
+      "type": "s",
+      "data": ""
+     },
+     "IdVersion": {
+      "type": "s",
+      "data": ""
+     },
+     "IdLabel": {
+      "type": "s",
+      "data": ""
+     },
+     "IdUUID": {
+      "type": "s",
+      "data": ""
+     },
+     "Configuration": {
+      "type": "a(sa{sv})",
+      "data": []
+     },
+     "CryptoBackingDevice": {
+      "type": "o",
+      "data": "/"
+     },
+     "HintPartitionable": {
+      "type": "b",
+      "data": true
+     },
+     "HintSystem": {
+      "type": "b",
+      "data": false
+     },
+     "HintIgnore": {
+      "type": "b",
+      "data": false
+     },
+     "HintAuto": {
+      "type": "b",
+      "data": false
+     },
+     "HintName": {
+      "type": "s",
+      "data": ""
+     },
+     "HintIconName": {
+      "type": "s",
+      "data": ""
+     },
+     "HintSymbolicIconName": {
+      "type": "s",
+      "data": ""
+     },
+     "UserspaceMountOptions": {
+      "type": "as",
+      "data": []
+     }
+    },
+    "org.freedesktop.UDisks2.PartitionTable": {
+     "Partitions": {
+      "type": "ao",
+      "data": [
+       "/org/freedesktop/UDisks2/block_devices/sda1"
+      ]
+     },
+     "Type": {
+      "type": "s",
+      "data": "gpt"
+     }
+    }
+   },
+   "/org/freedesktop/UDisks2/block_devices/sda1": {
+    "org.freedesktop.UDisks2.Block": {
+     "Device": {
+      "type": "ay",
+      "data": [
+       47,
+       100,
+       101,
+       118,
+       47,
+       115,
+       100,
+       97,
+       49,
+       0
+      ]
+     },
+     "PreferredDevice": {
+      "type": "ay",
+      "data": [
+       47,
+       100,
+       101,
+       118,
+       47,
+       115,
+       100,
+       97,
+       49,
+       0
+      ]
+     },
+     "Symlinks": {
+      "type": "aay",
+      "data": []
+     },
+     "DeviceNumber": {
+      "type": "t",
+      "data": 2048
+     },
+     "Id": {
+      "type": "s",
+      "data": ""
+     },
+     "Size": {
+      "type": "t",
+      "data": 0
+     },
+     "ReadOnly": {
+      "type": "b",
+      "data": false
+     },
+     "Drive": {
+      "type": "o",
+      "data": "/org/freedesktop/UDisks2/drives/FAKEDISK_FD40EZRX_00ABCD0_FD_WX00A1234567"
+     },
+     "MDRaid": {
+      "type": "o",
+      "data": "/"
+     },
+     "MDRaidMember": {
+      "type": "o",
+      "data": "/"
+     },
+     "IdUsage": {
+      "type": "s",
+      "data": ""
+     },
+     "IdType": {
+      "type": "s",
+      "data": ""
+     },
+     "IdVersion": {
+      "type": "s",
+      "data": ""
+     },
+     "IdLabel": {
+      "type": "s",
+      "data": ""
+     },
+     "IdUUID": {
+      "type": "s",
+      "data": ""
+     },
+     "Configuration": {
+      "type": "a(sa{sv})",
+      "data": []
+     },
+     "CryptoBackingDevice": {
+      "type": "o",
+      "data": "/"
+     },
+     "HintPartitionable": {
+      "type": "b",
+      "data": true
+     },
+     "HintSystem": {
+      "type": "b",
+      "data": false
+     },
+     "HintIgnore": {
+      "type": "b",
+      "data": false
+     },
+     "HintAuto": {
+      "type": "b",
+      "data": false
+     },
+     "HintName": {
+      "type": "s",
+      "data": ""
+     },
+     "HintIconName": {
+      "type": "s",
+      "data": ""
+     },
+     "HintSymbolicIconName": {
+      "type": "s",
+      "data": ""
+     },
+     "UserspaceMountOptions": {
+      "type": "as",
+      "data": []
+     }
+    },
+    "org.freedesktop.UDisks2.Partition": {
+     "Number": {
+      "type": "u",
+      "data": 1
+     },
+     "Type": {
+      "type": "s",
+      "data": "0fc63daf-8483-4772-8e79-3d69d8477de4"
+     },
+     "Flags": {
+      "type": "t",
+      "data": 0
+     },
+     "Offset": {
+      "type": "t",
+      "data": 1048576
+     },
+     "Size": {
+      "type": "t",
+      "data": 1000000000
+     },
+     "Name": {
+      "type": "s",
+      "data": ""
+     },
+     "UUID": {
+      "type": "s",
+      "data": "00000000-0000-4000-8000-000000000001"
+     },
+     "Table": {
+      "type": "o",
+      "data": "/org/freedesktop/UDisks2/block_devices/sda"
+     },
+     "IsContainer": {
+      "type": "b",
+      "data": false
+     },
+     "IsContained": {
+      "type": "b",
+      "data": false
+     }
+    },
+    "org.freedesktop.UDisks2.Encrypted": {
+     "ChildConfiguration": {
+      "type": "a(sa{sv})",
+      "data": []
+     },
+     "HintEncryptionType": {
+      "type": "s",
+      "data": "LUKS2"
+     },
+     "MetadataSize": {
+      "type": "t",
+      "data": 16777216
+     },
+     "CleartextDevice": {
+      "type": "o",
+      "data": "/org/freedesktop/UDisks2/block_devices/dm_2d0"
+     }
+    }
+   },
+   "/org/freedesktop/UDisks2/block_devices/dm_2d0": {
+    "org.freedesktop.UDisks2.Block": {
+     "Device": {
+      "type": "ay",
+      "data": [
+       47,
+       100,
+       101,
+       118,
+       47,
+       100,
+       109,
+       45,
+       48,
+       0
+      ]
+     },
+     "PreferredDevice": {
+      "type": "ay",
+      "data": [
+       47,
+       100,
+       101,
+       118,
+       47,
+       100,
+       109,
+       45,
+       48,
+       0
+      ]
+     },
+     "Symlinks": {
+      "type": "aay",
+      "data": []
+     },
+     "DeviceNumber": {
+      "type": "t",
+      "data": 2048
+     },
+     "Id": {
+      "type": "s",
+      "data": ""
+     },
+     "Size": {
+      "type": "t",
+      "data": 0
+     },
+     "ReadOnly": {
+      "type": "b",
+      "data": false
+     },
+     "Drive": {
+      "type": "o",
+      "data": "/"
+     },
+     "MDRaid": {
+      "type": "o",
+      "data": "/"
+     },
+     "MDRaidMember": {
+      "type": "o",
+      "data": "/"
+     },
+     "IdUsage": {
+      "type": "s",
+      "data": ""
+     },
+     "IdType": {
+      "type": "s",
+      "data": ""
+     },
+     "IdVersion": {
+      "type": "s",
+      "data": ""
+     },
+     "IdLabel": {
+      "type": "s",
+      "data": ""
+     },
+     "IdUUID": {
+      "type": "s",
+      "data": ""
+     },
+     "Configuration": {
+      "type": "a(sa{sv})",
+      "data": []
+     },
+     "CryptoBackingDevice": {
+      "type": "o",
+      "data": "/org/freedesktop/UDisks2/block_devices/sda1"
+     },
+     "HintPartitionable": {
+      "type": "b",
+      "data": true
+     },
+     "HintSystem": {
+      "type": "b",
+      "data": false
+     },
+     "HintIgnore": {
+      "type": "b",
+      "data": false
+     },
+     "HintAuto": {
+      "type": "b",
+      "data": false
+     },
+     "HintName": {
+      "type": "s",
+      "data": ""
+     },
+     "HintIconName": {
+      "type": "s",
+      "data": ""
+     },
+     "HintSymbolicIconName": {
+      "type": "s",
+      "data": ""
+     },
+     "UserspaceMountOptions": {
+      "type": "as",
+      "data": []
+     }
+    },
+    "org.freedesktop.UDisks2.Filesystem": {
+     "MountPoints": {
+      "type": "aay",
+      "data": [
+       [
+        47,
+        109,
+        101,
+        100,
+        105,
+        97,
+        47,
+        115,
+        111,
+        109,
+        101,
+        111,
+        110,
+        101,
+        47,
+        65,
+        114,
+        99,
+        104,
+        105,
+        118,
+        101,
+        0
+       ]
+      ]
+     },
+     "Size": {
+      "type": "t",
+      "data": 4000000000000
+     }
+    }
+   },
+   "/org/freedesktop/UDisks2/block_devices/nvme0n1": {
+    "org.freedesktop.UDisks2.Block": {
+     "Device": {
+      "type": "ay",
+      "data": [
+       47,
+       100,
+       101,
+       118,
+       47,
+       110,
+       118,
+       109,
+       101,
+       48,
+       110,
+       49,
+       0
+      ]
+     },
+     "PreferredDevice": {
+      "type": "ay",
+      "data": [
+       47,
+       100,
+       101,
+       118,
+       47,
+       110,
+       118,
+       109,
+       101,
+       48,
+       110,
+       49,
+       0
+      ]
+     },
+     "Symlinks": {
+      "type": "aay",
+      "data": []
+     },
+     "DeviceNumber": {
+      "type": "t",
+      "data": 2048
+     },
+     "Id": {
+      "type": "s",
+      "data": ""
+     },
+     "Size": {
+      "type": "t",
+      "data": 0
+     },
+     "ReadOnly": {
+      "type": "b",
+      "data": false
+     },
+     "Drive": {
+      "type": "o",
+      "data": "/org/freedesktop/UDisks2/drives/Fakedisk_NV970_1TB_S0FAKE0NV970124"
+     },
+     "MDRaid": {
+      "type": "o",
+      "data": "/"
+     },
+     "MDRaidMember": {
+      "type": "o",
+      "data": "/"
+     },
+     "IdUsage": {
+      "type": "s",
+      "data": ""
+     },
+     "IdType": {
+      "type": "s",
+      "data": ""
+     },
+     "IdVersion": {
+      "type": "s",
+      "data": ""
+     },
+     "IdLabel": {
+      "type": "s",
+      "data": ""
+     },
+     "IdUUID": {
+      "type": "s",
+      "data": ""
+     },
+     "Configuration": {
+      "type": "a(sa{sv})",
+      "data": []
+     },
+     "CryptoBackingDevice": {
+      "type": "o",
+      "data": "/"
+     },
+     "HintPartitionable": {
+      "type": "b",
+      "data": true
+     },
+     "HintSystem": {
+      "type": "b",
+      "data": false
+     },
+     "HintIgnore": {
+      "type": "b",
+      "data": false
+     },
+     "HintAuto": {
+      "type": "b",
+      "data": false
+     },
+     "HintName": {
+      "type": "s",
+      "data": ""
+     },
+     "HintIconName": {
+      "type": "s",
+      "data": ""
+     },
+     "HintSymbolicIconName": {
+      "type": "s",
+      "data": ""
+     },
+     "UserspaceMountOptions": {
+      "type": "as",
+      "data": []
+     }
+    },
+    "org.freedesktop.UDisks2.NVMe.Namespace": {
+     "NSID": {
+      "type": "u",
+      "data": 1
+     }
+    }
+   },
+   "/org/freedesktop/UDisks2/block_devices/nvme0n1p1": {
+    "org.freedesktop.UDisks2.Block": {
+     "Device": {
+      "type": "ay",
+      "data": [
+       47,
+       100,
+       101,
+       118,
+       47,
+       110,
+       118,
+       109,
+       101,
+       48,
+       110,
+       49,
+       112,
+       49,
+       0
+      ]
+     },
+     "PreferredDevice": {
+      "type": "ay",
+      "data": [
+       47,
+       100,
+       101,
+       118,
+       47,
+       110,
+       118,
+       109,
+       101,
+       48,
+       110,
+       49,
+       112,
+       49,
+       0
+      ]
+     },
+     "Symlinks": {
+      "type": "aay",
+      "data": []
+     },
+     "DeviceNumber": {
+      "type": "t",
+      "data": 2048
+     },
+     "Id": {
+      "type": "s",
+      "data": ""
+     },
+     "Size": {
+      "type": "t",
+      "data": 0
+     },
+     "ReadOnly": {
+      "type": "b",
+      "data": false
+     },
+     "Drive": {
+      "type": "o",
+      "data": "/org/freedesktop/UDisks2/drives/Fakedisk_NV970_1TB_S0FAKE0NV970124"
+     },
+     "MDRaid": {
+      "type": "o",
+      "data": "/"
+     },
+     "MDRaidMember": {
+      "type": "o",
+      "data": "/"
+     },
+     "IdUsage": {
+      "type": "s",
+      "data": ""
+     },
+     "IdType": {
+      "type": "s",
+      "data": ""
+     },
+     "IdVersion": {
+      "type": "s",
+      "data": ""
+     },
+     "IdLabel": {
+      "type": "s",
+      "data": ""
+     },
+     "IdUUID": {
+      "type": "s",
+      "data": ""
+     },
+     "Configuration": {
+      "type": "a(sa{sv})",
+      "data": []
+     },
+     "CryptoBackingDevice": {
+      "type": "o",
+      "data": "/"
+     },
+     "HintPartitionable": {
+      "type": "b",
+      "data": true
+     },
+     "HintSystem": {
+      "type": "b",
+      "data": false
+     },
+     "HintIgnore": {
+      "type": "b",
+      "data": false
+     },
+     "HintAuto": {
+      "type": "b",
+      "data": false
+     },
+     "HintName": {
+      "type": "s",
+      "data": ""
+     },
+     "HintIconName": {
+      "type": "s",
+      "data": ""
+     },
+     "HintSymbolicIconName": {
+      "type": "s",
+      "data": ""
+     },
+     "UserspaceMountOptions": {
+      "type": "as",
+      "data": []
+     }
+    },
+    "org.freedesktop.UDisks2.Partition": {
+     "Number": {
+      "type": "u",
+      "data": 1
+     },
+     "Type": {
+      "type": "s",
+      "data": "0fc63daf-8483-4772-8e79-3d69d8477de4"
+     },
+     "Flags": {
+      "type": "t",
+      "data": 0
+     },
+     "Offset": {
+      "type": "t",
+      "data": 1048576
+     },
+     "Size": {
+      "type": "t",
+      "data": 1000000000
+     },
+     "Name": {
+      "type": "s",
+      "data": ""
+     },
+     "UUID": {
+      "type": "s",
+      "data": "00000000-0000-4000-8000-000000000001"
+     },
+     "Table": {
+      "type": "o",
+      "data": "/org/freedesktop/UDisks2/block_devices/nvme0n1"
+     },
+     "IsContainer": {
+      "type": "b",
+      "data": false
+     },
+     "IsContained": {
+      "type": "b",
+      "data": false
+     }
+    },
+    "org.freedesktop.UDisks2.Filesystem": {
+     "MountPoints": {
+      "type": "aay",
+      "data": [
+       [
+        47,
+        0
+       ]
+      ]
+     },
+     "Size": {
+      "type": "t",
+      "data": 999000000000
+     }
+    }
+   },
+   "/org/freedesktop/UDisks2/block_devices/nvme0n2": {
+    "org.freedesktop.UDisks2.Block": {
+     "Device": {
+      "type": "ay",
+      "data": [
+       47,
+       100,
+       101,
+       118,
+       47,
+       110,
+       118,
+       109,
+       101,
+       48,
+       110,
+       50,
+       0
+      ]
+     },
+     "PreferredDevice": {
+      "type": "ay",
+      "data": [
+       47,
+       100,
+       101,
+       118,
+       47,
+       110,
+       118,
+       109,
+       101,
+       48,
+       110,
+       50,
+       0
+      ]
+     },
+     "Symlinks": {
+      "type": "aay",
+      "data": []
+     },
+     "DeviceNumber": {
+      "type": "t",
+      "data": 2048
+     },
+     "Id": {
+      "type": "s",
+      "data": ""
+     },
+     "Size": {
+      "type": "t",
+      "data": 0
+     },
+     "ReadOnly": {
+      "type": "b",
+      "data": false
+     },
+     "Drive": {
+      "type": "o",
+      "data": "/org/freedesktop/UDisks2/drives/Fakedisk_NV970_1TB_S0FAKE0NV970124"
+     },
+     "MDRaid": {
+      "type": "o",
+      "data": "/"
+     },
+     "MDRaidMember": {
+      "type": "o",
+      "data": "/"
+     },
+     "IdUsage": {
+      "type": "s",
+      "data": ""
+     },
+     "IdType": {
+      "type": "s",
+      "data": ""
+     },
+     "IdVersion": {
+      "type": "s",
+      "data": ""
+     },
+     "IdLabel": {
+      "type": "s",
+      "data": ""
+     },
+     "IdUUID": {
+      "type": "s",
+      "data": ""
+     },
+     "Configuration": {
+      "type": "a(sa{sv})",
+      "data": []
+     },
+     "CryptoBackingDevice": {
+      "type": "o",
+      "data": "/"
+     },
+     "HintPartitionable": {
+      "type": "b",
+      "data": true
+     },
+     "HintSystem": {
+      "type": "b",
+      "data": false
+     },
+     "HintIgnore": {
+      "type": "b",
+      "data": false
+     },
+     "HintAuto": {
+      "type": "b",
+      "data": false
+     },
+     "HintName": {
+      "type": "s",
+      "data": ""
+     },
+     "HintIconName": {
+      "type": "s",
+      "data": ""
+     },
+     "HintSymbolicIconName": {
+      "type": "s",
+      "data": ""
+     },
+     "UserspaceMountOptions": {
+      "type": "as",
+      "data": []
+     }
+    },
+    "org.freedesktop.UDisks2.NVMe.Namespace": {
+     "NSID": {
+      "type": "u",
+      "data": 2
+     }
+    }
+   },
+   "/org/freedesktop/UDisks2/block_devices/sdb": {
+    "org.freedesktop.UDisks2.Block": {
+     "Device": {
+      "type": "ay",
+      "data": [
+       47,
+       100,
+       101,
+       118,
+       47,
+       115,
+       100,
+       98,
+       0
+      ]
+     },
+     "PreferredDevice": {
+      "type": "ay",
+      "data": [
+       47,
+       100,
+       101,
+       118,
+       47,
+       115,
+       100,
+       98,
+       0
+      ]
+     },
+     "Symlinks": {
+      "type": "aay",
+      "data": []
+     },
+     "DeviceNumber": {
+      "type": "t",
+      "data": 2048
+     },
+     "Id": {
+      "type": "s",
+      "data": ""
+     },
+     "Size": {
+      "type": "t",
+      "data": 0
+     },
+     "ReadOnly": {
+      "type": "b",
+      "data": false
+     },
+     "Drive": {
+      "type": "o",
+      "data": "/org/freedesktop/UDisks2/drives/Fakeco_Portable_2TB_000000FAKE01"
+     },
+     "MDRaid": {
+      "type": "o",
+      "data": "/"
+     },
+     "MDRaidMember": {
+      "type": "o",
+      "data": "/"
+     },
+     "IdUsage": {
+      "type": "s",
+      "data": ""
+     },
+     "IdType": {
+      "type": "s",
+      "data": ""
+     },
+     "IdVersion": {
+      "type": "s",
+      "data": ""
+     },
+     "IdLabel": {
+      "type": "s",
+      "data": ""
+     },
+     "IdUUID": {
+      "type": "s",
+      "data": ""
+     },
+     "Configuration": {
+      "type": "a(sa{sv})",
+      "data": []
+     },
+     "CryptoBackingDevice": {
+      "type": "o",
+      "data": "/"
+     },
+     "HintPartitionable": {
+      "type": "b",
+      "data": true
+     },
+     "HintSystem": {
+      "type": "b",
+      "data": false
+     },
+     "HintIgnore": {
+      "type": "b",
+      "data": false
+     },
+     "HintAuto": {
+      "type": "b",
+      "data": false
+     },
+     "HintName": {
+      "type": "s",
+      "data": ""
+     },
+     "HintIconName": {
+      "type": "s",
+      "data": ""
+     },
+     "HintSymbolicIconName": {
+      "type": "s",
+      "data": ""
+     },
+     "UserspaceMountOptions": {
+      "type": "as",
+      "data": []
+     }
+    }
+   },
+   "/org/freedesktop/UDisks2/block_devices/loop0": {
+    "org.freedesktop.UDisks2.Block": {
+     "Device": {
+      "type": "ay",
+      "data": [
+       47,
+       100,
+       101,
+       118,
+       47,
+       108,
+       111,
+       111,
+       112,
+       48,
+       0
+      ]
+     },
+     "PreferredDevice": {
+      "type": "ay",
+      "data": [
+       47,
+       100,
+       101,
+       118,
+       47,
+       108,
+       111,
+       111,
+       112,
+       48,
+       0
+      ]
+     },
+     "Symlinks": {
+      "type": "aay",
+      "data": []
+     },
+     "DeviceNumber": {
+      "type": "t",
+      "data": 2048
+     },
+     "Id": {
+      "type": "s",
+      "data": ""
+     },
+     "Size": {
+      "type": "t",
+      "data": 0
+     },
+     "ReadOnly": {
+      "type": "b",
+      "data": false
+     },
+     "Drive": {
+      "type": "o",
+      "data": "/"
+     },
+     "MDRaid": {
+      "type": "o",
+      "data": "/"
+     },
+     "MDRaidMember": {
+      "type": "o",
+      "data": "/"
+     },
+     "IdUsage": {
+      "type": "s",
+      "data": ""
+     },
+     "IdType": {
+      "type": "s",
+      "data": ""
+     },
+     "IdVersion": {
+      "type": "s",
+      "data": ""
+     },
+     "IdLabel": {
+      "type": "s",
+      "data": ""
+     },
+     "IdUUID": {
+      "type": "s",
+      "data": ""
+     },
+     "Configuration": {
+      "type": "a(sa{sv})",
+      "data": []
+     },
+     "CryptoBackingDevice": {
+      "type": "o",
+      "data": "/"
+     },
+     "HintPartitionable": {
+      "type": "b",
+      "data": true
+     },
+     "HintSystem": {
+      "type": "b",
+      "data": false
+     },
+     "HintIgnore": {
+      "type": "b",
+      "data": false
+     },
+     "HintAuto": {
+      "type": "b",
+      "data": false
+     },
+     "HintName": {
+      "type": "s",
+      "data": ""
+     },
+     "HintIconName": {
+      "type": "s",
+      "data": ""
+     },
+     "HintSymbolicIconName": {
+      "type": "s",
+      "data": ""
+     },
+     "UserspaceMountOptions": {
+      "type": "as",
+      "data": []
+     }
+    },
+    "org.freedesktop.UDisks2.Loop": {
+     "BackingFile": {
+      "type": "ay",
+      "data": [
+       47,
+       118,
+       97,
+       114,
+       47,
+       108,
+       105,
+       98,
+       47,
+       115,
+       110,
+       97,
+       112,
+       100,
+       47,
+       115,
+       110,
+       97,
+       112,
+       115,
+       47,
+       102,
+       97,
+       107,
+       101,
+       95,
+       49,
+       46,
+       115,
+       110,
+       97,
+       112,
+       0
+      ]
+     },
+     "Autoclear": {
+      "type": "b",
+      "data": true
+     },
+     "SetupByUID": {
+      "type": "u",
+      "data": 0
+     }
+    }
+   },
+   "/org/freedesktop/UDisks2/Manager": {
+    "org.freedesktop.UDisks2.Manager": {
+     "Version": {
+      "type": "s",
+      "data": "2.10.1"
+     },
+     "SupportedFilesystems": {
+      "type": "as",
+      "data": [
+       "ext4",
+       "vfat"
+      ]
+     },
+     "SupportedEncryptionTypes": {
+      "type": "as",
+      "data": [
+       "luks1",
+       "luks2"
+      ]
+     },
+     "DefaultEncryptionType": {
+      "type": "s",
+      "data": "luks1"
+     }
+    }
+   }
+  }
+ ]
+}
