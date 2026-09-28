@@ -820,6 +820,7 @@ fn run_rescue(d: &Daemon, db: &Db, job: &Job, stop: &AtomicBool) -> Result<Strin
     rescue::set(db, id, "running", None, None)?;
     let out = match r.mode.as_str() {
         "image" => rescue_image(d, db, job, &r, stop),
+        "parts" => rescue_parts(d, job, &r, stop),
         m => Err(anyhow::anyhow!("{m} can't run yet")),
     };
     match out {
@@ -837,6 +838,61 @@ fn run_rescue(d: &Daemon, db: &Db, job: &Job, stop: &AtomicBool) -> Result<Strin
             Err(e)
         }
     }
+}
+
+/// Look for file systems the partition table doesn't list (reads only).
+fn rescue_parts(
+    d: &Daemon,
+    job: &Job,
+    r: &backdown_core::rescue::Rescue,
+    stop: &AtomicBool,
+) -> Result<(String, Value)> {
+    use backdown_core::rescue::parts;
+    let opts = parts::Options {
+        deep: r.options["deep"].as_bool().unwrap_or(false),
+        ..parts::Options::default()
+    };
+    let s = parts::search(
+        Path::new(&r.source),
+        &opts,
+        &mut |p| {
+            d.progress(
+                job.id,
+                format!(
+                    "{}: {} of {} read · {} found",
+                    if opts.deep {
+                        "reading every sector"
+                    } else {
+                        "looking where partitions start"
+                    },
+                    fmt::bytes(p.pos),
+                    fmt::bytes(p.size),
+                    fmt::count(p.found)
+                ),
+                Counts {
+                    stage: "searching",
+                    files: p.found,
+                    total_files: 0,
+                    bytes: p.pos,
+                    total_bytes: p.size,
+                },
+            )
+        },
+        stop,
+    )?;
+    let lost = s.found.iter().filter(|f| !f.in_table && !f.nested).count();
+    let summary = format!(
+        "{}{} file system{} found{}",
+        if s.stopped { "stopped: " } else { "" },
+        s.found.len(),
+        if s.found.len() == 1 { "" } else { "s" },
+        if lost > 0 {
+            format!(", {lost} not in the partition table")
+        } else {
+            String::new()
+        }
+    );
+    Ok((summary, serde_json::to_value(&s)?))
 }
 
 /// Copy a (failing) drive into an image, ddrescue-style; stopping and running it again carries on.

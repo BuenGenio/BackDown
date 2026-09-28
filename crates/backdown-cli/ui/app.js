@@ -1614,8 +1614,8 @@ function rescueCard(r, job) {
         ${fs.length ? `Found <b>${fs.length}</b> file system${fs.length === 1 ? '' : 's'}${lost.length ? `, <b>${lost.length}</b> of them not in the table` : ''}.` : 'No file systems found.'}</p>
       ${(res.table?.problems || []).map(x => `<p class="warn-t">${esc(x)}</p>`).join('')}
       ${fs.length ? `<table class="list rs-parts-t"><thead><tr><th>Starts at</th><th class="n">Size</th><th>File system</th><th>Name</th><th>In the table</th><th></th></tr></thead><tbody>
-        ${fs.map(f => `<tr><td>${bytes(f.start)}<small class="muted">sector ${count(f.start / (res.sector || 512))}</small></td><td class="n">${f.size ? bytes(f.size) : '?'}</td>
-          <td>${esc(f.fs)}${f.via !== 'boot sector' && f.via !== 'superblock' ? `<small class="muted">found by its ${esc(f.via)}</small>` : ''}</td><td>${esc(f.label || '')}</td>
+        ${fs.map(f => `<tr><td>${bytes(f.start)}<small class="muted">sector ${(f.start / (res.sector || 512)).toLocaleString()}</small></td><td class="n">${f.size ? bytes(f.size) : '?'}</td>
+          <td>${esc(f.fs)}${f.via !== 'boot sector' && f.via !== 'superblock' ? `<small class="muted">found by its ${esc(f.via)}</small>` : ''}</td><td>${esc(f.label || '')}${f.nested ? '<small class="muted">inside another file system</small>' : ''}</td>
           <td>${f.in_table ? '<span class="pill ok">yes</span>' : '<span class="pill warn">no: lost</span>'}${f.truncated ? '<span class="pill warn">runs past the end</span>' : ''}</td>
           <td><button class="btn sm" type="button" data-rs-pick='${esc(JSON.stringify({ source: r.source, start: f.start, end: f.size ? f.start + f.size : null, label: `${f.fs}${f.label ? ` “${f.label}”` : ''} at ${bytes(f.start)}` }))}'>Find files in it</button></td></tr>`).join('')}</tbody></table>` : ''}`;
   }

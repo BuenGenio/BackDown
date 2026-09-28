@@ -37,6 +37,18 @@ pub enum RescueCmd {
         #[arg(long)]
         same_drive: bool,
     },
+    /// Look for file systems the partition table doesn't list (after a drive was re-initialised,
+    /// repartitioned, or shows as empty). Only reads
+    Partitions {
+        /// The drive or card (e.g. /dev/sdc), or an image of one
+        source: PathBuf,
+        /// Read every sector, not only where partitions usually start (as slow as copying it)
+        #[arg(long)]
+        deep: bool,
+        /// Print what was found as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 pub fn run(cmd: RescueCmd) -> Result<ExitCode> {
@@ -48,6 +60,7 @@ pub fn run(cmd: RescueCmd) -> Result<ExitCode> {
             sector,
             same_drive,
         } => copy(&source, &image, retries, sector, same_drive),
+        RescueCmd::Partitions { source, deep, json } => partitions(&source, deep, json),
     }
 }
 
@@ -58,22 +71,8 @@ fn copy(
     sector: Option<usize>,
     same_drive: bool,
 ) -> Result<ExitCode> {
+    readable(src, "image")?;
     let a = rescue::access(src);
-    if !a.readable {
-        let hint = if a.device {
-            format!(
-                "\nRun it as an administrator (sudo backdown rescue image …), or let your account read that drive: {}",
-                a.fix.as_deref().unwrap_or("")
-            )
-        } else {
-            String::new()
-        };
-        bail!(
-            "can't read {}: {}{hint}",
-            src.display(),
-            a.why.unwrap_or_default()
-        );
-    }
     let dest = absolute(dest);
     if let Some(dir) = dest.parent() {
         std::fs::create_dir_all(dir)?;
@@ -153,6 +152,121 @@ fn copy(
     } else {
         ExitCode::from(2)
     })
+}
+
+fn partitions(src: &Path, deep: bool, json: bool) -> Result<ExitCode> {
+    use rescue::parts;
+    readable(src, "partitions")?;
+    let stop = AtomicBool::new(false);
+    let s = parts::search(
+        src,
+        &parts::Options {
+            deep,
+            ..parts::Options::default()
+        },
+        &mut |p| {
+            live(&format!(
+                "{} of {} read · {} found",
+                fmt::bytes(p.pos),
+                fmt::bytes(p.size),
+                fmt::count(p.found)
+            ))
+        },
+        &stop,
+    )?;
+    clear();
+    if json {
+        println!("{}", serde_json::to_string_pretty(&s)?);
+        return Ok(ExitCode::SUCCESS);
+    }
+    let t = &s.table;
+    println!(
+        "{} ({}): {}",
+        src.display(),
+        fmt::bytes(s.size),
+        match t.scheme {
+            "none" => "no partition table".to_string(),
+            k => format!(
+                "{} partition table, {} entr{}",
+                k.to_uppercase(),
+                t.entries.len(),
+                if t.entries.len() == 1 { "y" } else { "ies" }
+            ),
+        }
+    );
+    for p in &t.problems {
+        println!("  ! {p}");
+    }
+    if s.found.is_empty() {
+        println!(
+            "No file systems found{}.",
+            if deep {
+                ""
+            } else {
+                " (--deep reads every sector)"
+            }
+        );
+        return Ok(ExitCode::from(2));
+    }
+    println!(
+        "\n{:>16}  {:>12}  {:>10}  {:<22} {:<18} In the table",
+        "Starts at byte", "Sector", "Size", "File system", "Name"
+    );
+    for f in &s.found {
+        println!(
+            "{:>16}  {:>12}  {:>10}  {:<22} {:<18} {}{}{}{}",
+            f.start,
+            f.start / s.sector.max(1),
+            f.size.map(fmt::bytes).unwrap_or_else(|| "?".into()),
+            f.fs,
+            f.label.as_deref().unwrap_or(""),
+            if f.in_table { "yes" } else { "NO: lost" },
+            if f.via.starts_with("backup") || f.via.starts_with("alternate") {
+                format!(" (found by its {})", f.via)
+            } else {
+                String::new()
+            },
+            if f.nested {
+                " (inside another file system)"
+            } else {
+                ""
+            },
+            if f.truncated {
+                " (runs past the end)"
+            } else {
+                ""
+            },
+        );
+    }
+    let lost = s.found.iter().filter(|f| !f.in_table && !f.nested).count();
+    if lost > 0 {
+        println!(
+            "\n{lost} not in the table. To get files out of one: backdown rescue find {} --to <folder> --start <byte> --end <byte>",
+            src.display()
+        );
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Say plainly when the source can't be read, and what would let it be.
+fn readable(src: &Path, what: &str) -> Result<()> {
+    let a = rescue::access(src);
+    if a.readable {
+        return Ok(());
+    }
+    let hint = if a.device {
+        format!(
+            "\nRun it as an administrator (sudo backdown rescue {what} …), or let your account read that drive: {}",
+            a.fix.as_deref().unwrap_or("")
+        )
+    } else {
+        String::new()
+    };
+    bail!(
+        "can't read {}: {}{hint}",
+        src.display(),
+        a.why.unwrap_or_default()
+    )
 }
 
 fn absolute(p: &Path) -> PathBuf {
