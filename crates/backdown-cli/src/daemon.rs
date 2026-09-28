@@ -37,15 +37,40 @@ pub struct Job {
     pub path: Option<String>,
     pub state: &'static str, // "queued" | "running" | "done" | "failed"
     pub progress: String,
+    /// the same progress as numbers, for progress bars and time estimates
+    pub counts: Option<Counts>,
     pub summary: String,
     pub error: Option<String>,
     /// queued by the scheduler rather than asked for
     pub auto: bool,
+    /// why it was queued: "requested" | "scheduled" | "returned" (a drive came back) | "after-scan"
+    pub reason: &'static str,
     pub queued_at: i64,
     pub started_at: Option<i64>,
     pub finished_at: Option<i64>,
     #[serde(skip)]
     opts: JobOpts,
+}
+
+/// Where a running job is. For a scan the totals are the drive's previous scan (an estimate); for
+/// hashing they're exact.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct Counts {
+    pub stage: &'static str,
+    pub files: u64,
+    pub total_files: u64,
+    pub bytes: u64,
+    pub total_bytes: u64,
+}
+
+/// An indexed drive as the scheduler last saw it.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Drive {
+    pub path: String,
+    pub present: bool,
+    pub last_scan_at: Option<i64>,
+    pub files: u64,
+    pub bytes: u64,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -61,6 +86,14 @@ struct State {
     next: u64,
     jobs: VecDeque<Job>,
     queue: VecDeque<u64>,
+    /// bumped on every change a viewer would notice, so the web UI can wait for the next one
+    /// instead of polling (progress counts at most once a second)
+    version: u64,
+    progress_bumped: Option<Instant>,
+    drives: Vec<Drive>,
+    checked_at: Option<i64>,
+    /// a scan just finished: the scheduler rereads the drives now rather than at its next check
+    recheck: bool,
 }
 
 pub struct Daemon {
@@ -69,6 +102,7 @@ pub struct Daemon {
     pub rescan_every: Option<Duration>,
     state: Mutex<State>,
     wake: Condvar,
+    changed: Condvar,
 }
 
 fn now() -> i64 {
@@ -82,9 +116,10 @@ impl Daemon {
         &self,
         kind: &'static str,
         path: Option<String>,
-        auto: bool,
+        reason: &'static str,
         opts: JobOpts,
     ) -> u64 {
+        let auto = reason != "requested";
         let mut st = self.state.lock().unwrap();
         // the same job still waiting to run covers this request
         if let Some(j) = st
@@ -117,9 +152,11 @@ impl Daemon {
             path,
             state: "queued",
             progress: String::new(),
+            counts: None,
             summary: String::new(),
             error: None,
             auto,
+            reason,
             queued_at: now(),
             started_at: None,
             finished_at: None,
@@ -139,7 +176,9 @@ impl Daemon {
                 None => break,
             }
         }
+        st.version += 1;
         self.wake.notify_all();
+        self.changed.notify_all();
         id
     }
 
@@ -154,16 +193,53 @@ impl Daemon {
     }
 
     fn update(&self, id: u64, f: impl FnOnce(&mut Job)) {
-        if let Some(j) = self
-            .state
-            .lock()
-            .unwrap()
-            .jobs
-            .iter_mut()
-            .find(|j| j.id == id)
-        {
+        let mut st = self.state.lock().unwrap();
+        if let Some(j) = st.jobs.iter_mut().find(|j| j.id == id) {
             f(j);
+            st.version += 1;
+            self.changed.notify_all();
         }
+    }
+
+    /// A running job's progress; wakes waiting viewers at most once a second.
+    fn progress(&self, id: u64, msg: String, counts: Counts) {
+        let mut st = self.state.lock().unwrap();
+        if let Some(j) = st.jobs.iter_mut().find(|j| j.id == id) {
+            j.progress = msg;
+            j.counts = Some(counts);
+            if st
+                .progress_bumped
+                .is_none_or(|t| t.elapsed() >= Duration::from_secs(1))
+            {
+                st.progress_bumped = Some(Instant::now());
+                st.version += 1;
+                self.changed.notify_all();
+            }
+        }
+    }
+
+    /// Wait until something changes after `since` (the `version` of a snapshot), or `timeout`.
+    pub fn wait_change(&self, since: u64, timeout: Duration) {
+        let st = self.state.lock().unwrap();
+        let _ = self
+            .changed
+            .wait_timeout_while(st, timeout, |s| s.version == since)
+            .unwrap();
+    }
+
+    fn set_drives(&self, drives: Vec<Drive>) {
+        let mut st = self.state.lock().unwrap();
+        st.checked_at = Some(now());
+        if st.drives != drives {
+            st.drives = drives;
+            st.version += 1;
+            self.changed.notify_all();
+        }
+    }
+
+    fn drive(&self, path: &str) -> Option<Drive> {
+        let st = self.state.lock().unwrap();
+        st.drives.iter().find(|d| d.path == path).cloned()
     }
 
     fn pending_index(&self, path: &str) -> bool {
@@ -188,18 +264,52 @@ impl Daemon {
             .iter()
             .rev()
             .filter(|j| j.state == "done" || j.state == "failed")
-            .take(15)
+            .take(30)
+            .collect();
+        // the plan: when each drive is scanned next, and why not if it isn't
+        let now = now();
+        let every = self.rescan_every.map(|d| d.as_secs() as i64);
+        let drives: Vec<Value> = st
+            .drives
+            .iter()
+            .map(|d| {
+                let busy = |state: &str| {
+                    st.jobs.iter().any(|j| {
+                        j.kind == "index" && j.state == state && j.path.as_deref() == Some(&d.path)
+                    })
+                };
+                let next_at = every.map(|e| d.last_scan_at.map_or(now, |t| t + e));
+                let state = if busy("running") {
+                    "scanning"
+                } else if busy("queued") {
+                    "queued"
+                } else if !d.present {
+                    "away"
+                } else if next_at.is_some_and(|n| n <= now) {
+                    "due"
+                } else if every.is_none() {
+                    "on-request"
+                } else {
+                    "scheduled"
+                };
+                json!({ "path": d.path, "present": d.present, "last_scan_at": d.last_scan_at,
+                        "files": d.files, "bytes": d.bytes, "next_at": next_at, "state": state })
+            })
             .collect();
         json!({
             "running": true,
             "version": env!("CARGO_PKG_VERSION"),
+            "change": st.version,
+            "now": now,
             "db": self.db.display().to_string(),
             "pid": std::process::id(),
             "started_at": self.started_at,
             "rescan_every_secs": self.rescan_every.map(|d| d.as_secs()),
+            "checked_at": st.checked_at,
             "current": current,
             "queued": queued,
             "recent": recent,
+            "drives": drives,
         })
     }
 }
@@ -220,6 +330,7 @@ pub fn run(opts: Options) -> Result<()> {
         rescan_every: opts.rescan_every,
         state: Mutex::new(State::default()),
         wake: Condvar::new(),
+        changed: Condvar::new(),
     });
 
     // claim the control socket first: if another daemon is running, stop before touching anything
@@ -354,11 +465,12 @@ fn worker(d: &Daemon) {
             }
         }
         if ok && job.kind == "index" {
+            d.state.lock().unwrap().recheck = true;
             // hash after every scan, so this scan's versions keep a provable fingerprint
             d.enqueue(
                 "hash",
                 None,
-                true,
+                "after-scan",
                 JobOpts {
                     jobs_per_device: 1,
                     ..JobOpts::default()
@@ -377,9 +489,18 @@ fn run_index(d: &Daemon, db: &mut Db, job: &Job) -> Result<String> {
         one_file_system: !job.opts.cross_filesystems,
         allow_empty: job.opts.allow_empty,
     };
+    // the drive's previous scan is the best guess at how far this one has to go
+    let before = d.drive(&path.display().to_string());
     let st = index::index(db, &path, &opts, &mut |s| {
         let msg = format!("{} files, {}", fmt::count(s.files), fmt::bytes(s.bytes));
-        d.update(job.id, |j| j.progress = msg);
+        let counts = Counts {
+            stage: "scanning",
+            files: s.files,
+            total_files: before.as_ref().map_or(0, |b| b.files),
+            bytes: s.bytes,
+            total_bytes: before.as_ref().map_or(0, |b| b.bytes),
+        };
+        d.progress(job.id, msg, counts);
     })?;
     Ok(format!(
         "{}: {} files, {} (new {}, changed {}, gone {}) · scan {}{}",
@@ -417,7 +538,14 @@ fn run_hash(d: &Daemon, db: &mut Db, job: &Job) -> Result<String> {
             fmt::bytes(p.bytes),
             fmt::bytes(p.total_bytes)
         );
-        d.update(job.id, |j| j.progress = msg);
+        let counts = Counts {
+            stage: p.stage,
+            files: p.files,
+            total_files: p.total_files,
+            bytes: p.bytes,
+            total_bytes: p.total_bytes,
+        };
+        d.progress(job.id, msg, counts);
     })?;
     Ok(format!(
         "hashed: {} sampled, {} full, {} read{}",
@@ -445,7 +573,8 @@ fn scheduler(d: &Daemon) {
         if watchdog.is_some() {
             notify::send("WATCHDOG=1");
         }
-        if last_check.is_none_or(|t| t.elapsed() >= Duration::from_secs(30)) {
+        let recheck = std::mem::take(&mut d.state.lock().unwrap().recheck);
+        if recheck || last_check.is_none_or(|t| t.elapsed() >= Duration::from_secs(30)) {
             last_check = Some(Instant::now());
             if let Err(e) = check_roots(d, &mut present) {
                 eprintln!("scheduler: {e:#}");
@@ -461,22 +590,31 @@ fn scheduler(d: &Daemon) {
 fn check_roots(d: &Daemon, present: &mut HashMap<String, bool>) -> Result<()> {
     let db = Db::open_read_only(&d.db)?;
     let mut stmt = db.conn.prepare(
-        "SELECT r.path, s.finished_at, COALESCE(s.files, 0) FROM roots r LEFT JOIN scans s ON s.id = r.last_scan",
+        "SELECT r.path, s.finished_at, COALESCE(s.files, 0), COALESCE(s.bytes, 0) FROM roots r LEFT JOIN scans s ON s.id = r.last_scan",
     )?;
     let rows = stmt.query_map([], |r| {
         Ok((
             r.get::<_, Vec<u8>>(0)?,
             r.get::<_, Option<i64>>(1)?,
             r.get::<_, i64>(2)?,
+            r.get::<_, i64>(3)?,
         ))
     })?;
     let now = now();
+    let mut drives = Vec::new();
     for row in rows {
-        let (path, last, files) = row?;
+        let (path, last, files, bytes) = row?;
         let p = paths::from_bytes(&path);
         let key = p.display().to_string();
         let here = p.is_dir()
             && (files == 0 || std::fs::read_dir(&p).is_ok_and(|mut it| it.next().is_some()));
+        drives.push(Drive {
+            path: key.clone(),
+            present: here,
+            last_scan_at: last,
+            files: files as u64,
+            bytes: bytes as u64,
+        });
         let was = present.insert(key.clone(), here);
         if !here {
             if was == Some(true) {
@@ -492,9 +630,11 @@ fn check_roots(d: &Daemon, present: &mut HashMap<String, bool>) -> Result<()> {
             if back {
                 eprintln!("{key} is back");
             }
-            d.enqueue("index", Some(key), true, JobOpts::default());
+            let reason = if back { "returned" } else { "scheduled" };
+            d.enqueue("index", Some(key), reason, JobOpts::default());
         }
     }
+    d.set_drives(drives);
     Ok(())
 }
 
@@ -529,7 +669,7 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
                 jobs_per_device: req["jobs"].as_u64().unwrap_or(1) as usize,
                 retry_errors: req["retry_errors"].as_bool().unwrap_or(false),
             };
-            json!({ "ok": true, "job": d.enqueue(kind, path, false, opts) })
+            json!({ "ok": true, "job": d.enqueue(kind, path, "requested", opts) })
         }
         "job" => json!({ "ok": true, "job": d.job(req["job"].as_u64().context("missing job")?) }),
         "check" => {

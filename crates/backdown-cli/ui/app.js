@@ -31,7 +31,7 @@ async function boot() {
   try { data = await api('roots'); } catch (e) { return fatal(e.message); }
   S.roots = data.roots;
   const st = data.status;
-  $('#status').textContent = `${count(st.files)} files · ${bytes(st.bytes)} · ${count(st.hashed)} hashed`;
+  $('#status-files').textContent = summary(st);
   renderPlaces();
   if (!S.roots.length) {
     $('#view').innerHTML = `<div class="empty"><div>${driveIcon()}<h2>Nothing indexed yet</h2><p>Index a drive first, then reload:<br><code>backdown index /media/my-drive</code></p></div></div>`;
@@ -41,6 +41,8 @@ async function boot() {
   const start = saved && S.roots.some(r => atob64(saved).startsWith(atob64(r.key))) ? saved : S.roots[0].key;
   await go(start, { push: false });
 }
+
+const summary = st => `${count(st.files)} files · ${bytes(st.bytes)} · ${count(st.hashed)} hashed`;
 
 function fatal(msg) {
   $('#view').innerHTML = `<div class="empty"><div><h2>Can't load the index</h2><p>${esc(msg)}</p></div></div>`;
@@ -60,6 +62,7 @@ function renderPlaces() {
       ${S.daemon?.running ? `<button class="rescan${busy.has(r.path) ? ' spin' : ''}" type="button" data-rescan="${r.id}" title="Rescan ${esc(r.name)} now" aria-label="Rescan ${esc(r.name)}"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg></button>` : ''}
     </div>`).join('');
   $('#dupes-btn').setAttribute('aria-current', String(S.mode === 'dupes'));
+  $('#activity-btn').setAttribute('aria-current', String(S.mode === 'activity'));
 }
 
 // ---------- navigation
@@ -135,7 +138,7 @@ function renderAll() {
 
 function renderPath() {
   if (S.mode !== 'browse') {
-    $('#pathbar').innerHTML = `<span class="crumb" style="cursor:default">${S.mode === 'dupes' ? 'Duplicates' : 'Search'}</span>`;
+    $('#pathbar').innerHTML = `<span class="crumb" style="cursor:default">${{ dupes: 'Duplicates', activity: 'Activity' }[S.mode] || 'Search'}</span>`;
     return;
   }
   $('#pathbar').innerHTML = S.listing.crumbs.map((c, i) =>
@@ -355,44 +358,194 @@ async function showDupes() {
 }
 
 // ---------- the daemon: activity, rescans, live refresh
+//
+// Long polls /api/daemon: the daemon answers as soon as something changes (at most once a second while
+// a job reports progress) or after 50 s, so an idle browser costs about one small request a minute.
+// Nothing is asked while the tab is hidden; coming back asks at once.
 
-let lastDone = null, pollTimer;
-async function pollDaemon() {
+let lastDone = null, shownFail = 0, polling = false, pollTimer, busyKey = '', clockSkew = 0;
+async function pollDaemon(fresh = false) {
   clearTimeout(pollTimer);
-  let d;
-  try { d = await api('daemon'); } catch { d = { running: false }; }
-  const was = S.daemon;
+  if (polling || document.hidden) return;
+  polling = true;
+  const t0 = Date.now();
+  let d, failed = false;
+  try { d = await api('daemon', S.daemon && !fresh ? { since: S.daemon.change, wait: 50 } : {}); }
+  catch { d = { running: false }; failed = !!S.daemon; }
+  polling = false;
+  await applyDaemon(d);
+  if (document.hidden) return;
+  if (failed) { pollTimer = setTimeout(pollDaemon, 15000, true); return; } // the daemon restarted or stopped
+  if (!d.running) return; // `backdown serve`: there's no daemon to wait for
+  // a change can arrive every second while a job runs; the Activity view shows every one, the sidebar every other
+  const gap = (S.mode === 'activity' ? 1000 : 2000) - (Date.now() - t0);
+  pollTimer = setTimeout(pollDaemon, Math.max(0, gap));
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) pollDaemon(true); });
+
+const jobName = j => j.kind === 'index' ? `Scan ${rootName(j.path)}` : 'Hash new and changed files';
+const rootName = p => S.roots.find(r => r.path === p)?.name || (p || '').split(/[\\/]/).filter(Boolean).pop() || p;
+
+async function applyDaemon(d) {
+  const had = !!S.daemon;
   S.daemon = d.running ? d : null;
-  const st = $('#status');
+  if (d.running) clockSkew = d.now - Date.now() / 1000;
+  const st = $('#status-act');
   if (S.daemon) {
-    const cur = d.current, q = d.queued.length;
-    const name = p => S.roots.find(r => r.path === p)?.name || (p || '').split(/[\\/]/).pop();
+    const cur = d.current, q = d.queued.length, c = cur?.counts;
     st.innerHTML = cur
-      ? `<span class="act"><span class="pulse"></span>${cur.kind === 'index' ? `Scanning ${esc(name(cur.path))}` : 'Hashing'}${cur.progress ? ` · ${esc(cur.progress)}` : ''}</span>${q ? `<span>${q} more queued</span>` : ''}`
-      : `<span class="act idle">Up to date</span><span>${d.rescan_every_secs ? `rescans every ${Math.round(d.rescan_every_secs / 3600)} h` : 'rescans on request'}</span>`;
-    // a scan finished: fresh sizes, timeline and (unless looking at the past) the open folder
+      ? `<span class="act"><span class="pulse"></span>${cur.kind === 'index' ? `Scanning ${esc(rootName(cur.path))}` : 'Hashing'}${c ? ` · ${pct(cur) != null ? Math.round(pct(cur) * 100) + '%' : count(c.files) + ' files'}` : ''}</span>${q ? `<span>${q} more queued</span>` : ''}`
+      : `<span class="act idle">Up to date</span><span>${d.rescan_every_secs ? `rescans every ${dur(d.rescan_every_secs)}` : 'rescans on request'}</span>`;
+    // a job finished: fresh sizes, timeline and (unless looking at the past) the open folder
     const done = d.recent.find(j => j.state === 'done');
-    if (lastDone !== null && done && done.id !== lastDone && S.mode === 'browse') {
+    if (lastDone !== null && done && done.id !== lastDone) {
       const data = await api('roots').catch(() => null);
-      if (data) S.roots = data.roots;
-      if (done.kind === 'index' && S.root && done.path === S.root.path) {
+      if (data) { S.roots = data.roots; $('#status-files').textContent = summary(data.status); renderPlaces(); }
+      if (S.mode === 'browse' && done.kind === 'index' && S.root && done.path === S.root.path) {
         await loadTimeline();
         if (S.scan == null) await go(S.dir, { push: false, scan: null, select: S.anchor });
       }
     }
     if (done) lastDone = done.id;
-    const failed = d.recent.find(j => j.state === 'failed' && j.finished_at > (Date.now() / 1000 - 10));
-    if (failed) toastError(new Error(`${failed.kind} ${failed.path || ''}: ${failed.error}`));
+    const failed = d.recent.find(j => j.state === 'failed');
+    if (failed && failed.id > shownFail && failed.finished_at > d.now - 60 && S.mode !== 'activity') toastError(new Error(`${jobName(failed)} failed: ${failed.error}`));
+    if (failed) shownFail = Math.max(shownFail, failed.id);
   }
-  if (!!was !== !!S.daemon || S.daemon) renderPlaces();
-  pollTimer = setTimeout(pollDaemon, S.daemon?.current ? 1500 : 4000);
+  // the sidebar only changes when the set of busy drives does
+  const key = JSON.stringify([had, !!S.daemon, S.daemon?.current?.path, S.daemon?.queued.map(j => j.path)]);
+  if (key !== busyKey) { busyKey = key; renderPlaces(); }
+  if (S.mode === 'activity') renderActivity();
 }
 
 async function rescan(rootId) {
   const r = await fetch(`/api/rescan?root=${rootId}`, { method: 'POST', headers: { 'X-BackDown': '1' }, credentials: 'same-origin' });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) return toastError(new Error(j.error || r.statusText));
-  pollDaemon();
+  // a long poll in flight returns by itself with the new job; otherwise ask now
+  if (!polling) pollDaemon(true);
+}
+
+// ---------- the Activity view: what the daemon is doing, what's next, and when each drive is due
+
+const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+function rel(t) {
+  if (!t) return '—';
+  const s = t - (Date.now() / 1000 + clockSkew);
+  for (const [unit, n] of [['day', 86400], ['hour', 3600], ['minute', 60]]) if (Math.abs(s) >= n) return rtf.format(Math.round(s / n), unit);
+  return Math.abs(s) < 10 ? (s < 0 ? 'just now' : 'any moment') : rtf.format(Math.round(s), 'second');
+}
+function dur(s) {
+  s = Math.max(0, Math.round(s));
+  if (s >= 86400) { const d = Math.floor(s / 86400), h = Math.round((s % 86400) / 3600); return h ? `${d} d ${h} h` : `${d} d`; }
+  if (s >= 3600) { const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60); return m ? `${h} h ${m} min` : `${h} h`; }
+  if (s >= 60) return `${Math.round(s / 60)} min`;
+  return `${s} s`;
+}
+// how far a running job is, 0..1, or null when there's nothing to compare with (a drive's first scan)
+function pct(j) {
+  const c = j.counts;
+  if (!c) return null;
+  // quick samples are small fixed-size reads, so count files there; the full pass is measured in bytes
+  if (j.kind === 'hash') return c.stage !== 'sample' && c.total_bytes ? c.bytes / c.total_bytes : c.total_files ? c.files / c.total_files : null;
+  // a scan is measured against the drive's previous one, so it can run past 100%: cap it
+  return c.total_files ? Math.min(0.99, c.files / c.total_files) : null;
+}
+function eta(j, now) {
+  const p = pct(j), took = now - (j.started_at || now);
+  if (p == null || p < 0.02 || took < 15) return '';
+  return `about ${dur(took * (1 - p) / p)} left`;
+}
+const REASON = { requested: 'you asked', scheduled: 'scheduled', returned: 'drive came back', 'after-scan': 'after a scan' };
+const JOB_ICON = {
+  index: '<svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg>',
+  hash: '<svg viewBox="0 0 24 24"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></svg>',
+};
+
+let activityClock;
+function showActivity() {
+  S.mode = 'activity';
+  closeSearch(false);
+  renderPlaces(); renderPath();
+  $('#banner').hidden = true; $('#info').hidden = true; $('#timebar').hidden = true;
+  renderActivity();
+  pollDaemon(true);
+}
+
+function renderActivity() {
+  clearInterval(activityClock);
+  if (S.mode !== 'activity') return;
+  // relative times ("5 min ago") age between changes: redraw them twice a minute while on screen
+  activityClock = setInterval(() => { if (S.mode !== 'activity') clearInterval(activityClock); else if (!document.hidden) renderActivity(); }, 30000);
+  const d = S.daemon, now = Date.now() / 1000 + clockSkew;
+  const view = $('#view');
+  const keepScroll = view.scrollTop;
+  if (!d) {
+    view.innerHTML = `<div class="activity">
+      <section class="act-card"><div class="act-head"><span class="act-dot off"></span><h2>BackDown isn't running in the background</h2></div>
+        <p>This window was opened with <code>backdown serve</code>, so nothing rescans your drives on its own. To keep them up to date,
+        run BackDown as a service: <code>backdown service install</code> (Linux), then <code>backdown open</code>.</p></section>
+      ${drivesTable(S.roots.map(r => ({ path: r.path, last_scan_at: r.scanned_at, files: r.files, bytes: r.bytes, state: 'on-request', present: null })), false)}
+    </div>`;
+    return;
+  }
+  const cur = d.current;
+  let now_;
+  if (cur) {
+    const c = cur.counts || {}, p = pct(cur);
+    const stage = cur.kind === 'hash' ? (c.stage === 'sample' ? ' · quick samples' : c.stage ? ' · full SHA-256' : '') : '';
+    const detail = cur.kind === 'hash'
+      ? `${count(c.files || 0)} of ${count(c.total_files || 0)} files · ${bytes(c.bytes || 0)} of ${bytes(c.total_bytes || 0)}`
+      : `${count(c.files || 0)} files · ${bytes(c.bytes || 0)}${c.total_files ? ` <span class="muted">(last scan: ${count(c.total_files)} files)</span>` : ''}`;
+    now_ = `<section class="act-card now">
+      <div class="act-head"><span class="pulse"></span><h2>${esc(jobName(cur))}<span class="muted">${stage}</span></h2><span class="act-pct">${p != null ? Math.round(p * 100) + '%' : ''}</span></div>
+      <div class="meter${p == null ? ' unknown' : ''}"><i style="width:${p != null ? (p * 100).toFixed(1) : 100}%"></i></div>
+      <p>${detail}</p>
+      <p class="muted">Started ${rel(cur.started_at)} · ${REASON[cur.reason] || ''}${eta(cur, now) ? ` · ${eta(cur, now)}` : ''}</p>
+    </section>`;
+  } else {
+    const next = d.drives.filter(x => x.present && x.next_at).sort((a, b) => a.next_at - b.next_at)[0];
+    now_ = `<section class="act-card idle">
+      <div class="act-head"><span class="act-dot"></span><h2>Up to date</h2></div>
+      <p>${next ? `Next: a scan of <b>${esc(rootName(next.path))}</b> ${rel(next.next_at)}.` : d.rescan_every_secs ? 'Nothing is due: drives that are away are scanned when they come back.' : 'Drives are scanned when you ask (rescan button, or <code>backdown index</code>).'}</p>
+    </section>`;
+  }
+  const queue = d.queued.length ? `<ol class="act-list">${d.queued.map((j, i) => `
+      <li><span class="ji">${JOB_ICON[j.kind] || ''}</span><span class="jn">${i + 1}. ${esc(jobName(j))}</span><span class="pill">${REASON[j.reason] || ''}</span><span class="muted">queued ${rel(j.queued_at)}</span></li>`).join('')}</ol>`
+    : '<p class="muted pad">Nothing waiting.</p>';
+  const recent = d.recent.length ? `<ol class="act-list">${d.recent.map(j => `
+      <li class="${j.state}"><span class="ji ${j.state}">${j.state === 'failed' ? '<svg viewBox="0 0 24 24"><path d="M12 8v5M12 16h.01"/><circle cx="12" cy="12" r="9"/></svg>' : '<svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>'}</span>
+        <span class="jn">${esc(jobName(j))}<small>${esc(j.state === 'failed' ? j.error || 'failed' : j.summary)}</small></span>
+        <span class="pill">${REASON[j.reason] || ''}</span>
+        <span class="muted" title="${esc(when(j.finished_at))}">${rel(j.finished_at)}${j.started_at && j.finished_at ? ` · took ${dur(j.finished_at - j.started_at)}` : ''}</span></li>`).join('')}</ol>`
+    : '<p class="muted pad">Nothing has run since the daemon started.</p>';
+  view.innerHTML = `<div class="activity">
+    ${now_}
+    <section><h3>Up next</h3>${queue}</section>
+    <section><h3>Drives and schedule</h3>${drivesTable(d.drives, true)}</section>
+    <section><h3>Recent</h3>${recent}</section>
+    <p class="act-foot muted">BackDown ${esc(d.version)} · running since ${rel(d.started_at)} · ${d.rescan_every_secs ? `rescans each drive every ${dur(d.rescan_every_secs)}` : 'rescans on request'} ·
+      drives checked ${rel(d.checked_at)} · index <code>${esc(d.db)}</code></p>
+  </div>`;
+  view.scrollTop = keepScroll;
+}
+
+function drivesTable(drives, live) {
+  if (!drives.length) return '<p class="muted pad">No drives indexed yet: <code>backdown index /media/my-drive</code></p>';
+  const label = x => ({
+    scanning: '<span class="pill busy">Scanning now</span>', queued: '<span class="pill busy">Waiting its turn</span>',
+    away: '<span class="pill off">Not connected</span>', due: '<span class="pill warn">Due now</span>',
+    'on-request': '<span class="pill">On request</span>', scheduled: '<span class="pill ok">Connected</span>',
+  }[x.state] || '');
+  const next = x => x.state === 'away' ? 'when it’s plugged back in' : x.state === 'on-request' ? '—' : x.state === 'scanning' ? 'now' : x.state === 'queued' ? 'next in line' : x.next_at ? rel(x.next_at) : '—';
+  return `<table class="list act-drives"><thead><tr><th>Drive</th><th>Status</th><th>Last scan</th>${live ? '<th>Next scan</th>' : ''}<th class="n">Files</th><th class="n">Size</th>${live ? '<th></th>' : ''}</tr></thead><tbody>
+    ${drives.map(x => { const r = S.roots.find(r => r.path === x.path); return `<tr>
+      <td><b>${esc(rootName(x.path))}</b><small class="muted">${esc(x.path)}</small></td>
+      <td>${live ? label(x) : ''}</td>
+      <td title="${esc(when(x.last_scan_at))}">${x.last_scan_at ? rel(x.last_scan_at) : 'never finished'}</td>
+      ${live ? `<td>${next(x)}</td>` : ''}
+      <td class="n">${count(x.files)}</td><td class="n">${bytes(x.bytes)}</td>
+      ${live ? `<td>${r && x.present !== false ? `<button class="btn sm" type="button" data-rescan="${r.id}"${['scanning', 'queued'].includes(x.state) ? ' disabled' : ''}>Rescan now</button>` : ''}</td>` : ''}
+    </tr>`; }).join('')}</tbody></table>`;
 }
 
 // ---------- selection & keyboard
@@ -486,6 +639,7 @@ $('#search-btn').onclick = () => $('#searchbox').hidden ? openSearch() : closeSe
 $('#q').addEventListener('input', e => { clearTimeout(searchTimer); searchTimer = setTimeout(() => runSearch(e.target.value), 220); });
 $('#q').addEventListener('keydown', e => { if (e.key === 'Escape') { closeSearch(); $('#view').focus(); } });
 $('#dupes-btn').onclick = showDupes;
+$('#activity-btn').onclick = showActivity;
 $('#time').addEventListener('input', e => setScan(+e.target.value));
 $('#time-now').onclick = () => setScan(S.timeline.length - 1);
 
@@ -524,4 +678,4 @@ document.addEventListener('error', e => {
 }, true);
 
 setView(S.view);
-boot().then(pollDaemon);
+boot().then(() => pollDaemon(true));

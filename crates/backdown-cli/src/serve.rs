@@ -271,7 +271,7 @@ fn rescan(ctx: &Ctx, d: &Daemon, root: Option<&str>) -> Result<Value> {
     }
     let jobs: Vec<u64> = chosen
         .into_iter()
-        .map(|r| d.enqueue("index", Some(r.path), false, Default::default()))
+        .map(|r| d.enqueue("index", Some(r.path), "requested", Default::default()))
         .collect();
     Ok(json!({ "ok": true, "jobs": jobs }))
 }
@@ -282,15 +282,27 @@ fn ro_db(ctx: &Ctx) -> Result<Db> {
 
 fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
     let param = |name: &str| get(params, name);
+    if path == "/api/daemon" {
+        return Ok(match &ctx.daemon {
+            None => json!({ "running": false }),
+            Some(d) => {
+                // long poll: with ?since=<change>&wait=<s>, answer when something changes (or at
+                // the timeout), so an idle UI costs one request a minute instead of a steady poll
+                if let (Some(since), Some(wait)) = (
+                    param("since").and_then(|v| v.parse().ok()),
+                    param("wait").and_then(|v| v.parse::<u64>().ok()),
+                ) {
+                    d.wait_change(since, std::time::Duration::from_secs(wait.min(55)));
+                }
+                d.snapshot()
+            }
+        });
+    }
     let db = ro_db(ctx)?;
     let id = || -> Result<i64> { param("id").context("missing id")?.parse().context("bad id") };
     let dir = || -> Result<PathBuf> { browse::path_of(param("dir").context("missing dir")?) };
     Ok(match path {
         "/api/roots" => json!({ "roots": browse::roots(&db)?, "status": db.status()? }),
-        "/api/daemon" => ctx
-            .daemon
-            .as_ref()
-            .map_or_else(|| json!({ "running": false }), |d| d.snapshot()),
         "/api/timeline" => json!(browse::timeline(
             &db,
             param("root").context("missing root")?.parse()?
