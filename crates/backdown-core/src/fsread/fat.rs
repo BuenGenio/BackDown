@@ -1,11 +1,15 @@
 //! FAT12, FAT16 and FAT32: the boot sector's geometry, cluster chains through the first FAT, and
-//! folders of 32-byte entries with their long (VFAT, UTF-16) names. Deleted entries are skipped.
+//! folders of 32-byte entries with their long (VFAT, UTF-16) names. Deleted entries are left out
+//! of listings; `deleted` lists them (see `undelete` for how sure a recovery can be): a deleted
+//! entry has its first byte replaced by E5 (its long-name entries too, so their order is lost but
+//! they stay in place, checksummed against the short name) and its cluster chain freed.
 
 use std::collections::HashMap;
 use std::io::{Read, Seek};
 
 use anyhow::{Context, Result, bail};
 
+use super::undelete::{Deleted, Spans, Verdict};
 use super::{
     Data, Entry, Info, Node, Region, Run, clean_name, dos_time, each_chunk, looped, push_run,
     utf16le,
@@ -181,7 +185,8 @@ impl Fat {
         Ok(self.cache[&w][(off % WINDOW) as usize])
     }
 
-    fn next<R: Read + Seek>(&mut self, r: &mut Region<R>, n: u32) -> Result<Next> {
+    /// Cluster `n`'s FAT entry as it's stored (0: free).
+    fn raw<R: Read + Seek>(&mut self, r: &mut Region<R>, n: u32) -> Result<u32> {
         let n64 = u64::from(n);
         let (off, width) = match self.bits {
             12 => (n64 + n64 / 2, 2),
@@ -192,10 +197,25 @@ impl Fat {
         for i in 0..width {
             v |= u32::from(self.byte(r, off + i)?) << (8 * i);
         }
-        let (v, eoc) = match self.bits {
-            12 => (if n & 1 == 1 { v >> 4 } else { v & 0xFFF }, 0xFF8),
-            16 => (v, 0xFFF8),
-            _ => (v & 0x0FFF_FFFF, 0x0FFF_FFF8),
+        Ok(match self.bits {
+            12 => {
+                if n & 1 == 1 {
+                    v >> 4
+                } else {
+                    v & 0xFFF
+                }
+            }
+            16 => v,
+            _ => v & 0x0FFF_FFFF,
+        })
+    }
+
+    fn next<R: Read + Seek>(&mut self, r: &mut Region<R>, n: u32) -> Result<Next> {
+        let v = self.raw(r, n)?;
+        let eoc = match self.bits {
+            12 => 0xFF8,
+            16 => 0xFFF8,
+            _ => 0x0FFF_FFF8,
         };
         Ok(if v >= eoc {
             Next::End
@@ -326,6 +346,7 @@ impl Fat {
                     link: None,
                     unreadable: None,
                     flags,
+                    deleted: None,
                     node: Node::Fat {
                         cluster: (hi | le(e, 26, 2)) as u32,
                         size,
@@ -344,6 +365,23 @@ impl Fat {
     }
 
     pub(crate) fn data<R: Read + Seek>(&mut self, r: &mut Region<R>, node: &Node) -> Result<Data> {
+        if let Node::FatDel {
+            cluster,
+            size,
+            dir: false,
+        } = *node
+        {
+            let size = u64::from(size);
+            let (spans, v) = self.assess(r, cluster, size)?;
+            if v.state == "overwritten" {
+                bail!("it can't be recovered: {}", v.why);
+            }
+            return Ok(Data::Runs {
+                runs: spans.runs,
+                size,
+                valid: size,
+            });
+        }
         let Node::Fat { cluster, size } = *node else {
             bail!("not a FAT file");
         };
@@ -364,6 +402,344 @@ impl Fat {
             valid: size,
         })
     }
+
+    // ---- deleted entries
+
+    /// Where a deleted file's `size` bytes from cluster `first` would be (the clusters one after
+    /// another), with the ones in use now as holes, and how likely that's the file.
+    fn assess<R: Read + Seek>(
+        &mut self,
+        r: &mut Region<R>,
+        first: u32,
+        size: u64,
+    ) -> Result<(Spans, Verdict)> {
+        let mut spans = Spans::default();
+        if size == 0 {
+            return Ok((spans, Verdict::sure("it was empty")));
+        }
+        if !(2..=self.max).contains(&first) {
+            spans.gone(size)?;
+            return Ok((spans, Verdict::lost("its first cluster is outside the volume")));
+        }
+        let n = size.div_ceil(self.cluster);
+        for i in 0..n {
+            if i % 65_536 == 0 {
+                r.in_time()?;
+            }
+            let at = i * self.cluster;
+            let len = self.cluster.min(size - at);
+            let c = u64::from(first) + i;
+            if c > u64::from(self.max) {
+                spans.gone(size - at)?;
+                break;
+            }
+            let used = self.raw(r, c as u32)? != 0;
+            spans.push(self.data_at + (c - 2) * self.cluster, len, used)?;
+        }
+        let v = if n == 1 {
+            spans.verdict(
+                95,
+                "it fitted in one cluster, and no other file has used it since",
+            )
+        } else {
+            spans.verdict(
+                70,
+                "its clusters are all still free; they're taken to follow one another, as most files are written (if it was stored in pieces, parts may come back wrong)",
+            )
+        };
+        Ok((spans, v))
+    }
+
+    /// A deleted folder's clusters: the first, if it's still free and still starts with the
+    /// folder's own "." entry, then the free ones after it that still look like folder entries.
+    fn deleted_dir_runs<R: Read + Seek>(
+        &mut self,
+        r: &mut Region<R>,
+        first: u32,
+    ) -> Result<Vec<Run>> {
+        let reused = "what was in it has been overwritten since it was deleted";
+        if !(2..=self.max).contains(&first) {
+            bail!("its first cluster is outside the volume");
+        }
+        if self.raw(r, first)? != 0 {
+            bail!("{reused}");
+        }
+        let (data_at, cl) = (self.data_at, self.cluster);
+        let phys = move |c: u32| data_at + u64::from(c - 2) * cl;
+        let head = r.read_vec(phys(first), self.cluster)?;
+        let dot = &head[..32];
+        let hi = if self.bits == 32 { le(dot, 20, 2) << 16 } else { 0 };
+        if &dot[..11] != b".          " || dot[11] & 0x10 == 0 || (hi | le(dot, 26, 2)) as u32 != first
+        {
+            bail!("{reused}");
+        }
+        let mut runs = Vec::new();
+        push_run(
+            &mut runs,
+            Run {
+                at: 0,
+                len: self.cluster,
+                phys: Some(phys(first)),
+            },
+        )?;
+        let (mut at, mut c, mut ended) = (self.cluster, first, dir_end(&head));
+        while !ended && at < DIR_MAX && c < self.max {
+            c += 1;
+            if self.raw(r, c)? != 0 {
+                break;
+            }
+            let b = r.read_vec(phys(c), self.cluster)?;
+            if b.iter().all(|&x| x == 0) || !looks_like_dir(&b, self.max) {
+                break;
+            }
+            ended = dir_end(&b);
+            push_run(
+                &mut runs,
+                Run {
+                    at,
+                    len: self.cluster,
+                    phys: Some(phys(c)),
+                },
+            )?;
+            at += self.cluster;
+        }
+        Ok(runs)
+    }
+
+    /// Calls `each` for the deleted entries of a folder (every entry of a deleted one), with how
+    /// likely each can be recovered, until it returns false.
+    pub(crate) fn deleted<R: Read + Seek>(
+        &mut self,
+        r: &mut Region<R>,
+        node: &Node,
+        each: &mut dyn FnMut(Entry) -> bool,
+    ) -> Result<Option<String>> {
+        let (runs, all) = match *node {
+            Node::Fat { cluster, .. } => (self.dir_runs(r, cluster)?, false),
+            Node::FatDel {
+                cluster, dir: true, ..
+            } => (self.deleted_dir_runs(r, cluster)?, true),
+            _ => bail!("not a FAT folder"),
+        };
+        // the entries first (a folder is at most 2 MiB), then each one looked at more closely
+        let mut found: Vec<(u64, [u8; 32], Option<String>)> = Vec::new();
+        let mut gone: Vec<[u8; 32]> = Vec::new(); // deleted long-name parts, as they lie
+        let mut lfn = Lfn::default(); // a live long name, in a deleted folder
+        let mut off = 0u64;
+        let max = self.max;
+        each_chunk(r, &runs, DIR_MAX, |chunk| {
+            for e in chunk.as_chunks::<32>().0 {
+                let at = off;
+                off += 32;
+                if e[0] == 0 {
+                    return Ok(false);
+                }
+                let long_part = e[11] & 0x3F == 0x0F;
+                if e[0] == 0xE5 {
+                    lfn = Lfn::default();
+                    if long_part {
+                        if gone.len() >= 20 {
+                            gone.remove(0);
+                        }
+                        gone.push(*e);
+                        continue;
+                    }
+                    let parts = std::mem::take(&mut gone);
+                    if plausible(e, max, true) {
+                        found.push((at, *e, deleted_long_name(&parts, e)));
+                    }
+                    continue;
+                }
+                gone.clear();
+                if !all {
+                    continue;
+                }
+                // a deleted folder's entries that weren't themselves marked deleted
+                if long_part {
+                    lfn.add(e);
+                    continue;
+                }
+                let long = std::mem::take(&mut lfn).name(e);
+                if e[..11] == *b".          " || e[..11] == *b"..         " {
+                    continue;
+                }
+                if plausible(e, max, false) {
+                    found.push((at, *e, long));
+                }
+            }
+            Ok(true)
+        })?;
+        for (at, e, long) in found {
+            let entry = self.deleted_entry(r, &e, at, long)?;
+            if !each(entry) {
+                break;
+            }
+        }
+        Ok(None)
+    }
+
+    fn deleted_entry<R: Read + Seek>(
+        &mut self,
+        r: &mut Region<R>,
+        e: &[u8; 32],
+        at: u64,
+        long: Option<String>,
+    ) -> Result<Entry> {
+        let lost_letter = e[0] == 0xE5 && long.is_none();
+        let name = long.unwrap_or_else(|| {
+            let mut s = *e;
+            if s[0] == 0xE5 {
+                s[0] = b'_';
+            }
+            short_name(&s)
+        });
+        let name = clean_name(name).unwrap_or_else(|| "_".into());
+        let dir = e[11] & 0x10 != 0;
+        let hi = if self.bits == 32 { le(e, 20, 2) << 16 } else { 0 };
+        let cluster = (hi | le(e, 26, 2)) as u32;
+        let size = if dir { 0 } else { le(e, 28, 4) as u32 };
+        let mut v = if dir {
+            match self.deleted_dir_runs(r, cluster) {
+                Ok(_) => Verdict {
+                    state: "recoverable",
+                    confidence: 80,
+                    why: "the list of what was in it is still there".into(),
+                },
+                Err(err) => Verdict::lost(format!("{err:#}")),
+            }
+        } else {
+            self.assess(r, cluster, u64::from(size))?.1
+        };
+        if lost_letter {
+            v.why = format!(
+                "{}. The first letter of its name was lost when it was deleted (shown as _)",
+                v.why
+            );
+        }
+        let mut flags = Vec::new();
+        if e[11] & 0x02 != 0 {
+            flags.push("hidden");
+        }
+        Ok(Entry {
+            unreadable: (v.state == "overwritten" && !dir).then(|| v.why.clone()),
+            deleted: Some(Deleted::new(&name, at, v)),
+            name,
+            dir,
+            size: u64::from(size),
+            mtime: dos_time(le(e, 24, 2), le(e, 22, 2)),
+            link: None,
+            flags,
+            node: Node::FatDel { cluster, size, dir },
+        })
+    }
+}
+
+/// Whether a folder cluster has the end-of-folder mark.
+fn dir_end(b: &[u8]) -> bool {
+    b.as_chunks::<32>().0.iter().any(|e| e[0] == 0)
+}
+
+/// Whether a cluster looks like a folder's entries (up to its end mark).
+fn looks_like_dir(b: &[u8], max: u32) -> bool {
+    for e in b.as_chunks::<32>().0 {
+        match e[0] {
+            0 => return true,
+            0xE5 => continue,
+            _ if e[11] & 0x3F == 0x0F => continue,
+            _ if e[..11] == *b".          " || e[..11] == *b"..         " => continue,
+            _ if plausible(e, max, false) => continue,
+            _ => return false,
+        }
+    }
+    true
+}
+
+/// Whether a (deleted, or in a deleted folder) short entry looks like a real file or folder, not
+/// leftover bytes: a valid 8.3 name (its first byte aside when it's deleted), sane attributes, and
+/// a first cluster in the volume.
+fn plausible(e: &[u8; 32], max: u32, deleted: bool) -> bool {
+    let attr = e[11];
+    if attr & 0xC8 != 0 {
+        return false; // reserved bits, or the volume label
+    }
+    let ok = |c: u8| {
+        c >= 0x80
+            || c.is_ascii_uppercase()
+            || c.is_ascii_digit()
+            || b" !#$%&'()-@^_`{}~".contains(&c)
+    };
+    let from = usize::from(deleted);
+    if !e[from..11].iter().all(|&c| ok(c)) || (!deleted && (e[0] == b' ' || !ok(e[0]))) {
+        return false;
+    }
+    // spaces only pad the end of the name and of the extension
+    let padded = |f: &[u8]| {
+        let mut space = false;
+        f.iter().all(|&c| {
+            space |= c == b' ';
+            !space || c == b' '
+        })
+    };
+    if !padded(&e[1..8]) || !padded(&e[8..11]) {
+        return false;
+    }
+    let cluster = ((le(e, 20, 2) << 16) | le(e, 26, 2)) as u32;
+    let cluster16 = le(e, 26, 2) as u32;
+    let size = le(e, 28, 4);
+    let in_vol = |c: u32| (2..=max).contains(&c);
+    if attr & 0x10 != 0 {
+        in_vol(cluster) || in_vol(cluster16)
+    } else {
+        size == 0 || in_vol(cluster) || in_vol(cluster16)
+    }
+}
+
+/// A deleted file's long name, from the deleted long-name entries just before its short entry
+/// (their order numbers are gone, so they're taken as they lie: the nearest is the first part).
+/// They must agree with each other, end properly, and fit the short name: the checksum they carry
+/// fixes the short name's lost first letter, which must be what that name would start with.
+fn deleted_long_name(parts: &[[u8; 32]], e: &[u8; 32]) -> Option<String> {
+    if parts.is_empty() {
+        return None;
+    }
+    let sum = parts[0][13];
+    if parts
+        .iter()
+        .any(|p| p[13] != sum || p[12] != 0 || le(p, 26, 2) != 0)
+    {
+        return None;
+    }
+    let mut units = Vec::with_capacity(13 * parts.len());
+    for p in parts.iter().rev() {
+        units.extend(LFN_AT.iter().map(|&i| u16::from_le_bytes([p[i], p[i + 1]])));
+    }
+    let end = units.iter().position(|&u| u == 0).unwrap_or(units.len());
+    // after the end, only padding; before it, no padding; and the end is in the last part
+    if units[..end].contains(&0xFFFF)
+        || units.get(end + 1..).is_some_and(|t| t.iter().any(|&u| u != 0xFFFF))
+        || end + 13 <= units.len() && end != units.len()
+        || end == 0
+    {
+        return None;
+    }
+    let bytes: Vec<u8> = units[..end].iter().flat_map(|u| u.to_le_bytes()).collect();
+    let long = utf16le(&bytes);
+    // the one first byte that makes the short name's checksum match
+    let first = (0..=255u8).find(|&c| {
+        let mut s = [0u8; 11];
+        s[0] = c;
+        s[1..].copy_from_slice(&e[1..11]);
+        checksum(&s) == sum
+    })?;
+    let lead = long.trim_start_matches(['.', ' ']).chars().next()?;
+    let fits = if lead.is_ascii() {
+        let u = lead.to_ascii_uppercase() as u8;
+        let valid = u.is_ascii_uppercase() || u.is_ascii_digit() || b"!#$%&'()-@^_`{}~".contains(&u);
+        first == if valid { u } else { b'_' }
+    } else {
+        first >= 0x80 || first == b'_' || first.is_ascii_uppercase() || first.is_ascii_digit()
+    };
+    fits.then_some(long)
 }
 
 /// A long name being put together from the entries before its short entry (last part first).

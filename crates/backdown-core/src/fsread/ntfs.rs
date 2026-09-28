@@ -5,11 +5,13 @@
 //! links and junctions shown, not followed). The metadata files ($MFT, $LogFile…) are left out of
 //! listings, as Windows does. $LogFile isn't replayed.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek};
+use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
 
+use super::undelete::{Deleted, Spans, Verdict};
 use super::{
     DIR_CAP, Data, Entry, Info, MAX_RUNS, META_CAP, Node, Region, Run, clean_name, filetime,
     push_run, read_all, read_mapped, utf16le,
@@ -23,6 +25,7 @@ const FIRST_USER: u64 = 16;
 
 const AT_STANDARD_INFORMATION: u32 = 0x10;
 const AT_ATTRIBUTE_LIST: u32 = 0x20;
+const AT_FILE_NAME: u32 = 0x30;
 const AT_VOLUME_NAME: u32 = 0x60;
 const AT_VOLUME_INFORMATION: u32 = 0x70;
 const AT_DATA: u32 = 0x80;
@@ -53,7 +56,43 @@ pub(crate) struct Ntfs {
     /// Where the MFT's own bytes are.
     mft: Vec<Run>,
     records: u64,
+    /// $Bitmap's map and length (which clusters are in use), once it's needed; None inside when
+    /// it can't be read.
+    bitmap: Option<Option<(Vec<Run>, u64)>>,
+    bits: HashMap<u64, Vec<u8>>,
+    /// The records not in use, by folder, once they're needed.
+    scan: Option<Scan>,
 }
+
+/// What a look through the MFT for records no longer in use found.
+struct Scan {
+    by_parent: HashMap<u64, Vec<Gone>>,
+    /// For every record looked at: its sequence number, and whether it's in use and a folder
+    /// (`HEAD_*`); 0 for one that isn't a valid record.
+    heads: Vec<u32>,
+    note: Option<String>,
+}
+
+const HEAD_VALID: u32 = 1 << 16;
+const HEAD_IN_USE: u32 = 1 << 17;
+const HEAD_DIR: u32 = 1 << 18;
+
+/// A deleted file or folder's record, as the MFT scan found it.
+#[derive(Debug, Clone)]
+struct Gone {
+    record: u64,
+    parent_seq: u16,
+    name: String,
+    dir: bool,
+    size: u64,
+    mtime: Option<i64>,
+    attr: u64,
+}
+
+/// The most MFT records a look for deleted files goes through (4 GiB of MFT).
+const MAX_SCAN: u64 = 4 << 20;
+/// ...and the most deleted records it keeps.
+const MAX_GONE: usize = 2_000_000;
 
 pub(crate) fn detect(b: &[u8]) -> bool {
     b.len() >= 512 && &b[3..11] == b"NTFS    "
@@ -364,6 +403,9 @@ impl Ntfs {
             rec,
             mft: Vec::new(),
             records: 1,
+            bitmap: None,
+            bits: HashMap::new(),
+            scan: None,
         };
         // the MFT's own map: record 0's $DATA, and (on a very fragmented MFT) the rest of it in
         // the extension records its attribute list names, which the first part of the map reaches
@@ -593,6 +635,7 @@ impl Ntfs {
             link: None,
             unreadable: None,
             flags: Vec::new(),
+            deleted: None,
             node: Node::Ntfs {
                 record,
                 seq: (fref >> 48) as u16,
@@ -615,9 +658,14 @@ impl Ntfs {
         }
         // the index keeps a copy of the size and times that can lag behind; the record has the
         // real ones ($STANDARD_INFORMATION, and $DATA when it's in the base record)
-        if let Ok(rec) = self.record(r, record)
-            && let Ok(attrs) = attrs_of(&rec, record)
-        {
+        if let Ok(rec) = self.record(r, record) {
+            let seq = (fref >> 48) as u16;
+            if le(&rec, 22, 2) & 1 == 0 || (seq != 0 && le(&rec, 16, 2) != u64::from(seq)) {
+                // an index entry left behind by a delete (its record is free, or reused): the
+                // file shows among the deleted ones instead
+                return true;
+            }
+            let attrs = attrs_of(&rec, record).unwrap_or_default();
             for a in attrs.iter().filter(|a| a.name.is_empty()) {
                 match (a.kind, &a.body) {
                     (AT_STANDARD_INFORMATION, Body::Resident(v)) => {
@@ -758,6 +806,10 @@ impl Ntfs {
     }
 
     pub(crate) fn data<R: Read + Seek>(&mut self, r: &mut Region<R>, node: &Node) -> Result<Data> {
+        if let Node::NtfsDel { record } = *node {
+            let (data, v) = self.gone_data(r, record)?;
+            return data.with_context(|| format!("it can't be recovered: {}", v.why));
+        }
         let Node::Ntfs { record, seq } = *node else {
             bail!("not an NTFS file");
         };
@@ -797,4 +849,398 @@ impl Ntfs {
             }
         }
     }
+
+    // ---- deleted files: records no longer in use
+
+    /// Loads $Bitmap's map once; whether it could be.
+    fn load_bitmap<R: Read + Seek>(&mut self, r: &mut Region<R>) -> bool {
+        if self.bitmap.is_none() {
+            let loaded = self.attrs(r, 6).ok().and_then(|(_, attrs)| {
+                match self.stream(&attrs, AT_DATA, "").ok()?? {
+                    Stream::NonResident { runs, size, .. } if size > 0 => Some((runs, size)),
+                    _ => None,
+                }
+            });
+            self.bitmap = Some(loaded);
+        }
+        matches!(self.bitmap, Some(Some(_)))
+    }
+
+    /// Byte `off` of $Bitmap (clusters past its end count as in use).
+    fn bitmap_byte<R: Read + Seek>(&mut self, r: &mut Region<R>, off: u64) -> Result<u8> {
+        const WINDOW: u64 = 64 << 10;
+        let Some(Some((runs, len))) = &self.bitmap else {
+            return Ok(0);
+        };
+        if off >= *len {
+            return Ok(0xFF);
+        }
+        let w = off / WINDOW;
+        if !self.bits.contains_key(&w) {
+            if self.bits.len() >= 64 {
+                self.bits.clear();
+            }
+            let start = w * WINDOW;
+            let mut b = vec![0u8; WINDOW.min(len - start) as usize];
+            read_mapped(r, runs, start, &mut b)?;
+            self.bits.insert(w, b);
+        }
+        Ok(self.bits[&w][(off % WINDOW) as usize])
+    }
+
+    /// The clusters `lcn..lcn + count` in stretches, each in use now or free.
+    fn stretches<R: Read + Seek>(
+        &mut self,
+        r: &mut Region<R>,
+        lcn: u64,
+        count: u64,
+    ) -> Result<Vec<(u64, u64, bool)>> {
+        if !self.load_bitmap(r) {
+            return Ok(vec![(lcn, count, false)]);
+        }
+        let mut out: Vec<(u64, u64, bool)> = Vec::new();
+        let mut i = 0;
+        while i < count {
+            if i % (1 << 20) == 0 {
+                r.in_time()?;
+            }
+            let c = lcn + i;
+            let byte = self.bitmap_byte(r, c / 8)?;
+            let (used, step) = if c.is_multiple_of(8) && count - i >= 8 && (byte == 0 || byte == 0xFF)
+            {
+                (byte == 0xFF, 8)
+            } else {
+                ((byte >> (c % 8)) & 1 == 1, 1)
+            };
+            match out.last_mut() {
+                Some(l) if l.2 == used => l.1 += step,
+                _ => {
+                    if out.len() >= MAX_RUNS {
+                        bail!("its clusters are in too many pieces to check");
+                    }
+                    out.push((c, step, used));
+                }
+            }
+            i += step;
+        }
+        Ok(out)
+    }
+
+    /// A deleted record's data, with the clusters in use now as holes (None when nothing can be
+    /// read back), and how likely it's the file as it was.
+    fn gone_data<R: Read + Seek>(
+        &mut self,
+        r: &mut Region<R>,
+        record: u64,
+    ) -> Result<(Option<Data>, Verdict)> {
+        let rec = match self.record(r, record) {
+            Ok(rec) => rec,
+            Err(e) => return Ok((None, Verdict::lost(format!("{e:#}")))),
+        };
+        if le(&rec, 22, 2) & 1 != 0 {
+            return Ok((
+                None,
+                Verdict::lost("its MFT record has been reused by another file"),
+            ));
+        }
+        let mut attrs = attrs_of(&rec, record)?;
+        if attrs.iter().any(|a| a.kind == AT_ATTRIBUTE_LIST) {
+            match self.extended(r, record, attrs) {
+                Ok(all) => attrs = all,
+                Err(_) => {
+                    return Ok((
+                        None,
+                        Verdict::lost("the other MFT records it was spread over have been reused"),
+                    ));
+                }
+            }
+        }
+        let stream = match self.stream(&attrs, AT_DATA, "") {
+            Ok(s) => s,
+            Err(e) => return Ok((None, Verdict::lost(format!("its map is damaged ({e:#})")))),
+        };
+        match stream {
+            None => Ok((Some(Data::Bytes(Vec::new())), Verdict::sure("it was empty"))),
+            Some(Stream::Resident(v)) => Ok((
+                Some(Data::Bytes(v)),
+                Verdict::sure(
+                    "it was small enough to be kept in its MFT record, which is still there",
+                ),
+            )),
+            Some(Stream::NonResident {
+                runs,
+                size,
+                init,
+                flags,
+                unit,
+            }) => {
+                if flags & ATTR_ENCRYPTED != 0 {
+                    return Ok((
+                        None,
+                        Verdict {
+                            state: "can't be read",
+                            confidence: 0,
+                            why: "encrypted (EFS): it can't be read without the Windows account's keys".into(),
+                        },
+                    ));
+                }
+                let known = self.load_bitmap(r);
+                let mut spans = Spans::default();
+                for run in &runs {
+                    if run.at > spans.at {
+                        spans.hole(run.at - spans.at)?;
+                    }
+                    match run.phys {
+                        None => spans.hole(run.len)?,
+                        Some(p) => {
+                            for (c, n, used) in
+                                self.stretches(r, p / self.cluster, run.len / self.cluster)?
+                            {
+                                spans.push(c * self.cluster, n * self.cluster, used)?;
+                            }
+                        }
+                    }
+                }
+                let mut v = spans.verdict(
+                    95,
+                    "its MFT record still says where its data is, and no other file has used that space since",
+                );
+                if !known {
+                    v.confidence = v.confidence.min(40);
+                    v.why = format!(
+                        "{}; but $Bitmap can't be read, so whether other files have used its space since is unknown",
+                        v.why
+                    );
+                }
+                if v.state == "overwritten" {
+                    return Ok((None, v));
+                }
+                if flags & ATTR_COMPRESSED != 0 && unit > 0 {
+                    if spans.used > 0 || unit > 8 || self.cluster << unit > 1 << 20 {
+                        return Ok((
+                            None,
+                            Verdict::lost(
+                                "it was compressed, and part of it has been reused: it can't be put back together",
+                            ),
+                        ));
+                    }
+                    let data = Data::Lznt1 {
+                        runs,
+                        size,
+                        valid: init,
+                        unit: self.cluster << unit,
+                    };
+                    return Ok((Some(data), v));
+                }
+                let data = Data::Runs {
+                    runs: spans.runs,
+                    size,
+                    valid: init,
+                };
+                Ok((Some(data), v))
+            }
+        }
+    }
+
+    /// Looks through the MFT once for records no longer in use, noting every record's header on
+    /// the way, until it's done, `MAX_SCAN` records, or the deadline.
+    fn scan<R: Read + Seek>(&mut self, r: &mut Region<R>) -> Result<()> {
+        if self.scan.is_some() {
+            return Ok(());
+        }
+        let limit = self.records.min(MAX_SCAN);
+        let per = ((1u64 << 20) / self.rec).max(1);
+        let mut heads: Vec<u32> = Vec::with_capacity(limit.min(1 << 16) as usize);
+        let mut by_parent: HashMap<u64, Vec<Gone>> = HashMap::new();
+        let (mut kept, mut note) = (0usize, None);
+        if self.records > limit {
+            note = Some(format!(
+                "only the first {limit} of its {} MFT records were looked through",
+                self.records
+            ));
+        }
+        let mut buf = vec![0u8; (per * self.rec) as usize];
+        let mut n = 0u64;
+        while n < limit {
+            if r.until.is_some_and(|t| Instant::now() > t) {
+                note = Some(format!(
+                    "only the first {n} of its {} MFT records could be looked through in the time allowed",
+                    self.records
+                ));
+                break;
+            }
+            let k = per.min(limit - n);
+            let chunk = &mut buf[..(k * self.rec) as usize];
+            if let Err(e) = read_mapped(r, &self.mft, n * self.rec, chunk) {
+                note = Some(format!("the MFT couldn't be read past record {n} ({e:#})"));
+                break;
+            }
+            for (i, b) in chunk.chunks_exact_mut(self.rec as usize).enumerate() {
+                let m = n + i as u64;
+                if &b[..4] != b"FILE" {
+                    heads.push(0);
+                    continue;
+                }
+                let flags = le(b, 22, 2);
+                let mut h = HEAD_VALID | le(b, 16, 2) as u32;
+                if flags & 1 != 0 {
+                    h |= HEAD_IN_USE;
+                }
+                if flags & 2 != 0 {
+                    h |= HEAD_DIR;
+                }
+                heads.push(h);
+                if flags & 1 != 0 || m < FIRST_USER || le(b, 32, 8) != 0 || kept >= MAX_GONE {
+                    continue;
+                }
+                if fixup(b, b"FILE", &String::new).is_err() {
+                    continue;
+                }
+                let Ok(attrs) = attrs_of(b, m) else {
+                    continue;
+                };
+                if let Some((parent, g)) = gone_of(&attrs, m, flags & 2 != 0) {
+                    by_parent.entry(parent).or_default().push(g);
+                    kept += 1;
+                }
+            }
+            n += k;
+        }
+        if kept >= MAX_GONE {
+            note = Some(format!(
+                "only the first {MAX_GONE} deleted files and folders are listed"
+            ));
+        }
+        self.scan = Some(Scan {
+            by_parent,
+            heads,
+            note,
+        });
+        Ok(())
+    }
+
+    /// Calls `each` for the deleted files and folders whose records name folder `node` as theirs
+    /// (and, in the root, those whose folder is gone too), with how likely each can be recovered.
+    pub(crate) fn deleted<R: Read + Seek>(
+        &mut self,
+        r: &mut Region<R>,
+        node: &Node,
+        each: &mut dyn FnMut(Entry) -> bool,
+    ) -> Result<Option<String>> {
+        let (dir, live) = match *node {
+            Node::Ntfs { record, .. } => (record, true),
+            Node::NtfsDel { record } => (record, false),
+            _ => bail!("not an NTFS folder"),
+        };
+        self.scan(r)?;
+        let scan = self.scan.as_ref().expect("just scanned");
+        let head = |n: u64| scan.heads.get(n as usize).copied().unwrap_or(0);
+        // a folder's children name it by record and sequence number; a record's sequence number
+        // goes up by one when it's freed
+        let fits = |g: &Gone, h: u32, deleted_parent: bool| {
+            let seq = (h & 0xFFFF) as u16;
+            h & HEAD_VALID != 0
+                && h & HEAD_DIR != 0
+                && (g.parent_seq == seq || deleted_parent && g.parent_seq.wrapping_add(1) == seq)
+        };
+        let mut kids: Vec<(Gone, bool)> = scan
+            .by_parent
+            .get(&dir)
+            .into_iter()
+            .flatten()
+            .filter(|g| head(dir) == 0 || fits(g, head(dir), !live))
+            .map(|g| (g.clone(), false))
+            .collect();
+        if dir == ROOT {
+            // deleted files whose folder is gone as well: shown in the root
+            for (p, list) in &scan.by_parent {
+                if *p == ROOT {
+                    continue;
+                }
+                let h = head(*p);
+                for g in list {
+                    if !fits(g, h, h & HEAD_IN_USE == 0) {
+                        kids.push((g.clone(), true));
+                    }
+                }
+            }
+        }
+        let note = scan.note.clone();
+        kids.sort_by(|a, b| (a.0.name.as_str(), a.0.record).cmp(&(b.0.name.as_str(), b.0.record)));
+        for (g, orphan) in kids {
+            let mut v = if g.dir {
+                Verdict {
+                    state: "recoverable",
+                    confidence: 90,
+                    why: "its MFT record is still there, and so are those of what was in it".into(),
+                }
+            } else {
+                self.gone_data(r, g.record)?.1
+            };
+            if orphan {
+                v.why = format!("{}. Its folder was deleted too, so it's shown here", v.why);
+            }
+            let mut flags = Vec::new();
+            for (bit, flag) in [
+                (FILE_HIDDEN, "hidden"),
+                (FILE_SYSTEM, "system"),
+                (FILE_COMPRESSED, "compressed"),
+                (FILE_ENCRYPTED, "encrypted"),
+            ] {
+                if g.attr & bit != 0 {
+                    flags.push(flag);
+                }
+            }
+            let bad = !g.dir && matches!(v.state, "overwritten" | "can't be read");
+            let e = Entry {
+                unreadable: bad.then(|| v.why.clone()),
+                deleted: Some(Deleted::new(&g.name, g.record, v)),
+                name: g.name,
+                dir: g.dir,
+                size: if g.dir { 0 } else { g.size },
+                mtime: g.mtime,
+                link: None,
+                flags,
+                node: Node::NtfsDel { record: g.record },
+            };
+            if !each(e) {
+                break;
+            }
+        }
+        Ok(note)
+    }
+}
+
+/// A deleted record's name, folder, size and time, from its attributes: its parent folder's
+/// record number, and what's worth listing.
+fn gone_of(attrs: &[Attr], record: u64, dir: bool) -> Option<(u64, Gone)> {
+    // the Win32 or POSIX name rather than the DOS 8.3 alias
+    let names = attrs.iter().filter_map(|a| match (&a.body, a.kind) {
+        (Body::Resident(v), AT_FILE_NAME) if v.len() >= 66 => Some(v),
+        _ => None,
+    });
+    let v = names.clone().find(|v| v[65] != 2).or(names.clone().next())?;
+    let nl = usize::from(v[64]);
+    let name = v.get(66..66 + 2 * nl).map(utf16le).and_then(clean_name)?;
+    let pref = le(v, 0, 8);
+    let mut g = Gone {
+        record,
+        parent_seq: (pref >> 48) as u16,
+        name,
+        dir,
+        size: le(v, 48, 8),
+        mtime: filetime(le(v, 16, 8)),
+        attr: le(v, 56, 4),
+    };
+    for a in attrs.iter().filter(|a| a.name.is_empty()) {
+        match (a.kind, &a.body) {
+            (AT_STANDARD_INFORMATION, Body::Resident(s)) if s.len() >= 16 => {
+                g.mtime = filetime(le(s, 8, 8)).or(g.mtime);
+            }
+            (AT_DATA, Body::Resident(d)) => g.size = d.len() as u64,
+            (AT_DATA, Body::NonResident { start: 0, size, .. }) => g.size = *size,
+            _ => {}
+        }
+    }
+    Some((pref & 0xFFFF_FFFF_FFFF, g))
 }

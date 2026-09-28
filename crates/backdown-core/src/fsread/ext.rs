@@ -496,6 +496,7 @@ impl Ext {
             link: None,
             unreadable: None,
             flags: Vec::new(),
+            deleted: None,
             node: Node::Ext(ino),
         };
         let i = match self.inode(r, ino) {
