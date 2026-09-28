@@ -473,12 +473,14 @@ fn members(db: &Db, folder: &Path, sha: &[u8]) -> Result<Vec<(PathBuf, i64)>> {
 }
 
 fn unhashed(db: &Db, folder: &Path, min_size: u64) -> Result<u64> {
-    // the same size as another file, yet no hash at all: `hash` hasn't caught up with a scan
+    // the same size as another file (not another name of the same one), yet no hash at all:
+    // `hash` hasn't caught up with a scan
     let (lo, hi) = range(folder);
     Ok(db.conn.query_row(
         "SELECT COUNT(*) FROM files f WHERE f.current = 1 AND f.path >= ?1 AND f.path < ?2 AND f.size >= ?3 \
          AND f.sha256 IS NULL AND f.sample IS NULL AND f.error IS NULL \
-         AND EXISTS (SELECT 1 FROM files g WHERE g.current = 1 AND g.size = f.size AND g.id != f.id)",
+         AND EXISTS (SELECT 1 FROM files g WHERE g.current = 1 AND g.size = f.size AND g.id != f.id \
+                     AND (g.ino IS NULL OR f.ino IS NULL OR g.dev != f.dev OR g.ino != f.ino))",
         params![lo, hi, min_size.max(1) as i64],
         |r| r.get::<_, i64>(0),
     )? as u64)

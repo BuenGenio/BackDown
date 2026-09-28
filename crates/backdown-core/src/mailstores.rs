@@ -218,14 +218,17 @@ fn dbox(db: &Db, e: &mut Entity, root: &Path, read_drive: bool) -> Result<()> {
         v.sort();
         v
     };
-    let singles: Vec<(PathBuf, i64)> = files_below(db, &boxes_dir)?
-        .into_iter()
-        .filter(|(p, _, _)| numbered(&name(p), "u.").is_some())
-        .map(|(p, _, t)| (p, t))
-        .collect();
+    // sdbox: a u.N file per message (counted in the index, which may hold millions of them)
+    let (lo, hi) = range(&boxes_dir);
+    let (singles, first, last): (i64, Option<i64>, Option<i64>) = db.conn.query_row(
+        "SELECT COUNT(*), MIN(NULLIF(mtime, 0)), MAX(mtime) FROM files \
+         WHERE current = 1 AND path >= ?1 AND path < ?2 AND lname GLOB 'u.[0-9]*'",
+        params![lo, hi],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    )?;
     let format = if !storage.is_empty() {
         "mdbox"
-    } else if !singles.is_empty() || e.facts.iter().any(|(k, v)| k == "Format" && v == "sdbox") {
+    } else if singles > 0 || e.facts.iter().any(|(k, v)| k == "Format" && v == "sdbox") {
         "sdbox"
     } else {
         "mdbox"
@@ -239,9 +242,9 @@ fn dbox(db: &Db, e: &mut Entity, root: &Path, read_drive: bool) -> Result<()> {
     let mut messages: Option<(u64, bool)> = None; // (count, exact)
     let (mut oldest, mut newest) = (None, None);
     if format == "sdbox" {
-        messages = Some((singles.len() as u64, true));
-        oldest = singles.iter().map(|(_, t)| *t).filter(|t| *t > 0).min();
-        newest = singles.iter().map(|(_, t)| *t).max();
+        messages = Some((singles as u64, true));
+        oldest = first;
+        newest = last;
     } else if !storage.is_empty() {
         fact(
             e,

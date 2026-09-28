@@ -259,6 +259,11 @@ fn duplicates_in_the_folder_become_hardlinks_and_nothing_else_changes() {
     scan(&mut db, &d);
     let r = dedup::assess(&db, &folder, Link::Hard, 1024).unwrap();
     assert_eq!((r.linked, r.already), (0, 2), "{r:#?}");
+    // a fresh index doesn't hash names of one file (nothing to compare): nothing is "unhashed"
+    let mut fresh = Db::open(&tmp.path().join("fresh.db")).unwrap();
+    scan(&mut fresh, &d);
+    let r = dedup::assess(&fresh, &folder, Link::Hard, 1024).unwrap();
+    assert_eq!((r.linked, r.unhashed), (0, 0), "{r:#?}");
 }
 
 fn walk(d: &Path) -> Vec<String> {
