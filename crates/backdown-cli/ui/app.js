@@ -68,6 +68,7 @@ function renderPlaces() {
   $('#entities-btn').setAttribute('aria-current', String(S.mode === 'entities'));
   $('#plan-btn').setAttribute('aria-current', String(S.mode === 'plan'));
   $('#wipe-btn').setAttribute('aria-current', String(S.mode === 'wipe'));
+  $('#rescue-btn').setAttribute('aria-current', String(S.mode === 'rescue'));
 }
 
 // ---------- navigation
@@ -150,7 +151,7 @@ function renderPath() {
     return;
   }
   if (S.mode !== 'browse') {
-    $('#pathbar').innerHTML = `<span class="crumb" style="cursor:default">${{ dupes: 'Duplicates', activity: 'Activity', entities: 'What’s here', plan: 'Plan', wipe: 'Free up' }[S.mode] || 'Search'}</span>`;
+    $('#pathbar').innerHTML = `<span class="crumb" style="cursor:default">${{ dupes: 'Duplicates', activity: 'Activity', entities: 'What’s here', plan: 'Plan', wipe: 'Free up', rescue: 'Rescue' }[S.mode] || 'Search'}</span>`;
     return;
   }
   $('#pathbar').innerHTML = S.listing.crumbs.map((c, i) =>
@@ -746,6 +747,7 @@ function tabTitle(t) {
   if (t.mode === 'entities') return 'What’s here';
   if (t.mode === 'plan') return 'Plan';
   if (t.mode === 'wipe') return 'Free up';
+  if (t.mode === 'rescue') return 'Rescue';
   if (t.mode === 'compare') return `Compare · ${t.cmp?.listing?.name || ''}`;
   if (!t.listing) return S.roots.find(r => t.dir && atob64(t.dir).startsWith(atob64(r.key)))?.name || '…';
   return t.listing.crumbs.length > 1 ? t.listing.name : t.root?.name || t.listing.name;
@@ -793,6 +795,7 @@ async function showCurrent() {
   if (S.mode === 'entities') return showEntities();
   if (S.mode === 'plan') return showPlan();
   if (S.mode === 'wipe') return showWipe();
+  if (S.mode === 'rescue') return showRescue();
   if (S.mode === 'compare' && S.cmp) return renderCompare();
   S.mode = 'browse';
   if (!S.listing) return S.dir ? go(S.dir, { push: false, scan: null }) : showActivity();
@@ -1345,6 +1348,301 @@ function renderWipeHist() {
     }).join('')}</tbody></table>`;
 }
 
+// ---------- Rescue: failing drives, deleted files, lost partitions
+//
+// Three steps: which drive (or image file), what happened, then where to put what's rescued. The
+// daemon does the work in its side lane (scans carry on), and each rescue stays on record below,
+// with what it found and what to do next.
+
+const RS = { vols: null, src: null, access: null, what: null, dest: '', kinds: new Set(['photos', 'videos', 'documents', 'audio', 'archives']),
+  deep: false, retries: 1, list: [], busy: false, open: new Set(), range: null };
+const RS_GROUPS = [['photos', 'Photos'], ['videos', 'Videos'], ['documents', 'Documents'], ['audio', 'Music and audio'], ['archives', 'Archives'], ['other', 'Other']];
+const RS_WHAT = [
+  ['image', 'It’s failing', 'Clicks, freezes, read errors, or it’s very slow. Copy it to an image first: every extra read can make it worse. Then look for files in the copy.'],
+  ['carve', 'Files were deleted, or it was formatted', 'Find photos, videos and documents by what’s inside them, whatever the drive’s file system says.'],
+  ['parts', 'It looks empty, or a partition vanished', 'Look for file systems the partition table no longer lists. Nothing on the drive is changed.'],
+];
+
+function showRescue() {
+  S.mode = 'rescue';
+  closeSearch(false);
+  renderTabs(); renderPlaces(); renderPath();
+  $('#banner').hidden = true; $('#info').hidden = true; $('#timebar').hidden = true;
+  layoutRescue();
+  if (!RS.vols) api('volumes').then(v => { RS.vols = v; renderRescueSources(); }).catch(e => { RS.vols = { error: e.message }; renderRescueSources(); });
+  loadRescues();
+  pollDaemon(true);
+}
+
+function layoutRescue() {
+  $('#view').innerHTML = `<div class="plan rescue">
+    <div class="pl-head"><div><h2>Rescue</h2>
+      <p class="muted">Get files back from a drive or memory card that’s failing, was formatted, or lost its files. BackDown only reads it: whatever it rescues goes to another drive.</p></div></div>
+    <section class="card-ish"><h3><span class="rs-n">1</span> Which drive or card?</h3><div id="rs-src"></div><div id="rs-access"></div></section>
+    <section class="card-ish"><h3><span class="rs-n">2</span> What happened?</h3><div class="rs-what" id="rs-what" role="radiogroup" aria-label="What happened"></div></section>
+    <section class="card-ish" id="rs-go-card"><h3><span class="rs-n">3</span> <span id="rs-go-title">Where should what’s rescued go?</span></h3><div id="rs-go"></div></section>
+    <section id="rs-list"></section>
+  </div>`;
+  const root = $('#view .rescue');
+  root.addEventListener('change', onRescueChange);
+  root.addEventListener('input', onRescueInput);
+  root.addEventListener('click', onRescueClick);
+  renderRescueSources(); renderRescueAccess(); renderRescueWhat(); renderRescueGo(); renderRescueList();
+}
+
+// every disk and what's on it, from the same probe as Activity's "Connected drives"
+function renderRescueSources() {
+  const el = $('#rs-src');
+  if (S.mode !== 'rescue' || !el) return;
+  const v = RS.vols;
+  const opt = (path, title, sub, kind, extra = '') => `<label class="rs-opt${RS.src?.path === path ? ' on' : ''}">
+      <input type="radio" name="rs-src" value="${esc(path)}" data-rs-title="${esc(title)}" data-rs-kind="${kind}"${RS.src?.path === path ? ' checked' : ''}>
+      <span class="rs-opt-t"><b>${esc(title)}</b><small class="muted">${esc(sub)}</small></span>${extra}</label>`;
+  const flat = vols => vols.flatMap(x => [x, ...flat(x.holders || [])]);
+  const file = RS.src?.kind === 'file';
+  el.innerHTML = (!v ? '<p class="muted">Looking for drives…</p>' : v.error ? `<p class="muted">${esc(v.error)}</p>` : v.disks.map(dk => `<div class="rs-disk">
+      ${opt(dk.device, dk.model || dk.name, [bytes(dk.size || 0), dk.transport, dk.device].filter(Boolean).join(' · '), 'disk', dk.system ? '<span class="pill off">the computer runs from it</span>' : '')}
+      <div class="rs-parts">${flat(dk.volumes).filter(x => x.device && x.device !== dk.device).map(x => opt(x.device, x.label || x.name, [x.fs_name || x.fs || 'unknown contents', bytes(x.size || 0), x.device].join(' · '), 'part')).join('')}</div></div>`).join(''))
+    + `<div class="rs-disk">${opt('file', 'An image file', 'a copy made earlier, by BackDown or another tool', 'file')}
+      <input id="rs-file" class="wp-input rs-file" spellcheck="false" autocomplete="off" placeholder="/full/path/to/card.img" value="${esc(file ? RS.src.file || '' : '')}" aria-label="Image file"${file ? '' : ' hidden'}></div>`;
+}
+
+async function checkAccess() {
+  const path = RS.src?.kind === 'file' ? (RS.src.file || '').trim() : RS.src?.path;
+  RS.access = null; renderRescueAccess();
+  if (!path) return;
+  try { RS.access = await api('rescue-access', { path }); } catch (e) { RS.access = { readable: false, why: e.message }; }
+  if ((RS.src?.kind === 'file' ? (RS.src.file || '').trim() : RS.src?.path) !== path) return;
+  renderRescueAccess(); renderRescueGo();
+}
+
+function renderRescueAccess() {
+  const el = $('#rs-access');
+  if (!el) return;
+  const a = RS.access;
+  if (!RS.src || (RS.src.kind === 'file' && !RS.src.file)) { el.innerHTML = ''; return; }
+  if (!a) { el.innerHTML = '<p class="muted rs-acc">Checking…</p>'; return; }
+  el.innerHTML = a.readable
+    ? `<p class="rs-acc ok"><span class="dot k"></span>BackDown can read it: ${bytes(a.size || 0)}.</p>`
+    : `<div class="rs-acc no"><p><span class="dot o"></span>${esc(a.why || 'It can’t be read.')}</p>
+      ${a.fix ? `<p class="muted">Run this once in a terminal, then check again. It lets your account read this drive only (never change it), until it’s unplugged or the computer restarts:</p>
+      <div class="rs-cmd"><code>${esc(a.fix)}</code><button class="btn sm" type="button" data-rs-copy="${esc(a.fix)}">Copy</button></div>` : ''}
+      <button class="btn sm" type="button" data-rs-recheck>Check again</button></div>`;
+}
+
+function renderRescueWhat() {
+  const el = $('#rs-what');
+  if (!el) return;
+  el.innerHTML = RS_WHAT.map(([k, t, d]) => `<button class="rs-card-btn${RS.what === k ? ' on' : ''}" type="button" role="radio" aria-checked="${RS.what === k}" data-rs-what="${k}"><b>${t}</b><span>${d}</span></button>`).join('');
+}
+
+// where rescued things go: a folder on an indexed drive that isn't the source
+function rescueDestGuess() {
+  const name = (RS.src?.title || 'drive').replace(/[\\/:*?"<>|]+/g, '-').trim();
+  const day = new Date().toISOString().slice(0, 10);
+  const base = S.roots.map(r => r.path).find(p => !RS.src?.path || !p.startsWith('/dev/')) || '';
+  if (!base) return '';
+  const dir = `${base.replace(/[\\/]+$/, '')}${sepOf(base)}BackDown Rescue`;
+  return RS.what === 'image' ? `${dir}${sepOf(base)}${name} ${day}.img` : `${dir}${sepOf(base)}${name} ${day}`;
+}
+
+function renderRescueGo() {
+  const el = $('#rs-go');
+  if (!el) return;
+  const ready = RS.src && RS.access?.readable && RS.what;
+  $('#rs-go-title').textContent = RS.what === 'parts' ? 'How thoroughly?' : RS.what === 'image' ? 'Where should the copy go?' : 'What to look for, and where to put it';
+  if (!RS.src || !RS.what) { el.innerHTML = '<p class="muted">Choose the drive and what happened first.</p>'; return; }
+  const guess = rescueDestGuess();
+  const dest = `<label class="rs-dest">${RS.what === 'image' ? 'Save the copy as' : 'Save what’s found in'}
+      <input id="rs-dest" class="wp-input" spellcheck="false" autocomplete="off" value="${esc(RS.dest)}" placeholder="${esc(guess || '/full/path/on/another/drive')}"></label>
+    <small class="muted" id="rs-room"></small>`;
+  const body = RS.what === 'image' ? `${dest}
+      <label class="wp-chk"><input type="checkbox" id="rs-retries"${RS.retries ? ' checked' : ''}> Try unreadable areas once more at the end</label>
+      <p class="note">The good areas are copied first, the bad ones skipped and come back to later. It can be stopped and resumed. A map beside the copy (<code>.map</code>, as GNU ddrescue writes it) records what’s been read.</p>`
+    : RS.what === 'carve' ? `<div class="rs-kinds">${RS_GROUPS.map(([k, l]) => `<label class="wp-chk"><input type="checkbox" data-rs-group="${k}"${RS.kinds.has(k) ? ' checked' : ''}> ${l}</label>`).join('')}</div>${dest}
+      <p class="note">Found files get names from where they were found, sorted into a folder per kind. Pieces of a file that was scattered around the drive can’t be put back together: those come back damaged, or not at all.</p>`
+    : `<label class="wp-chk"><input type="radio" name="rs-deep" value="0"${RS.deep ? '' : ' checked'}> Quick: the usual places partitions start (seconds)</label>
+      <label class="wp-chk"><input type="radio" name="rs-deep" value="1"${RS.deep ? ' checked' : ''}> Thorough: read the whole drive (as long as copying it)</label>`;
+  const range = RS.range && RS.what !== 'image' ? `<p class="rs-range">Only the ${esc(RS.range.label)} <button class="wp-x" type="button" data-rs-range-clear aria-label="Search the whole drive instead" title="Search the whole drive instead">×</button></p>` : '';
+  el.innerHTML = range + body + `<button class="btn primary" type="button" id="rs-start"${ready ? '' : ' disabled'}>${RS.what === 'image' ? 'Start copying' : RS.what === 'carve' ? 'Start looking' : 'Look for partitions'}</button>
+    <p class="note" id="rs-why">${!RS.access ? 'Checking the drive…' : !RS.access.readable ? 'BackDown needs to be able to read the drive first (above).' : ''}</p>`;
+  if (RS.what !== 'parts') checkRescueRoom();
+}
+
+async function checkRescueRoom() {
+  const el = $('#rs-room');
+  const to = ($('#rs-dest')?.value || '').trim() || $('#rs-dest')?.placeholder || '';
+  if (!el || !isFull(to)) return;
+  try {
+    const { free } = await api('room', { path: to });
+    const need = RS.access?.size || 0;
+    el.textContent = free == null ? '' : `${bytes(free)} free there${RS.what === 'image' && need > free ? ` — the copy needs up to ${bytes(need)}` : ''}`;
+    el.classList.toggle('warn-t', RS.what === 'image' && need > (free ?? Infinity));
+  } catch { el.textContent = ''; }
+}
+
+function onRescueChange(e) {
+  const t = e.target;
+  if (t.name === 'rs-src') {
+    RS.src = { path: t.value, title: t.dataset.rsTitle, kind: t.dataset.rsKind, file: RS.src?.file || '' };
+    RS.dest = ''; RS.range = null; renderRescueSources(); renderRescueGo();
+    if (RS.src.kind === 'file') { $('#rs-file').focus(); if (!RS.src.file) { RS.access = null; return renderRescueAccess(); } }
+    return checkAccess();
+  }
+  if (t.dataset.rsGroup) { t.checked ? RS.kinds.add(t.dataset.rsGroup) : RS.kinds.delete(t.dataset.rsGroup); return; }
+  if (t.name === 'rs-deep') RS.deep = t.value === '1';
+  if (t.id === 'rs-retries') RS.retries = t.checked ? 1 : 0;
+}
+function onRescueInput(e) {
+  const t = e.target;
+  if (t.id === 'rs-file') {
+    RS.src.file = t.value; RS.src.title = t.value.split(/[\\/]/).pop() || 'image';
+    clearTimeout(RS.fileTimer); RS.fileTimer = setTimeout(checkAccess, 400);
+  }
+  if (t.id === 'rs-dest') { RS.dest = t.value; clearTimeout(RS.roomTimer); RS.roomTimer = setTimeout(checkRescueRoom, 300); }
+}
+function onRescueClick(e) {
+  const t = e.target;
+  const w = t.closest('[data-rs-what]');
+  if (w) { RS.what = w.dataset.rsWhat; RS.dest = ''; renderRescueWhat(); return renderRescueGo(); }
+  const cp = t.closest('[data-rs-copy]');
+  if (cp) return copyText(cp.dataset.rsCopy);
+  if (t.closest('[data-rs-recheck]')) return checkAccess();
+  if (t.closest('#rs-start')) return startRescue();
+  const tg = t.closest('[data-rs-toggle]');
+  if (tg) { const id = +tg.dataset.rsToggle; if (!RS.open.delete(id)) RS.open.add(id); return renderRescueList(); }
+  const nx = t.closest('[data-rs-next]');
+  if (nx) return startRescue(JSON.parse(nx.dataset.rsNext));
+  const pk = t.closest('[data-rs-pick]');
+  if (pk) return pickRange(JSON.parse(pk.dataset.rsPick));
+  if (t.closest('[data-rs-range-clear]')) { RS.range = null; return renderRescueGo(); }
+  const st = t.closest('[data-job-stop]');
+  if (st) return stopJob(+st.dataset.jobStop);
+  const op = t.closest('[data-rs-open]');
+  if (op) return openRescued(op.dataset.rsOpen);
+}
+
+// "Find files in it" on a found partition: the form, set up for that part of the drive
+function pickRange(p) {
+  const dev = /^\/dev\//.test(p.source) || p.source.startsWith('\\\\.\\');
+  RS.src = dev ? { path: p.source, title: baseName(p.source), kind: 'disk' } : { path: 'file', title: baseName(p.source), kind: 'file', file: p.source };
+  RS.what = 'carve'; RS.dest = ''; RS.range = { start: p.start, end: p.end, label: p.label };
+  renderRescueSources(); renderRescueWhat(); renderRescueGo(); checkAccess();
+  $('#rs-go-card').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+// start one from the form, or a follow-up from a finished rescue ("find files in the copy")
+async function startRescue(next = null) {
+  const src = next?.source || (RS.src.kind === 'file' ? RS.src.file.trim() : RS.src.path);
+  const mode = next?.mode || RS.what;
+  const q = next?.resume ? { resume: next.resume } : { mode, source: src };
+  if (next && !next.resume) Object.assign(q, next);
+  else if (!next) {
+    if (RS.range) { q.start = RS.range.start; if (RS.range.end) q.end = RS.range.end; }
+    if (mode !== 'parts') q.dest = ($('#rs-dest').value || '').trim() || $('#rs-dest').placeholder;
+    if (mode === 'carve') q.kinds = [...RS.kinds].join(',');
+    if (mode === 'image') q.retries = RS.retries;
+    if (mode === 'parts') q.deep = RS.deep ? 1 : 0;
+  }
+  if (!q.resume && mode === 'carve' && !q.kinds) return toastError(new Error('Choose at least one kind of file to look for'));
+  if (q.dest !== undefined && !isFull(q.dest)) return toastError(new Error('Choose where to put it: a full path on another drive'));
+  const r = await fetch(`/api/rescue?${new URLSearchParams(q)}`, { method: 'POST', headers: { 'X-BackDown': '1' }, credentials: 'same-origin' }).catch(e => ({ ok: false, json: async () => ({ error: e.message }) }));
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || j.error) return toastError(new Error(j.error || r.statusText));
+  RS.open.add(j.id);
+  toast(mode === 'parts' ? 'Looking for partitions: it shows below' : 'Started: it shows below, and in Activity');
+  loadRescues();
+  if (!polling) pollDaemon(true);
+  $('#rs-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function stopJob(id) {
+  const r = await fetch(`/api/job-stop?id=${id}`, { method: 'POST', headers: { 'X-BackDown': '1' }, credentials: 'same-origin' });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || j.error) return toastError(new Error(j.error || r.statusText));
+  toast(j.state === 'stopping' ? 'Stopping: what’s done so far is kept' : 'Taken off the queue');
+  if (!polling) pollDaemon(true);
+}
+
+// recovered files open in the browser once their folder is indexed (a job the rescue queued)
+async function openRescued(path) {
+  try { const res = await api('resolve', { path }); await go(res.dir, { scan: null }); }
+  catch { toast('The recovered files are being indexed: they’ll open once that’s done'); }
+}
+
+function loadRescues() { return api('rescues').then(l => { RS.list = l; renderRescueList(); }).catch(() => {}); }
+
+function renderRescueList() {
+  const el = $('#rs-list');
+  if (S.mode !== 'rescue' || !el || held(renderRescueList)) return;
+  if (!RS.list.length) { el.innerHTML = ''; return; }
+  const jobs = S.daemon ? [S.daemon.side, ...S.daemon.queued].filter(j => j?.kind === 'rescue') : [];
+  const live = new Map(jobs.map(j => [j.path, j]));
+  el.innerHTML = `<h3>Rescues</h3>` + RS.list.map(r => rescueCard(r, live.get(`rescue ${r.id}`))).join('');
+}
+
+const RS_TITLE = { image: 'Copy', carve: 'Find files', parts: 'Look for partitions' };
+const RS_STATE = { done: 'ok', stopped: 'warn', failed: 'warn', running: 'busy', new: 'busy' };
+const baseName = p => (p || '').split(/[\\/]/).filter(Boolean).pop() || p;
+
+function rescueCard(r, job) {
+  const res = r.result || {}, o = r.options || {};
+  const running = job && job === S.daemon?.side;
+  const c = job?.counts || {};
+  const p = running && c.total_bytes ? c.bytes / c.total_bytes : null;
+  const state = job ? (running ? 'running' : 'waiting') : r.state === 'running' || r.state === 'new' ? 'interrupted' : r.state;
+  const where = r.mode === 'parts' ? esc(r.source) : `${esc(r.source)} → <code>${esc(r.dest || '')}</code>`;
+  let body = '';
+  if (running) body = `<div class="meter${p == null ? ' unknown' : ''}"><i style="width:${p != null ? (p * 100).toFixed(1) : 100}%"></i></div>
+      <p>${esc(job.progress || 'starting…')}</p>`;
+  if (r.mode === 'image' && res.size) {
+    body += mapBar(res) + `<p>${bytes(res.rescued)} of ${bytes(res.size)} copied${res.bad ? ` · <span class="warn-t">${bytes(res.bad)} unreadable in ${count(res.bad_areas)} place${res.bad_areas === 1 ? '' : 's'}</span>` : ''}${res.todo ? ` · ${bytes(res.todo)} still to try` : ''}</p>`;
+    if (!job && r.dest) body += `<div class="rs-next">
+        ${res.todo ? `<button class="btn sm" type="button" data-rs-next='${esc(JSON.stringify({ resume: r.id }))}'>Resume copying</button>` : ''}
+        <button class="btn sm" type="button" data-rs-next='${esc(JSON.stringify({ mode: 'parts', source: r.dest, deep: 0 }))}'>Look for partitions in the copy</button>
+        <button class="btn sm${res.todo ? '' : ' primary'}" type="button" data-rs-next='${esc(JSON.stringify({ mode: 'carve', source: r.dest, dest: r.dest.replace(/\.img$/i, '') + ' files', kinds: 'photos,videos,documents,audio,archives' }))}'>Find files in the copy</button></div>`;
+  }
+  if (r.mode === 'carve' && res.by_group) {
+    const g = RS_GROUPS.filter(([k]) => res.by_group[k]);
+    body += `<p>${g.length ? `${g.map(([k, l]) => `<b>${count(res.by_group[k])}</b> ${esc(l.toLowerCase())}`).join(' · ')} · ${bytes(res.found_bytes || 0)}` : 'Nothing found yet.'}${res.incomplete ? ` <span class="muted">(${count(res.incomplete)} cut off or damaged: those come back partly)</span>` : ''}</p>`;
+    if (res.unreadable) body += `<p class="warn-t">${bytes(res.unreadable)} of the drive couldn’t be read: copying it first (“It’s failing”) gives those parts more tries.</p>`;
+    const halted = state === 'stopped' || state === 'interrupted';
+    if (!job && r.dest && (res.found || halted)) body += `<div class="rs-next">${res.found ? `<button class="btn sm primary" type="button" data-rs-open="${esc(r.dest)}">Open the recovered files</button>` : ''}
+      ${halted ? `<button class="btn sm" type="button" data-rs-next='${esc(JSON.stringify({ resume: r.id }))}'>Carry on from where it stopped</button>` : ''}</div>`;
+  }
+  if (r.mode === 'parts' && res.found) {
+    const fs = res.found, lost = fs.filter(f => !f.in_table);
+    body += `<p>Partition table: <b>${esc(res.table?.scheme === 'none' ? 'none' : (res.table?.scheme || '?').toUpperCase())}</b>${res.table?.entries?.length ? `, listing ${res.table.entries.length}` : ''}.
+        ${fs.length ? `Found <b>${fs.length}</b> file system${fs.length === 1 ? '' : 's'}${lost.length ? `, <b>${lost.length}</b> of them not in the table` : ''}.` : 'No file systems found.'}</p>
+      ${(res.table?.problems || []).map(x => `<p class="warn-t">${esc(x)}</p>`).join('')}
+      ${fs.length ? `<table class="list rs-parts-t"><thead><tr><th>Starts at</th><th class="n">Size</th><th>File system</th><th>Name</th><th>In the table</th><th></th></tr></thead><tbody>
+        ${fs.map(f => `<tr><td>${bytes(f.start)}<small class="muted">sector ${(f.start / (res.sector || 512)).toLocaleString()}</small></td><td class="n">${f.size ? bytes(f.size) : '?'}</td>
+          <td>${esc(f.fs)}${f.via !== 'boot sector' && f.via !== 'superblock' ? `<small class="muted">found by its ${esc(f.via)}</small>` : ''}</td><td>${esc(f.label || '')}${f.nested ? '<small class="muted">inside another file system</small>' : ''}</td>
+          <td>${f.in_table ? '<span class="pill ok">yes</span>' : '<span class="pill warn">no: lost</span>'}${f.truncated ? '<span class="pill warn">runs past the end</span>' : ''}</td>
+          <td><button class="btn sm" type="button" data-rs-pick='${esc(JSON.stringify({ source: r.source, start: f.start, end: f.size ? f.start + f.size : null, label: `${f.fs}${f.label ? ` “${f.label}”` : ''} at ${bytes(f.start)}` }))}'>Find files in it</button></td></tr>`).join('')}</tbody></table>` : ''}`;
+  }
+  // stopped or interrupted before it got anywhere: start it again as it was
+  if (!job && ['stopped', 'interrupted', 'failed'].includes(state) && !(r.mode === 'image' ? res.size : r.mode === 'carve' ? res.by_group : res.found))
+    body += `<div class="rs-next"><button class="btn sm" type="button" data-rs-next='${esc(JSON.stringify({ resume: r.id }))}'>Start again</button></div>`;
+  if (r.state === 'failed' && !job) body += `<p class="warn-t">${esc(r.summary || 'It stopped with an error.')}</p>`;
+  else if (r.summary && !job && r.mode !== 'parts') body += `<p class="muted">${esc(r.summary)}</p>`;
+  return `<article class="rs-item">
+    <header><b>${RS_TITLE[r.mode] || r.mode}</b><span class="rs-where">${where}</span>
+      <span class="pill ${RS_STATE[state] || (state === 'interrupted' ? 'warn' : '')}">${state}</span>
+      <span class="muted" title="${esc(when(r.created_at))}">${rel(r.created_at)}</span>
+      ${job ? `<button class="btn sm" type="button" data-job-stop="${job.id}">${running ? 'Stop' : 'Cancel'}</button>` : ''}</header>
+    ${body}</article>`;
+}
+
+// the image as ddrescue's map sees it: a strip of bins, green copied, red unreadable, grey still to try
+function mapBar(res) {
+  if (!res.bins?.length) return '';
+  return `<div class="rs-map" role="img" aria-label="${bytes(res.rescued)} copied, ${bytes(res.bad)} unreadable, ${bytes(res.todo)} still to try">${res.bins.map(([g, b, t]) => {
+    const n = g + b + t || 1;
+    return `<i style="--g:${(g / n * 100).toFixed(0)}%;--b:${(b / n * 100).toFixed(0)}%"${b ? ' class="bad"' : ''}></i>`;
+  }).join('')}</div>`;
+}
+
 // ---------- the daemon: activity, rescans, live refresh
 //
 // Long polls /api/daemon: the daemon answers as soon as something changes (at most once a second while
@@ -1373,11 +1671,16 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) poll
 
 const jobName = j => j.kind === 'index' ? `Scan ${rootName(j.path)}` : j.kind === 'entities' ? 'Recognise what’s on the drives'
   : j.kind === 'apply' ? `Apply ${j.path || 'a plan'}` : j.kind === 'mirror-sync' ? `Sync ${j.path || 'a mirror'}`
-  : j.kind === 'mirror-verify' ? `Verify ${j.path || 'a mirror'}` : j.kind === 'wipe' ? `Free up (${j.path || 'a wipe'})` : 'Hash new and changed files';
+  : j.kind === 'mirror-verify' ? `Verify ${j.path || 'a mirror'}` : j.kind === 'wipe' ? `Free up (${j.path || 'a wipe'})` : j.kind === 'rescue' ? rescueJobName(j) : 'Hash new and changed files';
+function rescueJobName(j) {
+  const r = RS.list.find(x => `rescue ${x.id}` === j.path);
+  return r ? `${RS_TITLE[r.mode] || 'Rescue'}: ${baseName(r.source)}` : 'Rescue';
+}
 const rootName = p => S.roots.find(r => r.path === p)?.name || (p || '').split(/[\\/]/).filter(Boolean).pop() || p;
 
 async function applyDaemon(d) {
   const had = !!S.daemon;
+  let fin = [], prevSeen = null;
   S.daemon = d.running ? d : null;
   if (d.running) clockSkew = d.now - Date.now() / 1000;
   const st = $('#status-act');
@@ -1403,7 +1706,8 @@ async function applyDaemon(d) {
     if (done && done.kind === 'entities' && done.id === lastDone && S.mode === 'entities' && done.finished_at > d.now - 5) showEntities();
     // a wipe finished, or a drive was scanned again (any since the last answer, not only the latest):
     // fresh history and folder sizes in Free up
-    const fin = d.recent.filter(j => j.finished_at);
+    fin = d.recent.filter(j => j.finished_at);
+    prevSeen = finishedSeen;
     if (finishedSeen && fin.some(j => !finishedSeen.has(j.id) && (j.kind === 'wipe' || j.kind === 'index'))) {
       WP.lists.clear();
       if (S.mode === 'wipe') { loadWipeHistory(); renderWipePick(); }
@@ -1418,6 +1722,15 @@ async function applyDaemon(d) {
   if (key !== busyKey) { busyKey = key; renderPlaces(); }
   if (S.mode === 'activity') renderActivity();
   if (S.mode === 'wipe') renderWipeHist();
+  // a rescue started elsewhere (the CLI, another tab): learn what it is, to name it
+  if (S.daemon && [S.daemon.side, ...S.daemon.queued].some(j => j?.kind === 'rescue' && !RS.list.some(x => `rescue ${x.id}` === j.path)) && !RS.loading) {
+    RS.loading = true;
+    loadRescues().finally(() => { RS.loading = false; if (S.mode === 'activity') renderActivity(); });
+  }
+  if (S.mode === 'rescue') {
+    if (S.daemon && fin.some(j => j.kind === 'rescue' && !prevSeen?.has(j.id))) loadRescues();
+    else renderRescueList();
+  }
 }
 
 async function rescan(rootId) {
@@ -1449,6 +1762,7 @@ function pct(j) {
   const c = j.counts;
   if (!c) return null;
   // quick samples are small fixed-size reads, so count files there; the full pass is measured in bytes
+  if (j.kind === 'rescue') return c.total_bytes ? c.bytes / c.total_bytes : null;
   if (j.kind === 'hash') return c.stage !== 'sample' && c.total_bytes ? c.bytes / c.total_bytes : c.total_files ? c.files / c.total_files : null;
   // a scan is measured against the drive's previous one, so it can run past 100%: cap it
   return c.total_files ? Math.min(0.99, c.files / c.total_files) : null;
@@ -1458,7 +1772,7 @@ function eta(j, now) {
   if (p == null || p < 0.02 || took < 15) return '';
   return `about ${dur(took * (1 - p) / p)} left`;
 }
-const REASON = { requested: 'you asked', scheduled: 'scheduled', returned: 'drive came back', 'after-scan': 'after a scan', 'after-apply': 'after copying', 'after-wipe': 'after wiping' };
+const REASON = { requested: 'you asked', scheduled: 'scheduled', returned: 'drive came back', 'after-scan': 'after a scan', 'after-apply': 'after copying', 'after-wipe': 'after wiping', 'after-rescue': 'recovered files' };
 const JOB_ICON = {
   index: '<svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg>',
   hash: '<svg viewBox="0 0 24 24"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></svg>',
@@ -1467,6 +1781,7 @@ const JOB_ICON = {
   'mirror-sync': '<svg viewBox="0 0 24 24"><path d="M4 7h13l-3-3M20 17H7l3 3"/></svg>',
   'mirror-verify': '<svg viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"/><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/></svg>',
   wipe: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
+  rescue: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="m5.6 5.6 3.6 3.6M14.8 14.8l3.6 3.6M14.8 9.2l3.6-3.6M5.6 18.4l3.6-3.6"/></svg>',
 };
 
 let activityClock;
@@ -1501,6 +1816,7 @@ function connectedDrives() {
 }
 function showActivity() {
   if (!ACT.volumes && !ACT.probing) probeVolumes();
+  if (!RS.list.length) loadRescues().then(() => { if (S.mode === 'activity') renderActivity(); });
   api('mirrors').then(m => { ACT.mirrors = m; if (S.mode === 'activity') renderActivity(); }).catch(() => {});
   S.mode = 'activity';
   closeSearch(false);
@@ -1510,7 +1826,16 @@ function showActivity() {
   pollDaemon(true);
 }
 
+// live views redraw every second or so while a job runs: not while a button is being pressed, or
+// the press and the release land on different elements and the click is lost
+let pressed = false, heldRedraw = null;
+document.addEventListener('pointerdown', () => { pressed = true; }, true);
+document.addEventListener('pointerup', () => { pressed = false; setTimeout(() => { const f = heldRedraw; heldRedraw = null; f?.(); }, 0); }, true);
+document.addEventListener('pointercancel', () => { pressed = false; }, true);
+const held = f => { if (!pressed) return false; heldRedraw = f; return true; };
+
 function renderActivity() {
+  if (held(renderActivity)) return;
   clearInterval(activityClock);
   if (S.mode !== 'activity') return;
   // relative times ("5 min ago") age between changes: redraw them twice a minute while on screen
@@ -1548,11 +1873,23 @@ function renderActivity() {
       <p>${next ? `Next: a scan of <b>${esc(rootName(next.path))}</b> ${rel(next.next_at)}.` : d.rescan_every_secs ? 'Nothing is due: drives that are away are scanned when they come back.' : 'Drives are scanned when you ask (rescan button, or <code>backdown index</code>).'}</p>
     </section>`;
   }
+  // the side lane (a rescue) runs beside whatever the worker is doing
+  if (d.side) {
+    const j = d.side, p = pct(j);
+    now_ += `<section class="act-card now side">
+      <div class="act-head"><span class="pulse"></span><h2>${esc(jobName(j))}</h2><span class="act-pct">${p != null ? Math.round(p * 100) + '%' : ''}</span></div>
+      <div class="meter${p == null ? ' unknown' : ''}"><i style="width:${p != null ? (p * 100).toFixed(1) : 100}%"></i></div>
+      <p>${esc(j.progress || 'starting…')}</p>
+      <p class="muted act-side-foot"><span>Started ${rel(j.started_at)} · runs beside scans and hashing${eta(j, now) ? ` · ${eta(j, now)}` : ''}</span>
+        <button class="btn sm" type="button" data-job-stop="${j.id}">Stop</button></p>
+    </section>`;
+  }
   const queue = d.queued.length ? `<ol class="act-list">${d.queued.map((j, i) => `
-      <li><span class="ji">${JOB_ICON[j.kind] || ''}</span><span class="jn">${i + 1}. ${esc(jobName(j))}</span><span class="pill">${REASON[j.reason] || ''}</span><span class="muted">queued ${rel(j.queued_at)}</span></li>`).join('')}</ol>`
+      <li><span class="ji">${JOB_ICON[j.kind] || ''}</span><span class="jn">${i + 1}. ${esc(jobName(j))}</span><span class="pill">${REASON[j.reason] || ''}</span><span class="muted">queued ${rel(j.queued_at)}
+        <button class="act-x" type="button" data-job-stop="${j.id}" title="Take it off the queue" aria-label="Take ${esc(jobName(j))} off the queue">×</button></span></li>`).join('')}</ol>`
     : '<p class="muted pad">Nothing waiting.</p>';
   const recent = d.recent.length ? `<ol class="act-list">${d.recent.map(j => `
-      <li class="${j.state}"><span class="ji ${j.state}">${j.state === 'failed' ? '<svg viewBox="0 0 24 24"><path d="M12 8v5M12 16h.01"/><circle cx="12" cy="12" r="9"/></svg>' : '<svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>'}</span>
+      <li class="${j.state}"><span class="ji ${j.state}">${j.state === 'failed' ? '<svg viewBox="0 0 24 24"><path d="M12 8v5M12 16h.01"/><circle cx="12" cy="12" r="9"/></svg>' : j.state === 'stopped' ? '<svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>' : '<svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>'}</span>
         <span class="jn">${esc(jobName(j))}<small>${esc(j.state === 'failed' ? j.error || 'failed' : j.summary)}</small></span>
         <span class="pill">${REASON[j.reason] || ''}</span>
         <span class="muted" title="${esc(when(j.finished_at))}">${rel(j.finished_at)}${j.started_at && j.finished_at ? ` · took ${dur(j.finished_at - j.started_at)}` : ''}</span></li>`).join('')}</ol>`
@@ -1674,6 +2011,8 @@ document.addEventListener('click', e => {
     return;
   }
   if (t.closest('#vol-again')) return probeVolumes();
+  const js = t.closest('[data-job-stop]');
+  if (js && S.mode === 'activity') { js.disabled = true; return stopJob(+js.dataset.jobStop); }
   const ix = t.closest('[data-index-path]');
   if (ix) {
     ix.disabled = true;
@@ -1729,6 +2068,7 @@ $('#activity-btn').onclick = showActivity;
 $('#entities-btn').onclick = showEntities;
 $('#plan-btn').onclick = () => showPlan();
 $('#wipe-btn').onclick = () => showWipe();
+$('#rescue-btn').onclick = showRescue;
 $('#time').addEventListener('input', e => setScan(+e.target.value));
 $('#time-now').onclick = () => setScan(S.timeline.length - 1);
 

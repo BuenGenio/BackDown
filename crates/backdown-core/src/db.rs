@@ -129,6 +129,20 @@ CREATE TABLE IF NOT EXISTS deletions (
     proof_how TEXT NOT NULL,          -- re-read | moved | index | empty
     at        INTEGER NOT NULL
 );
+-- rescues (rescue/): copying a failing drive to an image, finding files by content, finding lost
+-- partitions. What was asked, where it's going, and the latest outcome as JSON
+CREATE TABLE IF NOT EXISTS rescues (
+    id         INTEGER PRIMARY KEY,
+    created_at INTEGER NOT NULL,
+    mode       TEXT NOT NULL,         -- image | carve | parts
+    source     TEXT NOT NULL,         -- a device node or an image file
+    dest       TEXT,                  -- the image file (image) or folder (carve)
+    options    TEXT NOT NULL,         -- JSON
+    state      TEXT NOT NULL,         -- new | running | done | stopped | failed
+    summary    TEXT,
+    result     TEXT,                  -- JSON: the image's totals, what was found
+    updated_at INTEGER NOT NULL
+);
 ";
 const VERSION: i64 = 2;
 

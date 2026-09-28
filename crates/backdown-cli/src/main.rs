@@ -16,6 +16,7 @@ mod insight;
 mod license;
 mod locations;
 mod peek;
+mod rescuing;
 mod serve;
 mod service;
 
@@ -213,6 +214,11 @@ enum Cmd {
         #[arg(long)]
         go: bool,
     },
+    /// Get files back from a failing, formatted or emptied drive or card (only reads it)
+    Rescue {
+        #[command(subcommand)]
+        action: rescuing::RescueCmd,
+    },
     /// Keep a folder (usually part of the archive) copied on another drive, and check the copy now
     /// and then
     Mirror {
@@ -398,6 +404,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
             };
         }
         Cmd::Volumes { json } => return run_volumes(cli.db, json),
+        // reads a drive and writes elsewhere; never opens the index (it may run under sudo)
+        Cmd::Rescue { action } => return rescuing::run(action),
         _ => {}
     }
     // a running daemon owns the index: hand the work to it (unless told not to)
@@ -620,6 +628,7 @@ fn local(db_path: &Path, cmd: Cmd) -> Result<ExitCode> {
         | Cmd::Service { .. }
         | Cmd::License { .. }
         | Cmd::ImportLegacy { .. }
+        | Cmd::Rescue { .. }
         | Cmd::Volumes { .. } => {
             unreachable!("handled in run")
         }
@@ -756,6 +765,7 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
         | Cmd::Plans
         | Cmd::Mirror { .. }
         | Cmd::Wipe { .. }
+        | Cmd::Rescue { .. }
         | Cmd::Volumes { .. } => {
             unreachable!("handled in run")
         }

@@ -24,7 +24,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 use backdown_core::{
-    Db, apply, browse, fmt, overlap, paths, plan, recognise, report, summary, volumes, wipe,
+    Db, apply, browse, fmt, overlap, paths, plan, recognise, report, rescue, summary, volumes, wipe,
 };
 
 use crate::daemon::Daemon;
@@ -239,6 +239,40 @@ fn handle(ctx: &Ctx, req: Request) {
                 Ok(v) => json_resp(&v),
                 Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
             }
+        };
+        let _ = req.respond(resp);
+        return;
+    }
+    if *req.method() == Method::Post && path == "/api/rescue" {
+        let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
+        let resp = if !marked {
+            plain(403, "missing X-BackDown header")
+        } else {
+            match start_rescue(ctx, &params) {
+                Ok(v) => json_resp(&v),
+                Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
+            }
+        };
+        let _ = req.respond(resp);
+        return;
+    }
+    if *req.method() == Method::Post && path == "/api/job-stop" {
+        // stop a queued job, or a running one that can stop (a rescue): the map or results so far stay
+        let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
+        let resp = match (
+            marked,
+            &ctx.daemon,
+            param("id").and_then(|v| v.parse::<u64>().ok()),
+        ) {
+            (false, _, _) => plain(403, "missing X-BackDown header"),
+            (true, None, _) => json_resp(&json!({ "error": "no daemon" })).with_status_code(409),
+            (true, Some(_), None) => {
+                json_resp(&json!({ "error": "missing id" })).with_status_code(400)
+            }
+            (true, Some(d), Some(id)) => match d.stop(id) {
+                Ok(state) => json_resp(&json!({ "ok": true, "state": state })),
+                Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(409),
+            },
         };
         let _ = req.respond(resp);
         return;
@@ -552,6 +586,109 @@ fn start_wipe(
     Ok(json!({ "ok": true, "id": id, "job": job }))
 }
 
+/// Start a rescue, or carry one on (`resume`): the checks that can be made before it runs, then a
+/// job in the daemon's side lane. Only reads the source; writes only to the destination.
+fn start_rescue(ctx: &Ctx, params: &[(String, String)]) -> Result<Value> {
+    let param = |n: &str| get(params, n).map(str::trim).filter(|v| !v.is_empty());
+    let num = |n: &str| -> Result<Option<u64>> {
+        param(n)
+            .map(|v| v.parse().with_context(|| format!("bad {n}")))
+            .transpose()
+    };
+    let d = ctx
+        .daemon
+        .as_ref()
+        .context("rescues run in the BackDown service: `backdown rescue …` in a terminal")?;
+    if !ctx.desktop {
+        bail!(
+            "the machine-wide service only reads: rescue from your own BackDown (`backdown --local rescue …`)"
+        );
+    }
+    let db = Db::open(&ctx.db)?;
+    let id = if let Some(resume) = param("resume") {
+        let id: i64 = resume.parse().context("bad rescue")?;
+        let r = rescue::load(&db, id)?;
+        if d.pending("rescue", &format!("rescue {id}")) {
+            bail!("that rescue is already running or waiting its turn");
+        }
+        if r.mode == "carve" {
+            // carry on from where it got to
+            let mut o = r.options.clone();
+            o["start"] = r.result["pos"].clone();
+            rescue::set_options(&db, id, &o)?;
+        }
+        rescue::set(&db, id, "new", None, None)?;
+        id
+    } else {
+        let mode = param("mode").context("missing mode")?;
+        let source = PathBuf::from(param("source").context("which drive or image?")?);
+        let a = rescue::access(&source);
+        if !a.readable {
+            bail!(
+                "{} can't be read: {}",
+                source.display(),
+                a.why.unwrap_or_default()
+            );
+        }
+        let dest = |what: &str| -> Result<PathBuf> {
+            let p =
+                PathBuf::from(param("dest").with_context(|| format!("where should {what} go?"))?);
+            if !p.is_absolute() {
+                bail!("{what} needs a full path, on another drive");
+            }
+            Ok(p)
+        };
+        let (dest, options) = match mode {
+            "image" => {
+                let to = dest("the copy")?;
+                if to.is_dir() {
+                    bail!(
+                        "{} is a folder: give the copy a file name, like card.img",
+                        to.display()
+                    );
+                }
+                rescue::image::check_places(&source, &to, &rescue::map_path(&to), !a.device)?;
+                (Some(to), json!({ "retries": num("retries")?.unwrap_or(1) }))
+            }
+            "carve" => {
+                let to = dest("what's found")?;
+                // an image file can't be overwritten by what's saved beside it; a drive can
+                if a.device && rescue::carve::same_device(&source, &to) {
+                    bail!(
+                        "{} is on the drive being rescued: saving there could overwrite the very files being looked for. Choose a folder on another drive",
+                        to.display()
+                    );
+                }
+                let kinds: Vec<&str> = param("kinds")
+                    .unwrap_or("")
+                    .split(',')
+                    .filter(|k| !k.is_empty())
+                    .collect();
+                if kinds.is_empty() {
+                    bail!("choose at least one kind of file to look for");
+                }
+                (
+                    Some(to),
+                    json!({ "kinds": kinds, "start": num("start")?.unwrap_or(0), "end": num("end")? }),
+                )
+            }
+            "parts" => (None, json!({ "deep": param("deep") == Some("1") })),
+            _ => bail!("mode must be image, carve or parts"),
+        };
+        rescue::record(&db, mode, &source, dest.as_deref(), &options)?
+    };
+    let job = d.enqueue(
+        "rescue",
+        Some(format!("rescue {id}")),
+        "requested",
+        crate::daemon::JobOpts {
+            rescue: Some(id),
+            ..Default::default()
+        },
+    );
+    Ok(json!({ "ok": true, "id": id, "job": job }))
+}
+
 /// The report as HTML (to view) or Markdown (to save), from what's stored and indexed now.
 fn report(ctx: &Ctx, md: bool) -> Result<(String, bool)> {
     let db = ro_db(ctx)?;
@@ -683,6 +820,11 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
         }
         "/api/wipe-assess" => wipe_assess(ctx, &db, param("keys"))?,
         "/api/wipes" => json!(wipe::history(&db)?),
+        // can the daemon read this drive (or image file) directly, and if not, what would let it
+        "/api/rescue-access" => json!(rescue::access(Path::new(
+            param("path").context("missing path")?.trim()
+        ))),
+        "/api/rescues" => json!(rescue::history(&db)?),
         // free space where things would be moved to (the nearest folder up that exists)
         "/api/room" => {
             let p = PathBuf::from(param("path").context("missing path")?.trim());

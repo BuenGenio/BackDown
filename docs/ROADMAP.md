@@ -58,6 +58,19 @@ Port the scripts into `crates/backdown-core` + `crates/backdown-cli`. Same on-di
 
 **Done when:** the desk is consolidated and every deletion is traceable to a journal line with a matching hash.
 
+## Rescue — failing drives, deleted files, lost partitions (pulled forward, Sep 2026)
+
+For people who've never heard of ddrescue, PhotoRec or TestDisk: a Rescue view in the browser (which drive, what happened, where rescued things go) and `backdown rescue image|find|partitions`. Only ever reads the source.
+
+**Status, 28 Sep 2026: built** on `cli/rescue` (PR #3):
+- **Copy a failing drive** into an image (`rescue::image`): ddrescue's passes (copy with skipping forwards and backwards, trim, scrape, retry) and its mapfile format, resumable without re-reading. It refuses to write onto the source or elsewhere on its physical drive.
+- **Find files by content** (`rescue::carve`): photos (JPEG with EXIF, PNG, HEIC, camera RAW), videos (MP4/MOV, MKV, AVI and more), documents (PDF, Office old and new, OpenDocument, EPUB), audio, archives and SQLite, saved by kind with an index; recovered files are then indexed so they open in the browser.
+- **Find lost partitions** (`rescue::parts`): MBR/GPT and their damage, file systems by primary and backup structures; "Find files in it" searches just that partition.
+
+Rescues run in the daemon's side lane beside scans, can be stopped and resumed, and stay on record. When a drive can't be read directly, BackDown says so and gives the one command that lets this account read that device only; `sudo backdown rescue …` works too, and never opens the index.
+
+Not yet: reassembling fragmented files, a privileged helper instead of the one-off permission command, opening a found partition's file system directly, SMART health.
+
 ## v0.5 — Desktop app (5 weeks, Feb – Mar 2027)
 
 Tauri 2 shell + Svelte 5, sharing Innards' tokens and components.
@@ -89,7 +102,7 @@ Tauri 2 shell + Svelte 5, sharing Innards' tokens and components.
 - Photo-aware dedup: perceptual hashes, burst grouping, EXIF-date filing into `Media/Photos/YYYY/MM`
 - Cloud sources as volumes via rclone (Drive, Dropbox, iCloud Drive, S3)
 - "Time-lapse" view: how a directory tree evolved across the snapshots found on different drives
-- Recovery mode: feed `testdisk`/`photorec` output and `found.000` dirs into the recognisers
+- Recovery mode: feed `testdisk`/`photorec` output and `found.000` dirs into the recognisers (BackDown's own Rescue now does the finding; see below)
 
 ---
 

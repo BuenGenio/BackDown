@@ -10,6 +10,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -35,7 +36,9 @@ pub struct Job {
     pub id: u64,
     pub kind: &'static str, // "index" | "hash" | "entities"
     pub path: Option<String>,
-    pub state: &'static str, // "queued" | "running" | "done" | "failed"
+    pub state: &'static str, // "queued" | "running" | "done" | "failed" | "stopped"
+    /// it can be stopped while it runs (and resumed later where that makes sense)
+    pub stoppable: bool,
     pub progress: String,
     /// the same progress as numbers, for progress bars and time estimates
     pub counts: Option<Counts>,
@@ -86,13 +89,24 @@ pub struct JobOpts {
     /// wipe: which recorded wipe, and whether to trust the index instead of re-reading
     pub wipe: Option<i64>,
     pub trust_index: bool,
+    /// rescue: which recorded rescue
+    pub rescue: Option<i64>,
 }
+
+/// Jobs that can run for hours or days and hardly touch the index (copying a failing drive,
+/// searching a card for lost files): they go in a lane of their own, one at a time, so scans and
+/// hashing carry on meanwhile, and they can be stopped.
+const SIDE: &[&str] = &["rescue"];
 
 #[derive(Default)]
 struct State {
     next: u64,
     jobs: VecDeque<Job>,
     queue: VecDeque<u64>,
+    /// the side lane's queue (see `SIDE`)
+    side: VecDeque<u64>,
+    /// how to ask each running stoppable job to stop
+    stops: HashMap<u64, Arc<AtomicBool>>,
     /// bumped on every change a viewer would notice, so the web UI can wait for the next one
     /// instead of polling (progress counts at most once a second)
     version: u64,
@@ -150,6 +164,7 @@ impl Daemon {
                     "after-scan" => " (after a scan)",
                     "after-apply" => " (after copying into it)",
                     "after-wipe" => " (after wiping)",
+                    "after-rescue" => " (what a rescue found)",
                     "scheduled" => " (scheduled)",
                     "returned" => " (the drive is back)",
                     _ => "",
@@ -161,6 +176,7 @@ impl Daemon {
             kind,
             path,
             state: "queued",
+            stoppable: SIDE.contains(&kind),
             progress: String::new(),
             counts: None,
             summary: String::new(),
@@ -172,13 +188,17 @@ impl Daemon {
             finished_at: None,
             opts,
         });
-        st.queue.push_back(id);
+        if SIDE.contains(&kind) {
+            st.side.push_back(id);
+        } else {
+            st.queue.push_back(id);
+        }
         // keep a bounded history of finished jobs
         while st.jobs.len() > 200 {
             match st
                 .jobs
                 .iter()
-                .position(|j| j.state == "done" || j.state == "failed")
+                .position(|j| matches!(j.state, "done" | "failed" | "stopped"))
             {
                 Some(i) => {
                     st.jobs.remove(i);
@@ -190,6 +210,52 @@ impl Daemon {
         self.wake.notify_all();
         self.changed.notify_all();
         id
+    }
+
+    /// Stop job `id`: taken off the queue if it hasn't started; asked to stop at its next
+    /// checkpoint if it's running and can be stopped.
+    pub fn stop(&self, id: u64) -> Result<&'static str> {
+        let mut st = self.state.lock().unwrap();
+        let queued = st.queue.iter().position(|x| *x == id).map(|i| (false, i));
+        if let Some((side, i)) =
+            queued.or_else(|| st.side.iter().position(|x| *x == id).map(|i| (true, i)))
+        {
+            if side {
+                st.side.remove(i);
+            } else {
+                st.queue.remove(i);
+            }
+            let mut rescue = None;
+            if let Some(j) = st.jobs.iter_mut().find(|j| j.id == id) {
+                j.state = "stopped";
+                j.summary = "taken off the queue".into();
+                j.finished_at = Some(now());
+                rescue = j.opts.rescue;
+            }
+            st.version += 1;
+            self.changed.notify_all();
+            drop(st);
+            // a rescue's record says so too, so it can be started again later
+            if let Some(r) = rescue {
+                let _ = Db::open(&self.db).and_then(|db| {
+                    backdown_core::rescue::set(
+                        &db,
+                        r,
+                        "stopped",
+                        Some("taken off the queue before it started"),
+                        None,
+                    )
+                });
+            }
+            return Ok("taken off the queue");
+        }
+        match st.stops.get(&id) {
+            Some(flag) => {
+                flag.store(true, Ordering::Relaxed);
+                Ok("stopping")
+            }
+            None => bail!("job {id} isn't waiting, and can't be stopped while it runs"),
+        }
     }
 
     pub fn job(&self, id: u64) -> Option<Job> {
@@ -252,6 +318,15 @@ impl Daemon {
         st.drives.iter().find(|d| d.path == path).cloned()
     }
 
+    /// A job of `kind` for `path` is waiting or running.
+    pub fn pending(&self, kind: &str, path: &str) -> bool {
+        self.state.lock().unwrap().jobs.iter().any(|j| {
+            j.kind == kind
+                && j.path.as_deref() == Some(path)
+                && (j.state == "queued" || j.state == "running")
+        })
+    }
+
     fn pending_index(&self, path: &str) -> bool {
         self.state.lock().unwrap().jobs.iter().any(|j| {
             j.kind == "index"
@@ -263,17 +338,26 @@ impl Daemon {
     /// What the daemon is doing, for the CLI and the web UI.
     pub fn snapshot(&self) -> Value {
         let st = self.state.lock().unwrap();
-        let current = st.jobs.iter().find(|j| j.state == "running");
+        let current = st
+            .jobs
+            .iter()
+            .find(|j| j.state == "running" && !SIDE.contains(&j.kind));
+        // the side lane's running job (a rescue), alongside the main one
+        let side = st
+            .jobs
+            .iter()
+            .find(|j| j.state == "running" && SIDE.contains(&j.kind));
         let queued: Vec<&Job> = st
             .queue
             .iter()
+            .chain(st.side.iter())
             .filter_map(|id| st.jobs.iter().find(|j| j.id == *id))
             .collect();
         let recent: Vec<&Job> = st
             .jobs
             .iter()
             .rev()
-            .filter(|j| j.state == "done" || j.state == "failed")
+            .filter(|j| matches!(j.state, "done" | "failed" | "stopped"))
             .take(30)
             .collect();
         // the plan: when each drive is scanned next, and why not if it isn't
@@ -317,6 +401,7 @@ impl Daemon {
             "rescan_every_secs": self.rescan_every.map(|d| d.as_secs()),
             "checked_at": st.checked_at,
             "current": current,
+            "side": side,
             "queued": queued,
             "recent": recent,
             "drives": drives,
@@ -374,6 +459,12 @@ pub fn run(opts: Options) -> Result<()> {
     {
         let d = Arc::clone(&d);
         std::thread::Builder::new()
+            .name("side".into())
+            .spawn(move || side_worker(&d))?;
+    }
+    {
+        let d = Arc::clone(&d);
+        std::thread::Builder::new()
             .name("scheduler".into())
             .spawn(move || scheduler(&d))?;
     }
@@ -413,6 +504,56 @@ fn write_private(path: &Path, data: &[u8], shared: bool) -> Result<()> {
     }
     std::fs::rename(&tmp, path)?;
     Ok(())
+}
+
+// ---------- the side lane: long jobs that hardly write to the index, one at a time, stoppable
+
+fn side_worker(d: &Daemon) {
+    loop {
+        let id = {
+            let mut st = d.state.lock().unwrap();
+            while st.side.is_empty() {
+                st = d.wake.wait(st).unwrap();
+            }
+            st.side.pop_front().expect("checked non-empty")
+        };
+        let Some(job) = d.job(id) else { continue };
+        let stop = Arc::new(AtomicBool::new(false));
+        d.state.lock().unwrap().stops.insert(id, Arc::clone(&stop));
+        d.update(id, |j| {
+            j.state = "running";
+            j.started_at = Some(now());
+        });
+        // its own connection: the rescue record's short writes wait their turn behind the worker's
+        let result = Db::open(&d.db).and_then(|db| match job.kind {
+            "rescue" => run_rescue(d, &db, &job, &stop),
+            k => bail!("{k} doesn't run in the side lane"),
+        });
+        d.state.lock().unwrap().stops.remove(&id);
+        let stopped = stop.load(Ordering::Relaxed);
+        match result {
+            Ok(summary) => {
+                eprintln!("{}: {summary}", if stopped { "stopped" } else { "done" });
+                d.update(id, |j| {
+                    j.state = if stopped { "stopped" } else { "done" };
+                    j.summary = summary;
+                    j.finished_at = Some(now());
+                });
+            }
+            Err(e) => {
+                eprintln!(
+                    "failed: {} {}: {e:#}",
+                    job.kind,
+                    job.path.as_deref().unwrap_or("")
+                );
+                d.update(id, |j| {
+                    j.state = "failed";
+                    j.error = Some(format!("{e:#}"));
+                    j.finished_at = Some(now());
+                });
+            }
+        }
+    }
 }
 
 // ---------- the worker: one job at a time, one writer to the index
@@ -669,6 +810,284 @@ fn run_wipe(d: &Daemon, db: &mut Db, job: &Job) -> Result<String> {
             String::new()
         }
     ))
+}
+
+/// Carry out a recorded rescue (see backdown_core::rescue), keeping its record up to date: what
+/// it's doing while it runs, then how it ended and what it found.
+fn run_rescue(d: &Daemon, db: &Db, job: &Job, stop: &AtomicBool) -> Result<String> {
+    use backdown_core::rescue;
+    let id = job.opts.rescue.context("rescue without a record")?;
+    let r = rescue::load(db, id)?;
+    rescue::set(db, id, "running", None, None)?;
+    let out = match r.mode.as_str() {
+        "image" => rescue_image(d, db, job, &r, stop),
+        "parts" => rescue_parts(d, job, &r, stop),
+        "carve" => rescue_carve(d, db, job, &r, stop),
+        m => Err(anyhow::anyhow!("{m} can't run yet")),
+    };
+    match out {
+        Ok((summary, result)) => {
+            let state = if stop.load(Ordering::Relaxed) {
+                "stopped"
+            } else {
+                "done"
+            };
+            rescue::set(db, id, state, Some(&summary), Some(&result))?;
+            Ok(summary)
+        }
+        Err(e) => {
+            let _ = rescue::set(db, id, "failed", Some(&format!("{e:#}")), None);
+            Err(e)
+        }
+    }
+}
+
+/// Find files by their content and save them, sorted by kind; then index them so they open in the
+/// browser. Stopping and running it again carries on from where it got to.
+fn rescue_carve(
+    d: &Daemon,
+    db: &Db,
+    job: &Job,
+    r: &backdown_core::rescue::Rescue,
+    stop: &AtomicBool,
+) -> Result<(String, Value)> {
+    use backdown_core::rescue::{self, carve};
+    let src = PathBuf::from(&r.source);
+    let dest = PathBuf::from(
+        r.dest
+            .as_deref()
+            .context("found files with nowhere to go")?,
+    );
+    let kinds: Option<Vec<String>> = r.options["kinds"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect::<Vec<_>>()
+        })
+        .filter(|k| !k.is_empty() && !carve::GROUPS.iter().all(|g| k.iter().any(|x| x == g)));
+    let opts = carve::Options {
+        kinds,
+        start: r.options["start"].as_u64().unwrap_or(0),
+        end: r.options["end"].as_u64(),
+        ..carve::Options::default()
+    };
+    // what's been found so far, on the record now and then for whoever has the Rescue view open
+    let mut kept = Instant::now();
+    let st = carve::scan_and_save(
+        &src,
+        &opts,
+        &dest,
+        &mut |p| {
+            d.progress(
+                job.id,
+                format!(
+                    "{} of {} looked through · {} found ({})",
+                    fmt::bytes(p.done),
+                    fmt::bytes(p.size),
+                    fmt::count(p.found),
+                    fmt::bytes(p.found_bytes)
+                ),
+                Counts {
+                    stage: "looking",
+                    files: p.found,
+                    total_files: 0,
+                    bytes: p.done,
+                    total_bytes: p.size,
+                },
+            );
+            if kept.elapsed() >= Duration::from_secs(15) {
+                kept = Instant::now();
+                let so_far = json!({ "pos": p.pos, "found": p.found, "found_bytes": p.found_bytes, "by_group": p.by_group });
+                let _ = rescue::set(db, r.id, "running", None, Some(&so_far));
+            }
+        },
+        stop,
+    )?;
+    // where to carry on from: the end of what was looked through, on a sector
+    let pos = opts.start + st.scanned / opts.sector * opts.sector;
+    let result = json!({
+        "pos": pos, "found": st.found, "found_bytes": st.found_bytes, "by_group": st.by_group,
+        "incomplete": st.incomplete, "unreadable": st.unreadable, "problems": st.problems,
+    });
+    if st.found > 0 {
+        // the recovered files open in the browser once they're indexed: the drive they're on, if
+        // it's indexed, else the folder by itself
+        let target = root_holding(db, &dest).unwrap_or_else(|| dest.display().to_string());
+        d.enqueue("index", Some(target), "after-rescue", JobOpts::default());
+    }
+    let summary = format!(
+        "{}found {} file{} ({}){}",
+        if st.stopped { "stopped: " } else { "" },
+        fmt::count(st.found),
+        if st.found == 1 { "" } else { "s" },
+        fmt::bytes(st.found_bytes),
+        if st.incomplete > 0 {
+            format!(", {} of them cut off or damaged", fmt::count(st.incomplete))
+        } else {
+            String::new()
+        }
+    );
+    Ok((summary, result))
+}
+
+/// Look for file systems the partition table doesn't list (reads only).
+fn rescue_parts(
+    d: &Daemon,
+    job: &Job,
+    r: &backdown_core::rescue::Rescue,
+    stop: &AtomicBool,
+) -> Result<(String, Value)> {
+    use backdown_core::rescue::parts;
+    let opts = parts::Options {
+        deep: r.options["deep"].as_bool().unwrap_or(false),
+        ..parts::Options::default()
+    };
+    let s = parts::search(
+        Path::new(&r.source),
+        &opts,
+        &mut |p| {
+            d.progress(
+                job.id,
+                format!(
+                    "{}: {} of {} read · {} found",
+                    if opts.deep {
+                        "reading every sector"
+                    } else {
+                        "looking where partitions start"
+                    },
+                    fmt::bytes(p.pos),
+                    fmt::bytes(p.size),
+                    fmt::count(p.found)
+                ),
+                Counts {
+                    stage: "searching",
+                    files: p.found,
+                    total_files: 0,
+                    bytes: p.pos,
+                    total_bytes: p.size,
+                },
+            )
+        },
+        stop,
+    )?;
+    let lost = s.found.iter().filter(|f| !f.in_table && !f.nested).count();
+    let summary = format!(
+        "{}{} file system{} found{}",
+        if s.stopped { "stopped: " } else { "" },
+        s.found.len(),
+        if s.found.len() == 1 { "" } else { "s" },
+        if lost > 0 {
+            format!(", {lost} not in the partition table")
+        } else {
+            String::new()
+        }
+    );
+    Ok((summary, serde_json::to_value(&s)?))
+}
+
+/// Copy a (failing) drive into an image, ddrescue-style; stopping and running it again carries on.
+fn rescue_image(
+    d: &Daemon,
+    db: &Db,
+    job: &Job,
+    r: &backdown_core::rescue::Rescue,
+    stop: &AtomicBool,
+) -> Result<(String, Value)> {
+    use backdown_core::rescue::{self, image};
+    let src = PathBuf::from(&r.source);
+    let dest = PathBuf::from(r.dest.as_deref().context("a copy with nowhere to go")?);
+    if let Some(dir) = dest.parent() {
+        std::fs::create_dir_all(dir).with_context(|| format!("can't create {}", dir.display()))?;
+    }
+    let map = rescue::map_path(&dest);
+    let device = rescue::access(&src).device;
+    let opts = image::Options {
+        retries: r.options["retries"].as_u64().unwrap_or(1) as u32,
+        // an image file is usually a copy made earlier, not the failing drive itself
+        allow_same_drive: !device,
+        // Linux reads a drive a 4 KiB page at a time: smaller sectors only multiply failed reads
+        sector: if device && cfg!(target_os = "linux") {
+            4096
+        } else {
+            512
+        },
+        ..image::Options::default()
+    };
+    let mut kept = Instant::now();
+    let sum = image::image(
+        &src,
+        &dest,
+        &map,
+        &opts,
+        &mut |p| {
+            let bad = if p.bad > 0 {
+                format!(
+                    " · {} unreadable in {} place{}",
+                    fmt::bytes(p.bad),
+                    fmt::count(p.bad_areas),
+                    if p.bad_areas == 1 { "" } else { "s" }
+                )
+            } else {
+                String::new()
+            };
+            d.progress(
+                job.id,
+                format!(
+                    "{}: {} of {} copied{bad} · {}/s",
+                    p.pass,
+                    fmt::bytes(p.rescued),
+                    fmt::bytes(p.size),
+                    fmt::bytes(p.read_rate as u64)
+                ),
+                Counts {
+                    stage: p.pass,
+                    files: p.bad_areas,
+                    total_files: 0,
+                    bytes: p.size - p.todo,
+                    total_bytes: p.size,
+                },
+            );
+            // the record's strip, now and then, for whoever has the Rescue view open
+            if kept.elapsed() >= Duration::from_secs(30) {
+                kept = Instant::now();
+                if let Ok(m) = image::read_map(&map) {
+                    let _ = rescue::set(
+                        db,
+                        r.id,
+                        "running",
+                        None,
+                        Some(&rescue::image_state(&m, 160)),
+                    );
+                }
+            }
+        },
+        stop,
+    )?;
+    let result = rescue::image_state(&image::read_map(&map)?, 160);
+    let summary = if sum.complete {
+        format!(
+            "copied all {} into {}",
+            fmt::bytes(sum.size),
+            dest.display()
+        )
+    } else if sum.stopped {
+        format!(
+            "stopped with {} of {} copied: resume to carry on",
+            fmt::bytes(sum.rescued),
+            fmt::bytes(sum.size)
+        )
+    } else {
+        format!(
+            "copied {} of {}; {} couldn't be read, in {} place{}",
+            fmt::bytes(sum.rescued),
+            fmt::bytes(sum.size),
+            fmt::bytes(sum.bad),
+            fmt::count(sum.bad_areas),
+            if sum.bad_areas == 1 { "" } else { "s" }
+        )
+    };
+    Ok((summary, result))
 }
 
 /// The indexed root holding `path`, if any.
@@ -966,10 +1385,14 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
                 mirror: None,
                 wipe: req["wipe"].as_i64(),
                 trust_index: req["trust_index"].as_bool().unwrap_or(false),
+                rescue: None,
             };
             json!({ "ok": true, "job": d.enqueue(kind, path, "requested", opts) })
         }
         "job" => json!({ "ok": true, "job": d.job(req["job"].as_u64().context("missing job")?) }),
+        "stop" => {
+            json!({ "ok": true, "state": d.stop(req["job"].as_u64().context("missing job")?)? })
+        }
         "check" => {
             let p = req["path"].as_str().context("check needs a path")?;
             json!({ "ok": true, "report": report::check(&ro()?, Path::new(p))? })
