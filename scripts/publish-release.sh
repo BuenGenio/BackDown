@@ -12,13 +12,25 @@ src=BuenGenio/BackDown
 dst=BuenGenio/backdown-releases
 root=$(cd "$(dirname "$0")/.." && pwd)
 
-run=$(gh run list --repo "$src" --workflow release.yml --branch "$tag" --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
-[ -n "$run" ] || { echo "no successful release workflow run for $tag yet" >&2; exit 1; }
-
 dist="$root/target/dist/$tag"
 rm -rf "$dist" && mkdir -p "$dist"
-gh run download "$run" --repo "$src" --name release --dir "$dist"
-(cd "$dist" && sha256sum --quiet -c SHA256SUMS.txt) || { echo "checksum mismatch in $dist" >&2; exit 1; }
+run=$(gh run list --repo "$src" --workflow release.yml --branch "$tag" --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+if [ -n "$run" ]; then
+  gh run download "$run" --repo "$src" --name release --dir "$dist"
+  (cd "$dist" && sha256sum --quiet -c SHA256SUMS.txt) || { echo "checksum mismatch in $dist" >&2; exit 1; }
+else
+  # every build job passed but the bundle job didn't run (e.g. Actions was out of minutes): do its one
+  # step here, from the per-platform artifacts
+  run=$(gh run list --repo "$src" --workflow release.yml --branch "$tag" --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+  [ -n "$run" ] || { echo "no release workflow run for $tag yet" >&2; exit 1; }
+  platforms=(linux-x86_64 linux-arm64 macos-universal windows-x86_64)
+  for p in "${platforms[@]}"; do
+    gh run download "$run" --repo "$src" --name "$p" --dir "$dist" \
+      || { echo "run $run has no finished $p build; wait for it or rerun it" >&2; exit 1; }
+  done
+  (cd "$dist" && sha256sum -- * > SHA256SUMS.txt)
+  echo "bundled run $run's ${#platforms[@]} builds locally"
+fi
 
 pre=(); [[ $tag == *-* ]] && pre=(--prerelease)
 gh release create "$tag" "$dist"/* --repo "$dst" --title "BackDown $tag" "${pre[@]}" --notes "$(cat <<NOTES
