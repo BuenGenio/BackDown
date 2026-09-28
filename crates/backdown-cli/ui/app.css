@@ -543,3 +543,55 @@ a.btn{color:inherit;text-decoration:none}
 .wp-hist td:first-child{white-space:nowrap}
 .wp-hist td:nth-child(2){width:45%}
 .wp-hist td small{display:block;margin-top:3px;font-size:.78rem}
+
+/* Rescue: the drive, what happened, where things go; then each rescue with its progress and results */
+.rescue .pl-head p{max-width:72ch}
+.rescue .card-ish h3{display:flex;align-items:center;gap:8px}
+.rs-n{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--accent);color:var(--accent-ink);font-size:.72rem;letter-spacing:0}
+.rs-disk{display:flex;flex-direction:column;gap:2px}
+.rs-disk+.rs-disk{border-top:1px solid var(--line);padding-top:6px;margin-top:4px}
+.rs-parts{display:flex;flex-direction:column;gap:2px;margin-left:26px}
+.rs-parts:empty{display:none}
+.rs-opt{display:flex;align-items:center;gap:10px;padding:6px 10px;border-radius:8px;cursor:pointer}
+.rs-opt:hover{background:var(--hover)}
+.rs-opt.on{background:color-mix(in srgb,var(--accent) 9%,transparent)}
+.rs-opt input{margin:0;accent-color:var(--accent);flex:none}
+.rs-opt-t{display:flex;flex-direction:column;min-width:0;flex:1}
+.rs-opt-t small{font-size:.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rs-file{margin:4px 0 4px 36px;width:calc(100% - 36px)}
+.rs-acc{margin:8px 0 0;font-size:.9rem}
+.rs-acc.no{display:flex;flex-direction:column;gap:8px;align-items:flex-start;padding:10px 12px;border-radius:10px;border:1px solid color-mix(in srgb,var(--warn) 40%,transparent);margin-top:10px}
+.rs-acc.no p{margin:0}
+.rs-cmd{display:flex;gap:8px;align-items:center;max-width:100%}
+.rs-cmd code{font:12.5px var(--mono);background:var(--hover);padding:6px 10px;border-radius:7px;overflow-x:auto;white-space:nowrap;min-width:0}
+.rs-what{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+@media(max-width:900px){.rs-what{grid-template-columns:minmax(0,1fr)}}
+.rs-card-btn{display:flex;flex-direction:column;gap:4px;text-align:left;border:1px solid var(--line-2);border-radius:10px;background:var(--view);color:var(--ink);padding:12px 14px;cursor:pointer;font:inherit}
+.rs-card-btn span{font-size:.84rem;color:var(--ink-2);line-height:1.4}
+.rs-card-btn:hover{border-color:var(--accent)}
+.rs-card-btn.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset;background:color-mix(in srgb,var(--accent) 6%,var(--view))}
+#rs-go{display:flex;flex-direction:column;gap:8px}
+#rs-go .btn{align-self:flex-start}
+#rs-go .note{margin:0}
+.rs-dest{display:flex;flex-direction:column;gap:6px;font-weight:600;font-size:.88rem}
+.rs-kinds{display:flex;flex-wrap:wrap;gap:6px 18px}
+.rs-range{margin:0;font-size:.9rem;display:flex;align-items:center;gap:4px}
+#rs-list h3{margin-top:8px}
+.rs-item{background:var(--view);border:1px solid var(--line);border-radius:12px;padding:12px 16px;display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.rs-item header{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+.rs-item header .btn{margin-left:auto}
+.rs-item p{margin:0;font-size:.9rem}
+.rs-where{font-size:.84rem;color:var(--ink-2);overflow-wrap:anywhere;min-width:0}
+.rs-where code{font:12px var(--mono)}
+.rs-next{display:flex;flex-wrap:wrap;gap:8px}
+.rs-map{display:grid;grid-template-columns:repeat(auto-fit,minmax(3px,1fr));height:14px;border-radius:4px;overflow:hidden;background:var(--line)}
+.rs-map i{background:linear-gradient(to top,var(--good) 0 var(--g),var(--line) var(--g))}
+.rs-map i.bad{background:linear-gradient(to top,var(--good) 0 var(--g),var(--crit) var(--g) calc(var(--g) + var(--b)),var(--line) calc(var(--g) + var(--b)))}
+.rs-parts-t{width:100%}
+.rs-parts-t td small{display:block;font-size:.74rem}
+.act-card.side{border-color:color-mix(in srgb,var(--info) 45%,var(--line))}
+.act-card.side .meter i{background:var(--info)}
+.act-side-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.act-x{border:0;background:none;color:var(--ink-3);font-size:1rem;line-height:1;cursor:pointer;padding:2px 6px;border-radius:5px;margin-left:6px}
+.act-x:hover{background:var(--hover);color:var(--ink)}
+.ji.stopped{color:var(--warn)}
