@@ -19,6 +19,7 @@ pub mod paths;
 pub mod plan;
 pub mod recognise;
 pub mod report;
+pub mod rescue;
 pub mod summary;
 pub mod volumes;
 pub mod wipe;
