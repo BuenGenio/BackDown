@@ -1,5 +1,5 @@
-// backdown.io — a Worker serving ./public, with the early-access list at /api/waitlist.
-// Deploy: npx wrangler deploy (from this directory). See README.md.
+// backdown.io: a Worker serving ./public; src/worker.js runs only for /api/* and the hourly status check.
+// Deploy: python3 build.py && npx wrangler deploy (from this directory). See README.md.
 {
   "name": "backdown-site",
   "main": "src/worker.js",
@@ -11,8 +11,20 @@
     "run_worker_first": ["/api/*"]
   },
   "kv_namespaces": [
-    { "binding": "WAITLIST", "id": "c2434da953294d019f07c7ee63678f57" }
+    // early-access sign-ups: email:<address> -> {at, lang}
+    { "binding": "WAITLIST", "id": "c2434da953294d019f07c7ee63678f57" },
+    // Pro pre-orders: order:<checkout session>, licence:<id>, pi:<payment intent> (see src/store.js)
+    { "binding": "ORDERS", "id": "f318b3a8f0c44bd0b841d94b38a3b5eb" },
+    // small caches: the status page's last check, the pre-order price
+    { "binding": "SITE", "id": "c9b478c9326b451ca4e67804eb811582" }
   ],
+  // refresh /api/status once an hour (a page view never triggers a check while the cached one is fresh)
+  "triggers": { "crons": ["23 * * * *"] },
+  "vars": { "MAIL_FROM": "orders@backdown.io" },
+  // Secrets (npx wrangler secret put …, or scripts/stripe-setup.mjs): STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
+  // LICENSE_SIGNING_KEY. To email licence keys, onboard backdown.io in Cloudflare Email Service and add:
+  //   "send_email": [{ "name": "EMAIL" }]
+  "observability": { "enabled": true },
   // www.backdown.io is served by ./www-redirect (a 301 to this host)
   "routes": [
     { "pattern": "backdown.io", "custom_domain": true }

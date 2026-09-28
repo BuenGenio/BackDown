@@ -1,11 +1,11 @@
 <!doctype html>
-<html lang="{{@lang}}">
+<html lang="{{@lang}}" data-page="{{@page_id}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{{meta.title}}</title>
-<meta name="description" content="{{meta.description|attr}}">
-<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1">
+<title>{{@title}}</title>
+<meta name="description" content="{{@description}}">
+<meta name="robots" content="{{@robots}}">
 <link rel="canonical" href="{{@url}}">
 {{@alternates}}
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -19,22 +19,24 @@
 <meta property="og:site_name" content="BackDown">
 <meta property="og:locale" content="{{meta.og_locale|attr}}">
 {{@og_alternates}}
-<meta property="og:title" content="{{meta.og_title|attr}}">
-<meta property="og:description" content="{{meta.og_description|attr}}">
+<meta property="og:title" content="{{@og_title}}">
+<meta property="og:description" content="{{@og_description}}">
 <meta property="og:image" content="{{@og_image}}">
 <meta property="og:image:type" content="image/png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="{{meta.og_image_alt|attr}}">
+<meta property="og:image:alt" content="{{@og_image_alt}}">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="{{meta.og_title|attr}}">
-<meta name="twitter:description" content="{{meta.og_description|attr}}">
+<meta name="twitter:title" content="{{@og_title}}">
+<meta name="twitter:description" content="{{@og_description}}">
 <meta name="twitter:image" content="{{@og_image}}">
-<meta name="twitter:image:alt" content="{{meta.og_image_alt|attr}}">
+<meta name="twitter:image:alt" content="{{@og_image_alt}}">
+{{@analytics}}
 <script type="application/ld+json">{{@jsonld}}</script>
 <link rel="preload" href="/fonts/bricolage-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/site.css">
-<script src="/site.js" defer></script>
+<link rel="stylesheet" href="/site.css?v={{@asset_v}}">
+<script src="/site.js?v={{@asset_v}}" defer></script>
+<script type="speculationrules">{"prefetch":[{"where":{"and":[{"href_matches":"/*"},{"not":{"href_matches":"/api/*"}}]},"eagerness":"moderate"}]}</script>
 </head>
 <body>
 <a class="skip" href="#top">{{skip}}</a>
@@ -44,154 +46,27 @@
  <div class="wrap bar">
   <a href="{{@home}}" class="home"><span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"/></svg></span>BackDown</a>
   <nav aria-label="{{nav.label|attr}}">
-   <a href="#how" data-s="how">{{nav.how}}</a><a href="#features" data-s="features">{{nav.features}}</a><a href="#privacy" data-s="privacy">{{nav.privacy}}</a><a href="#pricing" data-s="pricing">{{nav.pricing}}</a><a href="#download" data-s="download">{{nav.download}}</a>
+   {{@nav}}
    <details class="lang"><summary aria-label="{{lang.label|attr}}: {{lang.name|attr}}">{{@flag}}<span>{{@code}}</span></summary>
     <ul>{{@langmenu}}</ul></details>
-   <a href="#join" class="btn btn-primary sm">{{nav.cta}}</a>
+   <a href="{{@cta_href}}" class="btn btn-primary sm">{{nav.cta}}</a>
   </nav>
  </div>
+ <nav class="tabs" aria-label="{{nav.label|attr}}">{{@nav}}</nav>
 </header>
 
 <main id="top">
- <div class="wrap hero">
-  <span class="status"><span class="dot"></span>{{hero.status}}</span>
-  <h1>{{hero.title}}</h1>
-  <p class="lede">{{hero.lede}}</p>
-  <div class="hero-join">
-   {{@form}}
-   <p class="nojs-msg ok" id="joined">{{form.ok}}</p>
-   <p class="nojs-msg err" id="join-error">{{form.nojs_error}}</p>
-   <p class="join-note">{{form.note}}</p>
-  </div>
- </div>
-
- <section class="showcase" id="screens" aria-roledescription="carousel" aria-label="{{slides.label|attr}}">
-  <div class="wrap-wide">
-   <div class="stage">
-    <div class="track" tabindex="0">
-{{@slides}}
-    </div>
-   </div>
-   <div class="show-ctl" hidden>
-    <button class="sbtn" type="button" data-step="-1" aria-label="{{slides.prev|attr}}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
-    <div class="sdots">{{@dots}}</div>
-    <button class="sbtn" type="button" data-step="1" aria-label="{{slides.next|attr}}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
-    <button class="sbtn splay" type="button" aria-label="{{slides.pause|attr}}" data-pause="{{slides.pause|attr}}" data-play="{{slides.play|attr}}"><svg class="i-pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg><svg class="i-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.2-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg></button>
-   </div>
-   <p class="show-note">{{slides.note}}</p>
-  </div>
- </section>
-
- <section id="story">
-  <div class="wrap">
-   <div class="split">
-    <div><span class="eyebrow">{{story.eyebrow}}</span><h2>{{story.title}}</h2></div>
-    <div class="prose">
-     <p>{{story.p1}}</p>
-     <p>{{story.p2}}</p>
-     <p>{{story.p3}}</p>
-    </div>
-   </div>
-   <div class="stats">
-    <div class="stat card"><div class="v">{{story.s1_value}}</div><div class="l">{{story.s1_label}}</div></div>
-    <div class="stat card"><div class="v">{{story.s2_value}}</div><div class="l">{{story.s2_label}}</div></div>
-    <div class="stat card hot"><div class="v">{{story.s3_value}}</div><div class="l">{{story.s3_label}}</div></div>
-    <div class="stat card"><div class="v">{{story.s4_value}}</div><div class="l">{{story.s4_label}}</div></div>
-   </div>
-  </div>
- </section>
-
- <section id="how">
-  <div class="wrap">
-   <div class="head"><span class="eyebrow">{{how.eyebrow}}</span><h2>{{how.title}}</h2>
-    <p>{{how.intro}}</p></div>
-   <div class="steps">
-    <article class="step card"><h3>{{how.s1_title}}</h3><p>{{how.s1_body}}</p></article>
-    <article class="step card"><h3>{{how.s2_title}}</h3><p>{{how.s2_body}}</p></article>
-    <article class="step card"><h3>{{how.s3_title}}</h3><p>{{how.s3_body}}</p></article>
-   </div>
-  </div>
- </section>
-
- <section id="features">
-  <div class="wrap">
-   <div class="head"><span class="eyebrow">{{features.eyebrow}}</span><h2>{{features.title}}</h2>
-    <p>{{features.intro}}</p>
-    <div class="legend"><span class="tag live">{{features.tag_live}}</span><span class="tag dev">{{features.tag_dev}}</span><span class="tag plan">{{features.tag_plan}}</span><span>{{features.legend}}</span></div></div>
-   <div class="feats">
-    <article class="feat card"><span class="tag live">{{features.tag_live}}</span><h3>{{features.f1_title}}</h3><p>{{features.f1_body}}</p></article>
-    <article class="feat card"><span class="tag live">{{features.tag_live}}</span><h3>{{features.f2_title}}</h3><p>{{features.f2_body}}</p></article>
-    <article class="feat card"><span class="tag live">{{features.tag_live}}</span><h3>{{features.f3_title}}</h3><p>{{features.f3_body}}</p></article>
-    <article class="feat card"><span class="tag dev">{{features.tag_dev}}</span><h3>{{features.f4_title}}</h3><p>{{features.f4_body}}</p></article>
-    <article class="feat card"><span class="tag dev">{{features.tag_dev}}</span><h3>{{features.f5_title}}</h3><p>{{features.f5_body}}</p></article>
-    <article class="feat card"><span class="tag live">{{features.tag_live}}</span><h3>{{features.f6_title}}</h3><p>{{features.f6_body}}</p></article>
-    <article class="feat card"><span class="tag dev">{{features.tag_dev}}</span><h3>{{features.f7_title}}</h3><p>{{features.f7_body}}</p></article>
-    <article class="feat card"><span class="tag plan">{{features.tag_plan}}</span><h3>{{features.f8_title}}</h3><p>{{features.f8_body}}</p></article>
-    <article class="feat card"><span class="tag plan">{{features.tag_plan}}</span><h3>{{features.f9_title}}</h3><p>{{features.f9_body}}</p></article>
-   </div>
-  </div>
- </section>
-
- <section id="privacy">
-  <div class="wrap">
-   <div class="head"><span class="eyebrow">{{privacy.eyebrow}}</span><h2>{{privacy.title}}</h2>
-    <p>{{privacy.intro}}</p></div>
-   <div class="privacy">
-    <article class="pv card"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 2l20 20M8.5 16.4a5 5 0 0 1 7 0M5 12.9a10 10 0 0 1 5.2-2.8M19 12.9a10 10 0 0 0-2.3-1.6M2 8.8a15 15 0 0 1 4.2-2.7M22 8.8A15 15 0 0 0 10.7 5M12 20h.01"/></svg></span><h3>{{privacy.p1_title}}</h3><p>{{privacy.p1_body}}</p></article>
-    <article class="pv card"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></span><h3>{{privacy.p2_title}}</h3><p>{{privacy.p2_body}}</p></article>
-    <article class="pv card"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/></svg></span><h3>{{privacy.p3_title}}</h3><p>{{privacy.p3_body}}</p></article>
-    <article class="pv card"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19a4.5 4.5 0 1 0-1.4-8.8A6 6 0 0 0 4.5 12 3.5 3.5 0 0 0 6 19z"/></svg></span><h3>{{privacy.p4_title}}</h3><p>{{privacy.p4_body}}</p></article>
-   </div>
-  </div>
- </section>
-
- <section id="pricing">
-  <div class="wrap">
-   <div class="head"><span class="eyebrow">{{pricing.eyebrow}}</span><h2>{{pricing.title}}</h2>
-    <p>{{pricing.intro}}</p></div>
-   <div class="prices">
-    <article class="price card"><h3>Community</h3><div class="amt">{{pricing.community_amount}}</div><div class="per">{{pricing.community_per}}</div>
-     <ul><li>{{pricing.community_1}}</li><li>{{pricing.community_2}}</li><li>{{pricing.community_3}}</li><li>{{pricing.community_4}}</li><li>{{pricing.community_5}}</li></ul></article>
-    <article class="price card pick"><h3>Pro</h3><div class="amt">{{pricing.pro_amount}} <small>{{pricing.month}}</small></div><div class="per">{{pricing.pro_per}}</div>
-     <ul><li class="plus">{{pricing.pro_plus}}</li><li>{{pricing.pro_1}}</li><li>{{pricing.pro_2}}</li><li>{{pricing.pro_3}}</li><li>{{pricing.pro_4}}</li><li>{{pricing.pro_5}}</li><li>{{pricing.pro_6}}</li></ul></article>
-    <article class="price card"><h3>Team</h3><div class="amt">{{pricing.team_amount}} <small>{{pricing.month}}</small></div><div class="per">{{pricing.team_per}}</div>
-     <ul><li class="plus">{{pricing.team_plus}}</li><li>{{pricing.team_1}}</li><li>{{pricing.team_2}}</li><li>{{pricing.team_3}}</li><li>{{pricing.team_4}}</li></ul></article>
-    <article class="price card"><h3>Forensic</h3><div class="amt">{{pricing.forensic_amount}} <small>{{pricing.year}}</small></div><div class="per">{{pricing.forensic_per}}</div>
-     <ul><li class="plus">{{pricing.forensic_plus}}</li><li>{{pricing.forensic_1}}</li><li>{{pricing.forensic_2}}</li><li>{{pricing.forensic_3}}</li><li>{{pricing.forensic_4}}</li></ul></article>
-   </div>
-   <p class="fine">{{pricing.fine}}</p>
-  </div>
- </section>
-
- <section id="download">
-  <div class="wrap">
-   <div class="head"><span class="eyebrow">{{download.eyebrow}}</span><h2>{{download.title}}</h2>
-    <p>{{download.intro}}</p></div>
-   <div class="dls">
-{{@downloads}}
-   </div>
-   <p class="fine">{{download.note}} <a href="{{@releases_url}}">{{download.all}}</a></p>
-  </div>
- </section>
-
- <section id="join">
-  <div class="wrap">
-   <div class="cta card">
-    <div><h2>{{cta.title}}</h2><p>{{cta.body}}</p></div>
-    <div>
-     {{@form}}
-     <p class="join-note">{{form.note}}</p>
-    </div>
-   </div>
-  </div>
- </section>
+{{@main}}
 </main>
 
 <footer>
  <div class="wrap">
-  <a href="{{@home}}" class="home"><span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"/></svg></span>BackDown</a>
-  <span>{{footer.privacy}}</span>
-  <span>© 2026 BackDown</span>
+  <div class="foot-brand">
+   <a href="{{@home}}" class="home"><span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"/></svg></span>BackDown</a>
+   <p>{{@footer_privacy}}</p>
+  </div>
+  <nav class="foot-nav" aria-label="{{footer.label|attr}}">{{@footer_nav}}</nav>
+  <span class="foot-copy">© 2026 BackDown</span>
  </div>
 </footer>
 </body>

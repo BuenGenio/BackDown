@@ -1,0 +1,22 @@
+ <div class="wrap page-head">
+  <span class="eyebrow">{{policy.eyebrow}}</span>
+  <h1>{{policy.title}}</h1>
+  <p class="lede">{{policy.intro}}</p>
+ </div>
+
+ <section class="first">
+  <div class="wrap legal">
+   {{@operator}}
+   <h2>{{policy.waitlist_title}}</h2>
+   <p>{{policy.waitlist_body}}</p>
+   <h2>{{policy.analytics_title}}</h2>
+   <p>{{@analytics_policy}}</p>
+   {{@orders_policy}}
+   <h2>{{policy.hosting_title}}</h2>
+   <p>{{policy.hosting_body}}</p>
+   <h2>{{policy.rights_title}}</h2>
+   <p>{{policy.rights_body}}</p>
+   {{@contact}}
+   <p class="fine">{{policy.updated}} <time datetime="{{@policy_date}}">{{@policy_date_h}}</time></p>
+  </div>
+ </section>

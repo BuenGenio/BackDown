@@ -1,0 +1,63 @@
+ <div class="wrap page-head">
+  <span class="eyebrow">{{status.eyebrow}}</span>
+  <h1>{{status.title}}</h1>
+  <p class="lede">{{status.intro}}</p>
+ </div>
+
+ <section id="live" class="first">
+  <div class="wrap">
+   <div class="livebox card" data-api="/api/status" data-ago="{{status.checked|attr}}" data-states="{{@status_states}}">
+    <div class="live-head"><h2 class="h3">{{status.live_title}}</h2><span class="checked">{{status.live_static}} <time datetime="{{@status_updated}}">{{@status_updated_h}}</time></span></div>
+    <ul class="svc">
+     <li data-svc="site"><span class="sdot up"></span><span class="nm">{{status.svc_site}}</span><span class="st">{{status.st_up}}</span></li>
+     <li data-svc="downloads"><span class="sdot"></span><span class="nm">{{status.svc_downloads}}</span><span class="st">{{status.st_unknown}}</span></li>
+     <li data-svc="waitlist"><span class="sdot"></span><span class="nm">{{status.svc_waitlist}}</span><span class="st">{{status.st_unknown}}</span></li>
+     <li data-svc="checkout"><span class="sdot"></span><span class="nm">{{status.svc_checkout}}</span><span class="st">{{status.st_unknown}}</span></li>
+    </ul>
+    <p class="rel">{{status.latest}} <a data-rel href="{{@releases_url}}">{{@latest_version}}</a> · <time data-rel-date datetime="{{@latest_date}}">{{@latest_date_h}}</time></p>
+   </div>
+  </div>
+ </section>
+
+ <section id="now">
+  <div class="wrap">
+   <div class="head"><span class="eyebrow">{{status.now_eyebrow}}</span><h2>{{status.now_title}}</h2><p>{{status.now_intro}}</p></div>
+   <ul class="work card">
+{{@status_now}}
+   </ul>
+  </div>
+ </section>
+
+ <section id="plan">
+  <div class="wrap">
+   <div class="head"><span class="eyebrow">{{status.plan_eyebrow}}</span><h2>{{status.plan_title}}</h2><p>{{status.plan_intro}}</p></div>
+   <ol class="milestones">
+{{@status_milestones}}
+   </ol>
+  </div>
+ </section>
+
+ <section id="shipped">
+  <div class="wrap">
+   <div class="head"><span class="eyebrow">{{status.shipped_eyebrow}}</span><h2>{{status.shipped_title}}</h2></div>
+   <ol class="log">
+{{@status_shipped}}
+   </ol>
+   <p class="fine"><a href="{{@releases_url}}">{{download.all}}</a></p>
+  </div>
+ </section>
+
+ <section id="principles">
+  <div class="wrap">
+   <div class="head"><span class="eyebrow">{{status.principles_eyebrow}}</span><h2>{{status.principles_title}}</h2></div>
+   <ol class="principles">
+    <li class="card">{{status.principle1}}</li>
+    <li class="card">{{status.principle2}}</li>
+    <li class="card">{{status.principle3}}</li>
+    <li class="card">{{status.principle4}}</li>
+    <li class="card">{{status.principle5}}</li>
+   </ol>
+  </div>
+ </section>
+
+{{@join}}

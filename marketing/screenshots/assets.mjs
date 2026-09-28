@@ -1,6 +1,8 @@
 // Render the site's raster assets with the site's own CSS and fonts:
-//   public/og/<lang>.png          social cards (1200×630) from og/og.html + i18n/<lang>.json (hero.title, meta.og_description)
+//   public/og/<lang>.png          social cards (1200×630) from og/og.html + i18n/<lang>.json (hero.title, meta.og_description),
+//   public/og/<lang>-<page>.png   and one per sub-page (its headline and meta description)
 //   public/apple-touch-icon.png   180×180, public/icon-192.png, public/icon-512.png (full-bleed mark, maskable-safe)
+import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { extname, join, normalize } from 'node:path';
@@ -27,17 +29,30 @@ try {
 
   mkdirSync(join(PUBLIC, 'og'), { recursive: true });
   await page.setViewport({ width: 1200, height: 630, deviceScaleFactor: 1 });
+  // one card per page that has one (build.py --og-pages: page id -> the i18n key of its headline; the home page uses
+  // hero.title); the text under the headline is the page's meta description
+  const pages = JSON.parse(execFileSync('python3', [join(SITE, 'build.py'), '--og-pages'], { encoding: 'utf8' }));
   for (const file of readdirSync(join(SITE, 'i18n')).filter(f => f.endsWith('.json'))) {
     const lang = file.slice(0, -5), t = JSON.parse(readFileSync(join(SITE, 'i18n', file), 'utf8'));
-    await page.goto(`${base}/__og`, { waitUntil: 'networkidle0' });
-    await page.evaluate((lang, title, desc) => {
-      document.documentElement.lang = lang;
-      document.getElementById('t').innerHTML = title;
-      document.getElementById('d').textContent = desc;
-    }, lang, t['hero.title'], t['meta.og_description']);
-    await page.evaluate(() => document.fonts.ready);
-    await page.screenshot({ path: join(PUBLIC, 'og', `${lang}.png`) });
-    console.log(`public/og/${lang}.png`);
+    for (const [id, titleKey] of Object.entries(pages)) {
+      const title = titleKey ? t[titleKey] : t['hero.title'];
+      const desc = id === 'home' ? t['meta.og_description'] : t[`meta.${id}_description`];
+      await page.goto(`${base}/__og`, { waitUntil: 'networkidle0' });
+      await page.evaluate((lang, title, desc) => {
+        document.documentElement.lang = lang;
+        document.getElementById('t').innerHTML = title;
+        document.getElementById('d').textContent = desc;
+      }, lang, title, desc);
+      await page.evaluate(() => document.fonts.ready);
+      // sub-page headlines are longer than the home page's: shrink until the card holds headline and description
+      await page.evaluate(() => {
+        const og = document.querySelector('.og'), h1 = document.getElementById('t');
+        for (let size = 112; og.scrollHeight > og.clientHeight && size > 52; size -= 4) h1.style.fontSize = `${size - 4}px`;
+      });
+      const out = id === 'home' ? `${lang}.png` : `${lang}-${id}.png`;
+      await page.screenshot({ path: join(PUBLIC, 'og', out) });
+      console.log(`public/og/${out}`);
+    }
   }
 
   // the mark from favicon.svg on a full-bleed accent square; the lines stay inside the central 60% (maskable safe zone)

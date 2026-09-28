@@ -3,7 +3,13 @@
   X-Frame-Options: DENY
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=(), interest-cohort=()
-  Content-Security-Policy: default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'
+  Content-Security-Policy: default-src 'self'; img-src 'self' data: https://matomo.matumi.anthill.hk; style-src 'self' 'unsafe-inline'; script-src 'self' 'inline-speculation-rules' https://matomo.matumi.anthill.hk; font-src 'self'; connect-src 'self' https://matomo.matumi.anthill.hk; form-action 'self' https://checkout.stripe.com; frame-ancestors 'none'; base-uri 'self'
+
+/site.css
+  Cache-Control: public, max-age=31536000, immutable
+
+/site.js
+  Cache-Control: public, max-age=31536000, immutable
 
 /fonts/*
   Cache-Control: public, max-age=31536000, immutable
@@ -16,3 +22,15 @@
 
 /flags/*
   Cache-Control: public, max-age=604800
+
+/thanks/*
+  Referrer-Policy: no-referrer
+
+/:lang/thanks/*
+  Referrer-Policy: no-referrer
+
+/thanks/
+  Referrer-Policy: no-referrer
+
+/:lang/thanks/
+  Referrer-Policy: no-referrer

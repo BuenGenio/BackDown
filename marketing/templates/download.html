@@ -1,0 +1,49 @@
+ <div class="wrap page-head">
+  <span class="eyebrow">{{download.eyebrow}}</span>
+  <h1>{{download.title}}</h1>
+  <p class="lede">{{download.intro}}</p>
+ </div>
+
+ <section id="download" class="first">
+  <div class="wrap">
+   <div class="dls">
+{{@downloads}}
+   </div>
+   <p class="fine">{{download.note}} <a href="{{@releases_url}}">{{download.all}}</a></p>
+  </div>
+ </section>
+
+ <section id="start">
+  <div class="wrap">
+   <div class="head"><span class="eyebrow">{{start.eyebrow}}</span><h2>{{start.title}}</h2><p>{{start.intro}}</p></div>
+   <ol class="howto">
+    <li class="card"><h3>{{start.s1_title}}</h3><p>{{start.s1_body}}</p><pre><code>tar xzf backdown-*.tar.gz
+sudo mv backdown /usr/local/bin/</code></pre></li>
+    <li class="card"><h3>{{start.s2_title}}</h3><p>{{start.s2_body}}</p><pre><code>backdown index /media/old-drive /media/archive</code></pre></li>
+    <li class="card"><h3>{{start.s3_title}}</h3><p>{{start.s3_body}}</p><pre><code>backdown dupes --min-size 10M
+backdown check /media/old-drive</code></pre></li>
+    <li class="card"><h3>{{start.s4_title}}</h3><p>{{start.s4_body}}</p><pre><code>backdown serve</code></pre></li>
+    <li class="card"><h3>{{start.s5_title}}</h3><p>{{start.s5_body}}</p><pre><code>backdown service install
+backdown open</code></pre></li>
+   </ol>
+  </div>
+ </section>
+
+ <section id="verify">
+  <div class="wrap">
+   <div class="split">
+    <div><span class="eyebrow">{{verify.eyebrow}}</span><h2>{{verify.title}}</h2></div>
+    <div class="prose">
+     <p>{{verify.body}}</p>
+     <pre class="card"><code><span class="c"># Linux</span>
+sha256sum -c --ignore-missing SHA256SUMS.txt
+<span class="c"># macOS</span>
+shasum -a 256 -c --ignore-missing SHA256SUMS.txt
+<span class="c"># Windows (PowerShell)</span>
+Get-FileHash .\backdown-*.zip</code></pre>
+    </div>
+   </div>
+  </div>
+ </section>
+
+{{@join}}

@@ -1,12 +1,42 @@
 # backdown.io
 
-The landing page, in English (`/`), German (`/de/`), Polish (`/pl/`), Czech (`/cs/`), Slovak (`/sk/`) and Ukrainian (`/uk/`). A Cloudflare Worker serves `public/` as static assets; `src/worker.js` runs only for `/api/*` and stores early-access emails (with the page language) in the `WAITLIST` KV namespace. `www.backdown.io` is a separate Worker (`www-redirect/`) that 301s to the apex, so page views never invoke Worker code.
+The website, in English (`/`), Spanish (`/es/`), Brazilian Portuguese (`/pt-br/`), German (`/de/`), Polish (`/pl/`), Czech (`/cs/`), Slovak (`/sk/`) and Ukrainian (`/uk/`). Each language has the same pages: home, `features/`, `pricing/`, `download/`, `status/` and `privacy/`, plus `terms/` (English) and `thanks/` once pre-orders are switched on.
+
+A Cloudflare Worker serves `public/` as static assets. `src/` runs only for `/api/*` and an hourly cron:
+
+| | |
+|---|---|
+| `POST /api/waitlist` | early-access sign-ups → KV `WAITLIST` |
+| `GET /api/status` | the status page's live checks (website, downloads, sign-ups, pre-orders), refreshed hourly by the cron and cached in KV `SITE` |
+| `GET /api/preorder`, `POST /api/checkout`, `POST /api/stripe/webhook`, `GET /api/order` | Pro pre-orders: Stripe Checkout → signed licence key (KV `ORDERS`); see `src/store.js` |
+
+`www.backdown.io` is a separate Worker (`www-redirect/`) that 301s to the apex.
 
 ## Editing
 
-The pages are generated: edit `page.html` (markup), `i18n/<lang>.json` (strings) and `downloads.json` (download cards), then run `python3 build.py`. It fails if any language is missing a string or has one English doesn't, so every language must be updated together. It also writes `public/sitemap.xml`. Standard library only; the generated `public/**/index.html` files are committed so the site deploys without a build step.
+The pages are generated: edit `templates/` (markup: `base.html` is the shell, one file per page), `i18n/<lang>.json` (strings), `downloads.json` (download cards), `status.json` (the status page's work list, roadmap and changelog) and `site.json` (analytics, pre-orders, seller details), then run `python3 build.py`. It fails if any language is missing a string or has one English doesn't, so every language must be updated together; `status.json` entries fall back to English (marked `lang="en"`) so the roadmap can be updated first and translated after. It also writes `public/sitemap.xml` (every page × language, with hreflang alternates). Standard library only; the generated `public/**/index.html` files are committed so the site deploys without a build step.
 
-When real builds exist, set a platform in `downloads.json` to `"status": "available"` with its `version` and `files` (`label`, `url`, `sha256`); the card switches from "early access / coming in 1.0" to download buttons with checksums.
+`site.css` and `site.js` are served immutable with a `?v=<hash>` the build stamps into every page, so edit them, rebuild, deploy.
+
+Moving between pages fades: cross-document view transitions in Chrome, Edge and Safari (`@view-transition` in `site.css`), and a short fade-out in `site.js` elsewhere; the header stays put. Links are prefetched on hover (speculation rules).
+
+### Status page
+
+Update `status.json` when something ships (`now`, `milestones`, `shipped`; keep it public-safe: no real paths, hosts or drive names), rebuild, deploy. The "Right now" box is live: the page asks `/api/status` once on load and every 10 minutes while visible; the Worker rechecks hourly.
+
+### Analytics
+
+Matomo at `matomo.matumi.anthill.hk`, cookieless, skipped entirely for Do Not Track / Global Privacy Control. It's off until `site.json` → `analytics.site_id` is set to backdown.io's id in Matomo (Administration → Websites → Manage → Add a website); the footer and privacy page switch their wording with it. The thanks page reports its URL without `?session_id=`.
+
+### Pre-orders (Stripe)
+
+Off by default. To open them:
+
+1. `STRIPE_SECRET_KEY=sk_test_… node ../scripts/stripe-setup.mjs --price <US cents>` (test mode first). It checks the account and Stripe Tax, creates the product, the price (lookup key `backdown_pro_preorder`) and the webhook, and stores the Worker's secrets (`STRIPE_SECRET_KEY` or the restricted `--worker-key`, `STRIPE_WEBHOOK_SECRET`, `LICENSE_SIGNING_KEY` from `~/.config/backdown/license-signing-key.pem`).
+2. In `site.json`, set `preorder.enabled` and every `seller` field (the terms page names who customers buy from); have the terms (`templates/terms.html`) reviewed.
+3. `python3 build.py && npx wrangler deploy`, buy with card 4242 4242 4242 4242, check the key on the thanks page with `backdown license add`, then repeat step 1 with the live key.
+
+The pricing page shows the pre-order box only while `/api/preorder` reports an active Stripe price, so deactivating the price in Stripe closes pre-orders within the hour without a deploy. Licence keys are emailed only with an `EMAIL` binding (Cloudflare Email Service, see `wrangler.jsonc`); otherwise the thanks page shows the key and Stripe's receipt is the only email.
 
 ## Commands
 
@@ -15,12 +45,13 @@ Run from this directory unless noted:
 | | |
 |---|---|
 | Rebuild pages + sitemap | `python3 build.py` |
-| Preview locally | `npx wrangler dev` |
+| Preview locally | `npx wrangler dev` (put test secrets in `.dev.vars`, which git ignores) |
 | Deploy the site | `python3 build.py && npx wrangler deploy` |
 | Deploy the www redirect | `cd www-redirect && npx wrangler deploy` (only when it changes) |
 | Read sign-ups | `npx wrangler kv key list --binding WAITLIST --remote` |
+| Read orders | `npx wrangler kv key list --binding ORDERS --remote --prefix order:` |
 | Re-shoot the slideshow | `cd screenshots && npm install && npm run capture` |
-| Re-render OG cards + icons | `cd screenshots && npm run assets` |
+| Re-render OG cards + icons | `cd screenshots && npm run assets` (one card per page per language) |
 
 ## Screenshots (`screenshots/`)
 
@@ -28,10 +59,10 @@ The slideshow shows the real dashboard and report UI (`../bd-dash.py`, `../asset
 
 The app UI is English-only, so for other languages `capture.mjs` swaps the rendered text using `ui-i18n/<lang>.json` (exact phrases, plus regex patterns for generated lines) and reformats numbers for the locale. If the app's UI text changes, re-extract the visible strings and update every `ui-i18n` file.
 
-`assets.mjs` renders `public/og/<lang>.png` from `og/og.html` and the icons, using the site's own CSS and fonts.
+`assets.mjs` renders `public/og/<lang>.png` (home) and `public/og/<lang>-<page>.png` from `og/og.html`, shrinking long headlines to fit, plus the icons, using the site's own CSS and fonts.
 
 ## Fonts
 
-`bricolage-normal` / `instrument-*` are copies of `../assets/fonts/` (basic Latin only). The `*-latin-ext` subsets (for cs/sk/pl) come from the same families on Google Fonts; neither family has Cyrillic, so `inter-tight-cyrillic` / `inter-cyrillic` stand in for Ukrainian. `site.css` maps them all by `unicode-range`, so each page downloads only what its text needs. The tokens at the top of `site.css` mirror `../assets/shell.css`.
+`bricolage-normal` / `instrument-*` are copies of `../assets/fonts/` (basic Latin only). The `*-latin-ext` subsets (for cs/sk/pl/es/pt-br) come from the same families on Google Fonts; neither family has Cyrillic, so `inter-tight-cyrillic` / `inter-cyrillic` stand in for Ukrainian. `site.css` maps them all by `unicode-range`, so each page downloads only what its text needs. The tokens at the top of `site.css` mirror `../assets/shell.css`.
 
-Keep the feature status tags (`Works today` / `In development` / `Planned`) honest as the roadmap moves, in every language.
+Keep the feature status tags (`Works today` / `In development` / `Planned`) and `status.json` honest as the roadmap moves, in every language.

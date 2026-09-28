@@ -1,0 +1,20 @@
+ <section id="preorder" class="preorder-wrap" hidden>
+  <div class="wrap">
+   <div class="preorder card">
+    <div>
+     <span class="eyebrow">{{preorder.eyebrow}}</span>
+     <h2>{{preorder.title}}</h2>
+     <p>{{preorder.body}}</p>
+     <ul class="checks"><li>{{preorder.point1}}</li><li>{{preorder.point2}}</li><li>{{preorder.point3}}</li></ul>
+    </div>
+    <form class="checkout" action="/api/checkout" method="post" data-error="{{preorder.error|attr}}" data-busy="{{preorder.busy|attr}}">
+     <input type="hidden" name="lang" value="{{@page}}">
+     <div class="po-price"><span class="amt" data-price>…</span><span class="per">{{preorder.per}}</span></div>
+     <button class="btn btn-primary" type="submit">{{preorder.cta}}</button>
+     <p class="po-note">{{preorder.note}}</p>
+     <p class="po-note">{{preorder.terms}}</p>
+     <p class="join-msg" role="status" aria-live="polite"></p>
+    </form>
+   </div>
+  </div>
+ </section>
