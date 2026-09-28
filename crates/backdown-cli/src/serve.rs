@@ -866,6 +866,22 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
             }
         }
         "/api/search" => json!(browse::search(&db, &dir()?, param("q").unwrap_or(""), 300)?),
+        // ranked search by name (find.rs): under `dir`, or on every drive without it
+        "/api/find" => {
+            let within = param("dir")
+                .filter(|d| !d.is_empty())
+                .map(browse::path_of)
+                .transpose()?;
+            json!(backdown_core::find::find(
+                &db,
+                &backdown_core::find::Query {
+                    q: param("q").unwrap_or(""),
+                    within: within.as_deref(),
+                    earlier: param("earlier") == Some("1"),
+                    limit: num("limit", 200)? as usize,
+                }
+            )?)
+        }
         "/api/dupes" => {
             let min = fmt::parse_size(param("min").unwrap_or("1M"))?;
             json!(report::dupes(&db, min, 200)?)
@@ -896,6 +912,8 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
             param("quick").is_some(),
         )?,
         "/api/disk" => peek::disk(&file()?, param("path"))?,
+        // a SQL dump's schema and data sizes (sqldump.rs), a few seconds of reading at a time
+        "/api/sqldump" => crate::sqldump::schema(id()?, &file()?, param("more"))?,
         // this machine's disks and what's on them: the same read-only probe as `backdown volumes`
         // (sysfs and udev, diskutil, or PowerShell), with the volumes the index covers marked
         "/api/volumes" => {
@@ -1490,6 +1508,8 @@ fn ui_asset(name: &str) -> Option<(&'static [u8], &'static str)> {
         "viewers.js" => "text/javascript; charset=utf-8",
         "icons.js" => "text/javascript; charset=utf-8",
         "extras.js" => "text/javascript; charset=utf-8",
+        "sqldump.js" => "text/javascript; charset=utf-8",
+        "search.js" => "text/javascript; charset=utf-8",
         "favicon.svg" => "image/svg+xml",
         "vendor/pdf.min.mjs" => "text/javascript; charset=utf-8",
         "vendor/pdf.worker.min.mjs" => "text/javascript; charset=utf-8",

@@ -8,6 +8,7 @@
 pub mod apply;
 pub mod browse;
 pub mod db;
+pub mod find;
 pub mod fmt;
 pub mod hash;
 pub mod index;

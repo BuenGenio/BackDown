@@ -19,6 +19,7 @@ mod peek;
 mod rescuing;
 mod serve;
 mod service;
+mod sqldump;
 
 #[derive(Parser)]
 #[command(

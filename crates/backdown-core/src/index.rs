@@ -13,7 +13,7 @@ use anyhow::{Context, Result, bail};
 use rusqlite::{OptionalExtension, params};
 use walkdir::WalkDir;
 
-use crate::{Db, paths};
+use crate::{Db, find, paths};
 
 const BATCH: u64 = 20_000;
 const MAX_ERRORS_KEPT: usize = 20;
@@ -94,8 +94,8 @@ pub fn index(
     )?;
     let mut close = conn.prepare_cached("UPDATE files SET current = 0 WHERE id = ?1")?;
     let mut open = conn.prepare_cached(
-        "INSERT INTO files (root_id, path, dir, size, mtime, dev, ino, first_scan, last_scan, current)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, 1)",
+        "INSERT INTO files (root_id, path, dir, size, mtime, dev, ino, first_scan, last_scan, current, lname)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, 1, ?9)",
     )?;
     let mut dirs = DirWriter::new(db, root_id, scan)?;
 
@@ -126,6 +126,7 @@ pub fn index(
         if entry.file_type().is_dir() {
             stack.push(OpenDir {
                 path: paths::to_bytes(entry.path()),
+                lname: find::lname(entry.path()),
                 parent: (entry.depth() > 0).then(|| paths::to_bytes(parent_of(entry.path()))),
                 files: 0,
                 bytes: 0,
@@ -161,11 +162,17 @@ pub fn index(
             }
             Some((id, ..)) => {
                 close.execute(params![id])?;
-                open.execute(params![root_id, path, dir, size, mtime, dev, ino, scan])?;
+                let name = find::lname(entry.path());
+                open.execute(params![
+                    root_id, path, dir, size, mtime, dev, ino, scan, name
+                ])?;
                 st.changed += 1;
             }
             None => {
-                open.execute(params![root_id, path, dir, size, mtime, dev, ino, scan])?;
+                let name = find::lname(entry.path());
+                open.execute(params![
+                    root_id, path, dir, size, mtime, dev, ino, scan, name
+                ])?;
                 st.new += 1;
             }
         }
@@ -211,6 +218,7 @@ pub fn index(
 
 struct OpenDir {
     path: Vec<u8>,
+    lname: String,
     parent: Option<Vec<u8>>,
     files: u64,
     bytes: u64,
@@ -239,8 +247,8 @@ impl<'c> DirWriter<'c> {
             extend: c.prepare_cached("UPDATE dirs SET last_scan = ?2, root_id = ?3 WHERE id = ?1")?,
             close: c.prepare_cached("UPDATE dirs SET current = 0 WHERE id = ?1")?,
             open: c.prepare_cached(
-                "INSERT INTO dirs (root_id, path, parent, files, bytes, newest, first_scan, last_scan, current)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, 1)",
+                "INSERT INTO dirs (root_id, path, parent, files, bytes, newest, first_scan, last_scan, current, lname)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, 1, ?8)",
             )?,
         })
     }
@@ -270,7 +278,8 @@ impl<'c> DirWriter<'c> {
                     files,
                     bytes,
                     d.newest,
-                    self.scan
+                    self.scan,
+                    d.lname
                 ])?;
             }
         }

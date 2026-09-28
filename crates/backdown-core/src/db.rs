@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS files (
     error      TEXT,                  -- last read error; such files are never counted as verified
     first_scan INTEGER NOT NULL,
     last_scan  INTEGER NOT NULL,
-    current    INTEGER NOT NULL DEFAULT 1
+    current    INTEGER NOT NULL DEFAULT 1,
+    lname      TEXT                   -- its own name folded for search (find.rs); added after 0.2.0-alpha.4
 );
 CREATE TABLE IF NOT EXISTS dirs (
     id         INTEGER PRIMARY KEY,
@@ -53,7 +54,8 @@ CREATE TABLE IF NOT EXISTS dirs (
     newest     INTEGER NOT NULL,      -- newest file mtime below
     first_scan INTEGER NOT NULL,
     last_scan  INTEGER NOT NULL,
-    current    INTEGER NOT NULL DEFAULT 1
+    current    INTEGER NOT NULL DEFAULT 1,
+    lname      TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS dirs_current_path ON dirs(path) WHERE current = 1;
 CREATE INDEX IF NOT EXISTS dirs_parent ON dirs(parent, first_scan);
@@ -203,6 +205,9 @@ impl Db {
             migrate_v1(&conn)?;
         }
         conn.execute_batch(SCHEMA)?;
+        // names for search: added in place, without a schema bump, since older versions just
+        // leave them empty on rows they write (and the next open here fills those in)
+        crate::find::add_names(&conn)?;
         conn.execute_batch(&format!("PRAGMA user_version = {VERSION}"))?;
         Ok(Db { conn })
     }

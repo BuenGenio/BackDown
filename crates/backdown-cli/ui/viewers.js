@@ -2,6 +2,7 @@
 // endpoints; nothing here can write to a drive.
 import { api, bytes, when } from './app.js';
 import { kindOf, fileIcon, folderIcon } from './icons.js';
+import { isSqlDump, sqlDumpView } from './sqldump.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -85,6 +86,7 @@ async function render() {
     if (DECKS.has(x)) return await slidesView(e);
     if (x === 'eml') return await mailView(e);
     if (x === 'mbox' || x === 'mbx') return await mboxView(e);
+    if (isSqlDump(e.name) && await sqlDumpView(e, { live, text: () => text(e, 'sql'), preview: entryPreview, entryUrl })) return;
     if (ARCHIVES.has(x)) return await archiveView(e);
     if (DISKS.has(x) && await diskView(e)) return; // not a disk image after all: carry on
     if (!live(e)) return;

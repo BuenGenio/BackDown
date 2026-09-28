@@ -2,6 +2,7 @@
 import { fileIcon, folderIcon, driveIcon, kindOf } from './icons.js';
 import { openViewer, openDiff, openGit, previewInto } from './viewers.js';
 import { squarify, compareListings, menu, closeMenu, menuOpen, toast } from './extras.js';
+import { mountFind, find, foundHtml, setScope, setEarlier, more as findMore } from './search.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -77,7 +78,7 @@ async function go(dirKey, { push = true, select = null, scan = S.scan } = {}) {
   const root = S.roots.find(r => atob64(dirKey).startsWith(atob64(r.key)));
   if (!root) return;
   const rootChanged = S.root?.id !== root.id;
-  if (rootChanged) scan = null;
+  if (rootChanged && scan === S.scan) scan = null; // the old drive's scan; one asked for (a search hit's) stays
   let listing;
   try { listing = await api('ls', { dir: dirKey, scan: scan ?? '' }); } catch (e) { return toastError(e); }
   if (push && S.dir && (S.dir !== dirKey || S.mode !== 'browse')) { S.back.push({ dir: S.dir, scan: S.scan }); S.fwd = []; }
@@ -806,7 +807,7 @@ async function showCurrent() {
 // ---------- keyboard shortcuts help
 
 const HELP = [
-  ['Moving around', [[['Enter'], 'Open'], [['Alt+↑'], 'Parent folder'], [['Alt+←', 'Backspace'], 'Back'], [['Alt+→'], 'Forward'], [['Ctrl+L'], 'Type a location'], [['Ctrl+F'], 'Search this folder']]],
+  ['Moving around', [[['Enter'], 'Open'], [['Alt+↑'], 'Parent folder'], [['Alt+←', 'Backspace'], 'Back'], [['Alt+→'], 'Forward'], [['Ctrl+L'], 'Type a location'], [['Ctrl+F'], 'Search'], [['Ctrl+Shift+F'], 'Search every drive']]],
   ['Selecting', [[['Arrows'], 'Move'], [['Shift+Arrows'], 'Extend the selection'], [['Ctrl+A'], 'Select all'], [['Esc'], 'Clear the selection'], [['Drag'], 'Select an area'], [['Shift+F10', 'Menu'], 'Actions for the selection']]],
   ['Views', [[['Ctrl+1'], 'Grid'], [['Ctrl+2'], 'List'], [['Ctrl+3'], 'Photo gallery'], [['Ctrl+4'], 'Size map'], [['Ctrl+H'], 'Show hidden files'], [['Ctrl+I'], 'Details pane']]],
   ['Tabs', [[['Alt+N'], 'New tab'], [['Alt+W'], 'Close tab'], [['Alt+PgDn'], 'Next tab'], [['Alt+PgUp'], 'Previous tab'], [['Ctrl+Enter'], 'Open a folder in a new tab'], [['Middle-click'], 'Open a folder in a new tab']]],
@@ -845,19 +846,19 @@ function closeSearch(rerender = true) {
   $('#search-btn').setAttribute('aria-pressed', 'false');
   if (rerender && S.mode === 'search') { S.mode = 'browse'; renderAll(); }
 }
+// this folder or every drive, ranked (search.js, find.rs)
 async function runSearch(q) {
   if (!q.trim()) { S.mode = 'browse'; renderAll(); return; }
-  let hits;
-  try { hits = await api('search', { dir: S.dir, q }); } catch (e) { return toastError(e); }
+  let res;
+  try { res = await find(q, S.dir); } catch (e) { return toastError(e); }
+  if (!res || $('#searchbox').hidden || $('#q').value !== q) return; // a newer search, or none any more
+  const keep = S.mode === 'search' ? $('#view').scrollTop : 0;
   S.mode = 'search';
   renderPath(); $('#banner').hidden = true;
-  $('#view').innerHTML = hits.length ? `<table class="list"><thead><tr><th>Name</th><th>Folder</th><th class="n">Size</th><th>Modified</th></tr></thead><tbody>${hits.map(h => `
-    <tr data-hit-dir="${h.kind === 'dir' ? h.key : h.dir_key}" data-hit-sel="${h.kind === 'dir' ? '' : h.key}">
-      <td><div class="nmc">${h.kind === 'dir' ? folderIcon(20) : fileIcon(h.name, 20)}<span>${esc(h.name)}</span></div></td>
-      <td class="path" title="${esc(h.path)}">${esc(h.path.slice(0, h.path.length - h.name.length))}</td>
-      <td class="n">${bytes(h.size)}</td><td>${when(h.mtime)}</td></tr>`).join('')}</tbody></table>`
-    : `<div class="empty"><div><h2>No matches</h2><p>Nothing named like “${esc(q)}” in this folder.</p></div></div>`;
+  $('#view').innerHTML = foundHtml(res, q);
+  $('#view').scrollTop = keep;
 }
+const rerunSearch = () => { if (!$('#searchbox').hidden && $('#q').value.trim()) runSearch($('#q').value); };
 
 let dupesMin = '1M';
 async function showDupes() {
@@ -2031,8 +2032,11 @@ document.addEventListener('click', e => {
   if (t.closest('#banner-git')) return openGit(S.dir, S.listing.name);
   const th = t.closest('#view th[data-sort]');
   if (th) { const k = th.dataset.sort; S.sort = { key: k, asc: S.sort.key === k ? !S.sort.asc : k === 'name' }; return renderView(); }
+  if (t.closest('[data-find-more]')) { findMore(); return rerunSearch(); }
+  if (t.closest('[data-find-scope]')) { setScope('all'); return rerunSearch(); }
+  if (t.closest('[data-find-earlier]')) { setEarlier(true); return rerunSearch(); }
   const hit = t.closest('[data-hit-dir]');
-  if (hit) return go(hit.dataset.hitDir, { select: hit.dataset.hitSel || null, scan: null });
+  if (hit) return go(hit.dataset.hitDir, { select: hit.dataset.hitSel || null, scan: hit.dataset.hitScan ? +hit.dataset.hitScan : null });
   const item = t.closest('#view [data-key]');
   if (item) {
     if (e.detail >= 2 && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
@@ -2063,6 +2067,7 @@ $('#info-btn').onclick = () => { S.info = !S.info; localStorage.setItem('bd.info
 $('#search-btn').onclick = () => $('#searchbox').hidden ? openSearch() : closeSearch();
 $('#q').addEventListener('input', e => { clearTimeout(searchTimer); searchTimer = setTimeout(() => runSearch(e.target.value), 220); });
 $('#q').addEventListener('keydown', e => { if (e.key === 'Escape') { closeSearch(); $('#view').focus(); } });
+mountFind(rerunSearch);
 $('#dupes-btn').onclick = showDupes;
 $('#activity-btn').onclick = showActivity;
 $('#entities-btn').onclick = showEntities;
@@ -2076,6 +2081,7 @@ document.addEventListener('keydown', e => {
   if (!$('#viewer').hidden || menuOpen() || document.querySelector('.help-wrap')) return; // they have their own keys
   const typing = e.target.closest('input, textarea, select');
   const ctrl = e.ctrlKey || e.metaKey, k = e.key;
+  if (ctrl && e.shiftKey && (k === 'F' || k === 'f')) { e.preventDefault(); setScope('all'); openSearch(); return rerunSearch(); }
   if (ctrl && k === 'f') { e.preventDefault(); return openSearch(); }
   if (ctrl && k === 'i') { e.preventDefault(); return $('#info-btn').click(); }
   if (ctrl && !e.shiftKey && ['1', '2', '3', '4'].includes(k)) { e.preventDefault(); return setView(VIEWS[+k - 1]); }
