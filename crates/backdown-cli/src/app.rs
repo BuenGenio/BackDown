@@ -183,26 +183,13 @@ pub fn detach(c: &mut Command) {
     }
 }
 
-/// Start this user's daemon: the systemd user service if one is installed, else `backdown daemon`
-/// in the background. Returns the child to watch, if we started one ourselves.
+/// Start this user's daemon: the installed service if there is one (systemd user unit, launchd
+/// agent, scheduled task), else `backdown daemon` in the background. Returns the child to watch,
+/// if we started one ourselves.
 fn start_daemon() -> Result<Option<std::process::Child>> {
-    #[cfg(target_os = "linux")]
-    {
-        let unit = Command::new("systemctl")
-            .args(["--user", "cat", "backdown.service"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .is_ok_and(|s| s.success());
-        if unit
-            && Command::new("systemctl")
-                .args(["--user", "start", "backdown.service"])
-                .status()
-                .is_ok_and(|s| s.success())
-        {
-            eprintln!("started the BackDown service (systemctl --user)");
-            return Ok(None);
-        }
+    if crate::service::start_installed() {
+        eprintln!("started BackDown's background service");
+        return Ok(None);
     }
     let dir = locations::state_dir();
     locations::ensure_private_dir(&dir, false)

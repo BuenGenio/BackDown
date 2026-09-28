@@ -337,15 +337,19 @@ fn ps_quote(s: &str) -> String {
 
 /// PowerShell that makes a shortcut with WScript.Shell (minimised: the console of a console
 /// program then doesn't flash up).
-pub fn lnk_script(lnk: &Path, target: &Path, args: &str, icon: &Path) -> String {
-    let dir = target.parent().unwrap_or(Path::new("."));
+/// PowerShell that makes a shortcut with WScript.Shell. backdown.exe is a console program, so the
+/// shortcut runs it through `conhost.exe --headless` (as the scheduled task does): no console
+/// window flashes up. Minimised too, in case a Windows too old for --headless shows one.
+pub fn lnk_script(lnk: &Path, exe: &Path, args: &str, icon: &Path) -> String {
+    let dir = exe.parent().unwrap_or(Path::new("."));
+    let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
     format!(
         "$s = (New-Object -ComObject WScript.Shell).CreateShortcut({});\n\
          $s.TargetPath = {};\n$s.Arguments = {};\n$s.WorkingDirectory = {};\n\
          $s.IconLocation = {};\n$s.Description = {};\n$s.WindowStyle = 7;\n$s.Save()\n",
         ps_quote(&lnk.display().to_string()),
-        ps_quote(&target.display().to_string()),
-        ps_quote(args),
+        ps_quote(&format!(r"{root}\System32\conhost.exe")),
+        ps_quote(&format!("--headless \"{}\" {args}", exe.display())),
         ps_quote(&dir.display().to_string()),
         ps_quote(&format!("{},0", icon.display())),
         ps_quote("BackDown: see what's on your drives and what's duplicated"),
@@ -406,7 +410,8 @@ $size = [int]((Get-ChildItem -Path $dest -File | Measure-Object -Property Length
 Set-ItemProperty -Path $key -Name EstimatedSize -Value $size -Type DWord
 Write-Host "BackDown $version is installed in $dest."
 Write-Host 'Open it from the Start menu. In a new terminal, the backdown command works too.'
-if (-not $NoLaunch) {{ Start-Process -FilePath $exe -ArgumentList 'app' -WindowStyle Minimized }}
+# open it now, through a hidden console like the Start menu entry
+if (-not $NoLaunch) {{ Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\conhost.exe') -ArgumentList "--headless `"$exe`" app" }}
 "#
     )
 }
@@ -517,8 +522,10 @@ pub fn wxs(version: &str) -> Result<String> {
       </Directory>
       <Directory Id="ProgramMenuFolder">
         <Component Id="StartMenu" Guid="{MENU_COMPONENT}" Win64="yes">
-          <Shortcut Id="StartMenuShortcut" Name="BackDown" Description="{summary}" Target="[INSTALLDIR]backdown.exe"
-                    Arguments="app" WorkingDirectory="INSTALLDIR" Icon="BackDownIcon" Show="minimized"/>
+          <!-- through conhost's hidden console, like the scheduled task: no console window flashes up -->
+          <Shortcut Id="StartMenuShortcut" Name="BackDown" Description="{summary}" Target="[System64Folder]conhost.exe"
+                    Arguments="--headless &quot;[INSTALLDIR]backdown.exe&quot; app" WorkingDirectory="INSTALLDIR"
+                    Icon="BackDownIcon" Show="minimized"/>
           <RegistryValue Root="HKCU" Key="Software\BackDown" Name="startmenu" Type="integer" Value="1" KeyPath="yes"/>
         </Component>
       </Directory>
@@ -779,7 +786,8 @@ fn install(autostart: bool) -> Result<ExitCode> {
         }
         println!("added {} (open it from Launchpad or Finder)", app.display());
         if autostart {
-            println!("to keep BackDown running after login: backdown service install");
+            // the background service at login is the launchd agent `backdown service` makes
+            crate::service::install(false, true, false)?;
         }
         return Ok(ExitCode::SUCCESS);
     }
@@ -788,19 +796,11 @@ fn install(autostart: bool) -> Result<ExitCode> {
         locations::ensure_private_dir(&locations::state_dir(), false)?;
         write_file(&ico_path, &ico(), 0o644)?;
         let menu = windows_menu().join("BackDown.lnk");
-        let mut script = lnk_script(&menu, &exe, "app", &ico_path);
-        if autostart {
-            script += &lnk_script(
-                &windows_menu().join(r"Startup\BackDown.lnk"),
-                &exe,
-                "app --no-window",
-                &ico_path,
-            );
-        }
-        powershell(&script)?;
+        powershell(&lnk_script(&menu, &exe, "app", &ico_path))?;
         println!("added BackDown to the Start menu ({})", menu.display());
         if autostart {
-            println!("BackDown's background service now starts when you log in");
+            // the background service at logon is the scheduled task `backdown service` makes
+            crate::service::install(false, true, false)?;
         }
         return Ok(ExitCode::SUCCESS);
     }
@@ -882,6 +882,11 @@ fn uninstall() -> Result<ExitCode> {
             "Your index, settings and licence stay in {}.",
             locations::state_dir().display()
         );
+        if !cfg!(target_os = "linux") {
+            println!(
+                "BackDown's background service, if you installed it, stays: `backdown service uninstall` removes it."
+            );
+        }
     }
     Ok(ExitCode::SUCCESS)
 }
@@ -1030,7 +1035,11 @@ mod tests {
             lnk.contains(r"CreateShortcut('C:\Users\O''Brien\Start Menu\BackDown.lnk')"),
             "{lnk}"
         );
-        assert!(lnk.contains("$s.Arguments = 'app'") && lnk.contains("$s.WindowStyle = 7"));
+        assert!(
+            lnk.contains(r#"$s.Arguments = '--headless "C:\Users\O''Brien\Programs\BackDown\backdown.exe" app'"#),
+            "{lnk}"
+        );
+        assert!(lnk.contains(r"System32\conhost.exe'") && lnk.contains("$s.WindowStyle = 7"));
         assert!(crlf("a\nb\r\nc").windows(2).all(|w| w != b"\r\r"));
     }
 
@@ -1068,7 +1077,10 @@ mod tests {
                 Ok(quick_xml::events::Event::Start(_)) => depth += 1,
                 Ok(quick_xml::events::Event::End(_)) => depth -= 1,
                 Ok(quick_xml::events::Event::Comment(c)) => {
-                    assert!(!String::from_utf8_lossy(&c).contains("--"), "-- in a comment")
+                    assert!(
+                        !String::from_utf8_lossy(&c).contains("--"),
+                        "-- in a comment"
+                    )
                 }
                 Ok(quick_xml::events::Event::Eof) => break,
                 Ok(_) => {}
@@ -1091,7 +1103,7 @@ mod tests {
         assert!(w.contains(r#"InstallScope="perUser""#));
         assert!(w.contains(&format!(r#"UpgradeCode="{UPGRADE_CODE}""#)));
         assert!(w.contains(r#"Version="0.5.202""#));
-        assert!(w.contains(r#"Arguments="app""#));
+        assert!(w.contains(r#"Arguments="--headless &quot;[INSTALLDIR]backdown.exe&quot; app""#));
         assert!(w.contains("LocalAppDataFolder"));
         assert!(!w.contains("ProgramFilesFolder"));
         assert_eq!(

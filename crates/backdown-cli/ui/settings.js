@@ -178,7 +178,7 @@ function render() {
     ['hashing', 'Hashing', hashingSection()],
     ['junk', 'Junk rules', junkSection()],
     ['schema', 'Filing schema', schemaSection()],
-    SET.notify ? ['notify', 'Notifications', extSection('notify-settings', SET.notify)] : null,
+    SET.notify ? ['notify', 'Notifications', notifySection()] : null,
     ['data', 'Index and data', dataSection()],
     ['about', 'About', aboutSection()],
   ].filter(Boolean);
@@ -320,11 +320,25 @@ function extSection(path, data) {
   const obj = data.settings && typeof data.settings === 'object' ? data.settings : data;
   const label = k => data.labels?.[k] || k.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
   const help = k => data.help?.[k] ? `<small class="muted">${esc(data.help[k])}</small>` : '';
-  const fields = Object.entries(obj).filter(([k, v]) => !['labels', 'help', 'ok'].includes(k) && ['boolean', 'number', 'string'].includes(typeof v));
-  if (!fields.length) return '<p class="muted">Nothing to set here yet.</p>';
-  return `<div class="set-ext" data-ext="${esc(path)}">${fields.map(([k, v]) => typeof v === 'boolean'
+  const info = ['why', 'note', 'error'].map(k => typeof obj[k] === 'string' ? `<p class="muted">${esc(obj[k])}</p>` : '').join('');
+  const fields = Object.entries(obj).filter(([k, v]) => !['labels', 'help', 'ok', 'available', 'why', 'note', 'error'].includes(k) && ['boolean', 'number', 'string'].includes(typeof v));
+  if (!fields.length) return info || '<p class="muted">Nothing to set here yet.</p>';
+  return `${info}<div class="set-ext" data-ext="${esc(path)}">${fields.map(([k, v]) => typeof v === 'boolean'
     ? `<label class="chk set-chk"><input type="checkbox" data-ext-key="${esc(k)}"${v ? ' checked' : ''}> ${esc(label(k))}${help(k)}</label>`
     : `<label class="set-field"><span>${esc(label(k))}${help(k)}</span><input type="${typeof v === 'number' ? 'number' : 'text'}" data-ext-key="${esc(k)}" value="${esc(v)}"></label>`).join('')}</div>`;
+}
+
+// /api/notify-settings (health.rs): which news pops up on the desktop; Activity lists it all
+function notifySection() {
+  const n = SET.notify;
+  if (n.error) return failed(n);
+  const rows = [['desktop', 'Show notifications on the desktop'], ['health', 'When a drive’s health gets worse'],
+    ['drift', 'When a mirror no longer matches what it copies'], ['jobs', 'When a scheduled job fails']];
+  return `<p>Activity keeps a list of what happened; these choose what also pops up on your desktop.</p>
+    ${n.why ? `<p class="muted">${esc(n.why)}</p>` : ''}
+    <div class="set-ext" data-ext="notify-settings">${rows.filter(([k]) => typeof n[k] === 'boolean').map(([k, l]) =>
+      `<label class="chk set-chk"><input type="checkbox" data-ext-key="${k}"${n[k] ? ' checked' : ''}> ${esc(l)}</label>`).join('')}</div>
+    ${n.available ? '<div class="set-acts"><button class="btn" type="button" id="set-notify-test">Send a test notification</button></div>' : ''}`;
 }
 
 function dataSection() {
@@ -416,6 +430,9 @@ function wire() {
   $('#set-schema-reset')?.addEventListener('click', async () => {
     if (!confirm('Go back to the built-in filing schema? Your edited one is deleted.')) return;
     try { SET.sch = await post('schema', { reset: 1 }); toast('Back to the built-in schema'); render(); } catch (e) { toast(e.message); }
+  });
+  $('#set-notify-test')?.addEventListener('click', async () => {
+    try { await post('notify-test'); toast('Sent: it should be on your desktop now'); } catch (e) { toast(e.message); }
   });
   v.querySelectorAll('.set-ext').forEach(box => box.addEventListener('change', async e => {
     const inp = e.target.closest('[data-ext-key]');
