@@ -24,6 +24,7 @@ use anyhow::{Context, Result};
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
+use crate::plist::{self, Plist};
 use crate::{Db, browse, fmt, paths};
 
 /// A recognised thing: a folder (or, for disk images and dumps, a file) with what it is.
@@ -1531,14 +1532,31 @@ fn read_small(path: &Path, max: u64) -> Option<String> {
     Some(String::from_utf8_lossy(&bytes).into_owned())
 }
 
-/// A value from an XML property list (iOS backups' Info.plist): the text after `<key>k</key>`.
-fn plist_value(xml: &str, key: &str) -> Option<String> {
-    let at = xml.find(&format!("<key>{key}</key>"))? + key.len() + 11;
-    let rest = xml[at..].trim_start();
-    let open = rest.find('>')? + 1;
-    let close = rest[open..].find('<')?;
-    let v = rest[open..open + close].trim();
-    (!v.is_empty()).then(|| v.to_string())
+fn read_small_bytes(path: &Path, max: u64) -> Option<Vec<u8>> {
+    let meta = std::fs::metadata(path).ok()?;
+    if !meta.is_file() || meta.len() > max {
+        return None;
+    }
+    std::fs::read(path).ok()
+}
+
+/// When a dump was made, from its last lines: mysqldump and MariaDB end with
+/// "-- Dump completed on 2020-05-31 12:00:00", pg_dump (verbose) with "-- Completed on …".
+fn dump_date(f: &mut std::fs::File) -> Option<i64> {
+    use std::io::{Read, Seek, SeekFrom};
+    let len = f.metadata().ok()?.len();
+    f.seek(SeekFrom::Start(len.saturating_sub(4096))).ok()?;
+    let mut tail = Vec::new();
+    f.take(4096).read_to_end(&mut tail).ok()?;
+    let t = String::from_utf8_lossy(&tail);
+    t.lines().rev().find_map(|l| {
+        let rest = l
+            .split_once("Dump completed on ")
+            .or_else(|| l.split_once("Completed on "))?
+            .1
+            .trim();
+        plist::iso_date(&rest.replacen(' ', "T", 1))
+    })
 }
 
 fn provenance(
@@ -1550,28 +1568,82 @@ fn provenance(
 ) {
     match e.kind.as_str() {
         "ios-backup" => {
-            if let Some(x) = read_small(&path.join("Info.plist"), 2 << 20) {
-                if x.starts_with("bplist") {
-                    e.provenance.push(
-                        "Device details are in a binary property list (not read yet).".into(),
-                    );
-                } else {
-                    let device = plist_value(&x, "Device Name");
-                    let product =
-                        plist_value(&x, "Product Name").or_else(|| plist_value(&x, "Product Type"));
-                    let date = plist_value(&x, "Last Backup Date");
-                    if let Some(d) = &device {
-                        e.title = format!("backup of {d}");
-                        e.facts.push(("Device".into(), d.clone()));
-                    }
-                    if let Some(p) = product {
-                        e.facts.push(("Model".into(), p));
-                    }
-                    if let Some(d) = date {
-                        e.facts
-                            .push(("Last backup".into(), d.chars().take(10).collect()));
-                    }
-                }
+            // Info.plist (usually XML) and Manifest.plist (usually binary) say the same things
+            // in different words; either is enough
+            let read = |name: &str| {
+                read_small_bytes(&path.join(name), 8 << 20).and_then(|b| plist::parse(&b))
+            };
+            let info = read("Info.plist");
+            let manifest = read("Manifest.plist");
+            let pick = |a: Option<String>, b: Option<String>| a.or(b);
+            let device = pick(
+                info.as_ref().and_then(|p| p.text(&["Device Name"])),
+                manifest
+                    .as_ref()
+                    .and_then(|p| p.text(&["Lockdown", "DeviceName"])),
+            );
+            let model = pick(
+                info.as_ref().and_then(|p| p.text(&["Product Name"])),
+                pick(
+                    info.as_ref().and_then(|p| p.text(&["Product Type"])),
+                    manifest
+                        .as_ref()
+                        .and_then(|p| p.text(&["Lockdown", "ProductType"])),
+                ),
+            );
+            let version = pick(
+                info.as_ref().and_then(|p| p.text(&["Product Version"])),
+                manifest
+                    .as_ref()
+                    .and_then(|p| p.text(&["Lockdown", "ProductVersion"])),
+            );
+            let when = info
+                .as_ref()
+                .and_then(|p| p.date(&["Last Backup Date"]))
+                .or_else(|| manifest.as_ref().and_then(|p| p.date(&["Date"])));
+            if let Some(d) = &device {
+                e.title = format!("backup of {d}");
+                e.facts.push(("Device".into(), d.clone()));
+            }
+            if let Some(m) = &model {
+                e.facts.push(("Model".into(), m.clone()));
+            }
+            if let Some(v) = version {
+                e.facts.push(("iOS".into(), v));
+            }
+            if let Some(Plist::Bool(enc)) = manifest.as_ref().and_then(|p| p.get(&["IsEncrypted"]))
+            {
+                e.facts
+                    .push(("Encrypted".into(), if *enc { "yes" } else { "no" }.into()));
+            }
+            if let Some(t) = when {
+                e.facts.push(("Last backup".into(), fmt::day(t)));
+                e.provenance.push(format!(
+                    "Backed up from {}{} on {}.",
+                    device.as_deref().unwrap_or("an iPhone or iPad"),
+                    model.map(|m| format!(" ({m})")).unwrap_or_default(),
+                    fmt::day(t)
+                ));
+            }
+        }
+        "timemachine" => {
+            // the snapshot folders are named by date: the newest one is the last backup
+            let computers = e
+                .facts
+                .iter()
+                .find(|(k, _)| k == "Computers")
+                .map(|(_, v)| v.clone());
+            let last = e
+                .facts
+                .iter()
+                .find(|(k, _)| k == "Span")
+                .and_then(|(_, v)| v.rsplit(' ').next())
+                .and_then(plist::iso_date);
+            if let (Some(c), Some(t)) = (computers.filter(|c| !c.is_empty()), last) {
+                e.provenance.push(format!(
+                    "Backed up by Time Machine from {c}, last on {}.",
+                    fmt::day(t)
+                ));
             }
         }
         "system" => {
@@ -1715,7 +1787,10 @@ fn provenance(
                         e.title = format!("{dbn} ({})", engine.unwrap_or("SQL"));
                     }
                     if !host.is_empty() {
-                        e.provenance.push(format!("Dumped from {host}."));
+                        e.provenance.push(match dump_date(&mut f) {
+                            Some(t) => format!("Dumped from {host} on {}.", fmt::day(t)),
+                            None => format!("Dumped from {host}."),
+                        });
                     }
                 }
             }
@@ -1723,9 +1798,15 @@ fn provenance(
         _ => {}
     }
     // sync tools that leave a marker in the folder
+    // the newest file bounds when a copy last happened: copies keep the files' own dates, so the
+    // last one was then or later
+    let since = e
+        .newest
+        .map(|t| format!(", last on or after {}", fmt::day(t)))
+        .unwrap_or_default();
     for (dir, tool) in sync_markers {
         if paths::from_bytes(dir) == path {
-            e.provenance.push(format!("Kept in sync by {tool}."));
+            e.provenance.push(format!("Kept in sync by {tool}{since}."));
         }
     }
     // backup scripts on the same drive that copy something to (or from) a folder with this name
@@ -1752,7 +1833,7 @@ fn provenance(
                 .join(", ");
             let host = t.sources.iter().find_map(|s| remote_host(s));
             let s = format!(
-                "Copied from {from} with {} ({}).",
+                "Copied from {from} with {} ({}){since}.",
                 t.tool,
                 script.file_name().unwrap_or_default().to_string_lossy()
             );
@@ -2130,19 +2211,5 @@ mod tests {
         assert_eq!(t.len(), 1, "{t:?}");
         assert_eq!(t[0].tool, "robocopy");
         assert_eq!(t[0].dest, "E:\\Backup\\Documents");
-    }
-
-    #[test]
-    fn plist_values() {
-        let x = "<plist><dict><key>Device Name</key>\n\t<string>Alex’s iPhone</string><key>Last Backup Date</key><date>2016-05-01T10:00:00Z</date></dict></plist>";
-        assert_eq!(
-            plist_value(x, "Device Name").as_deref(),
-            Some("Alex’s iPhone")
-        );
-        assert_eq!(
-            plist_value(x, "Last Backup Date").as_deref(),
-            Some("2016-05-01T10:00:00Z")
-        );
-        assert_eq!(plist_value(x, "Product Type"), None);
     }
 }

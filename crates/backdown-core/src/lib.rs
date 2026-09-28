@@ -17,6 +17,7 @@ pub mod mirror;
 pub mod overlap;
 pub mod paths;
 pub mod plan;
+pub mod plist;
 pub mod recognise;
 pub mod report;
 pub mod rescue;

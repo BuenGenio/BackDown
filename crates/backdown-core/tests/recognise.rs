@@ -181,7 +181,8 @@ fn recognises_what_things_are() {
             .iter()
             .any(|p| p.contains("root@mail.example.org:/var/vmail/")
                 && p.contains("rsync")
-                && p.contains("backup-mail.sh")),
+                && p.contains("backup-mail.sh")
+                && p.contains("last on or after ")),
         "{:?}",
         store.provenance
     );
@@ -208,6 +209,13 @@ fn recognises_what_things_are() {
             .any(|(k, v)| k == "Span" && v == "2019-03-01 – 2020-06-30")
     );
     assert!(
+        tm.provenance.contains(
+            &"Backed up by Time Machine from Alexs-MacBook, last on 30 Jun 2020.".to_string()
+        ),
+        "{:?}",
+        tm.provenance
+    );
+    assert!(
         !es.iter()
             .any(|e| e.kind == "photos" && e.path.contains("Backups.backupdb")),
         "nothing inside a Time Machine set is listed separately"
@@ -218,7 +226,14 @@ fn recognises_what_things_are() {
     assert!(
         ios.facts
             .iter()
-            .any(|(k, v)| k == "Last backup" && v == "2021-02-03")
+            .any(|(k, v)| k == "Last backup" && v == "3 Feb 2021")
+    );
+    assert!(
+        ios.provenance
+            .iter()
+            .any(|p| p.starts_with("Backed up from Alex's iPhone") && p.ends_with("on 3 Feb 2021.")),
+        "{:?}",
+        ios.provenance
     );
 
     let sys = find(es, "system", "old-server-root");
