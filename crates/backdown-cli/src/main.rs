@@ -15,6 +15,7 @@ mod filing;
 mod insight;
 mod license;
 mod locations;
+mod mailbox;
 mod peek;
 mod rescuing;
 mod serve;
