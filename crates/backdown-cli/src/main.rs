@@ -207,6 +207,12 @@ enum Cmd {
         #[arg(long)]
         go: bool,
     },
+    /// Keep a folder (usually part of the archive) copied on another drive, and check the copy now
+    /// and then
+    Mirror {
+        #[command(subcommand)]
+        action: MirrorCmd,
+    },
     /// Your BackDown Pro licence: add a key, or show the one you have
     License {
         #[command(subcommand)]
@@ -236,6 +242,34 @@ Examples:
   backdown import-legacy ~/scripts/index --hashes ~/scripts/index/hashes.db --dry-run
   backdown import-legacy ~/scripts/index --hashes ~/scripts/index/hashes.db \\
       --map /media/olduser/Photos=/mnt/photos";
+
+#[derive(Subcommand)]
+enum MirrorCmd {
+    /// Start mirroring FOLDER into MIRROR (a folder on another drive)
+    Add {
+        folder: PathBuf,
+        mirror: PathBuf,
+        /// Re-read a sample of the mirror every this many days
+        #[arg(long, default_value_t = 30)]
+        verify_every: i64,
+    },
+    /// Mirrors, and how they were when last synced and verified
+    List,
+    /// Copy what's new or changed (old copies are kept aside; nothing is deleted)
+    Sync { id: Option<i64> },
+    /// Re-read files on the mirror and compare them with the source
+    Verify {
+        id: Option<i64>,
+        /// Share of the files to re-read (a different share each day)
+        #[arg(long, default_value_t = 5)]
+        percent: u8,
+        /// Re-read every file
+        #[arg(long)]
+        all: bool,
+    },
+    /// Stop keeping a mirror (the copies stay where they are)
+    Remove { id: i64 },
+}
 
 #[derive(Subcommand)]
 enum LicenseCmd {
@@ -351,6 +385,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 | Cmd::Report { .. }
                 | Cmd::Plan { .. }
                 | Cmd::Plans
+                | Cmd::Mirror { .. }
                 // a dry run only reads; a real one goes to the daemon, the index's one writer
                 | Cmd::Apply { go: false, .. }
         )
@@ -497,6 +532,25 @@ fn local(db_path: &Path, cmd: Cmd) -> Result<ExitCode> {
             );
         }
         Cmd::Plans => return filing::list_plans(&db),
+        Cmd::Mirror { action } => {
+            return match action {
+                MirrorCmd::Add {
+                    folder,
+                    mirror,
+                    verify_every,
+                } => filing::mirror_add(&db, &folder, &mirror, verify_every),
+                MirrorCmd::List => filing::mirror_list(&db),
+                MirrorCmd::Sync { id } => filing::mirror_sync(&db, id),
+                MirrorCmd::Verify { id, percent, all } => {
+                    filing::mirror_verify(&db, id, if all { 100 } else { percent })
+                }
+                MirrorCmd::Remove { id } => {
+                    backdown_core::mirror::remove(&db, id)?;
+                    println!("Mirror {id} removed; its copies stay where they are.");
+                    Ok(ExitCode::SUCCESS)
+                }
+            };
+        }
         Cmd::Apply { plan, go } => return filing::run_apply(&mut db, plan, go),
         Cmd::Serve { port, no_open } => {
             drop(db);
@@ -654,7 +708,8 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
         | Cmd::Overlaps { .. }
         | Cmd::Report { .. }
         | Cmd::Plan { .. }
-        | Cmd::Plans => {
+        | Cmd::Plans
+        | Cmd::Mirror { .. } => {
             unreachable!("handled in run")
         }
     }

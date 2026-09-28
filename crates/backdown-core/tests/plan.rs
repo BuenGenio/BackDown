@@ -258,3 +258,60 @@ fn walk(p: &Path) -> Vec<String> {
         .map(|e| e.path().display().to_string())
         .collect()
 }
+
+#[test]
+fn mirrors_copy_keep_old_versions_and_notice_rot() {
+    use backdown_core::mirror;
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("archive/Mail");
+    let dst = tmp.path().join("mirror-drive/Mail");
+    write(&src.join("a/1.eml"), &blob(1, 3000));
+    write(&src.join("b/2.eml"), &blob(2, 3000));
+    let db = Db::open(&tmp.path().join("i.db")).unwrap();
+    assert!(
+        mirror::add(&db, &src, &src.join("inside"), 30).is_err(),
+        "not inside itself"
+    );
+    let id = mirror::add(&db, &src, &dst, 30).unwrap();
+    assert_eq!(
+        mirror::due(&db).unwrap(),
+        Vec::<i64>::new(),
+        "the mirror drive isn't there yet"
+    );
+
+    let s = mirror::sync(&db, id, &mut |_, _| {}).unwrap();
+    assert_eq!((s.copied, s.updated, s.unchanged, s.failed), (2, 0, 0, 0));
+    assert_eq!(fs::read(dst.join("b/2.eml")).unwrap(), blob(2, 3000));
+    assert_eq!(mirror::due(&db).unwrap(), vec![id], "never verified: due");
+    let v = mirror::verify(&db, id, 100, &mut |_, _| {}).unwrap();
+    assert_eq!((v.checked, v.ok), (2, 2));
+    assert!(mirror::get(&db, id).unwrap().last_verify_ok.unwrap());
+    assert!(mirror::due(&db).unwrap().is_empty());
+
+    // a changed source file: the mirror's old copy is kept aside, never overwritten
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    write(&src.join("a/1.eml"), &blob(9, 3100));
+    fs::remove_file(src.join("b/2.eml")).unwrap();
+    let s = mirror::sync(&db, id, &mut |_, _| {}).unwrap();
+    assert_eq!((s.copied, s.updated, s.extra), (1, 1, 1), "{s:?}");
+    assert_eq!(fs::read(dst.join("a/1.eml")).unwrap(), blob(9, 3100));
+    let kept: Vec<_> = walkdir::WalkDir::new(dst.join(mirror::VERSIONS))
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_file())
+        .collect();
+    assert_eq!(kept.len(), 1);
+    assert_eq!(fs::read(kept[0].path()).unwrap(), blob(1, 3000));
+    assert!(
+        dst.join("b/2.eml").exists(),
+        "deleted from the source, kept on the mirror"
+    );
+
+    // bit rot on the mirror is noticed
+    let mut bad = blob(9, 3100);
+    bad[100] ^= 0xff;
+    fs::write(dst.join("a/1.eml"), &bad).unwrap();
+    let v = mirror::verify(&db, id, 100, &mut |_, _| {}).unwrap();
+    assert_eq!(v.differs, 1, "{v:?}");
+    assert!(!mirror::get(&db, id).unwrap().last_verify_ok.unwrap());
+}

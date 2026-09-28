@@ -36,6 +36,8 @@ Port the scripts into `crates/backdown-core` + `crates/backdown-cli`. Same on-di
 
 ## v0.3 — Recognisers + generated report (3 weeks, Nov 2026)
 
+**Status, 28 Sep 2026: built** on `cli/rust-v0.2`: `backdown entities` (mail stores, Time Machine, phones, systems, homes, websites, repositories, disk images, dumps, media libraries, exports, downloads piles, recovered files; junk; provenance from backup scripts, plists, hostnames, git remotes, ddrescue mapfiles, dump headers, sync markers), `backdown overlaps` (containment per drive, top folder and entity), `backdown report [--html]`; in the daemon (after every hash) and the browser (What's here, the report). Not yet: mdbox depth, binary plists, Thunderbird account names, the REPORT.md-parity dogfood on the real desk.
+
 - `backdown entities` — the recogniser set in `APP-PLAN.md` §6, with confidence and junk-subtree flags
 - Provenance readers: shell scripts with `rsync`/`scp`/`tar` lines, `.sync*` markers, Time Machine plists, iOS `Info.plist`, ddrescue logs
 - `backdown overlaps` — directory containment matrix by hash (falls back to name+size where unhashed)
@@ -45,6 +47,8 @@ Port the scripts into `crates/backdown-core` + `crates/backdown-cli`. Same on-di
 **Done when:** `backdown report` on this desk reproduces every finding in `REPORT.md` §1–§4 automatically.
 
 ## v0.4 — Planner + journaled executor (4 weeks, Dec 2026 – Jan 2027)
+
+**Status, 28 Sep 2026: built** on `cli/rust-v0.2`: `backdown plan` (type → origin → time schema, editable; explanations; already-archived skips; ≥90% twins copy only what's unique; low-value listed not copied), `backdown apply` (dry run, then journaled copies verified by reading back, resumable, never overwrites, never deletes; free-space check), `backdown mirror add|sync|verify` (old versions kept aside, extras reported, sampled re-reads on a schedule); in the daemon and the browser (Plan view; mirrors in Activity). Deleting and wiping stay manual, backed by `check`. Not yet: reflink/copy_file_range fast paths, the privileged helper, per-mailbox merging.
 
 - `backdown plan` — filing proposal (type → origin → time), schema editable as a small TOML, explanation per placement, merge rule for >90 % overlapping entities
 - `backdown apply --dry-run` then `apply` — journaled copy (reflink/`copy_file_range` where possible), verify by re-hash, `delete`/`wipe` gated on verified copies; pause/resume; per-op logs

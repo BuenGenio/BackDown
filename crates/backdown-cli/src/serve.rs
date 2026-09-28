@@ -505,6 +505,18 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
             }
             json!({ "roots": roots, "daemon": ctx.daemon.is_some() })
         }
+        "/api/mirrors" => json!(
+            backdown_core::mirror::list(&db)?
+                .into_iter()
+                .map(|m| {
+                    let here = std::path::Path::new(&m.source).is_dir()
+                        && std::path::Path::new(&m.target).is_dir();
+                    let mut v = json!(m);
+                    v["connected"] = json!(here);
+                    v
+                })
+                .collect::<Vec<_>>()
+        ),
         "/api/plans" => {
             let mut out = Vec::new();
             for (id, _, _, state) in apply::plans(&db)? {

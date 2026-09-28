@@ -96,6 +96,19 @@ CREATE TABLE IF NOT EXISTS journal (
     at      INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS journal_src ON journal(plan_id, src);
+-- standing mirrors (mirror.rs): keep a folder copied on another drive, verified now and then
+CREATE TABLE IF NOT EXISTS mirrors (
+    id                  INTEGER PRIMARY KEY,
+    source              TEXT NOT NULL,
+    target              TEXT NOT NULL,
+    created_at          INTEGER NOT NULL,
+    verify_every_days   INTEGER NOT NULL DEFAULT 30,
+    last_sync           INTEGER,
+    last_sync_summary   TEXT,
+    last_verify         INTEGER,
+    last_verify_summary TEXT,
+    last_verify_ok      INTEGER
+);
 ";
 const VERSION: i64 = 2;
 

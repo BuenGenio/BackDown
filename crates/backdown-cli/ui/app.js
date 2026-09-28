@@ -1077,7 +1077,8 @@ async function pollDaemon(fresh = false) {
 document.addEventListener('visibilitychange', () => { if (!document.hidden) pollDaemon(true); });
 
 const jobName = j => j.kind === 'index' ? `Scan ${rootName(j.path)}` : j.kind === 'entities' ? 'Recognise what’s on the drives'
-  : j.kind === 'apply' ? `Apply ${j.path || 'a plan'}` : 'Hash new and changed files';
+  : j.kind === 'apply' ? `Apply ${j.path || 'a plan'}` : j.kind === 'mirror-sync' ? `Sync ${j.path || 'a mirror'}`
+  : j.kind === 'mirror-verify' ? `Verify ${j.path || 'a mirror'}` : 'Hash new and changed files';
 const rootName = p => S.roots.find(r => r.path === p)?.name || (p || '').split(/[\\/]/).filter(Boolean).pop() || p;
 
 async function applyDaemon(d) {
@@ -1159,10 +1160,14 @@ const JOB_ICON = {
   hash: '<svg viewBox="0 0 24 24"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></svg>',
   entities: '<svg viewBox="0 0 24 24"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>',
   apply: '<svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>',
+  'mirror-sync': '<svg viewBox="0 0 24 24"><path d="M4 7h13l-3-3M20 17H7l3 3"/></svg>',
+  'mirror-verify': '<svg viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"/><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/></svg>',
 };
 
 let activityClock;
+const ACT = { mirrors: null };
 function showActivity() {
+  api('mirrors').then(m => { ACT.mirrors = m; if (S.mode === 'activity') renderActivity(); }).catch(() => {});
   S.mode = 'activity';
   closeSearch(false);
   renderTabs(); renderPlaces(); renderPath();
@@ -1222,6 +1227,11 @@ function renderActivity() {
     ${now_}
     <section><h3>Up next</h3>${queue}</section>
     <section><h3>Drives and schedule</h3>${drivesTable(d.drives, true)}</section>
+    ${ACT.mirrors?.length ? `<section><h3>Mirrors</h3><ol class="act-list">${ACT.mirrors.map(m => `
+      <li class="${m.last_verify_ok === false ? 'failed' : 'done'}"><span class="ji ${m.last_verify_ok === false ? 'failed' : 'done'}">${JOB_ICON['mirror-sync']}</span>
+        <span class="jn">${esc(rootName(m.source))} → ${esc(m.target)}<small>${esc(m.last_verify_summary || 'not verified yet')}</small></span>
+        <span class="pill ${m.connected ? 'ok' : 'off'}">${m.connected ? 'both drives here' : 'a drive isn’t connected'}</span>
+        <span class="muted">synced ${rel(m.last_sync)} · verified ${rel(m.last_verify)}</span></li>`).join('')}</ol></section>` : ''}
     <section><h3>Recent</h3>${recent}</section>
     <p class="act-foot muted">BackDown ${esc(d.version)} · running since ${rel(d.started_at)} · ${d.rescan_every_secs ? `rescans each drive every ${dur(d.rescan_every_secs)}` : 'rescans on request'} ·
       drives checked ${rel(d.checked_at)} · index <code>${esc(d.db)}</code></p>

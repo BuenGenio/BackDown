@@ -66,14 +66,14 @@ fn now() -> i64 {
         .map_or(0, |d| d.as_secs() as i64)
 }
 
-fn mtime(m: &fs::Metadata) -> i64 {
+pub(crate) fn mtime(m: &fs::Metadata) -> i64 {
     m.modified()
         .ok()
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
         .map_or(0, |d| d.as_secs() as i64)
 }
 
-fn hash_file(path: &Path) -> Result<[u8; 32]> {
+pub(crate) fn hash_file(path: &Path) -> Result<[u8; 32]> {
     let mut f = File::open(path)?;
     let mut h = Sha256::new();
     let mut buf = vec![0u8; BUF];
@@ -87,14 +87,14 @@ fn hash_file(path: &Path) -> Result<[u8; 32]> {
     Ok(h.finalize().into())
 }
 
-enum Outcome {
+pub(crate) enum Outcome {
     Copied([u8; 32]),
     AlreadyThere([u8; 32]),
     Conflict(String),
 }
 
 /// Copy one file with its hash, flush, keep its mtime, rename into place, and verify by reading back.
-fn copy_verified(src: &Path, dest: &Path, meta: &fs::Metadata) -> Result<Outcome> {
+pub(crate) fn copy_verified(src: &Path, dest: &Path, meta: &fs::Metadata) -> Result<Outcome> {
     if dest.exists() {
         let (a, b) = (
             hash_file(src).context("reading the source")?,
@@ -176,7 +176,7 @@ fn archive_hashes(db: &Db, target: &Path, plan_id: i64) -> Result<HashSet<Vec<u8
     Ok(set)
 }
 
-fn free_space(path: &Path) -> Option<u64> {
+pub(crate) fn free_space(path: &Path) -> Option<u64> {
     let mut p = path;
     while !p.exists() {
         p = p.parent()?;

@@ -217,3 +217,129 @@ pub fn run_apply(db: &mut Db, id: i64, go: bool) -> Result<ExitCode> {
         ExitCode::SUCCESS
     })
 }
+
+pub fn mirror_add(db: &Db, source: &Path, target: &Path, verify_every: i64) -> Result<ExitCode> {
+    let target = if target.is_absolute() {
+        target.to_path_buf()
+    } else {
+        std::env::current_dir()?.join(target)
+    };
+    let id = backdown_core::mirror::add(db, source, &target, verify_every)?;
+    println!("Mirror {id}: {} → {}", source.display(), target.display());
+    println!(
+        "Copy it now with `backdown mirror sync {id}`; the BackDown service syncs daily and re-reads a sample every {verify_every} days."
+    );
+    Ok(ExitCode::SUCCESS)
+}
+
+pub fn mirror_list(db: &Db) -> Result<ExitCode> {
+    let ms = backdown_core::mirror::list(db)?;
+    if ms.is_empty() {
+        println!("No mirrors: backdown mirror add <folder> <mirror folder>");
+    }
+    for m in ms {
+        println!("  {:>3}  {} → {}", m.id, m.source, m.target);
+        println!(
+            "       synced {}{}",
+            m.last_sync
+                .map(crate::utc)
+                .unwrap_or_else(|| "never".into()),
+            m.last_sync_summary
+                .map(|s| format!(": {s}"))
+                .unwrap_or_default()
+        );
+        println!(
+            "       verified {}{}{}",
+            m.last_verify
+                .map(crate::utc)
+                .unwrap_or_else(|| "never".into()),
+            m.last_verify_summary
+                .map(|s| format!(": {s}"))
+                .unwrap_or_default(),
+            match m.last_verify_ok {
+                Some(false) => "  ← needs attention",
+                _ => "",
+            }
+        );
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn mirror_ids(db: &Db, id: Option<i64>) -> Result<Vec<i64>> {
+    Ok(match id {
+        Some(i) => vec![i],
+        None => backdown_core::mirror::list(db)?
+            .into_iter()
+            .map(|m| m.id)
+            .collect(),
+    })
+}
+
+pub fn mirror_sync(db: &Db, id: Option<i64>) -> Result<ExitCode> {
+    let mut code = ExitCode::SUCCESS;
+    for id in mirror_ids(db, id)? {
+        let st = backdown_core::mirror::sync(db, id, &mut |n, b| {
+            live(&format!(
+                "mirror {id}: {} files, {}",
+                fmt::count(n),
+                fmt::bytes(b)
+            ))
+        })?;
+        clear();
+        done(&format!(
+            "mirror {id}: {} copied ({}), {} updated (old copies kept in {}), {} unchanged{}",
+            fmt::count(st.copied),
+            fmt::bytes(st.copied_bytes),
+            fmt::count(st.updated),
+            backdown_core::mirror::VERSIONS,
+            fmt::count(st.unchanged),
+            if st.extra > 0 {
+                format!(", {} only on the mirror (kept)", fmt::count(st.extra))
+            } else {
+                String::new()
+            }
+        ));
+        for p in &st.problems {
+            eprintln!("  {p}");
+        }
+        if st.failed > 0 {
+            code = ExitCode::from(2);
+        }
+    }
+    Ok(code)
+}
+
+pub fn mirror_verify(db: &Db, id: Option<i64>, percent: u8) -> Result<ExitCode> {
+    let mut code = ExitCode::SUCCESS;
+    for id in mirror_ids(db, id)? {
+        let st = backdown_core::mirror::verify(db, id, percent, &mut |n, b| {
+            live(&format!(
+                "mirror {id}: re-read {} files, {}",
+                fmt::count(n),
+                fmt::bytes(b)
+            ))
+        })?;
+        clear();
+        let bad = st.missing + st.differs + st.unreadable;
+        done(&format!(
+            "mirror {id}: re-read {} files ({}): {}",
+            fmt::count(st.checked),
+            fmt::bytes(st.checked_bytes),
+            if bad == 0 {
+                "all identical".into()
+            } else {
+                format!(
+                    "{} missing, {} different, {} unreadable",
+                    st.missing, st.differs, st.unreadable
+                )
+            }
+        ));
+        for p in &st.problems {
+            eprintln!("  {p}");
+        }
+        if bad > 0 {
+            code = ExitCode::from(2);
+        }
+    }
+    Ok(code)
+}

@@ -12,6 +12,7 @@ pub mod fmt;
 pub mod hash;
 pub mod index;
 pub mod legacy;
+pub mod mirror;
 pub mod overlap;
 pub mod paths;
 pub mod plan;

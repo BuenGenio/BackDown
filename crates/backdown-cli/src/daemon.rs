@@ -81,6 +81,8 @@ pub struct JobOpts {
     pub retry_errors: bool,
     /// apply: the plan to carry out
     pub plan: Option<i64>,
+    /// mirror-sync / mirror-verify: which mirror
+    pub mirror: Option<i64>,
 }
 
 #[derive(Default)]
@@ -443,6 +445,7 @@ fn worker(d: &Daemon) {
             "index" => run_index(d, &mut db, &job),
             "entities" => run_entities(d, &db, &job),
             "apply" => run_apply(d, &mut db, &job),
+            "mirror-sync" | "mirror-verify" => run_mirror(d, &db, &job),
             _ => run_hash(d, &mut db, &job),
         };
         let ok = result.is_ok();
@@ -537,6 +540,61 @@ fn run_apply(d: &Daemon, db: &mut Db, job: &Job) -> Result<String> {
         );
     }
     Ok(s)
+}
+
+/// Sync a mirror, or re-read a sample of it.
+fn run_mirror(d: &Daemon, db: &Db, job: &Job) -> Result<String> {
+    use backdown_core::mirror;
+    let id = job.opts.mirror.context("mirror job without a mirror")?;
+    let mut tick = |n: u64, b: u64| {
+        let counts = Counts {
+            stage: if job.kind == "mirror-sync" {
+                "copying"
+            } else {
+                "re-reading"
+            },
+            files: n,
+            bytes: b,
+            ..Counts::default()
+        };
+        d.progress(
+            job.id,
+            format!("{} files, {}", fmt::count(n), fmt::bytes(b)),
+            counts,
+        );
+    };
+    if job.kind == "mirror-sync" {
+        let st = mirror::sync(db, id, &mut tick)?;
+        Ok(format!(
+            "mirror {id}: {} copied ({}), {} updated, {} unchanged{}",
+            fmt::count(st.copied),
+            fmt::bytes(st.copied_bytes),
+            fmt::count(st.updated),
+            fmt::count(st.unchanged),
+            if st.failed > 0 {
+                format!(", {} failed", st.failed)
+            } else {
+                String::new()
+            }
+        ))
+    } else {
+        let st = mirror::verify(db, id, 5, &mut tick)?;
+        let bad = st.missing + st.differs + st.unreadable;
+        if bad > 0 {
+            bail!(
+                "mirror {id}: {} missing, {} different and {} unreadable of {} files re-read: the mirror drive needs attention",
+                st.missing,
+                st.differs,
+                st.unreadable,
+                st.checked
+            );
+        }
+        Ok(format!(
+            "mirror {id}: re-read {} files ({}), all identical",
+            fmt::count(st.checked),
+            fmt::bytes(st.checked_bytes)
+        ))
+    }
 }
 
 /// The indexed root that holds a plan's archive folder, if any.
@@ -747,6 +805,24 @@ fn check_roots(d: &Daemon, present: &mut HashMap<String, bool>) -> Result<()> {
         }
     }
     d.set_drives(drives);
+    for m in backdown_core::mirror::list(&db)? {
+        if !Path::new(&m.source).is_dir() || !Path::new(&m.target).is_dir() {
+            continue;
+        }
+        let label = Some(format!("mirror {}", m.id));
+        let opts = || JobOpts {
+            mirror: Some(m.id),
+            ..JobOpts::default()
+        };
+        if m.last_sync.is_none_or(|t| now - t >= 86_400) {
+            d.enqueue("mirror-sync", label.clone(), "scheduled", opts());
+        }
+        if m.last_verify
+            .is_none_or(|t| now - t >= m.verify_every_days * 86_400)
+        {
+            d.enqueue("mirror-verify", label, "scheduled", opts());
+        }
+    }
     Ok(())
 }
 
@@ -786,6 +862,7 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
                 jobs_per_device: req["jobs"].as_u64().unwrap_or(1) as usize,
                 retry_errors: req["retry_errors"].as_bool().unwrap_or(false),
                 plan,
+                mirror: None,
             };
             json!({ "ok": true, "job": d.enqueue(kind, path, "requested", opts) })
         }
