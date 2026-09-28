@@ -5,6 +5,10 @@
 //!    whole here, so their sample *is* their full hash.
 //! 3. full SHA-256, only for files whose size and sample still collide with another file.
 //!
+//! A file whose full hash is already known (imported from the legacy index, see `legacy`) is never
+//! read again: it isn't sampled, and a file of its size is fully hashed instead of being compared by
+//! sample.
+//!
 //! Hardlinks (same device + inode) are one file: they don't make a size "collide" and are read once.
 //! Readers are grouped per device and run one at a time on each by default, so a spinning disk is
 //! never made to seek between several files at once; `jobs_per_device` raises that for SSDs.
@@ -24,7 +28,8 @@ use sha2::{Digest, Sha256};
 use crate::{Db, paths};
 
 const CHUNK: u64 = 64 * 1024;
-const SMALL: u64 = 3 * CHUNK;
+/// Files up to this size are sampled whole: their sample is their full SHA-256.
+pub(crate) const SMALL: u64 = 3 * CHUNK;
 const READ_BUF: usize = 1 << 20;
 
 pub struct Options {
@@ -80,7 +85,7 @@ pub fn hash(db: &mut Db, opts: &Options, progress: &mut dyn FnMut(&Progress)) ->
         db,
         &format!(
             "SELECT id, path, size, dev, ino FROM files
-             WHERE current = 1 AND sample IS NULL AND error IS NULL AND size > 0
+             WHERE current = 1 AND sample IS NULL AND sha256 IS NULL AND error IS NULL AND size > 0
                AND size IN (SELECT size FROM files WHERE current = 1 AND size > 0 GROUP BY size HAVING COUNT(DISTINCT {IDENTITY}) > 1)"
         ),
     )?;
@@ -90,8 +95,11 @@ pub fn hash(db: &mut Db, opts: &Options, progress: &mut dyn FnMut(&Progress)) ->
         db,
         "SELECT id, path, size, dev, ino FROM files f
          WHERE current = 1 AND sha256 IS NULL AND error IS NULL AND sample IS NOT NULL
-           AND EXISTS (SELECT 1 FROM files g WHERE g.current = 1 AND g.size = f.size AND g.sample = f.sample AND g.id <> f.id
-                       AND NOT (f.ino IS NOT NULL AND g.dev = f.dev AND g.ino = f.ino))",
+           AND (EXISTS (SELECT 1 FROM files g WHERE g.current = 1 AND g.size = f.size AND g.sample = f.sample AND g.id <> f.id
+                        AND NOT (f.ino IS NOT NULL AND g.dev = f.dev AND g.ino = f.ino))
+                -- a same-size file known only by its full hash: no sample to compare with
+                OR EXISTS (SELECT 1 FROM files g WHERE g.current = 1 AND g.size = f.size AND g.sample IS NULL AND g.sha256 IS NOT NULL
+                           AND NOT (f.ino IS NOT NULL AND g.dev = f.dev AND g.ino = f.ino)))",
     )?;
     run(db, full_jobs, Stage::Full, opts, &mut stats, progress)?;
     Ok(stats)
