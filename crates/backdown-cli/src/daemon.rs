@@ -164,6 +164,7 @@ impl Daemon {
                     "after-scan" => " (after a scan)",
                     "after-apply" => " (after copying into it)",
                     "after-wipe" => " (after wiping)",
+                    "after-rescue" => " (what a rescue found)",
                     "scheduled" => " (scheduled)",
                     "returned" => " (the drive is back)",
                     _ => "",
@@ -821,6 +822,7 @@ fn run_rescue(d: &Daemon, db: &Db, job: &Job, stop: &AtomicBool) -> Result<Strin
     let out = match r.mode.as_str() {
         "image" => rescue_image(d, db, job, &r, stop),
         "parts" => rescue_parts(d, job, &r, stop),
+        "carve" => rescue_carve(d, db, job, &r, stop),
         m => Err(anyhow::anyhow!("{m} can't run yet")),
     };
     match out {
@@ -838,6 +840,95 @@ fn run_rescue(d: &Daemon, db: &Db, job: &Job, stop: &AtomicBool) -> Result<Strin
             Err(e)
         }
     }
+}
+
+/// Find files by their content and save them, sorted by kind; then index them so they open in the
+/// browser. Stopping and running it again carries on from where it got to.
+fn rescue_carve(
+    d: &Daemon,
+    db: &Db,
+    job: &Job,
+    r: &backdown_core::rescue::Rescue,
+    stop: &AtomicBool,
+) -> Result<(String, Value)> {
+    use backdown_core::rescue::{self, carve};
+    let src = PathBuf::from(&r.source);
+    let dest = PathBuf::from(
+        r.dest
+            .as_deref()
+            .context("found files with nowhere to go")?,
+    );
+    let kinds: Option<Vec<String>> = r.options["kinds"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect::<Vec<_>>()
+        })
+        .filter(|k| !k.is_empty() && !carve::GROUPS.iter().all(|g| k.iter().any(|x| x == g)));
+    let opts = carve::Options {
+        kinds,
+        start: r.options["start"].as_u64().unwrap_or(0),
+        end: r.options["end"].as_u64(),
+        ..carve::Options::default()
+    };
+    // what's been found so far, on the record now and then for whoever has the Rescue view open
+    let mut kept = Instant::now();
+    let st = carve::scan_and_save(
+        &src,
+        &opts,
+        &dest,
+        &mut |p| {
+            d.progress(
+                job.id,
+                format!(
+                    "{} of {} looked through · {} found ({})",
+                    fmt::bytes(p.done),
+                    fmt::bytes(p.size),
+                    fmt::count(p.found),
+                    fmt::bytes(p.found_bytes)
+                ),
+                Counts {
+                    stage: "looking",
+                    files: p.found,
+                    total_files: 0,
+                    bytes: p.done,
+                    total_bytes: p.size,
+                },
+            );
+            if kept.elapsed() >= Duration::from_secs(15) {
+                kept = Instant::now();
+                let so_far = json!({ "pos": p.pos, "found": p.found, "found_bytes": p.found_bytes, "by_group": p.by_group });
+                let _ = rescue::set(db, r.id, "running", None, Some(&so_far));
+            }
+        },
+        stop,
+    )?;
+    // where to carry on from: the end of what was looked through, on a sector
+    let pos = opts.start + st.scanned / opts.sector * opts.sector;
+    let result = json!({
+        "pos": pos, "found": st.found, "found_bytes": st.found_bytes, "by_group": st.by_group,
+        "incomplete": st.incomplete, "unreadable": st.unreadable, "problems": st.problems,
+    });
+    if st.found > 0 {
+        // the recovered files open in the browser once they're indexed: the drive they're on, if
+        // it's indexed, else the folder by itself
+        let target = root_holding(db, &dest).unwrap_or_else(|| dest.display().to_string());
+        d.enqueue("index", Some(target), "after-rescue", JobOpts::default());
+    }
+    let summary = format!(
+        "{}found {} file{} ({}){}",
+        if st.stopped { "stopped: " } else { "" },
+        fmt::count(st.found),
+        if st.found == 1 { "" } else { "s" },
+        fmt::bytes(st.found_bytes),
+        if st.incomplete > 0 {
+            format!(", {} of them cut off or damaged", fmt::count(st.incomplete))
+        } else {
+            String::new()
+        }
+    );
+    Ok((summary, result))
 }
 
 /// Look for file systems the partition table doesn't list (reads only).

@@ -37,6 +37,25 @@ pub enum RescueCmd {
         #[arg(long)]
         same_drive: bool,
     },
+    /// Find photos, videos, documents and more by what's inside them, whatever the file system
+    /// says (after files were deleted, or the drive was formatted), and save them sorted by kind
+    Find {
+        /// The drive, partition or card (e.g. /dev/sdc), or an image of one
+        source: PathBuf,
+        /// The folder to save what's found in, on another drive
+        #[arg(long)]
+        to: PathBuf,
+        /// Only these kinds: groups (photos, videos, audio, documents, archives, other) or
+        /// extensions (jpg, pdf, docx, …), comma-separated
+        #[arg(long, value_delimiter = ',')]
+        only: Vec<String>,
+        /// Where to start, in bytes (e.g. a lost partition's start from `rescue partitions`)
+        #[arg(long)]
+        start: Option<u64>,
+        /// Where to stop, in bytes
+        #[arg(long)]
+        end: Option<u64>,
+    },
     /// Look for file systems the partition table doesn't list (after a drive was re-initialised,
     /// repartitioned, or shows as empty). Only reads
     Partitions {
@@ -61,6 +80,13 @@ pub fn run(cmd: RescueCmd) -> Result<ExitCode> {
             same_drive,
         } => copy(&source, &image, retries, sector, same_drive),
         RescueCmd::Partitions { source, deep, json } => partitions(&source, deep, json),
+        RescueCmd::Find {
+            source,
+            to,
+            only,
+            start,
+            end,
+        } => find(&source, &to, only, start, end),
     }
 }
 
@@ -248,6 +274,95 @@ fn partitions(src: &Path, deep: bool, json: bool) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
+fn find(
+    src: &Path,
+    to: &Path,
+    only: Vec<String>,
+    start: Option<u64>,
+    end: Option<u64>,
+) -> Result<ExitCode> {
+    use rescue::carve;
+    readable(src, "find")?;
+    let to = absolute(to);
+    let opts = carve::Options {
+        kinds: (!only.is_empty()).then_some(only),
+        start: start.unwrap_or(0),
+        end,
+        ..carve::Options::default()
+    };
+    eprintln!(
+        "Looking through {} for files; what's found goes to {}, a folder per kind.",
+        src.display(),
+        to.display()
+    );
+    let stop = AtomicBool::new(false);
+    let r = carve::scan_and_save(
+        src,
+        &opts,
+        &to,
+        &mut |p| {
+            live(&format!(
+                "{} of {} looked through · {} found ({})",
+                fmt::bytes(p.done),
+                fmt::bytes(p.size),
+                fmt::count(p.found),
+                fmt::bytes(p.found_bytes)
+            ))
+        },
+        &stop,
+    );
+    give_back_tree(&to);
+    let st = r?;
+    clear();
+    let g = &st.by_group;
+    let parts: Vec<String> = [
+        (g.photos, "photos"),
+        (g.videos, "videos"),
+        (g.audio, "audio"),
+        (g.documents, "documents"),
+        (g.archives, "archives"),
+        (g.other, "other"),
+    ]
+    .iter()
+    .filter(|(n, _)| *n > 0)
+    .map(|(n, l)| format!("{} {l}", fmt::count(*n)))
+    .collect();
+    done(&format!(
+        "Found {} file{} ({}){}{}",
+        fmt::count(st.found),
+        if st.found == 1 { "" } else { "s" },
+        fmt::bytes(st.found_bytes),
+        if parts.is_empty() {
+            String::new()
+        } else {
+            format!(": {}", parts.join(", "))
+        },
+        if st.incomplete > 0 {
+            format!(
+                ". {} of them are cut off or damaged, and come back partly",
+                fmt::count(st.incomplete)
+            )
+        } else {
+            String::new()
+        }
+    ));
+    if st.found > 0 {
+        eprintln!(
+            "In {} (the list: {})",
+            to.display(),
+            to.join(carve::INDEX).display()
+        );
+    }
+    for p in st.problems.iter().take(10) {
+        eprintln!("  {p}");
+    }
+    Ok(if st.found > 0 {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(2)
+    })
+}
+
 /// Say plainly when the source can't be read, and what would let it be.
 fn readable(src: &Path, what: &str) -> Result<()> {
     let a = rescue::access(src);
@@ -274,6 +389,26 @@ fn absolute(p: &Path) -> PathBuf {
         p.to_path_buf()
     } else {
         std::env::current_dir().unwrap_or_default().join(p)
+    }
+}
+
+/// `give_back` for a folder and everything in it.
+fn give_back_tree(dir: &Path) {
+    if std::env::var_os("SUDO_UID").is_none() {
+        return;
+    }
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        give_back(&[&d]);
+        if let Ok(rd) = std::fs::read_dir(&d) {
+            for e in rd.flatten() {
+                match e.file_type() {
+                    Ok(t) if t.is_dir() => stack.push(e.path()),
+                    Ok(_) => give_back(&[&e.path()]),
+                    Err(_) => {}
+                }
+            }
+        }
     }
 }
 

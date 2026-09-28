@@ -1459,7 +1459,7 @@ function renderRescueGo() {
   const body = RS.what === 'image' ? `${dest}
       <label class="wp-chk"><input type="checkbox" id="rs-retries"${RS.retries ? ' checked' : ''}> Try unreadable areas once more at the end</label>
       <p class="note">The good areas are copied first, the bad ones skipped and come back to later. It can be stopped and resumed. A map beside the copy (<code>.map</code>, as GNU ddrescue writes it) records what’s been read.</p>`
-    : RS.what === 'carve' ? `<div class="rs-kinds">${RS_GROUPS.map(([k, l]) => `<label class="wp-chk"><input type="checkbox" data-rs-kind="${k}"${RS.kinds.has(k) ? ' checked' : ''}> ${l}</label>`).join('')}</div>${dest}
+    : RS.what === 'carve' ? `<div class="rs-kinds">${RS_GROUPS.map(([k, l]) => `<label class="wp-chk"><input type="checkbox" data-rs-group="${k}"${RS.kinds.has(k) ? ' checked' : ''}> ${l}</label>`).join('')}</div>${dest}
       <p class="note">Found files get names from where they were found, sorted into a folder per kind. Pieces of a file that was scattered around the drive can’t be put back together: those come back damaged, or not at all.</p>`
     : `<label class="wp-chk"><input type="radio" name="rs-deep" value="0"${RS.deep ? '' : ' checked'}> Quick: the usual places partitions start (seconds)</label>
       <label class="wp-chk"><input type="radio" name="rs-deep" value="1"${RS.deep ? ' checked' : ''}> Thorough: read the whole drive (as long as copying it)</label>`;
@@ -1489,7 +1489,7 @@ function onRescueChange(e) {
     if (RS.src.kind === 'file') { $('#rs-file').focus(); if (!RS.src.file) { RS.access = null; return renderRescueAccess(); } }
     return checkAccess();
   }
-  if (t.dataset.rsKind && t.type === 'checkbox') { t.checked ? RS.kinds.add(t.dataset.rsKind) : RS.kinds.delete(t.dataset.rsKind); return; }
+  if (t.dataset.rsGroup) { t.checked ? RS.kinds.add(t.dataset.rsGroup) : RS.kinds.delete(t.dataset.rsGroup); return; }
   if (t.name === 'rs-deep') RS.deep = t.value === '1';
   if (t.id === 'rs-retries') RS.retries = t.checked ? 1 : 0;
 }
@@ -1603,10 +1603,12 @@ function rescueCard(r, job) {
         <button class="btn sm${res.todo ? '' : ' primary'}" type="button" data-rs-next='${esc(JSON.stringify({ mode: 'carve', source: r.dest, dest: r.dest.replace(/\.img$/i, '') + ' files', kinds: 'photos,videos,documents,audio,archives' }))}'>Find files in the copy</button></div>`;
   }
   if (r.mode === 'carve' && res.by_group) {
-    const g = Object.entries(res.by_group).filter(([, v]) => v[0]);
-    body += `<p>${g.length ? g.map(([k, v]) => `<b>${count(v[0])}</b> ${esc((RS_GROUPS.find(x => x[0] === k)?.[1] || k).toLowerCase())} (${bytes(v[1])})`).join(' · ') : 'Nothing found yet.'}</p>`;
-    if (!job && r.dest && res.found) body += `<div class="rs-next"><button class="btn sm primary" type="button" data-rs-open="${esc(r.dest)}">Open the recovered files</button>
-      ${r.state === 'stopped' || state === 'interrupted' ? `<button class="btn sm" type="button" data-rs-next='${esc(JSON.stringify({ resume: r.id }))}'>Carry on from where it stopped</button>` : ''}</div>`;
+    const g = RS_GROUPS.filter(([k]) => res.by_group[k]);
+    body += `<p>${g.length ? `${g.map(([k, l]) => `<b>${count(res.by_group[k])}</b> ${esc(l.toLowerCase())}`).join(' · ')} · ${bytes(res.found_bytes || 0)}` : 'Nothing found yet.'}${res.incomplete ? ` <span class="muted">(${count(res.incomplete)} cut off or damaged: those come back partly)</span>` : ''}</p>`;
+    if (res.unreadable) body += `<p class="warn-t">${bytes(res.unreadable)} of the drive couldn’t be read: copying it first (“It’s failing”) gives those parts more tries.</p>`;
+    const halted = state === 'stopped' || state === 'interrupted';
+    if (!job && r.dest && (res.found || halted)) body += `<div class="rs-next">${res.found ? `<button class="btn sm primary" type="button" data-rs-open="${esc(r.dest)}">Open the recovered files</button>` : ''}
+      ${halted ? `<button class="btn sm" type="button" data-rs-next='${esc(JSON.stringify({ resume: r.id }))}'>Carry on from where it stopped</button>` : ''}</div>`;
   }
   if (r.mode === 'parts' && res.found) {
     const fs = res.found, lost = fs.filter(f => !f.in_table);
@@ -1770,7 +1772,7 @@ function eta(j, now) {
   if (p == null || p < 0.02 || took < 15) return '';
   return `about ${dur(took * (1 - p) / p)} left`;
 }
-const REASON = { requested: 'you asked', scheduled: 'scheduled', returned: 'drive came back', 'after-scan': 'after a scan', 'after-apply': 'after copying', 'after-wipe': 'after wiping' };
+const REASON = { requested: 'you asked', scheduled: 'scheduled', returned: 'drive came back', 'after-scan': 'after a scan', 'after-apply': 'after copying', 'after-wipe': 'after wiping', 'after-rescue': 'recovered files' };
 const JOB_ICON = {
   index: '<svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg>',
   hash: '<svg viewBox="0 0 24 24"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></svg>',

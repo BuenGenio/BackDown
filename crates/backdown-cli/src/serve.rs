@@ -652,6 +652,13 @@ fn start_rescue(ctx: &Ctx, params: &[(String, String)]) -> Result<Value> {
             }
             "carve" => {
                 let to = dest("what's found")?;
+                // an image file can't be overwritten by what's saved beside it; a drive can
+                if a.device && rescue::carve::same_device(&source, &to) {
+                    bail!(
+                        "{} is on the drive being rescued: saving there could overwrite the very files being looked for. Choose a folder on another drive",
+                        to.display()
+                    );
+                }
                 let kinds: Vec<&str> = param("kinds")
                     .unwrap_or("")
                     .split(',')
