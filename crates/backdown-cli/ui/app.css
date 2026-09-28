@@ -480,3 +480,6 @@ a.btn{color:inherit;text-decoration:none}
 .pl-src-path{font:12px var(--mono);color:var(--ink-2);text-align:left;padding:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
 .pl-dest code{font:12.5px var(--mono);background:var(--hover);padding:1px 6px;border-radius:5px}
 .pl-why{font-size:.82rem;color:var(--ink-3)}
+.vol-disk{margin-bottom:10px}.vol-head{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;margin:6px 2px}
+.act-drives td small.muted{display:block}
+.activity h3 .btn{margin-left:8px;vertical-align:middle;text-transform:none;letter-spacing:0}

@@ -221,6 +221,25 @@ fn handle(ctx: &Ctx, req: Request) {
         let _ = req.respond(resp);
         return;
     }
+    if *req.method() == Method::Post && path == "/api/index" {
+        // index a folder that isn't indexed yet (a newly plugged-in drive): reading only
+        let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
+        let resp = match (marked, &ctx.daemon, param("path")) {
+            (false, _, _) => plain(403, "missing X-BackDown header"),
+            (true, None, _) => json_resp(&json!({ "error": "indexing runs in the BackDown service: `backdown index PATH` in a terminal" })).with_status_code(409),
+            (true, Some(_), None) => json_resp(&json!({ "error": "missing path" })).with_status_code(400),
+            (true, Some(d), Some(p)) => {
+                let path = PathBuf::from(p);
+                if !path.is_absolute() || !path.is_dir() {
+                    json_resp(&json!({ "error": format!("{p} isn't a folder here") })).with_status_code(400)
+                } else {
+                    json_resp(&json!({ "ok": true, "job": d.enqueue("index", Some(path.display().to_string()), "requested", Default::default()) }))
+                }
+            }
+        };
+        let _ = req.respond(resp);
+        return;
+    }
     if *req.method() == Method::Post && path == "/api/recognise" {
         let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
         let resp = match (marked, &ctx.daemon) {

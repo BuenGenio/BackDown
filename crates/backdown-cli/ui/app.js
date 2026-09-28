@@ -1165,8 +1165,37 @@ const JOB_ICON = {
 };
 
 let activityClock;
-const ACT = { mirrors: null };
+const ACT = { mirrors: null, volumes: null, probing: false };
+function probeVolumes() {
+  ACT.probing = true;
+  api('volumes').then(v => { ACT.volumes = v; }).catch(e => { ACT.volumes = { error: e.message }; })
+    .finally(() => { ACT.probing = false; if (S.mode === 'activity') renderActivity(); });
+}
+// every disk and partition here (probed when Activity opens, or on "Look again"; never on a timer)
+function connectedDrives() {
+  const v = ACT.volumes;
+  const head = `<h3>Connected drives <button class="btn sm" type="button" id="vol-again"${ACT.probing ? ' disabled' : ''}>${ACT.probing ? 'Looking…' : 'Look again'}</button></h3>`;
+  if (!v) return `<section>${head}<p class="muted pad">Looking…</p></section>`;
+  if (v.error) return `<section>${head}<p class="muted pad">${esc(v.error)}</p></section>`;
+  const STATE = { system: ['off', 'system'], mounted: ['ok', 'mounted'], mountable: ['warn', 'not mounted'], encrypted: ['warn', 'encrypted'],
+    member: ['off', 'part of a volume group'], swap: ['off', 'swap'], empty: ['off', 'empty'], unknown: ['off', 'unknown'] };
+  const rows = vol => {
+    const [cls, label] = STATE[vol.state] || ['off', vol.state];
+    const mount = vol.mounts?.[0];
+    const idx = vol.indexed?.[0];
+    const act = idx ? `<span class="muted">indexed${idx.scanned_at ? ` · scanned ${rel(idx.scanned_at)}` : ''}</span>`
+      : vol.state === 'mounted' && mount && S.daemon ? `<button class="btn sm" type="button" data-index-path="${esc(mount.path)}">Index this</button>` : '';
+    return `<tr><td><b>${esc(vol.label || vol.name)}</b><small class="muted">${esc(vol.device)}${mount ? ` · ${esc(mount.path)}${mount.read_only ? ' (read-only)' : ''}` : ''}</small></td>
+      <td>${esc(vol.fs_name || vol.fs || '—')}</td><td class="n">${bytes(vol.size || 0)}</td><td><span class="pill ${cls}">${label}</span>${vol.note ? `<small class="muted">${esc(vol.note)}</small>` : ''}</td><td>${act}</td></tr>`
+      + (vol.holders || []).map(rows).join('');
+  };
+  return `<section>${head}${v.disks.map(dk => `<div class="vol-disk"><div class="vol-head"><b>${esc(dk.model || dk.name)}</b>
+      <span class="muted">${esc(dk.device)} · ${bytes(dk.size || 0)} · ${esc(dk.transport || '')}${dk.rotational ? ' · spinning disk' : dk.rotational === false ? ' · solid state' : ''}${dk.system ? ' · system disk' : ''}</span></div>
+      <table class="list act-drives"><tbody>${dk.volumes.map(rows).join('')}</tbody></table></div>`).join('')}
+    ${(v.notes || []).map(n => `<p class="muted pad">${esc(n)}</p>`).join('')}</section>`;
+}
 function showActivity() {
+  if (!ACT.volumes && !ACT.probing) probeVolumes();
   api('mirrors').then(m => { ACT.mirrors = m; if (S.mode === 'activity') renderActivity(); }).catch(() => {});
   S.mode = 'activity';
   closeSearch(false);
@@ -1227,6 +1256,7 @@ function renderActivity() {
     ${now_}
     <section><h3>Up next</h3>${queue}</section>
     <section><h3>Drives and schedule</h3>${drivesTable(d.drives, true)}</section>
+    ${connectedDrives()}
     ${ACT.mirrors?.length ? `<section><h3>Mirrors</h3><ol class="act-list">${ACT.mirrors.map(m => `
       <li class="${m.last_verify_ok === false ? 'failed' : 'done'}"><span class="ji ${m.last_verify_ok === false ? 'failed' : 'done'}">${JOB_ICON['mirror-sync']}</span>
         <span class="jn">${esc(rootName(m.source))} → ${esc(m.target)}<small>${esc(m.last_verify_summary || 'not verified yet')}</small></span>
@@ -1337,6 +1367,14 @@ document.addEventListener('click', e => {
     document.querySelectorAll('tr.sel[data-cmp]').forEach(x => x.classList.remove('sel')); cr.classList.add('sel');
     if (e.detail >= 2) compareOpen(cr.dataset.cmp);
     return;
+  }
+  if (t.closest('#vol-again')) return probeVolumes();
+  const ix = t.closest('[data-index-path]');
+  if (ix) {
+    ix.disabled = true;
+    return fetch(`/api/index?${new URLSearchParams({ path: ix.dataset.indexPath })}`, { method: 'POST', headers: { 'X-BackDown': '1' }, credentials: 'same-origin' })
+      .then(r => r.json().then(j => { if (!r.ok || j.error) throw new Error(j.error || r.statusText); toast('Indexing: it shows up in the sidebar when it’s done'); if (!polling) pollDaemon(true); }))
+      .catch(toastError);
   }
   const rs = t.closest('[data-rescan]');
   if (rs) { rs.classList.add('spin'); return rescan(rs.dataset.rescan); }
