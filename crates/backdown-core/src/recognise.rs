@@ -345,6 +345,9 @@ fn is_sql_dump(lower: &str) -> bool {
 struct Markers {
     /// parent folder -> lower-case names of marker folders directly in it
     dirs: HashMap<Vec<u8>, HashSet<String>>,
+    /// (parent folder, lower-case name) -> the folder's real name, where they differ: paths are
+    /// built from the real one ("System Volume Information", not "system volume information")
+    dir_case: HashMap<(Vec<u8>, String), String>,
     /// folder -> lower-case names of marker files directly in it
     files: HashMap<Vec<u8>, HashSet<String>>,
     /// folder -> [audio, video, image] files directly in it, and their bytes
@@ -403,13 +406,18 @@ fn collect(db: &Db, root_id: i64, progress: &mut dyn FnMut(&str)) -> Result<Mark
         let rows = stmt.query_map(params![root_id], |r| {
             Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, Vec<u8>>(1)?))
         })?;
+        // folder names added as junk in Settings are markers too
+        let extra = EXTRA_JUNK.read().unwrap_or_else(|e| e.into_inner()).clone();
         for row in rows {
             let (path, parent) = row?;
             let Some(name) = child_name(&parent, &path, &sep) else {
                 continue;
             };
             let lower = name.to_lowercase();
-            if dir_marker(&lower) {
+            if dir_marker(&lower) || extra.contains(&lower) {
+                if lower != name {
+                    m.dir_case.insert((parent.clone(), lower.clone()), name);
+                }
                 m.dirs.entry(parent).or_default().insert(lower);
             }
         }
@@ -1240,7 +1248,8 @@ fn junk_dirs(m: &Markers) -> Vec<(Vec<u8>, &'static str)> {
                 n if extra.iter().any(|x| x == n) => EXTRA_JUNK_WHY,
                 _ => continue,
             };
-            out.push((join(parent, n), why));
+            let real = m.dir_case.get(&(parent.clone(), n.clone())).unwrap_or(n);
+            out.push((join(parent, real), why));
         }
     }
     out

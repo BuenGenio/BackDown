@@ -495,7 +495,7 @@ pub fn wxs(version: &str) -> Result<String> {
      BackDown's own "desktop files" command; built by scripts/package-local.sh with wixl. -->
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   <Product Id="*" Name="BackDown" Language="1033" Version="{msi}" Manufacturer="backdown.io" UpgradeCode="{UPGRADE_CODE}">
-    <Package InstallerVersion="500" Compressed="yes" InstallScope="perUser" Platform="x64"
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perUser"
              Description="BackDown {version}" Comments="{summary}" Manufacturer="backdown.io"/>
     <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="A newer BackDown is installed already."/>
     <Media Id="1" Cabinet="backdown.cab" EmbedCab="yes"/>
@@ -525,7 +525,7 @@ pub fn wxs(version: &str) -> Result<String> {
           <!-- through conhost's hidden console, like the scheduled task: no console window flashes up -->
           <Shortcut Id="StartMenuShortcut" Name="BackDown" Description="{summary}" Target="[System64Folder]conhost.exe"
                     Arguments="--headless &quot;[INSTALLDIR]backdown.exe&quot; app" WorkingDirectory="INSTALLDIR"
-                    Icon="BackDownIcon" Show="minimized"/>
+                    Icon="BackDownIcon"/>
           <RegistryValue Root="HKCU" Key="Software\BackDown" Name="startmenu" Type="integer" Value="1" KeyPath="yes"/>
         </Component>
       </Directory>

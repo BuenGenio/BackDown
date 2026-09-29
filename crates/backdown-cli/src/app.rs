@@ -644,13 +644,27 @@ pub fn run(a: Args) -> Result<ExitCode> {
         .with_context(|| format!("can't start {} ({})", b.name, b.path.display()))?;
     // Windows has no pid in the profile lock: remember the one that holds the window
     std::thread::sleep(Duration::from_millis(1500));
-    if matches!(child.try_wait(), Ok(None)) {
-        let rec = serde_json::json!({ "pid": child.id(), "browser": b.path.display().to_string(), "profile": profile.display().to_string() });
-        let _ = crate::settings::write_private(
-            &locations::state_dir().join("app.json"),
-            rec.to_string().as_bytes(),
-            false,
-        );
+    match child.try_wait() {
+        Ok(None) => {
+            let rec = serde_json::json!({ "pid": child.id(), "browser": b.path.display().to_string(), "profile": profile.display().to_string() });
+            let _ = crate::settings::write_private(
+                &locations::state_dir().join("app.json"),
+                rec.to_string().as_bytes(),
+                false,
+            );
+        }
+        // it gave up straight away (no display, a broken install): the default browser, then
+        // (the code wasn't used, so it still opens the UI)
+        Ok(Some(status)) if !status.success() => {
+            eprintln!(
+                "{} stopped ({status}); opening your default browser instead",
+                b.name
+            );
+            crate::serve::open(&url);
+            return Ok(ExitCode::SUCCESS);
+        }
+        // handed to the browser already running with this profile
+        _ => {}
     }
     eprintln!("opened BackDown in {}", b.name);
     Ok(ExitCode::SUCCESS)

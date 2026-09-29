@@ -248,6 +248,39 @@ fn app_starts_a_daemon_when_none_runs() {
     assert!(!text(&again).contains("started"), "{}", text(&again));
 }
 
+#[test]
+fn a_browser_that_fails_at_once_falls_back_to_the_default_browser() {
+    let h = home();
+    // a Chrome with no display to open on
+    script(
+        &h.root.join("bin/google-chrome"),
+        "#!/bin/sh\necho 'cannot open display' >&2\nexit 1\n",
+    );
+    let o = h.run(&["app"]);
+    let out = text(&o);
+    assert!(o.status.success(), "{out}");
+    assert!(
+        out.contains("opening your default browser instead"),
+        "{out}"
+    );
+    let ui: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(h.data().join("ui.json")).unwrap()).unwrap();
+    let port = ui["port"].as_u64().unwrap() as u16;
+    std::fs::write(
+        h.root.join("daemon.pid"),
+        daemon_pid(port, ui["token"].as_str().unwrap()).to_string(),
+    )
+    .unwrap();
+    let opened = std::fs::read_to_string(h.root.join("browser.opened")).unwrap();
+    let path = opened
+        .trim()
+        .strip_prefix(&format!("http://127.0.0.1:{port}"))
+        .unwrap();
+    assert!(path.starts_with("/?c="), "{opened}");
+    // the code the failed browser never used still opens the UI
+    assert_eq!(get(port, path).0, 303);
+}
+
 fn get(port: u16, path: &str) -> (u16, String) {
     use std::io::{Read, Write};
     let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();

@@ -48,6 +48,16 @@ Quick start
      as a `backdown` user that can read every file but write none, sandboxed
      by systemd with no network beyond this machine.
 
+  6. Or use it as a desktop app, no terminal needed afterwards:
+
+       backdown desktop install        # applications menu, ~/Applications
+                                       # (macOS) or the Start menu (Windows)
+
+     It opens in a window of its own (in Chrome, Chromium, Edge or Brave when
+     one is installed, else your browser), starts the background service, and
+     shows the drives you can index. Settings (in the sidebar) has the rescan
+     interval, updates and your licence.
+
   On Windows use drive paths, e.g.  backdown index E:\ F:\Archive
 
 
@@ -66,6 +76,13 @@ Commands
   daemon          run in the background (usually via `service install`)
   service         install | uninstall | status the systemd service
   open            open the running daemon's browser
+  app             BackDown in a window of its own (starts the background
+                  service first if it isn't running)
+  desktop         install | uninstall: BackDown in your applications menu,
+                  ~/Applications (macOS) or the Start menu (Windows)
+  update          is there a newer BackDown? --check only asks; without it,
+                  it downloads, verifies against SHA256SUMS.txt and installs
+  license         add | show | features: your BackDown Pro licence
   status          what's in the index
 
   --db FILE       index database (default: ~/.local/share/backdown/index.db on
