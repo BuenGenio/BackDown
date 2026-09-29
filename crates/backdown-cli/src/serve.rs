@@ -1,6 +1,8 @@
 //! `backdown serve`: the file browser, a local web UI over the index.
 //!
-//! Security model: listen on 127.0.0.1 only; reject any Host header but our own (DNS rebinding);
+//! Security model: listen on 127.0.0.1 (and, with `--host`, on one more address, from which only
+//! GETs and queuing a rescan are allowed: over the network BackDown shows, it doesn't change
+//! anything); reject any Host header but our own (DNS rebinding);
 //! require a random per-run token, passed once in the URL and then kept in a SameSite=Strict cookie;
 //! serve file bytes only by index id, never by arbitrary path; never serve active content (HTML is
 //! sent as text, and every file response carries a CSP sandbox), and open SQLite files immutable.
@@ -82,55 +84,138 @@ pub fn new_token() -> Result<String> {
     Ok(fmt::hex(&raw))
 }
 
-pub fn bind(port: u16) -> Result<(Server, u16)> {
-    let server = Server::http(("127.0.0.1", port))
-        .map_err(|e| anyhow::anyhow!("can't listen on 127.0.0.1:{port}: {e}"))?;
+pub fn bind_on(host: &str, port: u16) -> Result<(Server, u16)> {
+    let server = Server::http((host, port))
+        .map_err(|e| anyhow::anyhow!("can't listen on {host}:{port}: {e}"))?;
     let port = server.server_addr().to_ip().map_or(port, |a| a.port());
     Ok((server, port))
+}
+
+/// The listeners for `--host`: 127.0.0.1 always (what `backdown app` and `open` talk to, and the
+/// only place changes can come from), plus the address given on the same port, unless it's this
+/// machine anyway or a wildcard (`0.0.0.0`, `::`) that takes in 127.0.0.1 too.
+pub fn bind_all(host: &str, port: u16) -> Result<(Vec<Server>, u16)> {
+    let wildcard = host
+        .trim_matches(['[', ']'])
+        .parse::<std::net::IpAddr>()
+        .is_ok_and(|ip| ip.is_unspecified());
+    if wildcard {
+        let (s, port) = bind_on(host, port)?;
+        return Ok((vec![s], port));
+    }
+    let (here, port) = bind_on("127.0.0.1", port)?;
+    let local = matches!(host, "127.0.0.1" | "localhost")
+        || host
+            .trim_matches(['[', ']'])
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(loopback);
+    if local {
+        return Ok((vec![here], port));
+    }
+    let (there, _) = bind_on(host, port)?;
+    Ok((vec![here, there], port))
+}
+
+/// What a browser on another machine may ask for besides looking (`--host`): queuing a rescan,
+/// which only reads the drives.
+const NETWORK_POSTS: &[&str] = &["/api/rescan"];
+
+const FROM_THE_NETWORK: &str = "Over the network, BackDown only shows what's there: freeing up drives, copying, rescuing, mounting, opening files and changing settings need someone at the computer BackDown runs on.";
+
+/// Whether a request from `peer` is one only someone at this machine may make.
+fn refused_from(peer: Option<std::net::IpAddr>, method: &Method, path: &str) -> bool {
+    *method != Method::Get && !NETWORK_POSTS.contains(&path) && !peer.is_some_and(loopback)
+}
+
+/// Whether a request came from this machine (IPv4, IPv6, or IPv4 mapped into IPv6).
+fn loopback(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V6(v6) => v6
+            .to_ipv4_mapped()
+            .map_or(v6.is_loopback(), |v4| v4.is_loopback()),
+        ip => ip.is_loopback(),
+    }
+}
+
+/// DNS-rebinding allowlist for a non-loopback bind: the address plus this machine's hostname
+/// (so a Tailscale MagicDNS name like `nextcloud:PORT` is accepted, not just the raw IP).
+pub fn extra_hosts(host: &str, port: u16) -> Vec<String> {
+    let mut v = vec![format!("{host}:{port}")];
+    if let Ok(hn) = std::fs::read_to_string("/etc/hostname") {
+        let hn = hn.trim();
+        if !hn.is_empty() {
+            v.push(format!("{hn}:{port}"));
+        }
+    }
+    v
 }
 
 /// Serve the UI until the process ends. With a daemon, the UI also shows its activity and can
 /// queue rescans.
 pub fn run(
-    server: Server,
+    servers: Vec<Server>,
     db: PathBuf,
     token: String,
     port: u16,
     daemon: Option<Arc<Daemon>>,
     desktop: bool,
+    extra_hosts: Vec<String>,
 ) {
+    let mut hosts = vec![
+        format!("127.0.0.1:{port}"),
+        format!("localhost:{port}"),
+        format!("[::1]:{port}"),
+    ];
+    hosts.extend(extra_hosts);
     let ctx = Arc::new(Ctx {
         db,
         token,
-        hosts: vec![
-            format!("127.0.0.1:{port}"),
-            format!("localhost:{port}"),
-            format!("[::1]:{port}"),
-        ],
+        hosts,
         daemon,
         desktop,
     });
-    for req in server.incoming_requests() {
+    let listen = |server: Server, ctx: Arc<Ctx>| {
+        for req in server.incoming_requests() {
+            let ctx = Arc::clone(&ctx);
+            std::thread::spawn(move || handle(&ctx, req));
+        }
+    };
+    let mut servers = servers.into_iter();
+    let first = servers.next().expect("a listener");
+    for other in servers {
         let ctx = Arc::clone(&ctx);
-        std::thread::spawn(move || handle(&ctx, req));
+        std::thread::spawn(move || listen(other, ctx));
     }
+    listen(first, ctx);
 }
 
 /// `backdown serve`: the UI alone, in the foreground, with a one-run link.
-pub fn serve(db: &Path, port: u16, open_browser: bool) -> Result<()> {
+pub fn serve(db: &Path, host: &str, port: u16, open_browser: bool) -> Result<()> {
     Db::open(db)?; // create/migrate once; requests then use read-only connections
     let db = dunce::canonicalize(db)?;
-    let (server, port) = bind(port)?;
+    let (servers, port) = bind_all(host, port)?;
     let token = new_token()?;
+    let extra = extra_hosts(host, port);
     let url = format!("http://127.0.0.1:{port}/?t={token}");
-    eprintln!(
-        "BackDown browser for {} at\n  {url}\n(only this link, only on this computer; Ctrl-C to stop)",
-        db.display()
-    );
+    eprintln!("BackDown browser for {} at\n  {url}", db.display());
+    if servers.len() > 1 || !matches!(host, "127.0.0.1" | "localhost") {
+        let there = if host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_unspecified())
+        {
+            "THIS-COMPUTER"
+        } else {
+            host
+        };
+        eprintln!(
+            "and from other devices, to look but not change anything, at\n  http://{there}:{port}/?t={token}"
+        );
+    }
+    eprintln!("(the link carries a one-time token; Ctrl-C to stop)");
     if open_browser {
         open(&url);
     }
-    run(server, db, token, port, None, true);
+    run(servers, db, token, port, None, true, extra);
     Ok(())
 }
 
@@ -220,6 +305,12 @@ fn handle(ctx: &Ctx, req: Request) {
             401,
             "This BackDown window has expired: open BackDown again from your applications (or run `backdown open`, or use the link `backdown serve` printed).",
         ));
+        return;
+    }
+    // over the network (`--host`), BackDown is for looking: what changes a drive, this machine or
+    // BackDown's settings needs someone at this machine
+    if refused_from(req.remote_addr().map(|a| a.ip()), req.method(), path) {
+        let _ = req.respond(json_resp(&json!({ "error": FROM_THE_NETWORK })).with_status_code(403));
         return;
     }
     // Pro features, as tiers.rs's table says: a 402 that explains what's needed
@@ -1917,5 +2008,69 @@ fn ui_asset(name: &str) -> Option<(&'static [u8], &'static str)> {
         "vendor/highlight.min.js" => "text/javascript; charset=utf-8",
         "vendor/hljs-light.css" => "text/css; charset=utf-8",
         "vendor/hljs-dark.css" => "text/css; charset=utf-8",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::IpAddr;
+
+    fn ip(s: &str) -> Option<IpAddr> {
+        Some(s.parse().unwrap())
+    }
+
+    #[test]
+    fn over_the_network_it_only_shows() {
+        // at this machine: anything
+        for here in ["127.0.0.1", "::1", "::ffff:127.0.0.1"] {
+            assert!(
+                !refused_from(ip(here), &Method::Post, "/api/wipe"),
+                "{here}"
+            );
+        }
+        // from elsewhere: looking, and queuing a rescan
+        for there in [
+            "100.101.102.103",
+            "192.168.1.20",
+            "fd7a:115c:a1e0::1",
+            "::ffff:10.0.0.2",
+        ] {
+            assert!(
+                !refused_from(ip(there), &Method::Get, "/api/files"),
+                "{there}"
+            );
+            assert!(
+                !refused_from(ip(there), &Method::Post, "/api/rescan"),
+                "{there}"
+            );
+            for path in [
+                "/api/wipe",
+                "/api/apply",
+                "/api/rescue",
+                "/api/mount",
+                "/api/open",
+                "/api/settings",
+                "/api/update-install",
+            ] {
+                assert!(
+                    refused_from(ip(there), &Method::Post, path),
+                    "{there} {path}"
+                );
+            }
+        }
+        // no peer address: not taken for this machine
+        assert!(refused_from(None, &Method::Post, "/api/wipe"));
+    }
+
+    #[test]
+    fn loopback_always_listens() {
+        let (s, port) = bind_all("127.0.0.1", 0).unwrap();
+        assert_eq!(s.len(), 1);
+        assert!(port > 0);
+        drop(s);
+        // a wildcard takes in 127.0.0.1 already: one listener
+        let (s, _) = bind_all("0.0.0.0", 0).unwrap();
+        assert_eq!(s.len(), 1);
     }
 }

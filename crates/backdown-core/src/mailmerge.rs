@@ -2030,7 +2030,10 @@ mod tests {
         let mac = folder_name(&["Entwu\u{308}rfe".to_string()]);
         let pc = folder_name(&["Entw\u{fc}rfe".to_string()]);
         assert_eq!(mac, pc);
-        assert_eq!(folder_name(&["Archive".into(), "2019".into()]), "Archive.2019");
+        assert_eq!(
+            folder_name(&["Archive".into(), "2019".into()]),
+            "Archive.2019"
+        );
         assert_eq!(folder_name(&["inbox".into()]), "INBOX");
     }
 

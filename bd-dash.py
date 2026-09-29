@@ -313,7 +313,9 @@ class H(BaseHTTPRequestHandler):
         self.end_headers(); self.wfile.write(body)
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(); ap.add_argument("--port", type=int, default=8787); a = ap.parse_args()
+    ap = argparse.ArgumentParser(); ap.add_argument("--port", type=int, default=8787)
+    ap.add_argument("--host", default="127.0.0.1", help="bind address (e.g. a Tailscale IP)")
+    a = ap.parse_args()
     disk_rates()  # prime the sampler
-    print(f"BackDown dashboard → http://localhost:{a.port}")
-    ThreadingHTTPServer(("127.0.0.1", a.port), H).serve_forever()
+    print(f"BackDown dashboard → http://{a.host}:{a.port}")
+    ThreadingHTTPServer((a.host, a.port), H).serve_forever()

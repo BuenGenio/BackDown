@@ -29,6 +29,7 @@ pub struct Options {
     pub state_dir: PathBuf,
     pub runtime_dir: PathBuf,
     pub port: u16,
+    pub host: String,
     pub rescan_every: Option<Duration>,
     /// system-wide service: files and the socket are shared with the `backdown` group
     pub shared: bool,
@@ -489,14 +490,14 @@ pub fn run(opts: Options) -> Result<()> {
     let ui_file = opts.state_dir.join(locations::UI_FILE);
     let token = existing_token(&ui_file).map_or_else(serve::new_token, Ok)?;
     // after an update on Windows the old daemon may still hold the port for a moment
-    let (server, port) = {
+    let (servers, port) = {
         let mut tries = if std::env::var_os("BACKDOWN_BIND_WAIT").is_some() {
             40
         } else {
             1
         };
         loop {
-            match serve::bind(opts.port) {
+            match serve::bind_all(&opts.host, opts.port) {
                 Ok(x) => break x,
                 Err(_) if tries > 1 => {
                     tries -= 1;
@@ -509,15 +510,16 @@ pub fn run(opts: Options) -> Result<()> {
     write_private(
         &ui_file,
         &serde_json::to_vec_pretty(
-            &json!({ "port": port, "token": token, "url": format!("http://127.0.0.1:{port}/") }),
+            &json!({ "port": port, "token": token, "url": format!("http://{}:{port}/", opts.host) }),
         )?,
         opts.shared,
     )?;
 
     eprintln!(
-        "backdown {} daemon: index {}, web UI on 127.0.0.1:{port} (`backdown open`)",
+        "backdown {} daemon: index {}, web UI on {}:{port} (`backdown open`)",
         env!("CARGO_PKG_VERSION"),
-        db.display()
+        db.display(),
+        opts.host
     );
     {
         let d = Arc::clone(&d);
@@ -552,7 +554,15 @@ pub fn run(opts: Options) -> Result<()> {
     }
     crate::update::spawn_checker(opts.shared);
     notify::send("READY=1\nSTATUS=idle");
-    serve::run(server, db, token, port, Some(d), !opts.shared);
+    serve::run(
+        servers,
+        db,
+        token,
+        port,
+        Some(d),
+        !opts.shared,
+        serve::extra_hosts(&opts.host, port),
+    );
     Ok(())
 }
 

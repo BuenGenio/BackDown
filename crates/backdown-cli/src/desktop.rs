@@ -603,7 +603,7 @@ pub fn package_files(platform: &str, exe: Option<&str>, version: &str) -> Result
                 // for everyone
                 pf(
                     "usr/lib/systemd/user/backdown.service",
-                    crate::service::user_unit(Path::new(exe)),
+                    crate::service::user_unit(Path::new(exe), ""),
                     0o644,
                 ),
             ];
@@ -787,7 +787,7 @@ fn install(autostart: bool) -> Result<ExitCode> {
         println!("added {} (open it from Launchpad or Finder)", app.display());
         if autostart {
             // the background service at login is the launchd agent `backdown service` makes
-            crate::service::install(false, true, false)?;
+            crate::service::install(false, "127.0.0.1", 8787, true, false)?;
         }
         return Ok(ExitCode::SUCCESS);
     }
@@ -800,7 +800,7 @@ fn install(autostart: bool) -> Result<ExitCode> {
         println!("added BackDown to the Start menu ({})", menu.display());
         if autostart {
             // the background service at logon is the scheduled task `backdown service` makes
-            crate::service::install(false, true, false)?;
+            crate::service::install(false, "127.0.0.1", 8787, true, false)?;
         }
         return Ok(ExitCode::SUCCESS);
     }
