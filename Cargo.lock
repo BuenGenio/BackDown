@@ -103,6 +103,7 @@ dependencies = [
  "ruzstd",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "similar",
  "tar",
  "tempfile",

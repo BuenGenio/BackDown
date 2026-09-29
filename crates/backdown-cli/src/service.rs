@@ -127,7 +127,29 @@ fn user_unit_path() -> PathBuf {
 const SYSTEM_UNIT_PATH: &str = "/etc/systemd/system/backdown.service";
 
 fn exe() -> Result<PathBuf> {
-    Ok(dunce::canonicalize(std::env::current_exe()?)?)
+    // (inside an AppImage, the AppImage itself: its mount point goes away)
+    crate::app::self_exe()
+}
+
+/// Start this user's installed service now, if there is one (a systemd user unit, the launchd
+/// agent, or the scheduled task): what `backdown app` tries before starting a daemon itself.
+pub fn start_installed() -> bool {
+    if cfg!(target_os = "macos") {
+        return launchd::start_installed();
+    }
+    if cfg!(windows) {
+        return task::start_installed();
+    }
+    let quiet = |args: &[&str]| {
+        Command::new("systemctl")
+            .arg("--user")
+            .args(args)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+    };
+    quiet(&["cat", NAME]) && quiet(&["start", NAME])
 }
 
 fn systemctl(system: bool, args: &[&str]) -> Result<std::process::Output> {
