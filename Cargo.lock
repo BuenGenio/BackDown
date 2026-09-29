@@ -117,6 +117,7 @@ dependencies = [
  "base64 0.23.1",
  "dunce",
  "fs4",
+ "libc",
  "quick-xml",
  "rusqlite",
  "serde",
@@ -124,6 +125,7 @@ dependencies = [
  "sha2 0.11.0",
  "tempfile",
  "walkdir",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

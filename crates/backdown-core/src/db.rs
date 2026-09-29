@@ -233,6 +233,7 @@ impl Db {
         // names for search: added in place, without a schema bump, since older versions just
         // leave them empty on rows they write (and the next open here fills those in)
         crate::find::add_names(&conn)?;
+        crate::index::add_columns(&conn)?;
         conn.execute_batch(&format!("PRAGMA user_version = {VERSION}"))?;
         Ok(Db { conn })
     }

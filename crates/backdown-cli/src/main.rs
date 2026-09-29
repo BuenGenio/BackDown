@@ -54,6 +54,11 @@ enum Cmd {
         /// mount point usually means the drive is unplugged)
         #[arg(long)]
         allow_empty: bool,
+        /// How to find what's there: auto (the drive's change log if it's intact, else NTFS's
+        /// file table where the device can be read, else a walk; and a walk every so often),
+        /// walk (every folder), journal or table (that way or fail, saying why)
+        #[arg(long, default_value = "auto", value_parser = ["auto", "walk", "journal", "table"])]
+        method: String,
     },
     /// Hash only what could be a duplicate: size, then a sample, then full SHA-256
     Hash {
@@ -481,13 +486,15 @@ fn local(db_path: &Path, cmd: Cmd) -> Result<ExitCode> {
             paths,
             cross_filesystems,
             allow_empty,
+            method,
         } => {
+            let method: index::Method = method.parse()?;
             for path in paths {
                 let opts = index::Options {
                     one_file_system: !cross_filesystems,
                     allow_empty,
                 };
-                let st = index::index(&mut db, &path, &opts, &mut |s| {
+                let st = index::scan(&mut db, &path, &opts, method, &mut |s| {
                     live(&format!(
                         "indexing {}: {} files, {}",
                         s.root.display(),
@@ -496,14 +503,15 @@ fn local(db_path: &Path, cmd: Cmd) -> Result<ExitCode> {
                     ))
                 })?;
                 done(&format!(
-                    "{}: {} files, {} (new {}, changed {}, gone {}) · scan {}",
+                    "{}: {} files, {} (new {}, changed {}, gone {}) · scan {}\n  {}",
                     st.root.display(),
                     fmt::count(st.files),
                     fmt::bytes(st.bytes),
                     st.new,
                     st.changed,
                     st.removed,
-                    st.scan
+                    st.scan,
+                    st.how()
                 ));
                 if st.errors > 0 {
                     eprintln!("  {} entries couldn't be read, e.g.:", st.errors);
@@ -682,11 +690,12 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
             paths,
             cross_filesystems,
             allow_empty,
+            method,
         } => {
             for path in paths {
                 let abs = dunce::canonicalize(&path)
                     .with_context(|| format!("can't open {}", path.display()))?;
-                let r = c.request(&json!({ "cmd": "enqueue", "kind": "index", "path": abs.display().to_string(), "cross_filesystems": cross_filesystems, "allow_empty": allow_empty }))?;
+                let r = c.request(&json!({ "cmd": "enqueue", "kind": "index", "path": abs.display().to_string(), "cross_filesystems": cross_filesystems, "allow_empty": allow_empty, "method": method }))?;
                 let summary = follow(
                     &mut c,
                     r["job"].as_u64().unwrap_or(0),

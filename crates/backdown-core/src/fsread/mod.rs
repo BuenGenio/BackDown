@@ -40,6 +40,9 @@ mod ext;
 mod fat;
 mod ntfs;
 
+/// An NTFS volume's master file table read start to finish (for fast scans: index/table.rs).
+pub use ntfs::mft_scan;
+
 /// Listings stop here; `Listing::truncated` says there was more.
 pub const MAX_LIST: usize = 10_000;
 /// The most of one directory's own data that's read (its entries, index or blocks).

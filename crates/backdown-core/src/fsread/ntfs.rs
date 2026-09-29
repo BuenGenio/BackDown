@@ -16,6 +16,8 @@ use super::{
 };
 use crate::magic::le;
 
+pub mod mft_scan;
+
 /// The root folder's MFT record.
 pub(crate) const ROOT: u64 = 5;
 /// Records below this are the filesystem's own metadata.

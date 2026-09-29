@@ -780,3 +780,7 @@ b.v-warning{color:var(--warn)}
 .hn-act{display:flex;gap:4px;align-items:center}
 @media(max-width:760px){.act-list li.hn{grid-template-columns:22px minmax(0,1fr)}.hn .hn-act,.hn>.muted{grid-column:2}.hp-trend{grid-template-columns:1fr}.hp-kv{grid-template-columns:1fr}}
 .hn-more{margin:8px 0 0}
+
+/* how a drive's last scan was made: from the change log, the file table, or a full walk */
+.act-drives td small.act-how{max-width:38ch;white-space:nowrap}
+.act-drives td small.act-how.journal,.act-drives td small.act-how.table{color:var(--good)}

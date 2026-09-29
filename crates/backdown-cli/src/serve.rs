@@ -32,7 +32,8 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 use backdown_core::{
-    Db, apply, browse, fmt, overlap, paths, plan, recognise, report, rescue, summary, volumes, wipe,
+    Db, apply, browse, fmt, index, overlap, paths, plan, recognise, report, rescue, summary,
+    volumes, wipe,
 };
 
 use crate::daemon::Daemon;
@@ -333,6 +334,21 @@ fn handle(ctx: &Ctx, req: Request) {
         } else {
             let p = |k: &str| param(k).map(str::to_string);
             match crate::health::post(ctx.daemon.as_deref(), &ctx.db, path, &p) {
+                Ok(v) => json_resp(&v),
+                Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
+            }
+        };
+        let _ = req.respond(resp);
+        return;
+    }
+    if *req.method() == Method::Post && path == "/api/scan-settings" {
+        // how scans may be made: the change log and file table on or off, and how often to walk
+        // anyway (index.rs); changes nothing but the setting itself
+        let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
+        let resp = if !marked {
+            plain(403, "missing X-BackDown header")
+        } else {
+            match set_scan_settings(ctx, &params) {
                 Ok(v) => json_resp(&v),
                 Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
             }
@@ -765,6 +781,56 @@ fn ro_db(ctx: &Ctx) -> Result<Db> {
     Db::open_read_only(&ctx.db)
 }
 
+/// GET /api/scan-settings: how scans may be made (index.rs), and what's possible on this system.
+fn scan_settings(db: &Db) -> Result<Value> {
+    let s = index::settings(db)?;
+    let (journal, table) = match std::env::consts::OS {
+        "windows" => (
+            "NTFS volumes' USN journal (no administrator rights needed)",
+            "NTFS volumes, when BackDown runs as administrator",
+        ),
+        "macos" => (
+            "APFS and HFS+ volumes' FSEvents history",
+            "not used on macOS",
+        ),
+        _ => (
+            "none: Linux keeps no change log for drives",
+            "NTFS drives mounted with ntfs-3g, when the drive can be read directly",
+        ),
+    };
+    Ok(json!({
+        "fast": s.fast,
+        "walk_every_scans": s.walk_every_scans,
+        "walk_every_days": s.walk_every_days,
+        "journal": journal,
+        "table": table,
+    }))
+}
+
+/// POST /api/scan-settings?fast=0|1&walk_every_scans=N&walk_every_days=N (any of them).
+fn set_scan_settings(ctx: &Ctx, params: &[(String, String)]) -> Result<Value> {
+    let db = Db::open(&ctx.db)?;
+    let mut s = index::settings(&db)?;
+    if let Some(v) = get(params, "fast") {
+        s.fast = match v {
+            "1" | "true" | "on" => true,
+            "0" | "false" | "off" => false,
+            _ => bail!("fast is 1 or 0"),
+        };
+    }
+    if let Some(v) = get(params, "walk_every_scans") {
+        s.walk_every_scans = v.parse().context("walk_every_scans is a number")?;
+    }
+    if let Some(v) = get(params, "walk_every_days") {
+        s.walk_every_days = v.parse().context("walk_every_days is a number")?;
+    }
+    index::set_settings(&db, &s)?;
+    if let Some(d) = &ctx.daemon {
+        d.touch(); // open views show the new setting
+    }
+    scan_settings(&db)
+}
+
 fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
     let param = |name: &str| get(params, name);
     if path == "/api/daemon" {
@@ -799,6 +865,7 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
     // the container viewers (peek.rs) read the file an index id resolves to, like `content()`
     let file = || -> Result<PathBuf> { Ok(source(&db, id()?)?.0) };
     Ok(match path {
+        "/api/scan-settings" => scan_settings(&db)?,
         "/api/roots" => json!({ "roots": browse::roots(&db)?, "status": db.status()? }),
         "/api/timeline" => json!(browse::timeline(
             &db,
