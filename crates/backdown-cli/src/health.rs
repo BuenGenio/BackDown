@@ -302,11 +302,11 @@ pub fn read_and_record(
     let mut show = Vec::new();
     for h in &probe.drives {
         let r = health::record(&db, h)?;
-        if settings.wants("health") {
-            for n in notes_for(h, &r, &mirrors_on(h, &mirrors, &probe.drives)) {
-                if let Some((_, true)) = alerts::add(&db, &n, desktop, now, &Limits::default())? {
-                    show.push(n);
-                }
+        // Activity lists every note; the settings choose which also pop up on the desktop
+        let pop = desktop && settings.wants("health");
+        for n in notes_for(h, &r, &mirrors_on(h, &mirrors, &probe.drives)) {
+            if let Some((_, true)) = alerts::add(&db, &n, pop, now, &Limits::default())? {
+                show.push(n);
             }
         }
     }
@@ -464,9 +464,6 @@ pub fn after_job(d: &Daemon, job: &Job, error: Option<&str>) {
     let settings = d.health.settings();
     let label = job.path.as_deref().unwrap_or("");
     let note = if job.kind == "mirror-verify" {
-        if !settings.wants("drift") {
-            return;
-        }
         Note {
             kind: "drift",
             key: format!("drift:{label}"),
@@ -477,9 +474,6 @@ pub fn after_job(d: &Daemon, job: &Job, error: Option<&str>) {
             quiet_for: 20 * 3600,
         }
     } else if job.auto {
-        if !settings.wants("job") {
-            return;
-        }
         let what = match job.kind {
             "index" => format!("scan of {label}"),
             "hash" => "hashing".into(),
@@ -500,7 +494,8 @@ pub fn after_job(d: &Daemon, job: &Job, error: Option<&str>) {
     } else {
         return;
     };
-    let desktop = d.health.desktop && settings.desktop;
+    // recorded either way (Activity lists it); popped up only if that kind is chosen
+    let desktop = d.health.desktop && settings.desktop && settings.wants(note.kind);
     let r = Db::open(&d.db).and_then(|db| {
         let added = alerts::add(&db, &note, desktop, now(), &Limits::default())?;
         Ok((added, alerts::unread(&db)?))
@@ -969,7 +964,7 @@ mod tests {
         let r = read_and_record(&db, &src, &s, true, 3_000).unwrap();
         assert!(r.show.is_empty());
         assert_eq!(r.unread, 1);
-        // health notifications turned off: nothing recorded
+        // health pop-ups turned off: listed in Activity, not popped up
         write(9);
         let off = Settings {
             health: false,
@@ -977,7 +972,7 @@ mod tests {
         };
         let r = read_and_record(&db, &src, &off, true, 4_000).unwrap();
         assert!(r.show.is_empty());
-        assert_eq!(r.unread, 1);
+        assert_eq!(r.unread, 2);
         assert_eq!(r.drives[0].health.reallocated, Some(9));
     }
 }

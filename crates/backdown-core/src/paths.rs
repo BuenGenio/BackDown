@@ -215,8 +215,8 @@ pub fn online_only(attributes: u32) -> bool {
     attributes & (0x1000 | 0x4_0000 | 0x40_0000) != 0
 }
 
-/// Open a source file to read it: on Windows verbatim, with backup semantics, and never an
-/// online-only placeholder.
+/// Open a source file to read it: on Windows verbatim, with backup semantics; never an
+/// online-only placeholder (Windows cloud files, iCloud's dataless files on macOS).
 #[cfg(windows)]
 pub fn open_read(p: &Path) -> io::Result<File> {
     use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
@@ -234,7 +234,22 @@ pub fn open_read(p: &Path) -> io::Result<File> {
         .open(&p)
 }
 
-#[cfg(not(windows))]
+/// macOS's flag for a file whose data is only in iCloud ("dataless"): reading it downloads it.
+pub const SF_DATALESS: u32 = 0x4000_0000;
+
+#[cfg(target_os = "macos")]
+pub fn open_read(p: &Path) -> io::Result<File> {
+    use std::os::macos::fs::MetadataExt;
+    if std::fs::symlink_metadata(p).is_ok_and(|m| m.st_flags() & SF_DATALESS != 0) {
+        return Err(io::Error::other(
+            "an online-only file (its data is in iCloud): reading it would download it onto the \
+             drive, so it's left alone",
+        ));
+    }
+    File::open(p)
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn open_read(p: &Path) -> io::Result<File> {
     File::open(p)
 }

@@ -136,7 +136,7 @@ docs() { # into a usr/share/doc/backdown folder
   install -d -m 755 "$1"
   install -m 644 "$work/linux-x86_64/README.txt" "$work/linux-x86_64/THIRD-PARTY-NOTICES.txt" "$1/"
   printf '%s\n' "BackDown $version, (c) backdown.io. https://backdown.io" \
-    "This is a preview build, provided as-is, without warranty, for evaluation." \
+    "This is a pre-release build, provided as-is, without warranty, for evaluation." \
     "The third-party components it contains and their licences are listed in THIRD-PARTY-NOTICES.txt." > "$1/copyright"
   chmod 644 "$1/copyright"
 }
@@ -264,7 +264,7 @@ if [ -n "$mkfs_hfsplus" ] && [ -x "$tools/bin/hfsplus" ] && [ -x "$tools/bin/dmg
   cat > "$s/If BackDown won't open.txt" <<'EOF'
 Drag BackDown onto Applications, then open it from there.
 
-This preview isn't notarised by Apple yet, so the first time, macOS may say it can't check it:
+This build isn't notarised by Apple yet, so the first time, macOS may say it can't check it:
 right-click (or Control-click) BackDown in Applications, choose Open, then Open again.
 On macOS 15 and later: System Settings > Privacy & Security > "Open Anyway".
 After that it opens like any other app. https://backdown.io

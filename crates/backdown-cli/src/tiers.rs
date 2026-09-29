@@ -112,8 +112,7 @@ pub const FEATURES: &[Feature] = &[
         ready: true,
     },
     Feature {
-        // free for good (decided 29 Sep 2026). Built on another branch (GET/POST
-        // /api/scan-settings): set ready once it's merged here; it's never gated either way
+        // free for good (decided 29 Sep 2026); never gated
         key: "fast-rescans",
         name: "Rescans in seconds from the drive's change log",
         unlocks: "Rescans from the drive's own change log (macOS FSEvents, the Windows USN journal) and NTFS's file table, with a full walk now and then.",
@@ -121,7 +120,7 @@ pub const FEATURES: &[Feature] = &[
         commands: &[],
         endpoints: &[],
         views: &[],
-        ready: false,
+        ready: true,
     },
     Feature {
         key: "sizes",
@@ -275,7 +274,7 @@ pub const FEATURES: &[Feature] = &[
     Feature {
         key: "health-alerts",
         name: "Drive health alerts",
-        unlocks: "Warnings when a drive starts to fail, before it does.",
+        unlocks: "Every machine's drive-health warnings gathered in one place. Each machine's own health readings, warnings and notifications are free.",
         tier: Team,
         commands: &[],
         endpoints: &[],

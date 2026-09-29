@@ -662,7 +662,32 @@ pub fn not_replaceable(exe: &Path) -> Option<String> {
             exe.display()
         ));
     }
+    // a new binary inside the bundle would break its signature, and macOS then won't start it
+    if s.contains(".app/Contents/MacOS/") {
+        return Some(
+            "this BackDown is inside BackDown.app, which can't change itself: download the new .dmg from https://backdown.io/download".into(),
+        );
+    }
+    // Windows Installer keeps track of the files it installed: the new .msi upgrades this one
+    if cfg!(windows) && s.contains(r"\Programs\BackDown\") && installed_by_msi() {
+        return Some(
+            "BackDown was installed from an .msi: install the new .msi from https://backdown.io/download, which upgrades this one".into(),
+        );
+    }
     None
+}
+
+/// Whether the .msi installed BackDown for this user (it records `HKCU\Software\BackDown`
+/// `program`; the setup .zip doesn't).
+fn installed_by_msi() -> bool {
+    cfg!(windows)
+        && Command::new("reg")
+            .args(["query", r"HKCU\Software\BackDown", "/v", "program"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|st| st.success())
 }
 
 fn bin_name() -> &'static str {
@@ -1459,6 +1484,13 @@ mod tests {
             not_replaceable(Path::new("/opt/homebrew/Cellar/backdown/1/bin/backdown")).is_some()
         );
         assert!(not_replaceable(Path::new("/home/someone/.local/bin/backdown")).is_none());
+        assert!(
+            not_replaceable(Path::new(
+                "/Applications/BackDown.app/Contents/MacOS/backdown"
+            ))
+            .unwrap()
+            .contains(".dmg")
+        );
     }
 
     #[test]

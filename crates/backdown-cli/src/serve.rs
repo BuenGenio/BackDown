@@ -705,6 +705,11 @@ fn start_apply(ctx: &Ctx, id: Option<&str>) -> Result<Value> {
         .daemon
         .as_ref()
         .context("copying runs in the BackDown service: `backdown apply ID --go` in a terminal")?;
+    if !ctx.desktop {
+        bail!(
+            "the machine-wide service only reads: copy from your own BackDown (`backdown --local apply ID --go`)"
+        );
+    }
     plan::load(&ro_db(ctx)?, id)?;
     let job = d.enqueue(
         "apply",

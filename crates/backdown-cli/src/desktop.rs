@@ -53,8 +53,8 @@ pub enum DesktopCmd {
     /// Add BackDown to your applications: the menu and icons (Linux), ~/Applications/BackDown.app
     /// (macOS), or the Start menu (Windows). It opens `backdown app`
     Install {
-        /// Also start BackDown's background service when you log in (Linux and Windows; on macOS,
-        /// `backdown service install`)
+        /// Also start BackDown's background service when you log in (on macOS, the login item
+        /// `backdown service install` makes)
         #[arg(long)]
         autostart: bool,
     },
@@ -761,6 +761,9 @@ fn install(autostart: bool) -> Result<ExitCode> {
                 .find(|p| p.extension().is_some_and(|e| e == "app"))
                 .unwrap_or(&exe);
             println!("BackDown.app is installed already: {}", app.display());
+            if autostart {
+                crate::service::install(false, "127.0.0.1", 8787, true, false)?;
+            }
             return Ok(ExitCode::SUCCESS);
         }
         let app = mac_app();

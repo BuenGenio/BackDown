@@ -860,7 +860,7 @@ pub fn cached_list(db: &Db, m: &Machine, dir: &[u8]) -> Result<Value> {
         })
         .optional()?
     {
-        if entries.len() >= 5000 {
+        if entries.len() >= serve::MAX_ENTRIES {
             truncated = true;
             break;
         }

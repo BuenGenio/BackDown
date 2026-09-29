@@ -302,7 +302,7 @@ async function onSubmit(e) {
     }
     M.add = null;
     await loadMachines();
-    if (r.reached) toast(`Added ${r.machine.name}: syncing it now`);
+    if (r.reached) toast(r.syncing ? `Added ${r.machine.name}: syncing it now` : `Added ${r.machine.name}: sync it to count its copies`);
     else toast(`Added ${r.machine.name}, but it can’t be reached yet`);
     showMachine(r.machine.id);
     return;

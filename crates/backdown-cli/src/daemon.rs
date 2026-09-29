@@ -1607,7 +1607,14 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
                 Some("index") => "index",
                 Some("hash") => "hash",
                 Some("entities") => "entities",
-                Some("apply") => "apply",
+                Some("apply") => {
+                    if d.shared {
+                        bail!(
+                            "the machine-wide service reads only; copy from your own BackDown (backdown --local apply …)"
+                        );
+                    }
+                    "apply"
+                }
                 Some("wipe") => {
                     if d.shared {
                         bail!(
@@ -1642,7 +1649,14 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
                     }
                     "dedup"
                 }
-                Some("mail-merge") => "mail-merge",
+                Some("mail-merge") => {
+                    if d.shared {
+                        bail!(
+                            "the machine-wide service reads only; merge from your own BackDown (backdown --local mail merge …)"
+                        );
+                    }
+                    "mail-merge"
+                }
                 _ => bail!(
                     "kind must be index, hash, entities, apply, wipe, dedup, mail-merge or remote-sync"
                 ),

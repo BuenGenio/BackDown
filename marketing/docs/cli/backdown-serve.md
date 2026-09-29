@@ -18,7 +18,7 @@ backdown serve [OPTIONS]
 : Port to listen on. Default: `8787`.
 
 `--host <HOST>` {preview}
-: Address to bind (default 127.0.0.1; e.g. a Tailscale IP to reach it over your tailnet). Default: `127.0.0.1`.
+: Also listen on this address (e.g. this computer's Tailscale IP) so other devices can look; from there BackDown only shows, and changes need this computer. 127.0.0.1 always listens. Default: `127.0.0.1`.
 
 `--no-open`
 : Don't open a browser, just print the link.

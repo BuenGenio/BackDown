@@ -30,8 +30,8 @@ pub(crate) const LATE: &str =
 
 /// Why ext2/3/4 can't list deleted files.
 pub(crate) const EXT_WHY: &str = "ext3 and ext4 erase where a deleted file's data was, so deleted \
-    files can't be brought back by name here. Rescue's \u{201c}Find files by content\u{201d} can \
-    still find photos, videos and documents on it";
+    files can't be brought back by name here. In Rescue, \u{201c}Files were deleted, or it was \
+    formatted\u{201d} can still find photos, videos and documents on it by what's inside them";
 
 /// How likely a deleted file or folder can be recovered.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

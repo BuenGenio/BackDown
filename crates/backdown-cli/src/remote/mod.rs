@@ -288,6 +288,10 @@ pub fn command(db: Option<PathBuf>, local: bool, cmd: RemoteCmd) -> Result<ExitC
             proof_days,
             sync_hours,
         } => {
+            // seeing them stays free, like the list; changing them is the Pro feature's
+            if proof_days.is_some() || sync_hours.is_some() {
+                gate()?;
+            }
             let db = open(&db_path)?;
             if let Some(d) = proof_days {
                 core::set_setting(&db, "proof_days", d)?;
@@ -754,12 +758,13 @@ pub fn post(
                 opt("command").as_deref(),
             )?;
             let t = test(&db, &m);
+            let syncing = t.is_ok() && d.is_some();
             if t.is_ok()
                 && let Some(d) = d
             {
                 queue(d, &m, "requested");
             }
-            json!({ "ok": true, "machine": core::get(&db, m.id)?, "reached": t.is_ok(),
+            json!({ "ok": true, "machine": core::get(&db, m.id)?, "reached": t.is_ok(), "syncing": syncing,
                     "test": t.as_ref().ok(), "error": Value::Null, "test_error": t.err().map(|e| format!("{e:#}")) })
         }
         "/api/machine-remove" => {

@@ -974,7 +974,7 @@ fn ext_says_why_not() {
     let mut v = open(&img);
     assert!(
         v.undelete_unsupported()
-            .is_some_and(|w| w.contains("Find files by content"))
+            .is_some_and(|w| w.contains("Files were deleted, or it was"))
     );
     let err = v.deleted_path("", 10).unwrap_err().to_string();
     assert!(err.contains("ext3 and ext4"), "{err}");

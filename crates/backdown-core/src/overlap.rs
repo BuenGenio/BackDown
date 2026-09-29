@@ -220,7 +220,7 @@ pub fn overlaps(
             machines.insert(m.id, u.list.len());
             u.list.push(Unit {
                 level: "machine".into(),
-                label: format!("on {}", m.name),
+                label: format!("the machine {}", m.name),
                 path: m.url.clone(),
                 key: format!("machine:{}", m.id),
                 files: 0,

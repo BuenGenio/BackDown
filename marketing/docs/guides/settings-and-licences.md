@@ -72,7 +72,7 @@ The service keeps a list of what's worth knowing: a drive whose [health](/docs/g
 In Settings > Notifications:
 
 - **Show notifications on the desktop** turns the pop-ups on or off; everything is listed in Activity either way. The same switch is "Show on the desktop" in Activity.
-- **When a drive's health gets worse**, **When a mirror no longer matches what it copies**, **When a scheduled job fails** choose which kinds are kept at all: a kind that's off isn't listed in Activity either.
+- **When a drive's health gets worse**, **When a mirror no longer matches what it copies**, **When a scheduled job fails** choose which kinds pop up. Every kind is listed in Activity either way, so a failing drive is never missed.
 - **Send a test notification** checks that pop-ups work.
 
 At most 3 pop-ups show in any 10 minutes and 12 a day; the rest are listed only ("listed only" beside them). A drive that's failing always gets through, if pop-ups are on. The same notice isn't repeated for a while: 7 days for a drive's verdict, 20 hours for the rest.
@@ -101,6 +101,8 @@ Some copies of BackDown are updated another way, and `backdown update` (or **How
 
 - installed from the `.deb` (it lives in `/usr/bin`) or another package: install the new package;
 - an AppImage: download the new AppImage;
+- BackDown.app on a Mac (from the `.dmg`): download the new `.dmg`, since changing the program inside the app would break its signature;
+- installed from the `.msi` on Windows: install the new `.msi`, which upgrades the one you have (the setup `.zip` install updates itself);
 - Homebrew: `brew upgrade backdown`;
 - in a folder you can't write to: `sudo backdown update`, or move it somewhere you own;
 - the machine-wide service: `sudo backdown update`, then `sudo systemctl restart backdown`.

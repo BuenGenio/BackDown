@@ -26,7 +26,7 @@ backdown service install [OPTIONS]
 : Machine-wide service running as the `backdown` user (needs sudo).
 
 `--host <HOST>` {preview}
-: Address the service binds (default 127.0.0.1; e.g. a Tailscale IP for tailnet access). Default: `127.0.0.1`.
+: Also listen on this address (e.g. this computer's Tailscale IP) so other devices can look; from there BackDown only shows, and changes need this computer. 127.0.0.1 always listens. Default: `127.0.0.1`.
 
 `--port <PORT>`
 : Port the service binds. Default: `8787`.
