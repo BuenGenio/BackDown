@@ -13,8 +13,14 @@
 //!
 //! The plan copies; it never deletes. Once it's applied and the archive indexed, `check` proves
 //! which source drives are safe to wipe.
+//!
+//! The archive's drive may take names that differ only by case or Unicode form for one (APFS,
+//! NTFS, exFAT), so places are compared that way: names are written composed (NFC), a folder
+//! keeps the spelling it's first given ("Mail/Example.org" joins "Mail/example.org" rather than
+//! merging with it unseen), and two things never share a place in any spelling.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::ffi::OsStr;
 use std::path::{MAIN_SEPARATOR_STR, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -24,7 +30,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::overlap::Overlap;
 use crate::recognise::{Entity, RootEntities};
-use crate::{Db, browse, paths};
+use crate::{Db, browse, names, paths};
 
 // ---------- the schema
 
@@ -210,9 +216,10 @@ fn year(t: Option<i64>) -> Option<i64> {
     Some(yoe + era * 400 + i64::from(mp >= 10))
 }
 
-/// A path component made safe for any filesystem the archive might live on.
+/// A path component made safe for any filesystem the archive might live on: composed (NFC),
+/// without the characters Windows, FAT and exFAT refuse, and never a device name (`CON`).
 fn clean(s: &str) -> String {
-    let c: String = s
+    let c: String = names::nfc(s)
         .chars()
         .map(|c| {
             if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control() {
@@ -223,11 +230,17 @@ fn clean(s: &str) -> String {
         })
         .collect();
     let c = c.trim().trim_end_matches('.').trim().to_string();
-    if c.is_empty() {
+    let c: String = if c.is_empty() {
         "unknown".into()
     } else {
         c.chars().take(120).collect()
-    }
+    };
+    names::windows_name(&c).unwrap_or(c)
+}
+
+/// What two places the archive's drive may take for one have in common (case, Unicode form).
+fn place_key(s: &str) -> Vec<u8> {
+    names::Folding::ANY.key(OsStr::new(s))
 }
 
 fn host_of_url(url: &str) -> Option<String> {
@@ -347,7 +360,6 @@ pub fn make(
     if !target.is_absolute() {
         bail!("the archive folder must be an absolute path");
     }
-    let target_prefix = paths::dir_prefix(target);
     let sep = paths::to_bytes(Path::new(MAIN_SEPARATOR_STR));
     let mut roots = db
         .conn
@@ -380,7 +392,7 @@ pub fn make(
         o.containers
             .iter()
             .find(|c| {
-                Path::new(&c.path).starts_with(target) && c.bytes as f64 >= bytes as f64 * 0.999
+                names::within(Path::new(&c.path), target) && c.bytes as f64 >= bytes as f64 * 0.999
             })
             .map(|c| c.path.clone())
     };
@@ -389,9 +401,10 @@ pub fn make(
     let mut drives = Vec::new();
     for (id, root) in &roots {
         let root_b = paths::to_bytes(root);
-        // the archive's own drive isn't a source (nor is anything that holds or sits in the archive)
-        if target_prefix.starts_with(&paths::dir_prefix(root))
-            || root_b.starts_with(&target_prefix)
+        // the archive's own drive isn't a source (nor is anything that holds or sits in the
+        // archive), whichever Unicode form the archive's path was given in
+        if names::within(target, root)
+            || names::within(root, target)
             || only.is_some_and(|o| !o.contains(id))
         {
             continue;
@@ -622,7 +635,8 @@ pub fn make(
     for i in order {
         let twin = filed.iter().copied().find(|&j| {
             items[j].kind == items[i].kind
-                && dest_origin(&items[j].dest) == dest_origin(&items[i].dest)
+                && place_key(&dest_origin(&items[j].dest))
+                    == place_key(&dest_origin(&items[i].dest))
                 && ov_by_key
                     .get(&("entity", items[i].source_key.as_str()))
                     .is_some_and(|o| {
@@ -665,19 +679,32 @@ pub fn make(
         }
     }
 
-    // two things can't land in the same place
-    let mut used: HashSet<String> = HashSet::new();
+    // two things can't land in the same place, in any spelling the archive's drive may take for
+    // one; and each folder keeps the spelling it's first given
+    let mut spelling: HashMap<Vec<u8>, String> = HashMap::new();
+    let mut used: HashSet<Vec<u8>> = HashSet::new();
     for it in items.iter_mut().filter(|i| i.action != "skip") {
-        let mut d = it.dest.clone();
-        if used.contains(&d) {
-            d = format!("{} ({})", it.dest, clean(&it.drive));
+        let mut parts: Vec<String> = Vec::new();
+        for part in it.dest.split('/') {
+            let key = place_key(&[parts.join("/"), part.to_string()].join("/"));
+            parts.push(
+                spelling
+                    .entry(key)
+                    .or_insert_with(|| part.to_string())
+                    .clone(),
+            );
+        }
+        let base = parts.join("/");
+        let mut d = base.clone();
+        if used.contains(&place_key(&d)) {
+            d = format!("{base} ({})", clean(&it.drive));
             let mut n = 2;
-            while used.contains(&d) {
-                d = format!("{} ({} {n})", it.dest, clean(&it.drive));
+            while used.contains(&place_key(&d)) {
+                d = format!("{base} ({} {n})", clean(&it.drive));
                 n += 1;
             }
         }
-        used.insert(d.clone());
+        used.insert(place_key(&d));
         it.dest = d;
     }
     let copy_files = items

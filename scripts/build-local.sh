@@ -26,10 +26,11 @@
 #     lipo, and ad-hoc signed by rcodesign instead of codesign. The minimum macOS stays 11.0 as in CI (zig
 #     alone would stamp 13.0, hence the two small linker wrappers below).
 #   - Windows: target x86_64-pc-windows-gnu (mingw-w64 via zig, on the Universal CRT) instead of
-#     x86_64-pc-windows-msvc, which needs Microsoft's toolchain. Same Rust code and Win32 calls; unlike the
-#     MSVC build it doesn't need VCRUNTIME140.dll, and its main thread reserves 16 MB of stack, not 1 MB.
+#     x86_64-pc-windows-msvc, which needs Microsoft's toolchain. Same Rust code and Win32 calls; like the
+#     MSVC build (static CRT) it doesn't need VCRUNTIME140.dll; its main thread reserves 16 MB of stack, not 1 MB.
 #   - Tests run on this machine's platform only (CI tests on Linux x86-64, macOS and Windows), but the Linux
-#     binaries are smoke tested here on both architectures (ARM64 natively, x86-64 under qemu).
+#     binaries are smoke tested here on both architectures (ARM64 natively, x86-64 under qemu), and the
+#     Windows and macOS code, tests included, is linted for those targets first (scripts/check-targets.sh).
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -107,6 +108,10 @@ if [ -n "$run_tests" ]; then
   step "cargo test --locked --release ($host)"
   cargo test --locked --release
 fi
+
+# the Windows and macOS code can't run here: at least type-check and lint it, tests included
+step "clippy for Windows and macOS (scripts/check-targets.sh)"
+"$root/scripts/check-targets.sh"
 
 work=$root/target/build-local/$tag   # one folder per platform, like CI's dist/
 dist=$root/target/dist/$tag          # what publish-release.sh publishes

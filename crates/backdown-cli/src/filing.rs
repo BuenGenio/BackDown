@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context, Result, bail};
-use backdown_core::{Db, apply, fmt, overlap, paths, plan, recognise};
+use backdown_core::{Db, apply, fmt, names, overlap, paths, plan, recognise};
 
 use crate::{clear, done, live};
 
@@ -27,7 +27,7 @@ pub fn make_plan(db: &Db, a: PlanArgs) -> Result<ExitCode> {
     } else {
         std::env::current_dir()?.join(a.to)
     };
-    let target = dunce::canonicalize(&target).unwrap_or(target);
+    let target = paths::canonical(&target).unwrap_or(target);
     let ids = recognise::root_ids(db)?;
     let only: Option<Vec<i64>> = if a.from.is_empty() {
         None
@@ -38,10 +38,11 @@ pub fn make_plan(db: &Db, a: PlanArgs) -> Result<ExitCode> {
                 db.conn
                     .query_row("SELECT path FROM roots WHERE id = ?1", [id], |r| r.get(0))?;
             let root = paths::from_bytes(&p);
-            if a.from
-                .iter()
-                .any(|f| dunce::canonicalize(f).unwrap_or_else(|_| f.clone()) == root)
-            {
+            // the drive, whichever Unicode form its path was typed in
+            if a.from.iter().any(|f| {
+                let f = paths::canonical(f).unwrap_or_else(|_| f.clone());
+                names::within(&f, &root) && names::within(&root, &f)
+            }) {
                 v.push(*id);
             }
         }
@@ -198,6 +199,17 @@ pub fn run_apply(db: &mut Db, id: i64, go: bool) -> Result<ExitCode> {
             fmt::count(st.skipped_links)
         );
     }
+    if st.renamed + st.extras_not_kept > 0 {
+        eprintln!(
+            "  {} copied under another name (the archive's drive takes their names for others'), \
+             {} without some of their streams or attributes; the journal says which:",
+            fmt::count(st.renamed),
+            fmt::count(st.extras_not_kept)
+        );
+    }
+    for n in &st.notes {
+        eprintln!("  {n}");
+    }
     for pr in &st.first_problems {
         eprintln!("  {pr}");
     }
@@ -299,6 +311,9 @@ pub fn mirror_sync(db: &Db, id: Option<i64>) -> Result<ExitCode> {
                 String::new()
             }
         ));
+        for n in &st.notes {
+            eprintln!("  {n}");
+        }
         for p in &st.problems {
             eprintln!("  {p}");
         }
@@ -357,7 +372,7 @@ pub fn wipe(
     use backdown_core::wipe;
     let targets: Vec<PathBuf> = targets
         .iter()
-        .map(|p| dunce::canonicalize(p).unwrap_or_else(|_| p.clone()))
+        .map(|p| paths::canonical(p).unwrap_or_else(|_| p.clone()))
         .collect();
     let move_to = move_to.map(|m| {
         if m.is_absolute() {

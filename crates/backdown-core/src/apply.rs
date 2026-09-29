@@ -9,6 +9,12 @@
 //! It never writes to a source, never overwrites an existing file that differs (that's recorded as
 //! a conflict and left for a person), and never deletes anything: once the archive is indexed,
 //! `check` proves which source drives are safe to wipe.
+//!
+//! Names are kept apart on the archive's drive: it's probed once for what it takes for the same
+//! name (case, Unicode form, names Windows can't hold), and a file or folder that would land on
+//! another's name gets a numbered one instead (`names::Renamer`); a different file already there
+//! under another spelling is copied beside it. Streams and extended attributes go along where the
+//! system has them (`extras`). Each rename, and whatever wasn't kept, is in the journal's `note`.
 
 use std::collections::HashSet;
 use std::fs::{self, File, FileTimes};
@@ -22,8 +28,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
+use crate::names::{self, Folding, Renamer};
 use crate::plan::{self, Item};
-use crate::{Db, fmt, paths};
+use crate::{Db, extras, fmt, paths};
 
 const BUF: usize = 1 << 20;
 
@@ -48,6 +55,15 @@ pub struct Stats {
     pub would_copy: u64,
     pub would_copy_bytes: u64,
     pub first_problems: Vec<String>,
+    /// copied under another name: its own collides with another's on the archive's drive
+    #[serde(default)]
+    pub renamed: u64,
+    /// copied, but without some of its streams or extended attributes
+    #[serde(default)]
+    pub extras_not_kept: u64,
+    /// renames and what copies didn't keep (the first ones; the journal has them all)
+    #[serde(default)]
+    pub notes: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -74,7 +90,7 @@ pub(crate) fn mtime(m: &fs::Metadata) -> i64 {
 }
 
 pub(crate) fn hash_file(path: &Path) -> Result<[u8; 32]> {
-    let mut f = File::open(path)?;
+    let mut f = paths::open_read(path)?;
     let mut h = Sha256::new();
     let mut buf = vec![0u8; BUF];
     loop {
@@ -116,7 +132,8 @@ pub(crate) fn copy_verified(src: &Path, dest: &Path, meta: &fs::Metadata) -> Res
         dest.file_name().unwrap_or_default().to_string_lossy()
     ));
     let result = (|| -> Result<[u8; 32]> {
-        let mut input = File::open(src).with_context(|| format!("can't read {}", src.display()))?;
+        let mut input =
+            paths::open_read(src).with_context(|| format!("can't read {}", src.display()))?;
         let mut out =
             File::create(&tmp).with_context(|| format!("can't write {}", tmp.display()))?;
         let mut h = Sha256::new();
@@ -156,10 +173,49 @@ pub(crate) fn copy_verified(src: &Path, dest: &Path, meta: &fs::Metadata) -> Res
     result.map(Outcome::Copied)
 }
 
+/// `copy_verified`, unless a different name at the destination is the same one to its drive (it
+/// differs only by case, or is another name the drive takes for it): then that file is compared,
+/// and a different one is copied beside it under a numbered name. Where the copy is, and a note.
+pub(crate) fn copy_placed(
+    src: &Path,
+    dest: &Path,
+    meta: &fs::Metadata,
+    folding: Folding,
+    listing: &mut names::Listing,
+) -> (Result<Outcome>, PathBuf, Option<String>) {
+    // only a drive that takes several spellings for one name can show another one here
+    let there = if (folding.case || folding.normalization) && fs::symlink_metadata(dest).is_ok() {
+        listing.variant_there(dest)
+    } else {
+        None
+    };
+    let first = copy_verified(src, dest, meta);
+    let Some(there) = there else {
+        return (first, dest.to_path_buf(), None);
+    };
+    let shown = names::nfc(&there.to_string_lossy()).into_owned();
+    match first {
+        Ok(Outcome::Conflict(_)) => {
+            let alt = names::free_name(dest);
+            let note = format!(
+                "copied as {}: {shown} is already there, and this drive takes the two names for one",
+                names::nfc(&alt.file_name().unwrap_or_default().to_string_lossy())
+            );
+            (copy_verified(src, &alt, meta), alt, Some(note))
+        }
+        Ok(Outcome::AlreadyThere(h)) => (
+            Ok(Outcome::AlreadyThere(h)),
+            dest.with_file_name(&there),
+            Some(format!("already there as {shown}")),
+        ),
+        other => (other, dest.to_path_buf(), None),
+    }
+}
+
 /// Content already in the archive (for copy-unique items): hashes of indexed files under the
 /// archive, plus whatever this plan has copied so far.
 fn archive_hashes(db: &Db, target: &Path, plan_id: i64) -> Result<HashSet<Vec<u8>>> {
-    let prefix = paths::dir_prefix(target);
+    let prefix = paths::dir_prefix(&names::as_indexed(db, target)?);
     let mut hi = prefix.clone();
     if let Some(l) = hi.last_mut() {
         *l += 1;
@@ -236,11 +292,27 @@ pub fn apply(
     } else {
         None
     };
+    // what the archive's drive takes for one name (a dry run writes nothing, not even the probe,
+    // so it doesn't know and renames nothing)
+    let folding = if dry_run {
+        Folding::EXACT
+    } else {
+        fs::create_dir_all(paths::os(&target))
+            .with_context(|| format!("can't create {}", target.display()))?;
+        names::probe_or_assume(&target)
+    };
     let mut last_tick = Instant::now();
     for (n, (idx, it)) in todo.iter().enumerate() {
-        let src_root = PathBuf::from(&it.source);
-        let dest_root = target.join(&it.dest);
-        let excluded: Vec<PathBuf> = it.exclude.iter().map(PathBuf::from).collect();
+        // opened verbatim on Windows (long paths, names ending in a dot); journaled in normal form
+        let src_root = paths::os(Path::new(&it.source)).into_owned();
+        let dest_root = paths::os(&target.join(&it.dest)).into_owned();
+        let excluded: Vec<PathBuf> = it
+            .exclude
+            .iter()
+            .map(|x| paths::os(Path::new(x)).into_owned())
+            .collect();
+        let mut renamer = Renamer::new(&src_root, folding);
+        let mut listing = names::Listing::default();
         let mut walker = WalkDir::new(&src_root).follow_links(false);
         if it.only_files {
             walker = walker.max_depth(1);
@@ -270,11 +342,6 @@ pub fn apply(
                 continue;
             }
             let src = entry.path();
-            let dest = if it.is_file {
-                dest_root.clone()
-            } else {
-                dest_root.join(src.strip_prefix(&src_root).unwrap_or(src))
-            };
             let meta = entry.metadata()?;
             let (size, mt) = (meta.len(), mtime(&meta));
             st.files += 1;
@@ -326,13 +393,24 @@ pub fn apply(
                     continue;
                 }
             }
+            let (dest, renamed) = if it.is_file {
+                (dest_root.clone(), Vec::new())
+            } else {
+                let (rel, renamed) = renamer.map(src.strip_prefix(&src_root).unwrap_or(src));
+                (dest_root.join(rel), renamed)
+            };
+            let mut notes: Vec<String> = Vec::new();
+            if !renamed.is_empty() {
+                st.renamed += 1;
+                notes.push(format!("renamed {}", names::describe(&renamed)));
+            }
             if dry_run {
                 if dest.exists() {
                     st.conflicts += 1;
                     if st.first_problems.len() < 20 {
                         st.first_problems.push(format!(
                             "{} already exists (will be compared, never overwritten)",
-                            dest.display()
+                            paths::show(&dest)
                         ));
                     }
                 } else {
@@ -341,10 +419,17 @@ pub fn apply(
                 }
                 continue;
             }
-            let (state, sha, error) = match copy_verified(src, &dest, &meta) {
+            let (outcome, dest, placed) = copy_placed(src, &dest, &meta, folding, &mut listing);
+            notes.extend(placed);
+            let (state, sha, error) = match outcome {
                 Ok(Outcome::Copied(h)) => {
                     st.copied += 1;
                     st.copied_bytes += size;
+                    let carried = extras::carry(src, &dest, &meta);
+                    if carried.lost_any() {
+                        st.extras_not_kept += 1;
+                    }
+                    notes.extend(carried.note());
                     ("copied", Some(h.to_vec()), None)
                 }
                 Ok(Outcome::AlreadyThere(h)) => {
@@ -370,9 +455,15 @@ pub fn apply(
             if let (Some(h), Some(seen)) = (&sha, unique_seen.as_mut()) {
                 seen.insert(h.clone());
             }
+            let note = (!notes.is_empty()).then(|| notes.join("; "));
+            if let Some(n) = &note
+                && st.notes.len() < 20
+            {
+                st.notes.push(format!("{}: {n}", paths::show(src)));
+            }
             tx.execute(
-                "INSERT INTO journal(plan_id, item, src, dest, size, mtime, sha256, state, error, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-                params![plan_id, *idx as i64, src_b, paths::to_bytes(&dest), size as i64, mt, sha, state, error, now()],
+                "INSERT INTO journal(plan_id, item, src, dest, size, mtime, sha256, state, error, at, note) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                params![plan_id, *idx as i64, src_b, paths::to_bytes(&dest), size as i64, mt, sha, state, error, now(), note],
             )?;
             batch += 1;
             if batch >= 500 {
@@ -408,6 +499,31 @@ pub fn journal_summary(db: &Db, plan_id: i64) -> Result<Vec<(String, u64, u64)>>
         ))
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+/// A plan's journal notes (renamed files, what copies didn't keep): source, destination, note.
+pub fn journal_notes(db: &Db, plan_id: i64, limit: usize) -> Result<Vec<(String, String, String)>> {
+    let mut stmt = db.conn.prepare(
+        "SELECT src, dest, note FROM journal WHERE plan_id = ?1 AND note IS NOT NULL ORDER BY id LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(params![plan_id, limit as i64], |r| {
+        Ok((
+            r.get::<_, Vec<u8>>(0)?,
+            r.get::<_, Option<Vec<u8>>>(1)?,
+            r.get::<_, String>(2)?,
+        ))
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (src, dest, note) = row?;
+        out.push((
+            paths::show(&paths::from_bytes(&src)),
+            dest.map(|d| paths::show(&paths::from_bytes(&d)))
+                .unwrap_or_default(),
+            note,
+        ));
+    }
+    Ok(out)
 }
 
 /// Plans on record, newest first: (id, created_at, target, state).

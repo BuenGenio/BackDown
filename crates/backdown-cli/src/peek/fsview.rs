@@ -425,6 +425,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)] // mkfs.ext4, and a symlink in its source tree
     #[test]
     fn made_by_mkfs_in_a_partition() {
         let Some(mkfs) = ["/usr/sbin/mkfs.ext4", "/sbin/mkfs.ext4"]

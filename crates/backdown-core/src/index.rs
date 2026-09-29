@@ -46,8 +46,7 @@ pub fn index(
     opts: &Options,
     progress: &mut dyn FnMut(&Stats),
 ) -> Result<Stats> {
-    let root =
-        dunce::canonicalize(root).with_context(|| format!("can't open {}", root.display()))?;
+    let root = paths::canonical(root).with_context(|| format!("can't open {}", root.display()))?;
     if !root.is_dir() {
         bail!("{} is not a directory", root.display());
     }
@@ -98,6 +97,7 @@ pub fn index(
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, 1, ?9)",
     )?;
     let mut dirs = DirWriter::new(db, root_id, scan)?;
+    let mut streams = crate::streams::Recorder::new(conn, root_id)?;
 
     let mut st = Stats {
         root: root.clone(),
@@ -109,7 +109,8 @@ pub fn index(
     let mut stack: Vec<OpenDir> = Vec::new();
     let mut last = Instant::now();
     conn.execute_batch("BEGIN")?;
-    for entry in WalkDir::new(&root)
+    // opened verbatim on Windows (long paths, names ending in a dot); stored in normal form
+    for entry in WalkDir::new(paths::os(&root))
         .follow_links(false)
         .same_file_system(opts.one_file_system)
     {
@@ -159,6 +160,7 @@ pub fn index(
         match existing {
             Some((id, s, m)) if s == size && m == mtime => {
                 extend.execute(params![id, scan, root_id, dev, ino])?;
+                streams.note(id, entry.path(), false)?;
             }
             Some((id, ..)) => {
                 close.execute(params![id])?;
@@ -166,6 +168,7 @@ pub fn index(
                 open.execute(params![
                     root_id, path, dir, size, mtime, dev, ino, scan, name
                 ])?;
+                streams.note(conn.last_insert_rowid(), entry.path(), true)?;
                 st.changed += 1;
             }
             None => {
@@ -173,6 +176,7 @@ pub fn index(
                 open.execute(params![
                     root_id, path, dir, size, mtime, dev, ino, scan, name
                 ])?;
+                streams.note(conn.last_insert_rowid(), entry.path(), true)?;
                 st.new += 1;
             }
         }
@@ -194,6 +198,7 @@ pub fn index(
     while !stack.is_empty() {
         dirs.close_top(&mut stack)?;
     }
+    streams.finish()?;
     // anything of this root not seen in this scan is gone
     st.removed = conn.execute(
         "UPDATE files SET current = 0 WHERE root_id = ?1 AND current = 1 AND last_scan < ?2",
@@ -300,10 +305,12 @@ fn parent_of(p: &Path) -> &Path {
 fn refuse_nested(db: &Db, root: &Path, root_bytes: &[u8]) -> Result<()> {
     let mut stmt = db.conn.prepare("SELECT path FROM roots WHERE path <> ?1")?;
     let others = stmt.query_map(params![root_bytes], |r| r.get::<_, Vec<u8>>(0))?;
-    let mine = paths::dir_prefix(root);
+    // whatever the Unicode form of their names (a Mac drive's folder typed on another system)
+    let mine = crate::names::nfc_path(&paths::dir_prefix(root)).into_owned();
     for other in others {
         let other = other?;
         let theirs = paths::dir_prefix(&paths::from_bytes(&other));
+        let theirs = crate::names::nfc_path(&theirs);
         if mine.starts_with(&theirs) || theirs.starts_with(&mine) {
             bail!(
                 "{} overlaps the already indexed {}; index each drive or top-level folder once, without nesting",
