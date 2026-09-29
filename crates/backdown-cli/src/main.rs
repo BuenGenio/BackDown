@@ -159,7 +159,8 @@ enum Cmd {
         /// Port to listen on
         #[arg(long, default_value_t = 8787)]
         port: u16,
-        /// Address to bind (default 127.0.0.1; e.g. a Tailscale IP to reach it over your tailnet)
+        /// Also listen on this address (e.g. this computer's Tailscale IP) so other devices can look;
+        /// from there BackDown only shows, and changes need this computer. 127.0.0.1 always listens
         #[arg(long, default_value = "127.0.0.1")]
         host: String,
         /// Don't open a browser, just print the link
@@ -177,7 +178,8 @@ enum Cmd {
         /// Port for the web UI (0: any free one)
         #[arg(long, default_value_t = 8787, env = "BACKDOWN_PORT")]
         port: u16,
-        /// Address to bind (default 127.0.0.1; e.g. a Tailscale IP for tailnet access)
+        /// Also listen on this address (e.g. this computer's Tailscale IP) so other devices can look;
+        /// from there BackDown only shows, and changes need this computer. 127.0.0.1 always listens
         #[arg(long, default_value = "127.0.0.1")]
         host: String,
         /// Rescan each drive this often (e.g. 12h, 1d; `never` to scan only on request or when a
@@ -471,7 +473,8 @@ enum ServiceCmd {
         /// Machine-wide service running as the `backdown` user (needs sudo)
         #[arg(long)]
         system: bool,
-        /// Address the service binds (default 127.0.0.1; e.g. a Tailscale IP for tailnet access)
+        /// Also listen on this address (e.g. this computer's Tailscale IP) so other devices can look;
+        /// from there BackDown only shows, and changes need this computer. 127.0.0.1 always listens
         #[arg(long, default_value = "127.0.0.1")]
         host: String,
         /// Port the service binds

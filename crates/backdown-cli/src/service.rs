@@ -189,6 +189,11 @@ pub fn install(system: bool, host: &str, port: u16, start: bool, print: bool) ->
             exe.display()
         );
     }
+    if !args.is_empty() && (cfg!(target_os = "macos") || cfg!(windows)) {
+        eprintln!(
+            "note: --host and --port apply to the Linux service for now; the service here listens on 127.0.0.1:8787 (run `backdown daemon{args}` yourself to use them)"
+        );
+    }
     if cfg!(target_os = "macos") {
         return launchd::install(&exe, system, start, print);
     }
