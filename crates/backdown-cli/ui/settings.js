@@ -244,7 +244,7 @@ function updatesSection() {
         <option value="stable"${cfg.update_channel === 'stable' ? ' selected' : ''}>Releases only</option>
         <option value="preview"${cfg.update_channel === 'preview' ? ' selected' : ''}>Previews too</option></select></label>
     <label class="chk set-chk"><input type="checkbox" id="set-upd-auto"${cfg.update_check ? ' checked' : ''}> Look for updates once a day</label>
-    <p class="note">BackDown asks GitHub's public list of BackDown releases; nothing about you, your drives or your files is sent. Downloads are checked against the release's SHA-256 sums before they're installed.</p>`;
+    <p class="note">Off unless you turn it on: BackDown makes no network requests by default. When it looks (or when you press Check now), it asks GitHub's public list of BackDown releases; nothing about you, your drives or your files is sent. Downloads are checked against the release's SHA-256 sums before they're installed.</p>`;
 }
 
 function scanningSection() {

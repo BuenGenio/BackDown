@@ -34,7 +34,8 @@ pub struct Settings {
     pub hash_jobs: usize,
     /// the hashing after each scan also retries files it couldn't read before
     pub hash_retry_errors: bool,
-    /// ask GitHub once a day whether a newer BackDown is out
+    /// ask GitHub once a day whether a newer BackDown is out. Off unless turned on: the local
+    /// edition makes no network requests by default (the site's privacy promise)
     pub update_check: bool,
     /// "stable" or "preview"; unset: previews while this is a preview, releases otherwise
     pub update_channel: Option<String>,
@@ -48,7 +49,7 @@ impl Default for Settings {
             rescan_every: "24h".into(),
             hash_jobs: 1,
             hash_retry_errors: false,
-            update_check: true,
+            update_check: false,
             update_channel: None,
             junk_names: Vec::new(),
         }
@@ -571,7 +572,7 @@ mod tests {
         let s: Settings = serde_json::from_str(r#"{"hash_jobs": 3}"#).unwrap();
         assert_eq!(s.hash_jobs, 3);
         assert_eq!(s.rescan_every, "24h");
-        assert!(s.update_check);
+        assert!(!s.update_check, "no network requests unless asked for");
         let back: Settings = serde_json::from_value(serde_json::to_value(&s).unwrap()).unwrap();
         assert_eq!(back, s);
     }
