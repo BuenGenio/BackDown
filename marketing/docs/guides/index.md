@@ -1,11 +1,9 @@
 ---
 title: Guides
-description: Step by step, in the terminal and in the browser: free up a drive, file old drives into one archive, keep mirrors, rescue a failing drive, browse without restoring.
+description: Step by step, in the app and in the terminal: free up a drive, file old drives into one archive, merge mailboxes, keep mirrors, use several machines, watch drive health, rescue a failing drive, recover deleted files, browse without restoring.
 order: 0
 ---
 
-Each guide takes one job from start to finish, with the commands to run and what the browser shows. They assume you've [installed BackDown and indexed your drives](/docs/getting-started/).
-
-Most of what the guides describe is built and comes with the next preview; those guides and sections are marked **next preview**. Today's download (v0.2.0-alpha.4) has indexing, hashing, duplicates, `check`, the daemon and the browser with its time slider and viewers.
+Each guide takes one job from start to finish, with what the app shows and the commands to run. They assume you've [installed BackDown and indexed your drives](/docs/getting-started/).
 
 <!-- cards -->

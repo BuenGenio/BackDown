@@ -2,7 +2,7 @@
 title: backdown rescue
 nav: rescue
 description: Get files back from a failing, formatted or emptied drive or card (only reads it).
-order: 21
+order: 26
 preview: yes
 ---
 
@@ -95,7 +95,7 @@ All of them also take the [global options](/docs/cli/#global-options) `--db` and
 
 ## Good to know
 
-Rescue never opens the index, so `sudo backdown rescue …` is safe to run; what it writes is handed back to the user who ran sudo. It only reads the source, and refuses to write the image or found files onto the drive being rescued (or, for an image, onto another partition of the same drive unless `--same-drive`). Exits 2 when an image is incomplete or nothing was found.
+Rescue never opens the index, so `sudo backdown rescue …` is safe to run; what it writes is handed back to the user who ran sudo. It only reads the source, and refuses to write the image or found files onto the drive being rescued (or, for an image, onto another partition of the same drive unless `--same-drive`). Exits 2 when an image is incomplete or nothing was found. Browsing a found partition's files, recovering deleted files with their names (FAT, exFAT, NTFS) and copying files out are in the browser's Rescue view, not in this command.
 
 ## Examples
 
@@ -110,3 +110,4 @@ sudo backdown rescue partitions /dev/sdc
 ## See also
 
 - [Rescue a failing drive](/docs/guides/rescue/)
+- [Recover deleted files](/docs/guides/recover-deleted-files/)

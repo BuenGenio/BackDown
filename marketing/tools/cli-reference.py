@@ -45,6 +45,13 @@ ARGS = {
     ('mirror remove', '<ID>'): 'A mirror’s number from `backdown mirror list`.',
     ('mirror add', '<FOLDER>'): 'The folder to keep copied, usually part of the archive.',
     ('mirror add', '<MIRROR>'): 'Where the copy goes: a folder on another drive. Neither folder may be inside the other.',
+    ('dedup', '<FOLDER>'): 'The folder to tidy, usually the archive. Only files inside it, on the same drive, are linked.',
+    ('mail merge', '<SOURCES>...'): 'The copies of the mailbox: Maildirs, mbox files, Thunderbird account folders, or whole mail stores '
+                                   '(folders of Maildirs), in any order. They are only read.',
+    ('mail export', '<MAILDIR>'): 'The Maildir folder to export (its own messages, not its subfolders).',
+    ('remote sync', '[NAME]'): 'A machine’s name from `backdown remote list`. Without it, every machine.',
+    ('remote test', '<NAME>'): 'A machine’s name from `backdown remote list`.',
+    ('remote remove', '<NAME>'): 'A machine’s name from `backdown remote list`.',
 }
 
 # options clap has no help text for
@@ -65,14 +72,16 @@ EXAMPLES = {
               'backdown check /media/old-drive && echo "safe to wipe"'],
     'volumes': ['backdown volumes', 'backdown volumes --json'],
     'scans': ['backdown scans'],
-    'serve': ['backdown serve', '# another port, and just print the link', 'backdown serve --port 8788 --no-open'],
+    'serve': ['backdown serve', '# another port, and just print the link', 'backdown serve --port 8788 --no-open',
+              '# also look from your other devices, at this computer’s Tailscale address', 'backdown serve --host 100.x.y.z'],
     'status': ['backdown status', 'backdown status --json'],
     'daemon': ['# usually started by `backdown service install`; by hand:', 'backdown daemon',
                'backdown daemon --rescan-every 12h', '# scan only when asked, or when a drive comes back',
                'backdown daemon --rescan-every never'],
     'open': ['backdown open'],
     'service': ['backdown service install', 'backdown service status', '# see what it would install first',
-                'backdown service install --print', '# machine-wide, on Linux (NAS, server)',
+                'backdown service install --print', '# Linux: also look from your other devices over Tailscale',
+                'backdown service install --host 100.x.y.z', '# machine-wide, on Linux (NAS, server)',
                 'sudo backdown service install --system', 'backdown service uninstall'],
     'health': ['backdown health', '# in a script: 2 = a connected drive is failing',
                'backdown health --json > health.json'],
@@ -96,13 +105,43 @@ EXAMPLES = {
              '# move what exists only there first, then wipe',
              'backdown wipe /media/old-drive --move-to /media/archive/Unsorted --go --confirm "old-drive"'],
     'license': ['backdown license add BD1.eyJ2Ijox…', '# or from a file or the clipboard, on stdin',
-                'backdown license add - < licence.txt', 'backdown license show'],
+                'backdown license add - < licence.txt', 'backdown license show',
+                '# what is free, what is Pro, and what this copy may use', 'backdown license features'],
+    'app': ['backdown app', '# only make sure the background service runs (for starting at login)', 'backdown app --no-window',
+            '# a particular Chromium-family browser', 'backdown app --browser /usr/bin/chromium'],
+    'desktop': ['backdown desktop install', '# Linux and Windows: also start the background service when you log in',
+                'backdown desktop install --autostart', 'backdown desktop uninstall'],
+    'update': ['# is there a newer version? (exits 10 when there is)', 'backdown update --check',
+               '# download it, check it against SHA256SUMS.txt and install it', 'backdown update',
+               '# put back the version the last update replaced', 'backdown update --rollback'],
+    'mount': ['# a partition `backdown volumes` calls mountable', 'backdown mount /dev/sdb1',
+              '# a disk image: attached read-only, and what is on it mounted', 'backdown mount /media/archive/Images/old-laptop.img',
+              '# what BackDown has mounted', 'backdown mount'],
+    'unmount': ['backdown unmount /dev/sdb1', 'backdown unmount /media/archive/Images/old-laptop.img'],
+    'remote': ['backdown remote add nas ssh://you@nas.example.org', '# BackDown isn\'t on the PATH ssh sessions get there',
+               'backdown remote add office ssh://office-pc --backdown /opt/backdown/backdown',
+               'backdown remote test nas', 'backdown remote sync', 'backdown remote list',
+               '# copies there count for 14 days after they were last confirmed there',
+               'backdown remote settings --proof-days 14', 'backdown remote remove nas'],
+    'dedup': ['# what would be linked (changes nothing)', 'backdown dedup /media/archive/Archive',
+              '# on btrfs, XFS or APFS: separate files that share their blocks',
+              'backdown dedup /media/archive/Archive --link clone --go'],
+    'mail': ['# what the merge would be (writes nothing)',
+             'backdown mail merge /media/old-drive/Mail/Inbox /media/laptop-2012/Mail/Inbox --to /media/archive/Mail/merged --dry-run',
+             'backdown mail merge /media/old-drive/Mail/Inbox /media/laptop-2012/Mail/Inbox --to /media/archive/Mail/merged',
+             'backdown mail export /media/archive/Mail/merged --mbox /media/archive/Mail/inbox.mbox'],
 }
 
 NOTES = {
     'index': 'A drive that is suddenly empty although its last scan held files (usually an unplugged drive’s leftover '
              'mount point) is refused and nothing is recorded; pass `--allow-empty` if it really was emptied. Symbolic '
-             'links are not followed. When a daemon is running, the scan is handed to it and it hashes the new files next.',
+             'links are not followed. When a daemon is running, the scan is handed to it and it hashes the new files next. '
+             'With `--method auto`, a rescan reads the drive’s change log where there is one (the USN journal of NTFS '
+             'drives on Windows, the change history of APFS and HFS+ drives on macOS), or NTFS’s file table (on Windows as '
+             'administrator, on Linux for ntfs-3g mounts whose device your account can read), and walks every folder '
+             'whenever either can’t vouch for every file, and anyway every tenth scan or after 30 days (Settings > '
+             'Scanning). Linux keeps no change log for drives. Each drive’s line says how it was scanned and, for a walk, '
+             'why. `--method journal` or `table` stops with the reason instead of walking.',
     'hash': 'Hashes only what could be a duplicate: a file whose size no other file shares is never read. Then a sample '
             '(the first, middle and last 64 KiB) and, for files whose samples still match, the full SHA-256. Files on '
             'drives that aren’t connected wait for them. See [Hashes and proof](/docs/concepts/#hashes-and-proof).',
@@ -112,24 +151,39 @@ NOTES = {
              'the verdict is about the index. `--list` lists the largest 20,000 such files. Empty files don’t count '
              'against a drive.',
     'volumes': 'Reads sysfs, udev and mountinfo on Linux, `diskutil` on macOS and the storage cmdlets on Windows. It never '
-               'mounts or writes anything, and marks the volumes an existing index covers.',
-    'serve': 'The browser listens on 127.0.0.1 only and prints a private link with a one-time token. It only reads: '
-             'copying, wiping, rescues and rescans need the daemon (`backdown service install`, then `backdown open`).',
-    'daemon': 'One job at a time (scan, hash, recognise, copy, mirror, wipe), so the index has a single writer and each '
-              'drive a single reader; rescues and drive-health readings run beside them. Every scan is followed by '
-              'hashing, and recognition when something changed. On Linux and macOS the CLI talks to it through a '
-              'socket in your runtime folder; on Windows, commands use the index directly.',
+               'mounts or writes anything, says what BackDown can do with each partition (mountable, mounted, system, '
+               'encrypted, part of a volume group, swap, empty), and marks the volumes an existing index covers.',
+    'serve': 'The browser listens on 127.0.0.1 and prints a private link with a one-time token. It only reads: copying, '
+             'wiping, rescues and rescans need the background service (`backdown app`, or `backdown service install` '
+             'then `backdown open`). `--host ADDRESS` also listens on that address, a Tailscale address such as '
+             '100.x.y.z say, and prints the link to use from your other devices. From anywhere but this computer, '
+             'BackDown only shows what’s there: nothing can be wiped, copied, rescued, mounted, opened or changed, and '
+             'the link’s token is still needed. A wildcard such as 0.0.0.0 listens on every address, 127.0.0.1 '
+             'included.',
+    'daemon': 'One job at a time (scan, hash, recognise, copy, mirror, wipe, tidy, mail merge), so the index has a single '
+              'writer and each drive a single reader; rescues and syncs with other machines run beside them, and drive '
+              'health is read every six hours. Every scan is followed by hashing, and recognition when something changed. '
+              'Without `--rescan-every`, the interval is the one in Settings. `--host` works as for `serve`: the browser '
+              'stays on 127.0.0.1 too, and from other devices it only shows and queues rescans (the link is '
+              '`http://ADDRESS:PORT/?t=TOKEN`, with the token from `ui.json` in the data folder). On Linux and macOS the '
+              'CLI talks to it through a socket in your runtime folder; on Windows, commands use the index directly.',
     'service': 'On Linux, a systemd user service that runs as you; with `--system`, a machine-wide service that runs '
                'as a `backdown` user that can read every file and write none, with no network beyond this machine '
-               '(add people to the `backdown` group to let them use it). On macOS {preview}, a LaunchAgent that runs while '
-               'you\'re logged in (its log is in `~/Library/Logs/BackDown`). On Windows {preview}, a scheduled task "BackDown" '
-               'that starts it, hidden, when you log on. `--system` is Linux-only. Uninstalling keeps the index.',
-    'health': 'Reads each drive\'s own health reports (SMART) without administrator rights and without waking a drive '
-              'that has spun down: through udisks2 (and `smartctl` where it\'s installed and allowed) on Linux, '
-              '`diskutil` (and `smartctl`) on macOS, and the storage cmdlets on Windows. Each reading is kept in the '
-              'index under the drive\'s serial number, so its history follows it from port to port. When the daemon '
-              'runs, it reads every drive every six hours and when one appears, and `health` asks it for its latest '
-              'readings. Exits 2 when a connected drive is failing.',
+               '(add people to the `backdown` group to let them use it). On macOS, a LaunchAgent '
+               '(`~/Library/LaunchAgents/io.backdown.daemon.plist`) that runs while you\'re logged in; its log is in '
+               '`~/Library/Logs/BackDown`. On Windows, a scheduled task "BackDown" that starts it, without a window and '
+               'with your normal rights, when you log on. `--system` is Linux-only. `--host` and `--port` go into the '
+               'Linux unit (see `daemon`); systemd keeps the machine-wide service off the network whatever they say, and '
+               'on macOS and Windows they aren\'t passed to the service yet (run `backdown daemon --host …` instead). '
+               '`status` exits 3 when the service isn\'t running. Uninstalling keeps the index.',
+    'health': 'Reads each drive\'s own health reports (SMART) as you, without administrator rights: through udisks '
+              '(and `smartctl` where your account may use it) on Linux, `diskutil` (and `smartctl`, if installed) on '
+              'macOS, and the storage cmdlets on Windows, which share error counters only with an administrator. '
+              '`smartctl` is asked not to wake a drive that has spun down. What can\'t be read is noted, with the '
+              'command that would read it. Readings are kept in the index under the drive\'s serial number, so its '
+              'history follows it from port to port. When the daemon runs (Linux and macOS), `health` has it read '
+              'every drive now; it also reads them every six hours, when a drive appears and when an indexed drive '
+              'comes back. No self-tests are run. Exits 2 when a connected drive is failing.',
     'entities': 'Kinds: `mail-store`, `maildir`, `mdbox`, `thunderbird`, `nextcloud`, `nextcloud-server`, `timemachine`, '
                 '`ios-backup`, `android-backup`, `system`, `home-mac`, `home-linux`, `home-windows`, `website`, `git`, '
                 '`sql-dump`, `disk-image`, `photos`, `music`, `videos`, `export`, `downloads`, `recovery`. Reading where '
@@ -138,15 +192,22 @@ NOTES = {
     'report': 'The report reads the index as it is; run `backdown hash` (or `check`/`dupes`) first so every duplicate '
               'is counted.',
     'plan': 'A plan only proposes. The archive’s own drive is never a source. Nothing is copied until `backdown apply '
-            'ID --go`, and nothing is ever deleted.',
+            'ID --go`, and nothing is ever deleted. Mailboxes that are at least 90% the same as another of the same '
+            'origin are filed once, with the other’s extra files beside them; `--merge-mail` merges them by Message-ID '
+            'instead.',
     'apply': 'Every copy is written beside its destination under a temporary name, read back and compared before it '
              'takes its name. An existing destination is never overwritten: if it differs, it’s reported as a conflict. '
-             'Runs can be interrupted and resumed. Exits 2 when there were conflicts or failures. With a daemon '
-             'running, `--go` is handed to it, and it indexes the archive afterwards.',
+             'Runs can be interrupted and resumed. Copies are clones or kernel copies where the drives allow, and are '
+             'read back either way. A name the archive’s drive would take for another, or can’t hold, is copied under '
+             'another name (`photo (2).jpg`) and journaled; extended attributes (macOS) and alternate data streams '
+             '(Windows) are copied, and what couldn’t be kept is listed. Exits 2 when there were conflicts or failures. '
+             'With a daemon running, `--go` is handed to it, and it indexes the archive afterwards.',
     'rescue': 'Rescue never opens the index, so `sudo backdown rescue …` is safe to run; what it writes is handed back '
               'to the user who ran sudo. It only reads the source, and refuses to write the image or found files onto '
               'the drive being rescued (or, for an image, onto another partition of the same drive unless '
-              '`--same-drive`). Exits 2 when an image is incomplete or nothing was found.',
+              '`--same-drive`). Exits 2 when an image is incomplete or nothing was found. Browsing a found partition’s '
+              'files, recovering deleted files with their names (FAT, exFAT, NTFS) and copying files out are in the '
+              'browser’s Rescue view, not in this command.',
     'mirror': 'A sync never deletes: when a file changed, the mirror’s old copy is moved to `.backdown-versions/` in '
               'the mirror first, and files that exist only on the mirror are kept and counted. The daemon syncs each '
               'mirror daily and re-reads a sample on its schedule, whenever both drives are connected.',
@@ -154,49 +215,114 @@ NOTES = {
             'not on an indexed drive. Each file is re-read before it’s deleted, and so is its copy outside the '
             'selection; `--trust-index` checks only that the copy is still there as last scanned. Changed, new or '
             'unreadable files are left alone. Every deletion is journaled with its proof. Folders the wipe empties '
-            'are removed (a drive’s own top folder stays).',
+            'are removed (a drive’s own top folder stays). A copy only on another machine (`backdown remote`) counts '
+            'when that machine confirmed it within the proof window, and is read again there just before the deletion. '
+            '`--move-to` keeps names as they are, and leaves a file in place if its extended attributes or alternate '
+            'data streams couldn’t be kept on the copy.',
     'license': 'The key is checked offline, on this machine, and kept in your BackDown data folder. `show` exits 1 when '
-               'there’s no licence.',
+               'there’s no licence. `features` lists which features are free and which need Pro; a pre-release version, '
+               'such as a beta, unlocks everything.',
+    'app': 'Finds the running background service (yours, or on Linux the machine-wide one) or starts one: the installed '
+           'service if there is one, else a daemon of its own, logging to `daemon.log` in your data folder. The window is '
+           'Chrome, Chromium, Edge or Brave in app mode, with a profile of its own (`app-window` in your data folder) '
+           'that remembers its size and place; without one, a tab in your default browser. It opens with a one-time code, '
+           'so the session token never goes on a command line. If BackDown’s window is open already, it’s brought forward.',
+    'desktop': 'Linux: `io.backdown.BackDown.desktop` and its icons in `~/.local/share` (with `--autostart`, an autostart '
+               'entry that runs `backdown app --no-window`). macOS: `~/Applications/BackDown.app`, a small bundle that runs '
+               'this program (with `--autostart`, the LaunchAgent `backdown service install` makes). Windows: a Start menu '
+               'entry (with `--autostart`, the scheduled task `backdown service install` makes). `uninstall` removes '
+               'what `install` added and leaves the background service; `backdown service uninstall` removes that.',
+    'update': 'Asks GitHub’s public list of BackDown releases, only when you run it (or when Settings says to look once a '
+              'day); the answer is kept for a day. Installing downloads this computer’s archive and `SHA256SUMS.txt`, '
+              'refuses unless the SHA-256 matches, checks the new program runs, keeps the old one in your data folder, '
+              'swaps them and restarts the background service; if the new one doesn’t start, the old one is put back. '
+              'A copy installed by a package manager, an AppImage or Homebrew is updated that way instead, and it says so.',
+    'mount': 'Always read-only, and as you, through the system’s own tools: `udisksctl` on Linux (it checks the mount '
+             'really is read-only), `diskutil` and `hdiutil` on macOS, `Mount-DiskImage` on Windows. It refuses the '
+             'running system’s partitions, locked encrypted volumes, LVM and RAID members, swap and empty partitions. '
+             'When the system wants an administrator’s password, it shows the command to run instead. What it mounted '
+             'is kept in `mounts.json` in your data folder.',
+    'unmount': 'Only what `backdown mount` (or the browser’s Mount read-only) mounted; detaching an image unmounts '
+               'everything mounted from it.',
+    'remote': 'The other machine needs BackDown installed and an index. BackDown runs your system’s `ssh` as you, with '
+              '`BatchMode=yes` (never a password) and your known hosts, and starts `backdown serve-stdio` there, which '
+              'only reads its index and hashes a file only when asked; nothing listens on the network, and no file’s '
+              'contents are sent. A copy there counts only by SHA-256, and only when confirmed there within the proof '
+              'window (7 days unless changed). The background service syncs each machine every 6 hours. `add`, `test` '
+              'and `sync` need Pro (unlocked in pre-release versions); `list` and `remove` don’t. Windows machines '
+              'can’t be the other end yet.',
+    'dedup': 'Only files the index has hashed and that are identical, on the same drive, inside FOLDER; files whose '
+             'permissions, owner or extended attributes differ (and, for hardlinks, their modification time), or that '
+             'also have names outside FOLDER, are left alone. Clones need btrfs, XFS or APFS. Each pair is read again '
+             'first; every link is journaled, and running it again carries on. It refuses the running system, whole '
+             'home folders and BackDown’s index, and isn’t available on Windows yet. Index the drive afterwards (the '
+             'daemon does). Exits 2 when some files failed.',
+    'mail': 'Messages are matched by Message-ID and body (or, without a Message-ID, by headers and body); each lands in '
+            'the folder the newest copy has it in, with read, replied and flagged marks combined. The destination must be '
+            'new or empty; it becomes a Maildir++ mailbox. Every message is written, read back and journaled; an '
+            'interrupted merge carries on when run again. Dovecot mdbox and sdbox aren’t read yet. `export` never '
+            'overwrites the mbox file. `merge` exits 2 when some messages failed.',
 }
 
 SEE_ALSO = {
-    'index': [('Getting started', '/docs/getting-started/'), ('Scans and the time slider', '/docs/concepts/#scans-and-the-time-slider')],
+    'index': [('Getting started', '/docs/getting-started/'), ('Scans and the time slider', '/docs/concepts/#scans-and-the-time-slider'),
+              ('Fast rescans', '/docs/concepts/#fast-rescans'), ('When a rescan walks', '/docs/troubleshooting/#when-a-rescan-walks')],
     'hash': [('Hashes and proof', '/docs/concepts/#hashes-and-proof')],
     'dupes': [('Free up a drive', '/docs/guides/free-up-a-drive/')],
     'check': [('What “safe to wipe” means', '/docs/concepts/#what-safe-to-wipe-means'), ('Free up a drive', '/docs/guides/free-up-a-drive/')],
     'import-legacy': [('Scans and the time slider', '/docs/concepts/#scans-and-the-time-slider')],
-    'volumes': [('Troubleshooting: drives not showing up', '/docs/troubleshooting/#a-drive-doesnt-show-up')],
-    'serve': [('Browse without restoring', '/docs/guides/browse-without-restoring/')],
+    'volumes': [('Mounting drives read-only', '/docs/concepts/#mounting-drives-read-only'), ('Troubleshooting: drives not showing up', '/docs/troubleshooting/#a-drive-doesnt-show-up')],
+    'serve': [('Browse without restoring', '/docs/guides/browse-without-restoring/'), ('Look from your other devices', '/docs/guides/browse-without-restoring/#look-from-your-other-devices')],
     'status': [('Where the index lives', '/docs/troubleshooting/#where-the-index-lives')],
-    'daemon': [('The daemon', '/docs/concepts/#the-daemon')],
+    'daemon': [('The background service', '/docs/concepts/#the-daemon'), ('Look from your other devices', '/docs/guides/browse-without-restoring/#look-from-your-other-devices')],
     'open': [('Getting started', '/docs/getting-started/')],
-    'service': [('The daemon', '/docs/concepts/#the-daemon'), ('Settings and licences', '/docs/guides/settings-and-licences/')],
+    'service': [('The background service', '/docs/concepts/#the-daemon'), ('The service on each system', '/docs/guides/settings-and-licences/#the-service-on-each-system')],
     'entities': [('Recognised things and provenance', '/docs/concepts/#recognised-things-and-provenance')],
     'overlaps': [('File your old drives into one archive', '/docs/guides/file-into-an-archive/')],
     'report': [('Getting started', '/docs/getting-started/#produce-a-report')],
-    'plan': [('File your old drives into one archive', '/docs/guides/file-into-an-archive/')],
+    'plan': [('File your old drives into one archive', '/docs/guides/file-into-an-archive/'), ('Merge mailboxes', '/docs/guides/merge-mailboxes/#in-a-filing-plan')],
     'plans': [('File your old drives into one archive', '/docs/guides/file-into-an-archive/')],
     'apply': [('File your old drives into one archive', '/docs/guides/file-into-an-archive/')],
-    'rescue': [('Rescue a failing drive', '/docs/guides/rescue/')],
+    'rescue': [('Rescue a failing drive', '/docs/guides/rescue/'), ('Recover deleted files', '/docs/guides/recover-deleted-files/')],
     'mirror': [('Keep a mirror', '/docs/guides/mirrors/')],
-    'wipe': [('Free up a drive', '/docs/guides/free-up-a-drive/'), ('Principles', '/docs/principles/')],
+    'wipe': [('Free up a drive', '/docs/guides/free-up-a-drive/'), ('Several machines', '/docs/guides/several-machines/'), ('Principles', '/docs/principles/')],
     'license': [('Settings and licences', '/docs/guides/settings-and-licences/')],
-    'health': [('Drive health', '/docs/concepts/#drive-health'), ('Rescue a failing drive', '/docs/guides/rescue/')],
+    'health': [('Drive health', '/docs/guides/drive-health/'), ('Rescue a failing drive', '/docs/guides/rescue/')],
+    'app': [('Getting started', '/docs/getting-started/#open-backdown'), ('Settings, updates and licences', '/docs/guides/settings-and-licences/')],
+    'desktop': [('Getting started', '/docs/getting-started/#install')],
+    'update': [('Updates', '/docs/guides/settings-and-licences/#updates')],
+    'mount': [('Mounting drives read-only', '/docs/concepts/#mounting-drives-read-only'), ('A drive doesn’t show up', '/docs/troubleshooting/#a-drive-doesnt-show-up')],
+    'unmount': [('Mounting drives read-only', '/docs/concepts/#mounting-drives-read-only')],
+    'remote': [('Several machines', '/docs/guides/several-machines/')],
+    'dedup': [('Tidy the archive', '/docs/guides/file-into-an-archive/#tidy-the-archive')],
+    'mail': [('Merge mailboxes', '/docs/guides/merge-mailboxes/')],
 }
 
 EXIT_CODES = '''| Code | Meaning |
 |---|---|
 | `0` | Done. For `check`: safe to wipe. |
-| `1` | Something went wrong; the message says what. `license show`: no licence. |
-| `2` | Finished, with a result to act on: `check` found files that exist nowhere else (or couldn’t be read); `apply`, `wipe`, `mirror sync` or `mirror verify` had conflicts, failures or mismatches; `rescue image` couldn’t read everything; `rescue find` or `rescue partitions` found nothing. |'''
+| `1` | Something went wrong; the message says what. `license show`: no licence. In a release version, a Pro command without a licence. |
+| `2` | Finished, with a result to act on: `check` found files that exist nowhere else (or couldn’t be read); `apply`, `wipe`, `mirror sync`, `mirror verify`, `dedup` or `mail merge` had conflicts, failures or mismatches; `health` found a connected drive failing; `rescue image` couldn’t read everything; `rescue find` or `rescue partitions` found nothing. |
+| `3` | `service status`: the service isn’t running. |
+| `10` | `update --check`: there’s a newer version. |'''
 
-DAEMON = '''When the daemon is running, it owns the index: `index`, `hash`, `dupes`, `check`, `scans`, `status`, `health` and
-`apply --go` are handed to it and you follow its progress in the terminal. Everything else reads the index directly.
+DAEMON = '''When the daemon is running, it owns the index: `index`, `hash`, `dupes`, `check`, `scans`, `status`, `health`,
+`remote sync` and `apply --go` are handed to it and you follow its progress in the terminal; `wipe`, `dedup --go` and
+`mail merge` check first, then hand the work to it. Everything else reads the index directly.
 `--local` makes any command work on the index itself instead. `import-legacy` refuses to write while a daemon is
 running: stop it first. On Windows, commands always use the index directly.'''
 
 ENVIRONMENT = '''`BACKDOWN_DB`
 : The index database, like `--db`.
+
+`BACKDOWN_PORT`
+: The daemon's port for the browser, like `backdown daemon --port`.
+
+`BACKDOWN_BROWSER`
+: The Chromium-family browser `backdown app` uses, like `--browser`.
+
+`BACKDOWN_NO_UPDATE_CHECK`
+: When set, the daemon never looks for updates, whatever Settings says.
 
 `XDG_DATA_HOME`, `XDG_RUNTIME_DIR` (Linux)
 : Where the data folder and the daemon’s socket go: `$XDG_DATA_HOME/backdown` (default `~/.local/share/backdown`) and `$XDG_RUNTIME_DIR/backdown`.

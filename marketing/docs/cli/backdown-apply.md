@@ -2,7 +2,7 @@
 title: backdown apply
 nav: apply
 description: Apply a plan: show what it would do, or with --go copy, verify and journal every file (never deletes anything).
-order: 20
+order: 25
 preview: yes
 ---
 
@@ -30,7 +30,7 @@ Also takes the [global options](/docs/cli/#global-options) `--db` and `--local`.
 
 ## Good to know
 
-Every copy is written beside its destination under a temporary name, read back and compared before it takes its name. An existing destination is never overwritten: if it differs, it's reported as a conflict. Runs can be interrupted and resumed. Exits 2 when there were conflicts or failures. With a daemon running, `--go` is handed to it, and it indexes the archive afterwards.
+Every copy is written beside its destination under a temporary name, read back and compared before it takes its name. An existing destination is never overwritten: if it differs, it's reported as a conflict. Runs can be interrupted and resumed. Copies are clones or kernel copies where the drives allow, and are read back either way. A name the archive's drive would take for another, or can't hold, is copied under another name (`photo (2).jpg`) and journaled; extended attributes (macOS) and alternate data streams (Windows) are copied, and what couldn't be kept is listed. Exits 2 when there were conflicts or failures. With a daemon running, `--go` is handed to it, and it indexes the archive afterwards.
 
 ## Examples
 

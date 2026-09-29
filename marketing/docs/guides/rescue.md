@@ -1,12 +1,8 @@
 ---
 title: Rescue a failing drive
-description: Copy a failing drive or memory card safely, find deleted photos and documents by their contents, and look for lost partitions. BackDown only reads the drive.
-order: 4
-preview: yes
+description: Copy a failing drive or memory card safely, find deleted photos and documents by their contents, and look for lost partitions and the files on them. BackDown only reads the drive.
+order: 7
 ---
-
-> [!PREVIEW]
-> `backdown rescue` and the browser's Rescue view come with the next preview.
 
 Three things can go wrong with a drive or a memory card, and Rescue has an answer for each:
 
@@ -14,14 +10,16 @@ Three things can go wrong with a drive or a memory card, and Rescue has an answe
 |---|---|---|
 | It's failing: clicks, freezes, read errors, very slow | Copy it into an image first, the good areas before the bad | `backdown rescue image` |
 | Files were deleted, or it was formatted | Find photos, videos and documents by what's inside them | `backdown rescue find` |
-| It looks empty, or a partition vanished | Look for file systems the partition table no longer lists | `backdown rescue partitions` |
+| It looks empty, or a partition vanished | Look for file systems the partition table no longer lists, and browse them | `backdown rescue partitions` |
+
+Deleted files can often come back with their names too, from FAT, exFAT and NTFS: [Recover deleted files](/docs/guides/recover-deleted-files/).
 
 Rescue only ever reads the drive. Whatever it saves goes to another drive: it refuses to write the image or the files it finds onto the drive being rescued.
 
 > [!WARNING]
 > If a drive is failing, every read counts. Copy it into an image first, then look for files and partitions in the image, not on the drive.
 
-BackDown can tell you a drive is failing before it stops: `backdown health` and the browser show what each drive reports about itself ([drive health](/docs/concepts/#drive-health)), and a failing drive gets a banner with **Copy it now**, which opens Rescue set up to copy it.
+BackDown can tell you a drive is failing before it stops: `backdown health` and the browser show what each drive reports about itself ([drive health](/docs/guides/drive-health/)), and a failing drive gets a banner with **Copy it now**, which opens Rescue set up to copy it.
 
 ## Which drive is it?
 
@@ -39,6 +37,10 @@ Run it as an administrator (sudo backdown rescue image …), or let your account
 On macOS the command is `sudo chmod o+r /dev/disk4`. On Windows, run the terminal as administrator.
 
 Running Rescue itself with `sudo` is fine too: it never opens BackDown's index, and what it writes is handed back to you rather than left owned by root.
+
+### Allow BackDown to read this drive
+
+On Linux, the Rescue view has a third way: **Allow BackDown to read this drive**. BackDown asks udisks, the system's disk service, to open the drive for it read-only, and the system shows its own password dialog. Nothing of BackDown's runs as root, and the drive can't be changed through what it's given. It lasts until the background service stops; if the dialog is closed or the system refuses, the terminal command above still works. If the drive is in use (mounted, say), udisks may refuse to open it this way.
 
 ## Copy a failing drive into an image
 
@@ -111,18 +113,23 @@ It reads the partition table (MBR, including logical partitions, or GPT, checkin
 1 not in the table. To get files out of one: backdown rescue find /dev/sdc --to <folder> --start <byte> --end <byte>
 ```
 
-It never changes the partition table. To get files out of a lost partition, run `rescue find` on just that range (its start, and its start plus its size), or use "Find files in it" in the browser.
+It never changes the partition table. To get files out of a lost partition:
+
+- In the browser, a FAT, exFAT, ext or NTFS file system that was found gets **Browse files**: its folders and files as they are, read-only, with its deleted files if you ask, and copying out to another drive ([Recover deleted files](/docs/guides/recover-deleted-files/)).
+- For any file system, "Find files in it" in the browser, or `rescue find` on just that range (its start, and its start plus its size), finds files by their contents.
 
 ## In the browser
 
 The **Rescue** view asks three questions:
 
-1. **Which drive or card?** Every disk and partition, or an image file. It checks BackDown can read it and, if it can't, shows the permission command with a Copy button and "Check again".
+1. **Which drive or card?** Every disk and partition, or an image file. It checks BackDown can read it and, if it can't, shows the permission command with a Copy button and "Check again" (and, on Linux, **Allow BackDown to read this drive**).
 2. **What happened?** "It's failing", "Files were deleted, or it was formatted", or "It looks empty, or a partition vanished".
 3. **Where should it go?** A folder on another drive (it suggests `BackDown Rescue/<drive> <date>` on one of your indexed drives), and what to look for.
 
-Rescues run in the daemon beside scans and hashing, show their progress (a copy shows a map of what's been read), can be stopped and resumed, and stay on the list afterwards. From a finished copy you can go straight to "Find files in the copy" or "Look for partitions in the copy". Rescues need the daemon; the machine-wide service doesn't do them, so run `backdown rescue` from your own account.
+Rescues run in the background service beside scans and hashing, show their progress (a copy shows a map of what's been read), can be stopped and resumed, and stay on the list afterwards. From a finished copy you can go straight to "Find files in the copy" or "Look for partitions in the copy", and from a partition that was found to "Browse files" or "Find files in it". Rescues need the background service; the machine-wide service doesn't do them, so run `backdown rescue` from your own account.
+
+A copy that's an image file on an indexed drive also opens in the browser, where the files on its FAT, exFAT, ext and NTFS partitions can be browsed; for other file systems (XFS, btrfs, HFS+, APFS), the image can be mounted read-only by the system instead ([disk images](/docs/guides/browse-without-restoring/#disk-images)).
 
 ## Not yet
 
-Rescue doesn't reassemble fragmented files or open a lost partition's file system directly. A copy that's an image file on an indexed drive can be opened in the browser, where the files on its FAT, exFAT, ext and NTFS partitions can be browsed ([disk images](/docs/guides/browse-without-restoring/#disk-images)).
+Finding files by content can't put a file stored in scattered pieces back together. Partitions Rescue finds with file systems BackDown doesn't read itself (XFS, btrfs, HFS+, APFS and others) can only be searched by content, not browsed or mounted. Browsing, undeleting and copying out are in the browser only, not in `backdown rescue`.

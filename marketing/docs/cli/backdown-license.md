@@ -2,7 +2,7 @@
 title: backdown license
 nav: license
 description: Your BackDown Pro licence: add a key, or show the one you have.
-order: 24
+order: 29
 preview: yes
 ---
 
@@ -37,11 +37,19 @@ Show the licence you have (exits 1 without one)
 backdown license show [OPTIONS]
 ```
 
+## backdown license features {#features}
+
+What's free, what's Pro, and what this copy may use.
+
+```text
+backdown license features [OPTIONS]
+```
+
 All of them also take the [global options](/docs/cli/#global-options) `--db` and `--local`.
 
 ## Good to know
 
-The key is checked offline, on this machine, and kept in your BackDown data folder. `show` exits 1 when there's no licence.
+The key is checked offline, on this machine, and kept in your BackDown data folder. `show` exits 1 when there's no licence. `features` lists which features are free and which need Pro; a pre-release version, such as a beta, unlocks everything.
 
 ## Examples
 
@@ -50,6 +58,8 @@ backdown license add BD1.eyJ2Ijox…
 # or from a file or the clipboard, on stdin
 backdown license add - < licence.txt
 backdown license show
+# what is free, what is Pro, and what this copy may use
+backdown license features
 ```
 
 ## See also

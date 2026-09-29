@@ -25,7 +25,7 @@ Also takes the [global options](/docs/cli/#global-options) `--db` and `--local`.
 
 ## Good to know
 
-Reads sysfs, udev and mountinfo on Linux, `diskutil` on macOS and the storage cmdlets on Windows. It never mounts or writes anything, and marks the volumes an existing index covers.
+Reads sysfs, udev and mountinfo on Linux, `diskutil` on macOS and the storage cmdlets on Windows. It never mounts or writes anything, says what BackDown can do with each partition (mountable, mounted, system, encrypted, part of a volume group, swap, empty), and marks the volumes an existing index covers.
 
 ## Examples
 
@@ -36,4 +36,5 @@ backdown volumes --json
 
 ## See also
 
+- [Mounting drives read-only](/docs/concepts/#mounting-drives-read-only)
 - [Troubleshooting: drives not showing up](/docs/troubleshooting/#a-drive-doesnt-show-up)

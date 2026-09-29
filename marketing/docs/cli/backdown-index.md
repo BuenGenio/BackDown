@@ -25,11 +25,14 @@ backdown index [OPTIONS] <PATHS>...
 `--allow-empty`
 : Record PATH even if it's now empty although it held files (normally refused: an empty mount point usually means the drive is unplugged).
 
+`--method <METHOD>` {preview}
+: How to find what's there: auto (the drive's change log if it's intact, else NTFS's file table where the device can be read, else a walk; and a walk every so often), walk (every folder), journal or table (that way or fail, saying why). Default: `auto`. One of `auto`, `walk`, `journal`, `table`.
+
 Also takes the [global options](/docs/cli/#global-options) `--db` and `--local`.
 
 ## Good to know
 
-A drive that is suddenly empty although its last scan held files (usually an unplugged drive's leftover mount point) is refused and nothing is recorded; pass `--allow-empty` if it really was emptied. Symbolic links are not followed. When a daemon is running, the scan is handed to it and it hashes the new files next.
+A drive that is suddenly empty although its last scan held files (usually an unplugged drive's leftover mount point) is refused and nothing is recorded; pass `--allow-empty` if it really was emptied. Symbolic links are not followed. When a daemon is running, the scan is handed to it and it hashes the new files next. With `--method auto`, a rescan reads the drive's change log where there is one (the USN journal of NTFS drives on Windows, the change history of APFS and HFS+ drives on macOS), or NTFS's file table (on Windows as administrator, on Linux for ntfs-3g mounts whose device your account can read), and walks every folder whenever either can't vouch for every file, and anyway every tenth scan or after 30 days (Settings > Scanning). Linux keeps no change log for drives. Each drive's line says how it was scanned and, for a walk, why. `--method journal` or `table` stops with the reason instead of walking.
 
 ## Examples
 
@@ -45,3 +48,5 @@ backdown index E:\ F:\Archive
 
 - [Getting started](/docs/getting-started/)
 - [Scans and the time slider](/docs/concepts/#scans-and-the-time-slider)
+- [Fast rescans](/docs/concepts/#fast-rescans)
+- [When a rescan walks](/docs/troubleshooting/#when-a-rescan-walks)

@@ -72,7 +72,7 @@ DOCS_URL = '/docs/'
 DOC_GROUPS = [('start', 'Start here', None), ('guides', 'Guides', 'guides'), ('cli', 'CLI reference', 'cli'), ('help', 'Help', None)]
 # English-only social cards, rendered by screenshots/assets.mjs from `build.py --og-extra`: file -> (headline, text)
 OG_EXTRA = {
-    'en-docs': ('The BackDown <em>docs.</em>', 'Getting started, how it works, step-by-step guides and every command, for the BackDown command-line preview.'),
+    'en-docs': ('The BackDown <em>docs.</em>', 'Getting started, how BackDown works, step-by-step guides for the app, and every command.'),
     'en-press': ('Press <em>kit.</em>', 'What BackDown is in 25, 50 and 100 words, the facts, logos and product screenshots, in one download.'),
 }
 PRESS_ZIP = 'press/backdown-press-kit.zip'
@@ -779,6 +779,19 @@ BOILERPLATE = {
          "every file has an identical copy elsewhere. BackDown runs on your own computer, with no account and no "
          "telemetry. A free command-line preview is out now for Linux, macOS and Windows.",
 }
+# the 100 words' last sentence once the latest release is past the 0.x command-line previews (same word count)
+BOILERPLATE_APP = ("A free command-line preview is out now for Linux, macOS and Windows.",
+                   "Its free beta, desktop app included, runs on Linux, macOS and Windows.")
+
+
+def cli_preview(version):
+    """the 0.x releases were command-line previews; 1.0 and its betas have the desktop app"""
+    return version.lstrip('v').startswith('0.')
+
+
+def boilerplate(version):
+    old, new = BOILERPLATE_APP
+    return BOILERPLATE if cli_preview(version) else {n: w.replace(old, new) for n, w in BOILERPLATE.items()}
 
 
 def press_logos():
@@ -814,7 +827,9 @@ def human_size(n):
 
 def press_facts(t, cfg, dl, status, latest_version, latest_date):
     platforms = [p for p in dl['platforms'] if p['status'] == 'available' and p['files']]
-    plat = '; '.join(f'{p["name"]} ({", ".join(f["label"] for f in p["files"])})' for p in platforms)
+    cli = cli_preview(latest_version)
+    plat = '; '.join(f'{p["name"]} ({", ".join(f["label"] for f in p["files"])})' if cli else f'{p["name"]} ({p["formats"]})'
+                     for p in platforms)
     rows = [
         ('Product', 'BackDown'),
         ('What it is', "Backup software that tells you what's on your drives: what's duplicated, what each folder is, "
@@ -822,11 +837,15 @@ def press_facts(t, cfg, dl, status, latest_version, latest_date):
         ('Website', f'<a href="{SITE}/">backdown.io</a>'),
         ('Started', '2026, as the consolidation of 27 million files and 15 TB on a desk full of old drives. The first public preview came out on 27 September 2026.'),
         ('Status', f'Early access. Latest release: <a href="{esc(dl["releases_url"])}">{esc(latest_version)}</a>, '
-                   f'{human_date(t, latest_date)}, a command-line preview.'),
-        ('Platforms', f'Command line: {esc(plat)}. The desktop app is planned for version 1.0.'),
-        ('Pricing', f'The command-line preview is free. Planned: the core free forever; Pro {t["pricing.pro_amount"]} a month '
+                   f'{human_date(t, latest_date)}, '
+                   + ('a command-line preview.' if cli else 'a public beta of the desktop app and the command line.')),
+        ('Platforms', f'Command line: {esc(plat)}. The desktop app is planned for version 1.0.' if cli else
+                      f'Desktop app and command line: {esc(plat)}. Installers aren\'t signed or notarised yet.'),
+        ('Pricing', ('The command-line preview is free.' if cli else 'The beta is free, with every feature unlocked.')
+                    + f' Planned: the core free forever; Pro {t["pricing.pro_amount"]} a month '
                     f'{t["pricing.pro_per"]}. <a href="/pricing/">Pricing</a>.'),
-        ('Privacy', 'Runs on your own computer. No account, no telemetry: the local edition makes no network requests.'),
+        ('Privacy', 'Runs on your own computer. No account, no telemetry: the local edition makes no network requests unless '
+                    'you ask it to (checking for updates, or reaching your own machines).'),
         ('Website languages', 'English, Spanish, Brazilian Portuguese, German, Polish, Czech, Slovak and Ukrainian.'),
     ]
     if cfg.get('contact_email'):
@@ -835,9 +854,9 @@ def press_facts(t, cfg, dl, status, latest_version, latest_date):
     return rows
 
 
-def press_readme(facts, shots):
+def press_readme(facts, shots, boiler):
     lines = ['BackDown press kit', '==================', '', f'{SITE}/press/', '']
-    for n, words in BOILERPLATE.items():
+    for n, words in boiler.items():
         lines += [f'In {n} words', '-' * len(f'In {n} words'), '', words, '']
     # plain text: a link keeps its address, unless its label already is one
     def plain_links(v):
@@ -860,9 +879,11 @@ def press_readme(facts, shots):
 
 def press_kit(t, cfg, dl, status, latest_version, latest_date):
     """the press page's values, and public/press/backdown-press-kit.zip"""
-    for n, words in BOILERPLATE.items():
-        if len(words.split()) != n:
-            sys.exit(f'press kit: the {n}-word boilerplate has {len(words.split())} words')
+    boiler = boilerplate(latest_version)
+    for variant in (BOILERPLATE, boilerplate('1.0.0')):
+        for n, words in variant.items():
+            if len(words.split()) != n:
+                sys.exit(f'press kit: the {n}-word boilerplate has {len(words.split())} words')
     logos = press_logos()
     facts = press_facts(t, cfg, dl, status, latest_version, latest_date)
     if not cfg.get('contact_email'):
@@ -877,7 +898,7 @@ def press_kit(t, cfg, dl, status, latest_version, latest_date):
             info.compress_type = zipfile.ZIP_DEFLATED if compress else zipfile.ZIP_STORED
             info.external_attr = 0o644 << 16
             z.writestr(info, data)
-        add('README.txt', press_readme(facts, shots))
+        add('README.txt', press_readme(facts, shots, boiler))
         for name, _, _ in LOGOS:
             add(f'logos/{name}.svg', logos[name].read_bytes())
             png = PRESS / 'logos' / f'{name}.png'
@@ -894,7 +915,7 @@ def press_kit(t, cfg, dl, status, latest_version, latest_date):
     print(f'press: {PRESS_ZIP} ({human_size(len(data))})')
 
     boiler = ''.join(f'''   <article class="bp card"><div class="bp-head"><h3>In {n} words</h3><button class="btn btn-ghost sm copy" type="button" data-copy="#bp{n}" hidden>Copy</button></div>
-    <p id="bp{n}">{esc(words)}</p></article>\n''' for n, words in BOILERPLATE.items())
+    <p id="bp{n}">{esc(words)}</p></article>\n''' for n, words in boiler.items())
     facts_html = ''.join(f'<div><dt>{k}</dt><dd>{v}</dd></div>' for k, v in facts)
 
     def logo_card(name, label, bg):

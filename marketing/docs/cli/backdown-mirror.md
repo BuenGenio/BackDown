@@ -2,7 +2,7 @@
 title: backdown mirror
 nav: mirror
 description: Keep a folder (usually part of the archive) copied on another drive, and check the copy now and then.
-order: 22
+order: 27
 preview: yes
 ---
 
