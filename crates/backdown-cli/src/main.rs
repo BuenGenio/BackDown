@@ -6,24 +6,33 @@ use std::process::ExitCode;
 
 use anyhow::{Context, Result};
 use backdown_core::{Db, fmt, hash, index, legacy, report, volumes};
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use serde_json::json;
 
+mod app;
 mod client;
 mod daemon;
+mod desktop;
+mod drives;
 mod filing;
+mod grant;
 mod health;
 mod insight;
 mod license;
 mod locations;
 mod mailbox;
+mod mounting;
 mod notifier;
 mod peek;
 mod remote;
 mod rescuing;
 mod serve;
 mod service;
+mod settings;
 mod sqldump;
+mod tidy;
+mod tiers;
+mod update;
 
 #[derive(Parser)]
 #[command(
@@ -78,7 +87,7 @@ enum Cmd {
     /// Exits 0 when safe, 2 when files must be copied first.
     Check {
         path: PathBuf,
-        /// List every file that has no copy elsewhere
+        /// List the files that have no copy elsewhere (the largest 20,000)
         #[arg(long)]
         list: bool,
         #[arg(long)]
@@ -122,6 +131,19 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// Mount a partition read-only (one `backdown volumes` calls mountable), or attach a disk
+    /// image read-only and mount what's on it; never read-write, and as you: udisks on Linux,
+    /// diskutil and hdiutil on macOS (Windows attaches ISO, VHD and VHDX images). Without a
+    /// target, lists what BackDown has mounted
+    Mount {
+        /// A partition (e.g. /dev/sdb1) or a disk image file
+        target: Option<PathBuf>,
+    },
+    /// Unmount a partition, or detach a disk image, that BackDown mounted (nothing else)
+    Unmount {
+        /// The partition or disk image, as `backdown mount` lists it
+        target: PathBuf,
+    },
     /// Finished scans, oldest first
     Scans {
         #[arg(long)]
@@ -144,13 +166,13 @@ enum Cmd {
     /// Run in the background: rescan drives, hash, serve the web UI. Usually started by
     /// `backdown service install` rather than by hand
     Daemon {
-        /// Port for the web UI on 127.0.0.1
-        #[arg(long, default_value_t = 8787)]
+        /// Port for the web UI on 127.0.0.1 (0: any free one)
+        #[arg(long, default_value_t = 8787, env = "BACKDOWN_PORT")]
         port: u16,
         /// Rescan each drive this often (e.g. 12h, 1d; `never` to scan only on request or when a
-        /// drive comes back)
-        #[arg(long, default_value = "24h")]
-        rescan_every: String,
+        /// drive comes back). Default: as set in Settings (24h unless changed there)
+        #[arg(long)]
+        rescan_every: Option<String>,
         /// Machine-wide service: index in /var/lib/backdown, socket in /run/backdown, shared with
         /// the `backdown` group (set by the system unit)
         #[arg(long)]
@@ -158,7 +180,44 @@ enum Cmd {
     },
     /// Open the running daemon's web UI in your browser
     Open,
-    /// Run the daemon as a service (systemd): install, uninstall or check it
+    /// Open BackDown in a window of its own, starting its background service first if need be
+    /// (what the applications menu, Start menu and BackDown.app run)
+    App {
+        /// Only make sure the background service runs (for starting at login)
+        #[arg(long)]
+        no_window: bool,
+        /// Print the browser command instead of running it
+        #[arg(long)]
+        print: bool,
+        /// A Chromium-family browser to use (default: Chrome, Chromium, Edge or Brave, whichever
+        /// is installed; else your default browser)
+        #[arg(long, env = "BACKDOWN_BROWSER")]
+        browser: Option<PathBuf>,
+    },
+    /// Add BackDown to your applications menu, ~/Applications or the Start menu (or remove it)
+    Desktop {
+        #[command(subcommand)]
+        action: desktop::DesktopCmd,
+    },
+    /// Is there a newer BackDown? Install it (verified against the release's SHA-256 sums)
+    Update {
+        /// Only say whether there is one (exits 10 when there is)
+        #[arg(long)]
+        check: bool,
+        /// Ask GitHub now instead of using today's answer
+        #[arg(long)]
+        refresh: bool,
+        /// Put back the version the last update replaced
+        #[arg(long)]
+        rollback: bool,
+        /// stable or preview (default: as in Settings; previews while this is a preview)
+        #[arg(long)]
+        channel: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Run the daemon as a service (systemd on Linux, a login item on macOS, a task at logon on
+    /// Windows): install, uninstall or check it
     Service {
         #[command(subcommand)]
         action: ServiceCmd,
@@ -213,6 +272,10 @@ enum Cmd {
         /// Print the built-in schema and exit
         #[arg(long)]
         print_schema: bool,
+        /// Merge copies of the same mailbox by Message-ID, instead of filing one and copying the
+        /// other's extra files beside it
+        #[arg(long)]
+        merge_mail: bool,
         #[arg(long)]
         json: bool,
     },
@@ -271,6 +334,59 @@ enum Cmd {
     /// line each, on stdin and stdout
     #[command(hide = true)]
     ServeStdio,
+    /// Tidy an archive: identical files in FOLDER share their storage, as hardlinks or clones.
+    /// Both files are re-read first; every link is journaled. Without --go, only shows what
+    /// would happen
+    Dedup {
+        folder: PathBuf,
+        /// hard: one file with several names (any filesystem; editing one edits them all).
+        /// clone: separate files sharing blocks until one changes (btrfs, XFS, APFS)
+        #[arg(long, default_value = "hard")]
+        link: String,
+        /// Leave smaller files alone (e.g. 4K, 1M)
+        #[arg(long, default_value = "4K")]
+        min_size: String,
+        /// Only show what would happen (the default)
+        #[arg(long, conflicts_with = "go")]
+        dry_run: bool,
+        /// Link them
+        #[arg(long)]
+        go: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Mailboxes: merge copies of one into a single Maildir, or export a Maildir folder as mbox
+    Mail {
+        #[command(subcommand)]
+        action: MailCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum MailCmd {
+    /// Merge copies of the same mailbox taken at different times (Maildir, mbox files, a
+    /// Thunderbird folder, or whole mail stores, mailbox by mailbox) into one Maildir: every
+    /// message once by Message-ID, in the folder the newest copy has it in, flags combined.
+    /// The sources are only read
+    Merge {
+        #[arg(required = true)]
+        sources: Vec<PathBuf>,
+        /// The merged Maildir: a new folder (running again carries on where it stopped)
+        #[arg(long)]
+        to: PathBuf,
+        /// Read everything and show what the merge would be, writing nothing
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Export one Maildir folder (its own messages, not its subfolders) as an mbox file (mboxrd)
+    Export {
+        maildir: PathBuf,
+        /// The mbox file to write (never overwritten)
+        #[arg(long)]
+        mbox: PathBuf,
+    },
 }
 
 const LEGACY_HELP: &str = "\
@@ -333,11 +449,13 @@ enum LicenseCmd {
     },
     /// Show the licence you have (exits 1 without one)
     Show,
+    /// What's free, what's Pro, and what this copy may use
+    Features,
 }
 
 #[derive(Subcommand)]
 enum ServiceCmd {
-    /// Install and start the daemon as a systemd service (a user service unless --system)
+    /// Install and start the daemon as a service for you (on Linux, machine-wide with --system)
     Install {
         /// Machine-wide service running as the `backdown` user (needs sudo)
         #[arg(long)]
@@ -372,7 +490,33 @@ struct HashArgs {
 }
 
 fn main() -> ExitCode {
-    match run(Cli::parse()) {
+    // BackDown.app, or backdown.exe double-clicked in Explorer: the app
+    if app::double_clicked() {
+        return match app::run(app::Args {
+            no_window: false,
+            print: false,
+            browser: std::env::var_os("BACKDOWN_BROWSER").map(PathBuf::from),
+        }) {
+            Ok(code) => code,
+            Err(e) => {
+                eprintln!("backdown: {e:#}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+    let matches = Cli::command().get_matches();
+    let cli = match Cli::from_arg_matches(&matches) {
+        Ok(c) => c,
+        Err(e) => e.exit(),
+    };
+    // Pro features, as tiers.rs's table says (everything is unlocked in previews)
+    if let Some(sub) = matches.subcommand_name()
+        && let Err(e) = tiers::gate_command(sub)
+    {
+        eprintln!("backdown: {e:#}");
+        return ExitCode::FAILURE;
+    }
+    match run(cli) {
         Ok(code) => code,
         Err(e) => {
             eprintln!("backdown: {e:#}");
@@ -397,17 +541,48 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 (locations::state_dir(), locations::runtime_dir())
             };
             let db = cli.db.unwrap_or_else(|| state_dir.join("index.db"));
+            // the option wins; else Settings (settings.json in the state folder), 24h by default
+            settings::init(&state_dir, system, rescan_every.is_some());
+            let every = rescan_every.unwrap_or_else(|| settings::load().rescan_every);
             daemon::run(daemon::Options {
                 db,
                 state_dir,
                 runtime_dir,
                 port,
-                rescan_every: daemon::parse_every(&rescan_every)?,
+                rescan_every: daemon::parse_every(&every)?,
                 shared: system,
+                rescan_flag: false,
             })?;
             return Ok(ExitCode::SUCCESS);
         }
-        Cmd::Open => return open_ui(),
+        Cmd::Open => return app::open_in_browser(),
+        Cmd::App {
+            no_window,
+            print,
+            browser,
+        } => {
+            return app::run(app::Args {
+                no_window,
+                print,
+                browser,
+            });
+        }
+        Cmd::Desktop { action } => return desktop::run(action),
+        Cmd::Update {
+            check,
+            refresh,
+            rollback,
+            channel,
+            json,
+        } => {
+            return update::run(update::Args {
+                check,
+                refresh,
+                rollback,
+                channel,
+                json,
+            });
+        }
         Cmd::Service { action } => {
             return match action {
                 ServiceCmd::Install {
@@ -423,11 +598,26 @@ fn run(cli: Cli) -> Result<ExitCode> {
             return match action {
                 LicenseCmd::Add { key } => license::add(&key),
                 LicenseCmd::Show => license::show(),
+                LicenseCmd::Features => {
+                    tiers::print_features();
+                    Ok(ExitCode::SUCCESS)
+                }
             };
         }
         Cmd::Volumes { json } => return run_volumes(cli.db, json),
         // through the daemon when it runs (it keeps the readings), else here
         Cmd::Health { json } => return health::command(cli.db, cli.local, json),
+        // as the person at the screen, through the system's own mounter; never opens the index
+        Cmd::Mount { target } => return run_mount(target),
+        Cmd::Unmount { target } => {
+            let t = dunce::canonicalize(&target).unwrap_or(target);
+            let v = mounting::unmount(&locations::state_dir(), &t.display().to_string())?;
+            done(&format!(
+                "Unmounted {}",
+                v["unmounted"].as_str().unwrap_or("")
+            ));
+            return Ok(ExitCode::SUCCESS);
+        }
         // reads a drive and writes elsewhere; never opens the index (it may run under sudo)
         Cmd::Rescue { action } => return rescuing::run(action),
         // the other end of `backdown remote`, run there by ssh: reads only, never through a daemon
@@ -448,6 +638,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 | Cmd::Plans
                 | Cmd::Mirror { .. }
                 | Cmd::Wipe { .. }
+                // like wipe: they check here, then hand the real work to the daemon if it runs
+                | Cmd::Dedup { .. }
+                | Cmd::Mail { .. }
                 // a dry run only reads; a real one goes to the daemon, the index's one writer
                 | Cmd::Apply { go: false, .. }
         )
@@ -482,10 +675,12 @@ fn run(cli: Cli) -> Result<ExitCode> {
             p
         }
     };
-    local(&db_path, cli.cmd)
+    local(&db_path, cli.cmd, !cli.local)
 }
 
-fn local(db_path: &Path, cmd: Cmd) -> Result<ExitCode> {
+fn local(db_path: &Path, cmd: Cmd, use_daemon: bool) -> Result<ExitCode> {
+    // junk rules added in Settings count here too
+    settings::apply_to_core(&settings::load());
     if let Cmd::ImportLegacy { .. } = cmd {
         return import_legacy(db_path, cmd);
     }
@@ -575,6 +770,7 @@ fn local(db_path: &Path, cmd: Cmd) -> Result<ExitCode> {
             from,
             schema,
             print_schema,
+            merge_mail,
             json,
         } => {
             if print_schema {
@@ -589,9 +785,42 @@ fn local(db_path: &Path, cmd: Cmd) -> Result<ExitCode> {
                     to: &to,
                     from: &from,
                     schema: schema.as_deref(),
+                    merge_mail,
                     json,
                 },
             );
+        }
+        Cmd::Dedup {
+            folder,
+            link,
+            min_size,
+            dry_run: _,
+            go,
+            json,
+        } => {
+            return tidy::dedup(
+                &db,
+                db_path,
+                tidy::DedupArgs {
+                    folder: &folder,
+                    link: &link,
+                    min_size: fmt::parse_size(&min_size)?,
+                    go,
+                    json,
+                    use_daemon,
+                },
+            );
+        }
+        Cmd::Mail { action } => {
+            return match action {
+                MailCmd::Merge {
+                    sources,
+                    to,
+                    dry_run,
+                    json,
+                } => tidy::mail_merge(&db, db_path, &sources, &to, dry_run, json, use_daemon),
+                MailCmd::Export { maildir, mbox } => tidy::mail_export(&db, &maildir, &mbox),
+            };
         }
         Cmd::Plans => return filing::list_plans(&db),
         Cmd::Wipe {
@@ -609,6 +838,7 @@ fn local(db_path: &Path, cmd: Cmd) -> Result<ExitCode> {
                 trust_index,
                 go,
                 confirm.as_deref(),
+                use_daemon,
             );
         }
         Cmd::Mirror { action } => {
@@ -652,6 +882,9 @@ fn local(db_path: &Path, cmd: Cmd) -> Result<ExitCode> {
         }
         Cmd::Daemon { .. }
         | Cmd::Open
+        | Cmd::App { .. }
+        | Cmd::Desktop { .. }
+        | Cmd::Update { .. }
         | Cmd::Service { .. }
         | Cmd::License { .. }
         | Cmd::ImportLegacy { .. }
@@ -659,7 +892,9 @@ fn local(db_path: &Path, cmd: Cmd) -> Result<ExitCode> {
         | Cmd::Volumes { .. }
         | Cmd::Health { .. }
         | Cmd::Remote { .. }
-        | Cmd::ServeStdio => {
+        | Cmd::ServeStdio
+        | Cmd::Mount { .. }
+        | Cmd::Unmount { .. } => {
             unreachable!("handled in run")
         }
     }
@@ -785,6 +1020,9 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
         Cmd::Serve { .. }
         | Cmd::Daemon { .. }
         | Cmd::Open
+        | Cmd::App { .. }
+        | Cmd::Desktop { .. }
+        | Cmd::Update { .. }
         | Cmd::Service { .. }
         | Cmd::License { .. }
         | Cmd::ImportLegacy { .. }
@@ -795,11 +1033,15 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
         | Cmd::Plans
         | Cmd::Mirror { .. }
         | Cmd::Wipe { .. }
+        | Cmd::Dedup { .. }
+        | Cmd::Mail { .. }
         | Cmd::Rescue { .. }
         | Cmd::Volumes { .. }
         | Cmd::Health { .. }
         | Cmd::Remote { .. }
-        | Cmd::ServeStdio => {
+        | Cmd::ServeStdio
+        | Cmd::Mount { .. }
+        | Cmd::Unmount { .. } => {
             unreachable!("handled in run")
         }
     }
@@ -1028,28 +1270,63 @@ fn print_legacy(r: &legacy::Report) {
     }
 }
 
-fn open_ui() -> Result<ExitCode> {
-    for file in locations::candidate_ui_files() {
-        let Ok(raw) = std::fs::read(&file) else {
-            continue;
-        };
-        let v: serde_json::Value = serde_json::from_slice(&raw)
-            .with_context(|| format!("can't read {}", file.display()))?;
-        let (Some(port), Some(token)) = (v["port"].as_u64(), v["token"].as_str()) else {
-            continue;
-        };
-        let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port as u16));
-        if std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_secs(1)).is_err() {
-            continue; // written by a daemon that isn't running now
+/// `backdown mount [TARGET]`: a partition read-only, or a disk image attached read-only; without a
+/// target, what BackDown has mounted.
+fn run_mount(target: Option<PathBuf>) -> Result<ExitCode> {
+    let state = locations::state_dir();
+    let Some(t) = target else {
+        let all = mounting::current(&state);
+        if all.is_empty() {
+            println!("BackDown hasn't mounted anything.");
         }
-        let url = format!("http://127.0.0.1:{port}/?t={token}");
-        eprintln!("opening {url}");
-        serve::open(&url);
+        for m in all {
+            println!(
+                "{}{}",
+                m.source,
+                m.attached
+                    .as_deref()
+                    .map(|a| format!(" (attached as {a})"))
+                    .unwrap_or_default()
+            );
+            for (dev, at) in &m.mounts {
+                println!("  {dev} at {at} (read-only)");
+            }
+        }
         return Ok(ExitCode::SUCCESS);
+    };
+    let v = if t.is_file() {
+        mounting::attach(&state, &t)?
+    } else {
+        let dev = t.display().to_string();
+        drives::check_mountable(&dev)?;
+        mounting::mount(&state, &dev)?
+    };
+    let points: Vec<String> = match v["mounts"].as_array() {
+        Some(list) => list
+            .iter()
+            .filter_map(|m| m[1].as_str().map(String::from))
+            .collect(),
+        None => v["mounted"]
+            .as_str()
+            .map(String::from)
+            .into_iter()
+            .collect(),
+    };
+    done(&format!(
+        "Mounted read-only at {}",
+        if points.is_empty() {
+            "(nowhere new)".to_string()
+        } else {
+            points.join(", ")
+        }
+    ));
+    if let Some(p) = points.first() {
+        eprintln!(
+            "To index it: backdown index {p}\nWhen you're done: backdown unmount {}",
+            t.display()
+        );
     }
-    anyhow::bail!(
-        "no BackDown daemon is running. Start one with `backdown service install` (or `backdown daemon`), or browse without it: `backdown serve`"
-    )
+    Ok(ExitCode::SUCCESS)
 }
 
 /// `backdown volumes`: probe the disks, then mark what the index covers, if there is an index.
@@ -1403,7 +1680,7 @@ fn print_check(c: &report::Check, list: bool, json: bool) -> Result<ExitCode> {
             println!("{:>10}  {p}  ({e})", "unreadable");
         }
     } else if c.unique.files > 0 {
-        println!("  (--list shows every file)");
+        println!("  (--list shows them, the largest 20,000 first)");
     }
     Ok(code)
 }

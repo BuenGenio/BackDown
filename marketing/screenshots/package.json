@@ -8,6 +8,7 @@
   },
   "scripts": {
     "capture": "node capture.mjs && python3 encode.py",
-    "assets": "node assets.mjs"
+    "assets": "node assets.mjs",
+    "press": "node press.mjs"
   }
 }

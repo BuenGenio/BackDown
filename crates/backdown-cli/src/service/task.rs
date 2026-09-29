@@ -159,6 +159,16 @@ pub fn install(exe: &Path, system: bool, start: bool, print: bool) -> Result<Exi
     Ok(ExitCode::SUCCESS)
 }
 
+/// Start the registered task now, if there is one (`backdown app`). False when there's none.
+pub fn start_installed() -> bool {
+    powershell(
+        "if (-not (Get-ScheduledTask -TaskName 'BackDown' -ErrorAction SilentlyContinue)) { exit 3 }\n\
+         Start-ScheduledTask -TaskName 'BackDown'",
+        &[],
+    )
+    .is_ok_and(|o| o.status.success())
+}
+
 pub fn uninstall(system: bool) -> Result<ExitCode> {
     if system {
         return no_system();

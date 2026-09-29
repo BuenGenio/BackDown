@@ -32,6 +32,8 @@ pub struct Options {
     pub rescan_every: Option<Duration>,
     /// system-wide service: files and the socket are shared with the `backdown` group
     pub shared: bool,
+    /// --rescan-every was given (it wins over Settings at startup)
+    pub rescan_flag: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -55,7 +57,7 @@ pub struct Job {
     pub started_at: Option<i64>,
     pub finished_at: Option<i64>,
     #[serde(skip)]
-    opts: JobOpts,
+    pub(crate) opts: JobOpts,
 }
 
 /// Where a running job is. For a scan the totals are the drive's previous scan (an estimate); for
@@ -96,7 +98,13 @@ pub struct JobOpts {
     pub rescue: Option<i64>,
     /// remote-sync: which machine (remote/)
     pub machine: Option<i64>,
+    /// dedup: which recorded dedup run (tidying an archive); mail-merge: which recorded merge
+    pub dedup: Option<i64>,
+    pub merge: Option<i64>,
 }
+
+/// Jobs in the main lane that can be stopped at their next file (and carried on later).
+const STOPPABLE: &[&str] = &["dedup", "mail-merge"];
 
 /// Jobs that can run for hours or days and hardly touch the index (copying a failing drive,
 /// searching a card for lost files, syncing another machine over ssh): they go in a lane of their
@@ -127,7 +135,8 @@ pub struct Daemon {
     pub started_at: i64,
     /// the machine-wide service: its sandbox reads only, so it never wipes
     pub shared: bool,
-    pub rescan_every: Option<Duration>,
+    /// changeable while it runs (Settings)
+    rescan_every: Mutex<Option<Duration>>,
     /// drive health, read in a thread of its own (health.rs), and notifications
     pub health: crate::health::Monitor,
     state: Mutex<State>,
@@ -142,6 +151,19 @@ fn now() -> i64 {
 }
 
 impl Daemon {
+    pub fn rescan_every(&self) -> Option<Duration> {
+        *self.rescan_every.lock().unwrap()
+    }
+
+    /// A new rescan interval (Settings): the scheduler uses it at its next look.
+    pub fn set_rescan_every(&self, every: Option<Duration>) {
+        *self.rescan_every.lock().unwrap() = every;
+        let mut st = self.state.lock().unwrap();
+        st.recheck = true;
+        st.version += 1;
+        self.changed.notify_all();
+    }
+
     pub fn enqueue(
         &self,
         kind: &'static str,
@@ -172,6 +194,8 @@ impl Daemon {
                     "after-apply" => " (after copying into it)",
                     "after-wipe" => " (after wiping)",
                     "after-rescue" => " (what a rescue found)",
+                    "after-dedup" => " (after linking duplicates in it)",
+                    "after-merge" => " (after merging mail into it)",
                     "scheduled" => " (scheduled)",
                     "returned" => " (the drive is back)",
                     _ => "",
@@ -183,7 +207,7 @@ impl Daemon {
             kind,
             path,
             state: "queued",
-            stoppable: SIDE.contains(&kind),
+            stoppable: SIDE.contains(&kind) || STOPPABLE.contains(&kind),
             progress: String::new(),
             counts: None,
             summary: String::new(),
@@ -285,7 +309,7 @@ impl Daemon {
     }
 
     /// A running job's progress; wakes waiting viewers at most once a second.
-    fn progress(&self, id: u64, msg: String, counts: Counts) {
+    pub(crate) fn progress(&self, id: u64, msg: String, counts: Counts) {
         let mut st = self.state.lock().unwrap();
         if let Some(j) = st.jobs.iter_mut().find(|j| j.id == id) {
             j.progress = msg;
@@ -375,7 +399,7 @@ impl Daemon {
             .collect();
         // the plan: when each drive is scanned next, and why not if it isn't
         let now = now();
-        let every = self.rescan_every.map(|d| d.as_secs() as i64);
+        let every = self.rescan_every().map(|d| d.as_secs() as i64);
         let drives: Vec<Value> = st
             .drives
             .iter()
@@ -411,7 +435,7 @@ impl Daemon {
             "db": self.db.display().to_string(),
             "pid": std::process::id(),
             "started_at": self.started_at,
-            "rescan_every_secs": self.rescan_every.map(|d| d.as_secs()),
+            "rescan_every_secs": self.rescan_every().map(|d| d.as_secs()),
             "checked_at": st.checked_at,
             "current": current,
             "side": side,
@@ -433,11 +457,12 @@ pub fn run(opts: Options) -> Result<()> {
     }
     Db::open(&opts.db)?; // create or migrate before anything reads it
     let db = dunce::canonicalize(&opts.db)?;
+    crate::settings::init(&opts.state_dir, opts.shared, opts.rescan_flag);
     let d = Arc::new(Daemon {
         db: db.clone(),
         started_at: now(),
         shared: opts.shared,
-        rescan_every: opts.rescan_every,
+        rescan_every: Mutex::new(opts.rescan_every),
         health: crate::health::Monitor::new(
             crate::health::source_from_env(),
             &opts.state_dir,
@@ -455,7 +480,24 @@ pub fn run(opts: Options) -> Result<()> {
     // the local web UI, with a token that survives restarts so bookmarks keep working
     let ui_file = opts.state_dir.join(locations::UI_FILE);
     let token = existing_token(&ui_file).map_or_else(serve::new_token, Ok)?;
-    let (server, port) = serve::bind(opts.port)?;
+    // after an update on Windows the old daemon may still hold the port for a moment
+    let (server, port) = {
+        let mut tries = if std::env::var_os("BACKDOWN_BIND_WAIT").is_some() {
+            40
+        } else {
+            1
+        };
+        loop {
+            match serve::bind(opts.port) {
+                Ok(x) => break x,
+                Err(_) if tries > 1 => {
+                    tries -= 1;
+                    std::thread::sleep(Duration::from_millis(250));
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    };
     write_private(
         &ui_file,
         &serde_json::to_vec_pretty(
@@ -500,6 +542,7 @@ pub fn run(opts: Options) -> Result<()> {
             .name("control".into())
             .spawn(move || control::serve(&d, socket))?;
     }
+    crate::update::spawn_checker(opts.shared);
     notify::send("READY=1\nSTATUS=idle");
     serve::run(server, db, token, port, Some(d), !opts.shared);
     Ok(())
@@ -620,14 +663,23 @@ fn worker(d: &Daemon) {
                 .map(|p| format!(" {p}"))
                 .unwrap_or_default()
         ));
+        // tidying and merging can be stopped at their next file
+        let stop = Arc::new(AtomicBool::new(false));
+        if STOPPABLE.contains(&job.kind) {
+            d.state.lock().unwrap().stops.insert(id, Arc::clone(&stop));
+        }
         let result = match job.kind {
             "index" => run_index(d, &mut db, &job),
             "entities" => run_entities(d, &db, &job),
             "apply" => run_apply(d, &mut db, &job),
             "mirror-sync" | "mirror-verify" => run_mirror(d, &db, &job),
             "wipe" => run_wipe(d, &mut db, &job),
+            "dedup" => crate::tidy::run_dedup_job(d, &db, &job, &stop),
+            "mail-merge" => crate::tidy::run_merge_job(d, &db, &job, &stop),
             _ => run_hash(d, &mut db, &job),
         };
+        d.state.lock().unwrap().stops.remove(&id);
+        let stopped = stop.load(Ordering::Relaxed);
         let ok = result.is_ok();
         // a mirror that no longer matches, or a scheduled job that failed: tell someone
         crate::health::after_job(
@@ -637,9 +689,9 @@ fn worker(d: &Daemon) {
         );
         match result {
             Ok(summary) => {
-                eprintln!("done: {summary}");
+                eprintln!("{}: {summary}", if stopped { "stopped" } else { "done" });
                 d.update(id, |j| {
-                    j.state = "done";
+                    j.state = if stopped { "stopped" } else { "done" };
                     j.summary = summary;
                     j.finished_at = Some(now());
                 });
@@ -659,13 +711,16 @@ fn worker(d: &Daemon) {
         }
         if ok && job.kind == "index" {
             d.state.lock().unwrap().recheck = true;
-            // hash after every scan, so this scan's versions keep a provable fingerprint
+            // hash after every scan, so this scan's versions keep a provable fingerprint (with
+            // the readers per drive, and retries, from Settings)
+            let s = crate::settings::load();
             d.enqueue(
                 "hash",
                 None,
                 "after-scan",
                 JobOpts {
-                    jobs_per_device: 1,
+                    jobs_per_device: s.hash_jobs.max(1),
+                    retry_errors: s.hash_retry_errors,
                     ..JobOpts::default()
                 },
             );
@@ -709,6 +764,12 @@ fn worker(d: &Daemon) {
             if let Some(root) = job.opts.plan.and_then(|id| archive_root(&db, id)) {
                 d.enqueue("index", Some(root), "after-apply", JobOpts::default());
             }
+        }
+        // linked or merged files are new to the index: rescan where they are
+        if let Some((place, reason)) = crate::tidy::changed_place(&db, &job)
+            && let Some(root) = root_holding(&db, &place)
+        {
+            d.enqueue("index", Some(root), reason, JobOpts::default());
         }
         if ok && job.kind == "hash" {
             // then say what the drives hold, now that duplicates are known
@@ -755,6 +816,9 @@ fn run_apply(d: &Daemon, db: &mut Db, job: &Job) -> Result<String> {
         fmt::count(st.duplicates),
         fmt::count(st.resumed)
     );
+    if st.merged > 0 {
+        s += &format!("; {} messages in merged mailboxes", fmt::count(st.merged));
+    }
     if st.conflicts + st.failed > 0 {
         s += &format!(
             "; {} conflicts and {} failures need a look",
@@ -910,6 +974,7 @@ fn run_rescue(d: &Daemon, db: &Db, job: &Job, stop: &AtomicBool) -> Result<Strin
         "image" => rescue_image(d, db, job, &r, stop),
         "parts" => rescue_parts(d, job, &r, stop),
         "carve" => rescue_carve(d, db, job, &r, stop),
+        "files" => rescue_files(d, db, job, &r, stop),
         m => Err(anyhow::anyhow!("{m} can't run yet")),
     };
     match out {
@@ -1016,6 +1081,71 @@ fn rescue_carve(
         }
     );
     Ok((summary, result))
+}
+
+/// Copy chosen files and folders (deleted ones too) out of a filesystem on a drive or image,
+/// reading it through fsread, each copy checked by reading it back; then index them so they open
+/// in the browser. Stopping and running it again leaves what was copied as it is.
+fn rescue_files(
+    d: &Daemon,
+    db: &Db,
+    job: &Job,
+    r: &backdown_core::rescue::Rescue,
+    stop: &AtomicBool,
+) -> Result<(String, Value)> {
+    use backdown_core::rescue::files;
+    let dest = PathBuf::from(r.dest.as_deref().context("files with nowhere to go")?);
+    let opts: files::Options = serde_json::from_value(r.options.clone())?;
+    let sum = files::copy_out(
+        Path::new(&r.source),
+        &opts,
+        &dest,
+        &mut |p| {
+            d.progress(
+                job.id,
+                format!(
+                    "{} of {} files copied ({} of {})",
+                    fmt::count(p.files),
+                    fmt::count(p.total_files),
+                    fmt::bytes(p.bytes),
+                    fmt::bytes(p.total_bytes)
+                ),
+                Counts {
+                    stage: "copying",
+                    files: p.files,
+                    total_files: p.total_files,
+                    bytes: p.bytes,
+                    total_bytes: p.total_bytes,
+                },
+            )
+        },
+        stop,
+    )?;
+    if sum.files > 0 {
+        let target = root_holding(db, &dest).unwrap_or_else(|| dest.display().to_string());
+        d.enqueue("index", Some(target), "after-rescue", JobOpts::default());
+    }
+    let summary = format!(
+        "{}copied {} file{} ({}){}{}",
+        if sum.stopped { "stopped: " } else { "" },
+        fmt::count(sum.files),
+        if sum.files == 1 { "" } else { "s" },
+        fmt::bytes(sum.bytes),
+        if sum.partly > 0 {
+            format!(
+                ", {} of them deleted and partly overwritten",
+                fmt::count(sum.partly)
+            )
+        } else {
+            String::new()
+        },
+        if sum.failed > 0 {
+            format!("; {} couldn't be copied", fmt::count(sum.failed))
+        } else {
+            String::new()
+        }
+    );
+    Ok((summary, serde_json::to_value(&sum)?))
 }
 
 /// Look for file systems the partition table doesn't list (reads only).
@@ -1389,7 +1519,7 @@ fn check_roots(d: &Daemon, present: &mut HashMap<String, bool>) -> Result<()> {
         }
         let back = was == Some(false);
         let due = d
-            .rescan_every
+            .rescan_every()
             .is_some_and(|every| last.is_none_or(|t| now - t >= every.as_secs() as i64));
         if (back || due) && !d.pending_index(&key) {
             if back {
@@ -1465,7 +1595,18 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
                         json!({ "ok": true, "job": crate::remote::queue(d, &m, "requested") }),
                     );
                 }
-                _ => bail!("kind must be index, hash, entities, apply, wipe or remote-sync"),
+                Some("dedup") => {
+                    if d.shared {
+                        bail!(
+                            "the machine-wide service reads only; tidy from your own BackDown (backdown --local dedup …)"
+                        );
+                    }
+                    "dedup"
+                }
+                Some("mail-merge") => "mail-merge",
+                _ => bail!(
+                    "kind must be index, hash, entities, apply, wipe, dedup, mail-merge or remote-sync"
+                ),
             };
             let plan = req["plan"].as_i64();
             let path = match kind {
@@ -1482,6 +1623,18 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
                     "wipe {}",
                     req["wipe"].as_i64().context("wipe needs a recorded wipe")?
                 )),
+                "dedup" => Some(format!(
+                    "dedup {}",
+                    req["dedup"]
+                        .as_i64()
+                        .context("dedup needs a recorded run")?
+                )),
+                "mail-merge" => Some(format!(
+                    "merge {}",
+                    req["merge"]
+                        .as_i64()
+                        .context("mail-merge needs a recorded merge")?
+                )),
                 _ => None,
             };
             let opts = JobOpts {
@@ -1495,6 +1648,8 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
                 trust_index: req["trust_index"].as_bool().unwrap_or(false),
                 rescue: None,
                 machine: None,
+                dedup: req["dedup"].as_i64(),
+                merge: req["merge"].as_i64(),
             };
             json!({ "ok": true, "job": d.enqueue(kind, path, "requested", opts) })
         }
@@ -1596,7 +1751,7 @@ mod control {
                 )?;
                 return Ok(());
             };
-            let finished = job.state == "done" || job.state == "failed";
+            let finished = matches!(job.state, "done" | "failed" | "stopped");
             let ev = json!({ "ok": true, "job": job });
             let s = ev.to_string();
             if s != last || finished {

@@ -247,6 +247,105 @@ fn plan_apply_resume_and_prove() {
     );
 }
 
+/// A mail server's store with real messages: `extra` adds one message, `read` marks all read.
+fn real_store(root: &Path, extra: bool, read: bool) {
+    for (dom, user) in [("example.org", "ann"), ("example.net", "cy")] {
+        let mb = root.join(dom).join(user);
+        for f in ["cur", "new", "tmp"] {
+            fs::create_dir_all(mb.join(f)).unwrap();
+        }
+        let n = if extra && user == "ann" { 4 } else { 3 };
+        for m in 0..n {
+            write(
+                &mb.join(format!(
+                    "cur/{}.M{m}P1.mail.example.org:2,{}",
+                    1_500_000_000 + m * 1000,
+                    if read { "S" } else { "" }
+                )),
+                format!(
+                    "From: {user}@{dom}\nMessage-ID: <{m}.{user}@{dom}>\nSubject: message {m}\n\n{}\n",
+                    "text ".repeat(200 + m as usize)
+                )
+                .as_bytes(),
+            );
+        }
+    }
+}
+
+#[test]
+fn overlapping_mailboxes_are_merged_instead_of_copied_twice() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (laptop, usb) = (tmp.path().join("laptop"), tmp.path().join("usb"));
+    let archive_drive = tmp.path().join("archive");
+    let archive = archive_drive.join("Archive");
+    real_store(&laptop.join("srv/vmail"), false, true);
+    real_store(&usb.join("backup/vmail"), true, false);
+    fs::create_dir_all(&archive).unwrap();
+    let mut db = Db::open(&tmp.path().join("i.db")).unwrap();
+    scan_all(&mut db, &[&laptop, &usb, &archive_drive]);
+    let (rec, ov) = analyse(&db);
+    let mut p = plan::make(&db, &archive, None, &plan::Schema::default(), &rec, &ov).unwrap();
+    let i = p
+        .items
+        .iter()
+        .position(|x| x.source.ends_with("laptop/srv/vmail"))
+        .unwrap();
+    let u = p
+        .items
+        .iter()
+        .position(|x| x.source.ends_with("usb/backup/vmail"))
+        .unwrap();
+    // the larger (usb, one more message) is filed, the laptop's is its twin
+    assert_eq!(p.items[u].action, "copy", "{:#?}", p.items);
+    assert_eq!(p.items[i].twin.as_deref(), Some(p.items[u].source.as_str()));
+    assert_eq!(plan::merge_target(&p, i), Some(u));
+    assert_eq!(
+        plan::merge_target(&p, u),
+        None,
+        "the filed one merges the others in"
+    );
+    let id = plan::save(&db, &p).unwrap();
+    let merged = plan::merge_mail(&db, id, i).unwrap();
+    assert_eq!(merged.items[u].action, "merge");
+    assert_eq!(merged.items[u].merge, vec![p.items[i].source.clone()]);
+    assert_eq!(merged.items[i].action, "skip");
+    assert!(merged.items[i].why.starts_with("merged by Message-ID"));
+    p = plan::load(&db, id).unwrap().0;
+    assert_eq!(p, merged, "saved");
+    assert_eq!(
+        plan::merge_all_mail(&mut p.clone()),
+        0,
+        "nothing more to merge"
+    );
+
+    let dry = apply::apply(&mut db, id, true, &mut |_| {}).unwrap();
+    assert_eq!(dry.would_merge, 1);
+    assert!(!archive.join("Mail").exists(), "a dry run writes nothing");
+    let run = apply::apply(&mut db, id, false, &mut |_| {}).unwrap();
+    assert_eq!((run.merged, run.failed), (7, 0), "{run:?}");
+    let ann = archive.join(&p.items[u].dest).join("example.org/ann/cur");
+    let mut names: Vec<String> = fs::read_dir(&ann)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert_eq!(names.len(), 4, "{names:?}");
+    assert!(
+        names[..3].iter().all(|n| n.ends_with(":2,S")),
+        "read on the laptop: read in the merge ({names:?})"
+    );
+    assert!(names[3].ends_with(":2,"), "only on the usb stick, unread");
+    let j = apply::journal_summary(&db, id).unwrap();
+    assert!(j.iter().any(|(s, n, _)| s == "merged" && *n == 1), "{j:?}");
+    // again: carried on, nothing written twice
+    let again = apply::apply(&mut db, id, false, &mut |_| {}).unwrap();
+    assert_eq!((again.merged, again.failed), (7, 0));
+    // once the archive is indexed, both drives' mail is provably kept
+    scan_all(&mut db, &[&archive_drive]);
+    assert!(report::check(&db, &usb.join("backup/vmail")).unwrap().safe);
+    assert!(report::check(&db, &laptop.join("srv/vmail")).unwrap().safe);
+}
+
 fn git_year(dest: &str) -> String {
     dest.rsplit('/').next().unwrap().to_string()
 }

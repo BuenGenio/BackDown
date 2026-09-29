@@ -314,7 +314,7 @@ pub fn scan(
     found: &mut dyn FnMut(&Found) -> Result<()>,
 ) -> Result<Stats> {
     let file =
-        File::open(src).with_context(|| format!("can't open {} to read it", src.display()))?;
+        super::open(src).with_context(|| format!("can't open {} to read it", src.display()))?;
     let total =
         size_of(&file).with_context(|| format!("can't tell how big {} is", src.display()))?;
     scan_medium(&file, total, opts, progress, stop, found)
@@ -3718,7 +3718,7 @@ fn is_zero(n: &u64) -> bool {
 pub fn save(src: &Path, f: &Found, dest_dir: &Path) -> Result<PathBuf> {
     check_destination(src, dest_dir)?;
     let input =
-        File::open(src).with_context(|| format!("can't open {} to read it", src.display()))?;
+        super::open(src).with_context(|| format!("can't open {} to read it", src.display()))?;
     Ok(save_from(&input, f, dest_dir)?.0)
 }
 
@@ -3735,7 +3735,7 @@ pub fn scan_and_save(
     check_destination(src, dest_dir)?;
     fs::create_dir_all(dest_dir).with_context(|| format!("can't create {}", dest_dir.display()))?;
     let input =
-        File::open(src).with_context(|| format!("can't open {} to read it", src.display()))?;
+        super::open(src).with_context(|| format!("can't open {} to read it", src.display()))?;
     let ix_path = dest_dir.join(INDEX);
     let mut ix = OpenOptions::new()
         .create(true)

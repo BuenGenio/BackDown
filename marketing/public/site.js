@@ -20,6 +20,24 @@ document.querySelectorAll('form.join').forEach(form => {
   });
 });
 
+// Narrow screens: the tabs row scrolls when the page names don't fit. Keep the current page's tab in view, and fade
+// the edge where there's more.
+const tabs = document.querySelector('.hdr nav.tabs');
+if (tabs) {
+  const edges = () => {
+    const over = tabs.scrollWidth - tabs.clientWidth > 1;
+    tabs.classList.toggle('more-l', over && tabs.scrollLeft > 1);
+    tabs.classList.toggle('more-r', over && tabs.scrollLeft < tabs.scrollWidth - tabs.clientWidth - 1);
+  };
+  const cur = tabs.querySelector('[aria-current=page]');
+  if (cur && tabs.scrollWidth > tabs.clientWidth) {
+    tabs.scrollLeft += cur.getBoundingClientRect().left - tabs.getBoundingClientRect().left - (tabs.clientWidth - cur.offsetWidth) / 2;
+  }
+  tabs.addEventListener('scroll', edges, { passive: true });
+  addEventListener('resize', edges);
+  edges();
+}
+
 // Language menu: close on outside click or Escape.
 const langMenu = document.querySelector('details.lang');
 if (langMenu) {
@@ -199,4 +217,137 @@ if (order) {
     try { await navigator.clipboard.writeText(area.value); } catch { area.select(); document.execCommand('copy'); }
     btn.textContent = btn.dataset.done; setTimeout(() => { btn.textContent = label; }, 2000);
   });
+}
+
+// Copy buttons: code blocks in the docs, and the press kit's texts (data-copy points at what to copy). They're in
+// the page hidden, so there's no dead button without JS.
+document.querySelectorAll('.cbtn, button[data-copy]:not(.order [data-copy])').forEach(btn => {
+  btn.hidden = false;
+  btn.addEventListener('click', async () => {
+    const src = btn.dataset.copy ? document.querySelector(btn.dataset.copy) : btn.parentElement.querySelector('code');
+    const text = src.textContent.replace(/\n$/, '');
+    let ok = true;
+    try { await navigator.clipboard.writeText(text); } catch {
+      const area = Object.assign(document.createElement('textarea'), { value: text });
+      area.style.cssText = 'position:fixed;opacity:0';
+      document.body.append(area); area.select();
+      try { ok = document.execCommand('copy'); } catch { ok = false; }
+      area.remove();
+    }
+    btn.dataset.label ||= btn.textContent;
+    btn.textContent = ok ? 'Copied' : 'Select and copy';
+    btn.classList.toggle('done', ok);
+    clearTimeout(btn.timer);
+    btn.timer = setTimeout(() => { btn.textContent = btn.dataset.label; btn.classList.remove('done'); }, 1800);
+  });
+});
+
+// Docs search: the index (url, page, section, text) is fetched the first time the box is used, then filtered here.
+// Every word has to match; a match in the page title counts most, then the section heading, then the text.
+const ds = document.querySelector('.dsearch');
+if (ds) {
+  const input = ds.querySelector('input'), box = ds.querySelector('.dresults');
+  let index = null, loading = null, sel = -1;
+  ds.hidden = false;
+  const load = () => loading ||= fetch(ds.dataset.index).then(r => r.json())
+    .then(d => { index = d.map(([u, p, h, x]) => ({ u, p, h, x, k: `${p}\n${h}\n${x}`.toLowerCase() })); })
+    .catch(() => { index = []; loading = null; });
+  const escHTML = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const escRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const hi = (s, re) => escHTML(s).replace(re, '<mark>$&</mark>');
+  const snippet = (x, terms) => {
+    const lx = x.toLowerCase();
+    const at = Math.min(...terms.map(t => lx.indexOf(t)).filter(i => i >= 0), x.length);
+    const from = Math.max(0, at - 50), to = Math.min(x.length, from + 170);
+    return (from > 0 ? '…' : '') + x.slice(from, to).trim() + (to < x.length ? '…' : '');
+  };
+  const items = () => [...box.querySelectorAll('a')];
+  const select = n => {
+    const all = items();
+    sel = all.length && n >= 0 ? n % all.length : -1;
+    all.forEach((a, k) => a.setAttribute('aria-selected', String(k === sel)));
+    if (sel >= 0) { input.setAttribute('aria-activedescendant', all[sel].id); all[sel].scrollIntoView({ block: 'nearest' }); }
+    else input.removeAttribute('aria-activedescendant');
+  };
+  const show = open => { box.hidden = !open; input.setAttribute('aria-expanded', String(open)); if (!open) select(-1); };
+  const search = async () => {
+    const q = input.value.trim().toLowerCase();
+    if (!q) { show(false); return; }
+    await load();
+    if (input.value.trim().toLowerCase() !== q) return; // typed on meanwhile
+    const terms = [...new Set(q.split(/\s+/).filter(Boolean))].slice(0, 8);
+    const re = new RegExp(terms.map(escRe).sort((a, b) => b.length - a.length).join('|'), 'gi');
+    const perPage = {};
+    const hits = index.filter(e => terms.every(t => e.k.includes(t)))
+      .map(e => {
+        const p = e.p.toLowerCase(), h = e.h.toLowerCase();
+        let score = 0;
+        for (const t of terms) score += (p.includes(t) ? 8 : 0) + (h.includes(t) ? 5 : 0) + Math.min(3, e.k.split(t).length - 1);
+        if ((h || p).includes(q)) score += 6;
+        if (!e.h && p.includes(q)) score += 4;
+        return { e, score };
+      })
+      .sort((a, b) => b.score - a.score)
+      .filter(({ e }) => (perPage[e.p] = (perPage[e.p] || 0) + 1) <= 3)
+      .slice(0, 12);
+    box.innerHTML = hits.length
+      ? hits.map(({ e }, k) => `<a href="${escHTML(e.u)}" role="option" id="dr${k}" aria-selected="false">${e.h ? `<small>${hi(e.p, re)}</small><b>${hi(e.h, re)}</b>` : `<b>${hi(e.p, re)}</b>`}${hi(snippet(e.x, terms), re)}</a>`).join('')
+      : `<p class="none">Nothing in the docs matches “${escHTML(input.value.trim())}”.</p>`;
+    show(true);
+    select(hits.length ? 0 : -1);
+  };
+  let timer;
+  input.addEventListener('focus', () => { load(); if (input.value.trim()) search(); });
+  input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(search, 120); });
+  input.addEventListener('keydown', e => {
+    const n = items().length;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (box.hidden) search(); else if (n) select((sel + (e.key === 'ArrowDown' ? 1 : n - 1)) % n);
+    } else if (e.key === 'Enter') {
+      const a = items()[sel >= 0 ? sel : 0];
+      if (a) { e.preventDefault(); show(false); location.href = a.href; }
+    } else if (e.key === 'Escape') {
+      if (!box.hidden) show(false); else { input.value = ''; input.blur(); }
+    }
+  });
+  box.addEventListener('click', e => { if (e.target.closest('a')) show(false); });
+  document.addEventListener('click', e => { if (!ds.contains(e.target)) show(false); });
+  // "/" anywhere searches, unless typing somewhere else
+  document.addEventListener('keydown', e => {
+    if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || e.target.closest('input, textarea, select, [contenteditable]')) return;
+    e.preventDefault();
+    input.focus();
+  });
+}
+
+// Docs: "on this page" marks the section being read.
+const toc = document.querySelector('.doc-toc');
+if (toc) {
+  const links = new Map([...toc.querySelectorAll('a')].map(a => [decodeURIComponent(a.hash.slice(1)), a]));
+  const heads = [...document.querySelectorAll('.doc-body h2[id], .doc-body h3[id]')].filter(h => links.has(h.id));
+  let queued = false;
+  const mark = () => {
+    queued = false;
+    const top = document.querySelector('.hdr').offsetHeight + 24;
+    let cur = heads[0];
+    for (const h of heads) if (h.getBoundingClientRect().top <= top) cur = h;
+    // at the very bottom, the last section is the one being read
+    if (innerHeight + scrollY >= document.documentElement.scrollHeight - 4) cur = heads[heads.length - 1];
+    links.forEach((a, id) => { if (id === cur?.id) a.setAttribute('aria-current', 'true'); else a.removeAttribute('aria-current'); });
+  };
+  addEventListener('scroll', () => { if (!queued) { queued = true; requestAnimationFrame(mark); } }, { passive: true });
+  mark();
+}
+
+// Docs: the sidebar keeps its scroll position from page to page, and always shows the current page.
+const side = document.querySelector('.docs-nav');
+if (side) {
+  try { const y = sessionStorage.getItem('docs-side'); if (y !== null) side.scrollTop = Number(y); } catch {}
+  const cur = side.querySelector('[aria-current=page]');
+  if (cur && side.scrollHeight > side.clientHeight) {
+    const r = cur.getBoundingClientRect(), s = side.getBoundingClientRect();
+    if (r.top < s.top || r.bottom > s.bottom) side.scrollTop += r.top - s.top - s.height / 3;
+  }
+  addEventListener('pagehide', () => { try { sessionStorage.setItem('docs-side', String(side.scrollTop)); } catch {} });
 }

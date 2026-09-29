@@ -278,6 +278,10 @@ impl Db {
             migrate_v1(&conn)?;
         }
         conn.execute_batch(SCHEMA)?;
+        // tidying the archive (dedup.rs) and merging mailboxes (mailmerge.rs): their runs and
+        // journals, added without a schema bump (older versions ignore them)
+        conn.execute_batch(crate::dedup::SCHEMA)?;
+        conn.execute_batch(crate::mailmerge::SCHEMA)?;
         // names for search: added in place, without a schema bump, since older versions just
         // leave them empty on rows they write (and the next open here fills those in)
         crate::find::add_names(&conn)?;

@@ -14,6 +14,14 @@
 //! only ever pick something the filesystem's own directories list (never a path on this computer),
 //! and symbolic links are shown, never followed.
 //!
+//! Deleted files (`Volume::deleted`, see `undelete`): FAT and exFAT folders keep a deleted file's
+//! entry (its name, size, dates and first cluster) until the slot is reused, and NTFS keeps its MFT
+//! record (names, parent folder, where its data was) until the record is reused. Each deleted entry
+//! says how likely its contents are still there (`Deleted`), and reads with the parts other files
+//! have taken since as zeros. A deleted entry is picked by its `Deleted::seg` (its name and its
+//! place in the folder), which only a listing of deleted entries gives out. ext3/4 clear a deleted
+//! file's block map, so there's nothing to follow there: that takes a search by content.
+//!
 //! ```no_run
 //! # fn main() -> anyhow::Result<()> {
 //! use std::io::Read;
@@ -39,6 +47,9 @@ mod exfat;
 mod ext;
 mod fat;
 mod ntfs;
+mod undelete;
+
+pub use undelete::Deleted;
 
 /// Listings stop here; `Listing::truncated` says there was more.
 pub const MAX_LIST: usize = 10_000;
@@ -83,6 +94,11 @@ impl<R: Read + Seek> Region<R> {
 
     pub fn len(&self) -> u64 {
         self.len
+    }
+
+    /// Past the deadline (a listing stops where it got to, and says so).
+    pub(crate) fn late(&self) -> bool {
+        self.until.is_some_and(|t| Instant::now() > t)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -179,6 +195,10 @@ pub struct Entry {
     /// Worth showing: "compressed", "sparse", "hidden", "system".
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub flags: Vec<&'static str>,
+    /// A deleted file or folder (from `Volume::deleted`): how likely it can be recovered, and how
+    /// to pick it again.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deleted: Option<Deleted>,
     #[serde(skip)]
     pub(crate) node: Node,
 }
@@ -202,6 +222,23 @@ pub(crate) enum Node {
         record: u64,
         seq: u16,
     },
+    /// A deleted FAT entry: its first cluster and size (its chain is gone).
+    FatDel {
+        cluster: u32,
+        size: u32,
+        dir: bool,
+    },
+    /// A deleted exFAT entry set's stream extension.
+    ExfatDel {
+        cluster: u32,
+        len: u64,
+        valid: u64,
+        contiguous: bool,
+    },
+    /// An MFT record that's no longer in use.
+    NtfsDel {
+        record: u64,
+    },
 }
 
 /// A folder's entries, in the order the filesystem keeps them.
@@ -210,6 +247,9 @@ pub struct Listing {
     pub entries: Vec<Entry>,
     /// There were more than the limit.
     pub truncated: bool,
+    /// Worth knowing about the listing ("only the first 4,000,000 MFT records were looked at").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 /// Where a file's bytes are: `len` bytes of the file from byte `at` are at `phys` in the volume,
@@ -633,6 +673,7 @@ impl<R: Read + Seek> Volume<R> {
             link: None,
             unreadable: None,
             flags: Vec::new(),
+            deleted: None,
             node,
         }
     }
@@ -659,6 +700,10 @@ impl<R: Read + Seek> Volume<R> {
 
     /// The first `limit` (at most `MAX_LIST`) entries of a folder, without "." and "..".
     pub fn list(&mut self, dir: &Entry, limit: usize) -> Result<Listing> {
+        if dir.deleted.is_some() {
+            // what's in a deleted folder was deleted with it
+            return self.deleted(dir, limit);
+        }
         let limit = limit.clamp(1, MAX_LIST);
         let (mut entries, mut truncated) = (Vec::new(), false);
         self.read_dir(dir, None, &mut |e| {
@@ -669,7 +714,50 @@ impl<R: Read + Seek> Volume<R> {
             entries.push(e);
             true
         })?;
-        Ok(Listing { entries, truncated })
+        Ok(Listing {
+            entries,
+            truncated,
+            note: None,
+        })
+    }
+
+    /// Why deleted files can't be listed on this filesystem, when they can't.
+    pub fn undelete_unsupported(&self) -> Option<&'static str> {
+        match self.fs {
+            Fs::Ext(_) => Some(undelete::EXT_WHY),
+            _ => None,
+        }
+    }
+
+    /// The deleted files and folders in `dir` (a folder from a listing, or a deleted one), at most
+    /// `limit` (up to `MAX_LIST`), each saying how likely it can be recovered. In a deleted folder,
+    /// everything is deleted.
+    pub fn deleted(&mut self, dir: &Entry, limit: usize) -> Result<Listing> {
+        if !dir.dir {
+            bail!("{} is a file, not a folder", dir.name);
+        }
+        let limit = limit.clamp(1, MAX_LIST);
+        let (mut entries, mut truncated) = (Vec::new(), false);
+        let mut each = |e: Entry| {
+            if entries.len() >= limit {
+                truncated = true;
+                return false;
+            }
+            entries.push(e);
+            true
+        };
+        let r = &mut self.region;
+        let note = match &mut self.fs {
+            Fs::Fat(x) => x.deleted(r, &dir.node, &mut each)?,
+            Fs::Exfat(x) => x.deleted(r, &dir.node, &mut each)?,
+            Fs::Ntfs(x) => x.deleted(r, &dir.node, &mut each)?,
+            Fs::Ext(_) => bail!("{}", undelete::EXT_WHY),
+        };
+        Ok(Listing {
+            entries,
+            truncated,
+            note,
+        })
     }
 
     /// The entry at `path` ("DCIM/100CANON/IMG_0001.JPG", "/" separated, from the root), found
@@ -681,18 +769,36 @@ impl<R: Read + Seek> Volume<R> {
                 bail!("the path is too deep");
             }
             if !cur.dir {
-                bail!("no {path:?} here: {} is a file", cur.name);
+                bail!(
+                    "no {:?} here: {} is a file",
+                    undelete::shown(path),
+                    cur.name
+                );
             }
             let mut hit = None;
-            self.read_dir(&cur, Some(seg), &mut |e| {
-                if e.name == seg {
-                    hit = Some(e);
-                    false
-                } else {
-                    true
-                }
-            })?;
-            cur = hit.with_context(|| format!("no {path:?} in this filesystem"))?;
+            if let Some((name, token)) = undelete::parse_seg(seg) {
+                // a deleted entry, picked by its place among its folder's deleted entries
+                hit = self.deleted(&cur, MAX_LIST)?.entries.into_iter().find(|e| {
+                    e.name == name && e.deleted.as_ref().is_some_and(|d| d.token == token)
+                });
+            } else if cur.deleted.is_some() {
+                hit = self
+                    .deleted(&cur, MAX_LIST)?
+                    .entries
+                    .into_iter()
+                    .find(|e| e.name == seg);
+            } else {
+                self.read_dir(&cur, Some(seg), &mut |e| {
+                    if e.name == seg {
+                        hit = Some(e);
+                        false
+                    } else {
+                        true
+                    }
+                })?;
+            }
+            cur =
+                hit.with_context(|| format!("no {:?} in this filesystem", undelete::shown(path)))?;
         }
         Ok(cur)
     }
@@ -704,6 +810,12 @@ impl<R: Read + Seek> Volume<R> {
             bail!("{path} is a file, not a folder");
         }
         self.list(&dir, limit)
+    }
+
+    /// The deleted entries in the folder at `path` (see `deleted`).
+    pub fn deleted_path(&mut self, path: &str, limit: usize) -> Result<Listing> {
+        let dir = self.find(path)?;
+        self.deleted(&dir, limit)
     }
 
     fn data(&mut self, file: &Entry) -> Result<Data> {

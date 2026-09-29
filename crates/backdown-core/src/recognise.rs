@@ -151,6 +151,8 @@ fn dir_marker(lower: &str) -> bool {
             | "tmp"
             | "maildir"
             | "storage"
+            | "mailboxes"
+            | "dbox-mails"
             | "imapmail"
             | "mail"
             | ".git"
@@ -345,6 +347,9 @@ fn is_sql_dump(lower: &str) -> bool {
 struct Markers {
     /// parent folder -> lower-case names of marker folders directly in it
     dirs: HashMap<Vec<u8>, HashSet<String>>,
+    /// (parent folder, lower-case name) -> the folder's real name, where they differ: paths are
+    /// built from the real one ("System Volume Information", not "system volume information")
+    dir_case: HashMap<(Vec<u8>, String), String>,
     /// folder -> lower-case names of marker files directly in it
     files: HashMap<Vec<u8>, HashSet<String>>,
     /// folder -> [audio, video, image] files directly in it, and their bytes
@@ -357,6 +362,18 @@ struct Markers {
     scripts: Vec<Vec<u8>>,
     /// possible ddrescue mapfiles (small .log/.map/.mapfile next to images)
     mapfiles: Vec<Vec<u8>>,
+    /// folder -> Dovecot dbox files directly in it: (mdbox "m.N", sdbox "u.N")
+    dbox: HashMap<Vec<u8>, (u64, u64)>,
+}
+
+/// "m.12" / "u.7": a Dovecot dbox storage file's name (0 for m, 1 for u).
+fn dbox_file(lower: &str) -> Option<usize> {
+    let (kind, digits) = match lower.as_bytes() {
+        [b'm', b'.', rest @ ..] => (0, rest),
+        [b'u', b'.', rest @ ..] => (1, rest),
+        _ => return None,
+    };
+    (!digits.is_empty() && digits.iter().all(u8::is_ascii_digit)).then_some(kind)
 }
 
 impl Markers {
@@ -403,13 +420,18 @@ fn collect(db: &Db, root_id: i64, progress: &mut dyn FnMut(&str)) -> Result<Mark
         let rows = stmt.query_map(params![root_id], |r| {
             Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, Vec<u8>>(1)?))
         })?;
+        // folder names added as junk in Settings are markers too
+        let extra = EXTRA_JUNK.read().unwrap_or_else(|e| e.into_inner()).clone();
         for row in rows {
             let (path, parent) = row?;
             let Some(name) = child_name(&parent, &path, &sep) else {
                 continue;
             };
             let lower = name.to_lowercase();
-            if dir_marker(&lower) {
+            if dir_marker(&lower) || extra.contains(&lower) {
+                if lower != name {
+                    m.dir_case.insert((parent.clone(), lower.clone()), name);
+                }
                 m.dirs.entry(parent).or_default().insert(lower);
             }
         }
@@ -443,6 +465,14 @@ fn collect(db: &Db, root_id: i64, progress: &mut dyn FnMut(&str)) -> Result<Mark
                 .entry(dir.clone())
                 .or_default()
                 .insert(lower.clone());
+        }
+        if let Some(k) = dbox_file(&lower) {
+            let c = m.dbox.entry(dir.clone()).or_default();
+            if k == 0 {
+                c.0 += 1;
+            } else {
+                c.1 += 1;
+            }
         }
         let kind = if AUDIO.contains(&e.as_str()) {
             Some(0)
@@ -682,13 +712,46 @@ fn rules(db: &Db, root: &[u8], m: &Markers) -> Result<Vec<Candidate>> {
         }
         out.push(c);
     }
-    // Dovecot mdbox/sdbox
+    // Dovecot dbox: mdbox keeps messages in storage/m.N (its map index in there too) beside
+    // mailboxes/<name>/dbox-Mails/; sdbox has a u.N file per message in each dbox-Mails
+    let mut dbox_roots: BTreeMap<Vec<u8>, &str> = BTreeMap::new();
+    for (dir, names) in &m.dirs {
+        if names.contains("storage") && names.contains("mailboxes") {
+            let st = join(dir, "storage");
+            if m.has_file(&st, "dovecot.map.index") || m.dbox.get(&st).is_some_and(|c| c.0 > 0) {
+                dbox_roots.insert(dir.clone(), "mdbox");
+            }
+        }
+    }
+    for (dir, (_, singles)) in &m.dbox {
+        if *singles == 0 || !name_of(dir).eq_ignore_ascii_case("dbox-mails") {
+            continue;
+        }
+        let mut p = parent_of(dir);
+        while let Some(x) = p {
+            if x.len() <= root.len() {
+                break;
+            }
+            if name_of(&x) == "mailboxes" {
+                if let Some(r) = parent_of(&x) {
+                    dbox_roots.entry(r).or_insert("sdbox");
+                }
+                break;
+            }
+            p = parent_of(&x);
+        }
+    }
+    // an older layout: the map index beside storage/
     for (dir, files) in &m.files {
         if files.contains("dovecot.map.index") && m.has_dir(dir, "storage") {
-            let mut c = cand(dir.clone(), "mdbox", 0.9);
-            c.title = "Dovecot mdbox storage".into();
-            out.push(c);
+            dbox_roots.entry(dir.clone()).or_insert("mdbox");
         }
+    }
+    for (dir, format) in dbox_roots {
+        let mut c = cand(dir, "mdbox", 0.9);
+        c.title = format!("Dovecot {format} storage");
+        c.facts.push(("Format".into(), format.into()));
+        out.push(c);
     }
     // Thunderbird profiles
     for (dir, files) in &m.files {
@@ -1168,39 +1231,80 @@ fn media_libraries(db: &Db, root: &[u8], m: &Markers) -> Result<Vec<Candidate>> 
     Ok(out)
 }
 
+/// Folders that are regenerable by their (lowercase) name alone, and why.
+pub const JUNK_NAMES: &[(&str, &str)] = &[
+    ("node_modules", "npm packages (reinstallable)"),
+    ("__pycache__", "Python bytecode cache"),
+    (".cache", "application caches"),
+    (".npm", "npm cache"),
+    (".gradle", "Gradle caches"),
+    (".thumbnails", "thumbnail cache"),
+    ("thumbnails", "thumbnail cache"),
+    ("$recycle.bin", "Windows recycle bin"),
+    ("recycler", "Windows recycle bin"),
+    (".spotlight-v100", "macOS Spotlight index"),
+    (".fseventsd", "macOS file event log"),
+    (".documentrevisions-v100", "macOS document versions store"),
+    (".temporaryitems", "macOS temporary items"),
+    (".trashes", "macOS trash"),
+    ("system volume information", "Windows system restore data"),
+    (".venv", "Python virtual environment"),
+    ("venv", "Python virtual environment"),
+    ("files_trashbin", "Nextcloud trash"),
+];
+
+/// The rules that also look at where a folder is, in words (`junk_dirs` has them in code).
+pub const JUNK_PLACES: &[(&str, &str)] = &[
+    ("Caches in a Library folder", "macOS app caches"),
+    ("Temp in AppData\\Local", "Windows temporary files"),
+    ("target beside a Cargo.toml", "Rust build output"),
+    (
+        "preview in a Nextcloud appdata_ folder",
+        "Nextcloud previews",
+    ),
+    ("updater-… folders", "Nextcloud updater backups"),
+    (".Trash… folders", "desktop trash"),
+];
+
+/// Why a folder named with `set_extra_junk` counts as regenerable.
+pub const EXTRA_JUNK_WHY: &str = "counted as regenerable in Settings";
+
+static EXTRA_JUNK: std::sync::RwLock<Vec<String>> = std::sync::RwLock::new(Vec::new());
+
+/// More folder names to treat as regenerable besides `JUNK_NAMES` (the Settings view's list),
+/// from the next recognition on.
+pub fn set_extra_junk(names: &[String]) {
+    let names = names
+        .iter()
+        .map(|n| n.trim().to_lowercase())
+        .filter(|n| !n.is_empty())
+        .collect();
+    *EXTRA_JUNK.write().unwrap_or_else(|e| e.into_inner()) = names;
+}
+
 /// Regenerable subtrees, by name (and for build output, by what's next to it).
 fn junk_dirs(m: &Markers) -> Vec<(Vec<u8>, &'static str)> {
+    let extra = EXTRA_JUNK.read().unwrap_or_else(|e| e.into_inner());
     let mut out = Vec::new();
     for (parent, names) in &m.dirs {
         let files = m.files.get(parent);
         for n in names {
+            let named = JUNK_NAMES.iter().find(|(k, _)| k == n).map(|(_, why)| *why);
             let why = match n.as_str() {
-                "node_modules" => "npm packages (reinstallable)",
-                "__pycache__" => "Python bytecode cache",
-                ".cache" => "application caches",
-                ".npm" => "npm cache",
-                ".gradle" => "Gradle caches",
-                ".thumbnails" | "thumbnails" => "thumbnail cache",
-                "$recycle.bin" | "recycler" => "Windows recycle bin",
-                ".spotlight-v100" => "macOS Spotlight index",
-                ".fseventsd" => "macOS file event log",
-                ".documentrevisions-v100" => "macOS document versions store",
-                ".temporaryitems" => "macOS temporary items",
-                ".trashes" => "macOS trash",
-                "system volume information" => "Windows system restore data",
+                _ if named.is_some() => named.unwrap_or_default(),
                 "caches" if name_of(parent).eq_ignore_ascii_case("library") => "macOS app caches",
                 "temp" if name_of(parent).eq_ignore_ascii_case("local") => {
                     "Windows temporary files"
                 }
                 "target" if files.is_some_and(|f| f.contains("cargo.toml")) => "Rust build output",
-                ".venv" | "venv" => "Python virtual environment",
                 "preview" if name_of(parent).starts_with("appdata_") => "Nextcloud previews",
-                "files_trashbin" => "Nextcloud trash",
                 n if n.starts_with("updater-") => "Nextcloud updater backups",
                 n if n.starts_with(".trash") => "desktop trash",
+                n if extra.iter().any(|x| x == n) => EXTRA_JUNK_WHY,
                 _ => continue,
             };
-            out.push((join(parent, n), why));
+            let real = m.dir_case.get(&(parent.clone(), n.clone())).unwrap_or(n);
+            out.push((join(parent, real), why));
         }
     }
     out
@@ -2046,6 +2150,8 @@ pub fn recognise(
                 e.facts.push(("Messages".into(), fmt::count(messages)));
             }
         }
+        // mail stores that say more about themselves (mailstores.rs)
+        crate::mailstores::describe(db, &mut e, &p, read_drive)?;
         if read_drive {
             provenance(&mut e, &root_path, &p, &scripts, &sync_markers);
         }

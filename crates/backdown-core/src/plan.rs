@@ -156,12 +156,22 @@ pub struct Item {
     pub dest: String,
     pub files: u64,
     pub bytes: u64,
-    /// "copy" (everything), "copy-unique" (only content not already in the archive), "skip"
+    /// "copy" (everything), "copy-unique" (only content not already in the archive), "skip", or
+    /// "merge" (mailboxes: this one and those in `merge`, message by message)
     pub action: String,
     pub why: String,
     /// source paths inside this one that aren't copied with it (copied separately, or junk)
     pub exclude: Vec<String>,
+    /// for a thing that's mostly the same as another of its kind and origin: that one's source
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub twin: Option<String>,
+    /// "merge" (mailboxes): the other snapshots merged with `source` into one, by Message-ID
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub merge: Vec<String>,
 }
+
+/// Kinds whose snapshots can be merged message by message (mailmerge.rs).
+pub const MERGEABLE: &[&str] = &["maildir", "mail-store"];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DriveOutcome {
@@ -469,6 +479,8 @@ pub fn make(
                 action,
                 why,
                 exclude,
+                twin: None,
+                merge: Vec::new(),
             });
         }
         // everything else keeps its shape under Unsorted/<drive>/
@@ -563,6 +575,8 @@ pub fn make(
                 action,
                 why,
                 exclude,
+                twin: None,
+                merge: Vec::new(),
             });
         }
         let (lf, lb): (i64, i64) =
@@ -582,6 +596,8 @@ pub fn make(
                 action: "copy".into(),
                 why: "files directly on the drive, outside any folder".into(),
                 exclude: Vec::new(),
+                twin: None,
+                merge: Vec::new(),
             });
         }
         let (dfiles, dbytes): (i64, i64) = totals
@@ -651,6 +667,7 @@ pub fn make(
                     share * 100.0
                 );
                 let it = &mut items[i];
+                it.twin = Some(twin_src.clone());
                 if share >= 0.999 {
                     // nothing in it that the other hasn't got
                     it.action = "skip".into();
@@ -704,6 +721,88 @@ pub fn make(
 /// "Mail/example.org/…" -> "Mail/example.org": the type and origin levels of a destination
 fn dest_origin(dest: &str) -> String {
     dest.split('/').take(2).collect::<Vec<_>>().join("/")
+}
+
+// ---------- merging mailboxes instead of copying twins
+
+/// The item that item `i` (a mailbox mostly the same as another) would be merged into, if it can
+/// be: both of a kind mailmerge.rs reads, the other one filed (or merging already).
+pub fn merge_target(p: &Plan, i: usize) -> Option<usize> {
+    let it = p.items.get(i)?;
+    if !MERGEABLE.contains(&it.kind.as_str())
+        || !matches!(it.action.as_str(), "copy-unique" | "skip")
+    {
+        return None;
+    }
+    let twin = it.twin.as_deref()?;
+    p.items.iter().position(|j| {
+        j.source == twin
+            && j.kind == it.kind
+            && matches!(j.action.as_str(), "copy" | "merge")
+            && !j.merge.contains(&it.source)
+    })
+}
+
+/// Merge item `i` with its twin: the twin's place gets one mailbox merged from both snapshots by
+/// Message-ID (mailmerge.rs) instead of one copied whole and the other's extra files beside it.
+/// Returns the merged item.
+pub fn merge_into_twin(p: &mut Plan, i: usize) -> Result<usize> {
+    let j = merge_target(p, i)
+        .context("that isn't a mailbox with a twin in this plan to merge it with")?;
+    let (src, drive) = (p.items[i].source.clone(), p.items[i].drive.clone());
+    let (twin_dest, twin_src) = (p.items[j].dest.clone(), p.items[j].source.clone());
+    let t = &mut p.items[j];
+    if !t.merge.contains(&src) {
+        t.merge.push(src);
+    }
+    t.action = "merge".into();
+    t.why = format!(
+        "{} snapshots of this mailbox (also on {}) merged into one by Message-ID: every message once, in the folder the newest snapshot has it in, flags combined",
+        1 + t.merge.len(),
+        drive
+    );
+    let it = &mut p.items[i];
+    it.action = "skip".into();
+    it.why = format!("merged by Message-ID with {twin_src}, into {twin_dest}");
+    p.copy_files = p
+        .items
+        .iter()
+        .filter(|x| x.action != "skip")
+        .map(|x| x.files)
+        .sum();
+    p.copy_bytes = p
+        .items
+        .iter()
+        .filter(|x| x.action != "skip")
+        .map(|x| x.bytes)
+        .sum();
+    Ok(j)
+}
+
+/// Merge every mailbox in the plan that has a twin (`backdown plan --merge-mail`). Returns how
+/// many were merged.
+pub fn merge_all_mail(p: &mut Plan) -> usize {
+    let mut n = 0;
+    for i in 0..p.items.len() {
+        if merge_target(p, i).is_some() && merge_into_twin(p, i).is_ok() {
+            n += 1;
+        }
+    }
+    n
+}
+
+/// `merge_into_twin` on a saved plan that hasn't started yet.
+pub fn merge_mail(db: &Db, id: i64, item: usize) -> Result<Plan> {
+    let (mut p, state) = load(db, id)?;
+    if state != "new" {
+        bail!("plan {id} has started copying ({state}): make a new plan to merge mailboxes");
+    }
+    merge_into_twin(&mut p, item)?;
+    db.conn.execute(
+        "UPDATE plans SET data = ?2 WHERE id = ?1",
+        params![id, serde_json::to_string(&p)?],
+    )?;
+    Ok(p)
 }
 
 // ---------- storage

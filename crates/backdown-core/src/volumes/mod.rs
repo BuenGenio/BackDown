@@ -98,6 +98,10 @@ pub struct Volume {
     pub encryption: Option<Encryption>,
     /// A short explanation when the state needs one ("LVM physical volume", "swap in use").
     pub note: Option<String>,
+    /// Whether this computer can mount it (on Linux: the kernel, one of its modules, or a FUSE
+    /// helper knows the file system); left out where it isn't known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mountable_here: Option<bool>,
     /// Indexed roots on this volume (or that it lies inside).
     pub indexed: Vec<Indexed>,
     /// What's stacked on it: the readable side of an encrypted or member volume.
@@ -191,7 +195,22 @@ impl State {
 /// Probe this machine's disks. Errors only when the platform's own source is unavailable (no
 /// /sys, no diskutil, no PowerShell) or on an operating system BackDown doesn't probe yet.
 pub fn probe() -> Result<Report> {
-    let (disks, notes) = platform()?;
+    #[allow(unused_mut)]
+    let (mut disks, notes) = platform()?;
+    // offering "Mount" only makes sense where the mount can work (APFS on Linux usually can't)
+    #[cfg(target_os = "linux")]
+    {
+        fn mark(v: &mut Volume) {
+            if v.state == State::Mountable {
+                v.mountable_here = v.fs.as_deref().map(linux::can_mount);
+            }
+            v.holders.iter_mut().for_each(mark);
+        }
+        disks
+            .iter_mut()
+            .flat_map(|d| d.volumes.iter_mut())
+            .for_each(mark);
+    }
     Ok(Report {
         os: std::env::consts::OS,
         disks,
