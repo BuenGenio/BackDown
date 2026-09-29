@@ -33,6 +33,12 @@ Because every version is kept, the browser can show any folder as it was at any 
 
 If a drive that held files is suddenly empty, `index` refuses to record it: usually the drive isn't plugged in and you're looking at its empty mount point. If it really was emptied, pass `--allow-empty`.
 
+### Fast rescans
+
+A scan doesn't always have to open every folder. Where a drive keeps a record of what changed (the change journal of an NTFS drive on Windows, the change history of an APFS or HFS+ drive on a Mac), a rescan reads only the files and folders that record names, and carries everything else over: an unchanged drive with millions of files is rescanned in seconds. Where a drive's NTFS file table can be read directly (on Windows as administrator; on Linux for drives mounted with ntfs-3g, once BackDown may read the drive), a scan reads that table from start to end instead of going folder by folder.
+
+Whichever way a scan is made, it records exactly what opening every folder would, because proof needs every file. If the change record was reset, lost its oldest entries, belongs to another drive, or says anything that doesn't add up, the scan walks every folder instead, and it does so anyway every tenth scan or after 30 days, which catches changes made where nothing was recording them (the drive plugged into another computer). Activity shows how each drive's last scan was made and why; *Settings → Scanning* turns this off, or changes how often to walk anyway. Linux keeps no change record for drives, so rescans there walk (or read an NTFS drive's table). `backdown index --method walk` always walks.
+
 ## Hashes and proof
 
 Every claim BackDown makes about copies rests on SHA-256: two files are the same when their SHA-256 hashes are the same. Hashing everything would mean reading every byte on every drive, so hashing goes in three tiers:
