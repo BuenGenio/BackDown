@@ -38,7 +38,8 @@ export function mountCell(vol) {
   if (MNT.busy.has(vol.device)) return `<button class="btn sm" type="button" disabled>${vol.state === 'mountable' ? 'Mounting…' : 'Unmounting…'}</button>`;
   const m = ours(vol.device);
   if (m) return `<button class="btn sm" type="button" data-unmount="${esc(m.source)}" data-busy="${esc(vol.device)}" title="Mounted read-only by BackDown">${m.attached ? 'Detach' : 'Unmount'}</button>`;
-  if (vol.state === 'mountable' && MNT.can) return `<button class="btn sm" type="button" data-mount-dev="${esc(vol.device)}" title="Mount it read-only: nothing on it can be changed">Mount read-only</button>`;
+  // mountable_here: false when this computer has no driver for it (APFS on Linux, ReFS…)
+  if (vol.state === 'mountable' && MNT.can && vol.mountable_here !== false) return `<button class="btn sm" type="button" data-mount-dev="${esc(vol.device)}" title="Mount it read-only: nothing on it can be changed">Mount read-only</button>`;
   return '';
 }
 
