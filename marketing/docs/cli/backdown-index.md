@@ -25,7 +25,7 @@ backdown index [OPTIONS] <PATHS>...
 `--allow-empty`
 : Record PATH even if it's now empty although it held files (normally refused: an empty mount point usually means the drive is unplugged).
 
-`--method <METHOD>` {preview}
+`--method <METHOD>`
 : How to find what's there: auto (the drive's change log if it's intact, else NTFS's file table where the device can be read, else a walk; and a walk every so often), walk (every folder), journal or table (that way or fail, saying why). Default: `auto`. One of `auto`, `walk`, `journal`, `table`.
 
 Also takes the [global options](/docs/cli/#global-options) `--db` and `--local`.
