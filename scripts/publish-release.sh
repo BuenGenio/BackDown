@@ -80,12 +80,12 @@ tag, dist, path = sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3])
 sums = {name: digest for digest, name in (l.split() for l in (dist / 'SHA256SUMS.txt').read_text().splitlines())}
 base = f'https://github.com/BuenGenio/backdown-releases/releases/download/{tag}/'
 # installers first (for everyone), then the command-line archives (kind "cli": smaller buttons)
-files = {'linux': [('.deb for x86-64', 'backdown_*_amd64.deb', None), ('.deb for ARM64', 'backdown_*_arm64.deb', None),
-                   ('AppImage x86-64', 'BackDown-*-x86_64.AppImage', None), ('AppImage ARM64', 'BackDown-*-aarch64.AppImage', None),
-                   ('CLI x86-64', f'backdown-{tag}-linux-x86_64.tar.gz', 'cli'), ('CLI ARM64', f'backdown-{tag}-linux-arm64.tar.gz', 'cli')],
-         'macos': [('the app (.dmg)', 'BackDown-*.dmg', None), ('the app (.zip)', 'BackDown-*-macos.zip', None),
+files = {'linux': [('.deb · x86-64', 'backdown_*_amd64.deb', None), ('.deb · ARM64', 'backdown_*_arm64.deb', None),
+                   ('AppImage · x86-64', 'BackDown-*-x86_64.AppImage', None), ('AppImage · ARM64', 'BackDown-*-aarch64.AppImage', None),
+                   ('CLI · x86-64', f'backdown-{tag}-linux-x86_64.tar.gz', 'cli'), ('CLI · ARM64', f'backdown-{tag}-linux-arm64.tar.gz', 'cli')],
+         'macos': [('.dmg', 'BackDown-*.dmg', None), ('.app · .zip', 'BackDown-*-macos.zip', None),
                    ('CLI', f'backdown-{tag}-macos-universal.tar.gz', 'cli')],
-         'windows': [('the installer (.msi)', 'BackDown-*-x64.msi', None), ('setup (.zip)', 'BackDown-*-windows-x86_64-setup.zip', None),
+         'windows': [('.msi', 'BackDown-*-x64.msi', None), ('setup · .zip', 'BackDown-*-windows-x86_64-setup.zip', None),
                      ('CLI', f'backdown-{tag}-windows-x86_64.zip', 'cli')]}
 formats = {'linux': '.deb · AppImage · CLI', 'macos': '.dmg · CLI · universal', 'windows': '.msi · setup · CLI'}
 data = json.loads(path.read_text())

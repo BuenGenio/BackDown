@@ -1,6 +1,6 @@
 {
   "_comment": "The /status/ page's roadmap and changelog. Text fields are {lang: text}; a missing language falls back to English (marked lang=en), so English can be updated first. Keep it public-safe: no real paths, hosts or drive names.",
-  "updated": "2026-09-28",
+  "updated": "2026-09-29",
   "now": [
     {
       "state": "done",
@@ -107,7 +107,7 @@
       }
     },
     {
-      "state": "doing",
+      "state": "done",
       "text": {
         "en": "Rescans in seconds, free for everyone: the drive's own change log (FSEvents on macOS, the USN journal on Windows) and reading NTFS's master file table directly, with a full scan whenever anything can't be vouched for",
         "es": "Nuevos escaneos en segundos, gratis para todos: el propio registro de cambios del disco (FSEvents en macOS, el diario USN en Windows) y la lectura directa de la tabla maestra de archivos de NTFS, con un escaneo completo cuando algo no se puede garantizar",
@@ -133,16 +133,42 @@
       }
     },
     {
+      "state": "done",
+      "text": {
+        "en": "The 1.0 beta, with all of the above and installers for Linux, macOS and Windows",
+        "es": "La beta de la 1.0, con todo lo anterior e instaladores para Linux, macOS y Windows",
+        "pt-br": "O beta da 1.0, com tudo o que está acima e instaladores para Linux, macOS e Windows",
+        "de": "Die Beta von 1.0, mit allem oben Genannten und Installationsprogrammen für Linux, macOS und Windows",
+        "pl": "Beta wersji 1.0 ze wszystkim powyżej i instalatorami dla systemów Linux, macOS i Windows",
+        "cs": "Beta verze 1.0 se vším výše uvedeným a instalátory pro Linux, macOS a Windows",
+        "sk": "Beta verzie 1.0 so všetkým uvedeným vyššie a inštalátormi pre Linux, macOS a Windows",
+        "uk": "Бета-версія 1.0 з усім переліченим вище та інсталяторами для Linux, macOS і Windows"
+      }
+    },
+    {
+      "state": "doing",
+      "text": {
+        "en": "Trying the beta on real Macs and Windows PCs, and fixing what turns up",
+        "es": "Probar la beta en Mac y PC con Windows reales, y corregir lo que aparezca",
+        "pt-br": "Testar o beta em Macs e PCs com Windows de verdade, e corrigir o que aparecer",
+        "de": "Die Beta auf echten Macs und Windows-PCs ausprobieren und beheben, was dabei auffällt",
+        "pl": "Testowanie bety na prawdziwych Macach i komputerach z Windows oraz poprawianie tego, co wyjdzie",
+        "cs": "Zkoušení bety na skutečných Macích a počítačích s Windows a oprava všeho, co se ukáže",
+        "sk": "Skúšanie bety na skutočných Macoch a počítačoch s Windows a oprava všetkého, čo sa ukáže",
+        "uk": "Перевірка бети на справжніх Mac і ПК з Windows та виправлення всього, що виявиться"
+      }
+    },
+    {
       "state": "next",
       "text": {
-        "en": "The next preview release, with all of the above",
-        "es": "La próxima versión preliminar, con todo lo anterior",
-        "pt-br": "A próxima versão prévia, com tudo o que está acima",
-        "de": "Die nächste Vorschauversion mit allem oben Genannten",
-        "pl": "Następna wersja zapoznawcza, a w niej wszystko powyższe",
-        "cs": "Další náhledová verze se vším výše uvedeným",
-        "sk": "Ďalšia predbežná verzia so všetkým uvedeným vyššie",
-        "uk": "Наступна попередня версія з усім переліченим вище"
+        "en": "Signed and notarised installers, then 1.0",
+        "es": "Instaladores firmados y notarizados, y después la 1.0",
+        "pt-br": "Instaladores assinados e notarizados, e depois a 1.0",
+        "de": "Signierte und notarisierte Installationsprogramme, dann 1.0",
+        "pl": "Podpisane i notaryzowane instalatory, a potem wersja 1.0",
+        "cs": "Podepsané a notarizované instalátory, pak verze 1.0",
+        "sk": "Podpísané a notarizované inštalátory, potom verzia 1.0",
+        "uk": "Підписані й нотаризовані інсталятори, а потім 1.0"
       }
     }
   ],
@@ -177,10 +203,10 @@
     },
     {
       "version": "v0.2",
-      "state": "now",
+      "state": "done",
       "when": [
         2026,
-        4
+        3
       ],
       "title": {
         "en": "Command-line preview",
@@ -205,10 +231,10 @@
     },
     {
       "version": "v0.3",
-      "state": "now",
+      "state": "done",
       "when": [
         2026,
-        4
+        3
       ],
       "title": {
         "en": "Recognisers and reports",
@@ -233,10 +259,10 @@
     },
     {
       "version": "v0.4",
-      "state": "now",
+      "state": "done",
       "when": [
-        2027,
-        1
+        2026,
+        3
       ],
       "title": {
         "en": "Planner and journaled copy",
@@ -261,10 +287,10 @@
     },
     {
       "version": "v0.5",
-      "state": "now",
+      "state": "done",
       "when": [
-        2027,
-        1
+        2026,
+        3
       ],
       "title": {
         "en": "Desktop app",
@@ -289,10 +315,10 @@
     },
     {
       "version": "v0.6",
-      "state": "now",
+      "state": "done",
       "when": [
-        2027,
-        2
+        2026,
+        3
       ],
       "title": {
         "en": "Mirrors and drive health",
@@ -345,6 +371,20 @@
     }
   ],
   "shipped": [
+    {
+      "date": "2026-09-29",
+      "version": "v1.0.0-beta.1",
+      "text": {
+        "en": "The first 1.0 beta: the desktop app with installers for all three systems, drive health, rescans in seconds, freeing up drives, rescue, browsing mail, SQL dumps and disk images, where things came from, and several machines over SSH. Pro features are free during the beta.",
+        "es": "La primera beta de la 1.0: la app de escritorio con instaladores para los tres sistemas, salud de los discos, nuevos escaneos en segundos, liberar discos, rescate, explorar correo, volcados SQL e imágenes de disco, de dónde viene cada cosa y varias máquinas por SSH. Las funciones Pro son gratis durante la beta.",
+        "pt-br": "O primeiro beta da 1.0: o app para desktop com instaladores para os três sistemas, saúde dos discos, novas varreduras em segundos, liberar discos, resgate, navegar por e-mails, dumps SQL e imagens de disco, de onde veio cada coisa e várias máquinas via SSH. Os recursos Pro são grátis durante o beta.",
+        "de": "Die erste Beta von 1.0: die Desktop-App mit Installationsprogrammen für alle drei Systeme, Laufwerksgesundheit, erneute Scans in Sekunden, Laufwerke freigeben, Rettung, Mail, SQL-Dumps und Disk-Images durchsuchen, woher etwas stammt, und mehrere Rechner über SSH. Pro-Funktionen sind während der Beta kostenlos.",
+        "pl": "Pierwsza beta wersji 1.0: aplikacja desktopowa z instalatorami dla wszystkich trzech systemów, kondycja dysków, ponowny skan w kilka sekund, zwalnianie dysków, ratowanie danych, przeglądanie poczty, zrzutów SQL i obrazów dysków, pochodzenie danych oraz wiele komputerów przez SSH. Funkcje Pro są darmowe w czasie bety.",
+        "cs": "První beta verze 1.0: desktopová aplikace s instalátory pro všechny tři systémy, zdraví disků, opakovaný sken během pár sekund, uvolňování disků, záchrana dat, procházení pošty, výpisů SQL a obrazů disků, odkud co pochází, a více počítačů přes SSH. Funkce Pro jsou během bety zdarma.",
+        "sk": "Prvá beta verzie 1.0: desktopová aplikácia s inštalátormi pre všetky tri systémy, zdravie diskov, opakovaný sken za pár sekúnd, uvoľňovanie diskov, záchrana dát, prehliadanie pošty, výpisov SQL a obrazov diskov, odkiaľ čo pochádza, a viac počítačov cez SSH. Funkcie Pro sú počas bety zadarmo.",
+        "uk": "Перша бета-версія 1.0: настільний застосунок з інсталяторами для всіх трьох систем, стан дисків, повторне сканування за секунди, звільнення дисків, порятунок даних, перегляд пошти, SQL-дампів і образів дисків, походження даних і кілька комп’ютерів через SSH. Функції Pro безкоштовні під час бети."
+      }
+    },
     {
       "date": "2026-09-28",
       "version": "v0.2.0-alpha.4",
