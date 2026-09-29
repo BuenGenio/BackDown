@@ -620,8 +620,9 @@ impl Plan {
 
     /// Drops what a walk covers anyway, and what's inside something removed whole.
     fn prune(&mut self) {
-        let removed: Vec<PathBuf> = self.gone.iter().chain(&self.not_dir).cloned().collect();
-        let inside = |p: &Path| removed.iter().any(|r| p != r && p.starts_with(r));
+        // by ancestors, so a folder deleted with its 100,000 files named one by one stays cheap
+        let removed: HashSet<PathBuf> = self.gone.iter().chain(&self.not_dir).cloned().collect();
+        let inside = |p: &Path| p.ancestors().skip(1).any(|a| removed.contains(a));
         self.gone.retain(|p| !inside(p));
         self.not_dir.retain(|p| !inside(p));
         self.not_file.retain(|p| !inside(p));
@@ -629,8 +630,8 @@ impl Plan {
         self.relisted.retain(|p| !inside(p));
         self.emptied.retain(|p| !inside(p));
         self.walks.retain(|p| !inside(p));
-        let walks: Vec<PathBuf> = self.walks.iter().cloned().collect();
-        let below = |p: &Path| walks.iter().any(|w| p != w && p.starts_with(w));
+        let walks: HashSet<PathBuf> = self.walks.iter().cloned().collect();
+        let below = |p: &Path| p.ancestors().skip(1).any(|a| walks.contains(a));
         self.walks.retain(|p| !below(p));
         self.gone.retain(|p| !below(p));
         self.not_dir.retain(|p| !below(p));

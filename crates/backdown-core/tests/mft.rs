@@ -431,10 +431,11 @@ fn bench_table_against_walks() {
     };
     eprintln!("made {n} files in {:.1?}", t0.elapsed());
     let len = fs::metadata(&img).unwrap().len();
-    // the table
+    // the table (as Windows shows files, as fsread's listing does: Interix links and pipes are
+    // plain files to both)
     let t0 = Instant::now();
     let mut vol = fsread::Volume::open(File::open(&img).unwrap(), 0, len).unwrap();
-    let t = mft_scan::read(&mut vol, mft_scan::Flavour::Ntfs3g, None, &mut |_, _| {}).unwrap();
+    let t = mft_scan::read(&mut vol, mft_scan::Flavour::Windows, None, &mut |_, _| {}).unwrap();
     let mut count = 0u64;
     for (_, _, rec) in t.walk(5) {
         count += u64::from(rec.kind == mft_scan::Kind::File);

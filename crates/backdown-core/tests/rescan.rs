@@ -865,7 +865,12 @@ fn bench_rescan_from_changes() {
         }
     }
     for i in 0..100 {
-        let p = root.join(format!("d{}/e{}/file {}.txt", i % 100, 10 + i % 30, 100_000 + i * 13));
+        let p = root.join(format!(
+            "d{}/e{}/file {}.txt",
+            i % 100,
+            10 + i % 30,
+            100_000 + i * 13
+        ));
         if p.exists() {
             fs::remove_file(&p).unwrap();
             c.path(p);

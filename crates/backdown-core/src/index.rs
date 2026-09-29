@@ -224,16 +224,18 @@ pub struct How {
     pub note: Option<String>,
     pub changes: Option<i64>,
     pub took_ms: Option<i64>,
+    pub files: Option<i64>,
 }
 
 impl How {
     /// For people: "rescanned from the change log in 2 s: 412 changes", "read the file table:
-    /// 1.20 M records in 9 s", "full walk in 3 min: the change log was reset".
+    /// 1.20 M files in 9 s", "full walk in 3 min: the change log was reset".
     pub fn phrase(&self) -> String {
         describe(
             &self.method,
             self.note.as_deref().unwrap_or(""),
             self.changes.unwrap_or(0) as u64,
+            self.files.unwrap_or(0) as u64,
             self.took_ms.map(|t| t as u64),
         )
     }
@@ -242,11 +244,17 @@ impl How {
 impl Stats {
     /// How this scan was made, for people (see `How::phrase`).
     pub fn how(&self) -> String {
-        describe(self.method, &self.note, self.changes, Some(self.took_ms))
+        describe(
+            self.method,
+            &self.note,
+            self.changes,
+            self.files,
+            Some(self.took_ms),
+        )
     }
 }
 
-fn describe(method: &str, note: &str, changes: u64, took_ms: Option<u64>) -> String {
+fn describe(method: &str, note: &str, changes: u64, files: u64, took_ms: Option<u64>) -> String {
     let took = took_ms
         .map(|ms| format!(" in {}", took(ms)))
         .unwrap_or_default();
@@ -257,8 +265,8 @@ fn describe(method: &str, note: &str, changes: u64, took_ms: Option<u64>) -> Str
             if changes == 1 { "" } else { "s" }
         ),
         "table" => format!(
-            "read the file table: {} records{took}",
-            crate::fmt::count(changes)
+            "read the file table: {} files{took}",
+            crate::fmt::count(files)
         ),
         _ if note.is_empty() => format!("full walk{took}"),
         _ => format!("full walk{took}: {note}"),
@@ -280,7 +288,7 @@ pub fn took(ms: u64) -> String {
 /// How the given scans were made (scans from before this was recorded were walks).
 pub fn how(db: &Db, scans: &[i64]) -> Result<Vec<How>> {
     let mut stmt = db.conn.prepare_cached(
-        "SELECT id, COALESCE(method, 'walk'), method_note, changes, took_ms FROM scans WHERE id = ?1",
+        "SELECT id, COALESCE(method, 'walk'), method_note, changes, took_ms, files FROM scans WHERE id = ?1",
     )?;
     let mut out = Vec::new();
     for s in scans {
@@ -292,6 +300,7 @@ pub fn how(db: &Db, scans: &[i64]) -> Result<Vec<How>> {
                     note: r.get(2)?,
                     changes: r.get(3)?,
                     took_ms: r.get(4)?,
+                    files: r.get(5)?,
                 })
             })
             .optional()?
@@ -539,7 +548,15 @@ fn journal_changes(
     prev: Option<&Prev>,
     now_cursor: &std::result::Result<Option<journal::Cursor>, String>,
 ) -> std::result::Result<ChangeSet, String> {
-    let prev = prev.ok_or("no earlier scan to start from")?;
+    let now_cursor = match now_cursor {
+        Ok(Some(c)) => c,
+        Ok(None) if cfg!(target_os = "linux") => {
+            return Err("Linux keeps no change log for drives".into());
+        }
+        Ok(None) => return Err("this drive keeps no change log BackDown can read".into()),
+        Err(why) => return Err(why.clone()),
+    };
+    let prev = prev.ok_or("the drive's first scan")?;
     if !opts.one_file_system {
         return Err("scans that go into other filesystems are always walked".into());
     }
@@ -553,12 +570,7 @@ fn journal_changes(
     let from = saved
         .journal
         .as_ref()
-        .ok_or("no change log was noted for this drive at the previous scan")?;
-    let now_cursor = match now_cursor {
-        Ok(Some(c)) => c,
-        Ok(None) => return Err("this drive has no change log BackDown can read".into()),
-        Err(why) => return Err(why.clone()),
-    };
+        .ok_or("the previous scan didn't note where the change log was")?;
     let changes = journal::changes_since(db, root, root_id, from, now_cursor)?.within(root);
     if let Some(why) = &changes.full {
         return Err(why.clone());
@@ -1179,5 +1191,45 @@ pub(crate) fn device_of(path: &Path) -> Option<u64> {
     {
         let _ = path;
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn how_scans_were_made_for_people() {
+        assert_eq!(took(300), "under a second");
+        assert_eq!(took(2_400), "2 s");
+        assert_eq!(took(180_000), "3 min");
+        assert_eq!(took(184_000), "3 min 4 s");
+        assert_eq!(took(3_720_000), "1 h 2 min");
+        let st = |method, note: &str, changes, files| Stats {
+            method,
+            note: note.into(),
+            changes,
+            files,
+            took_ms: 2_000,
+            ..Stats::default()
+        };
+        assert_eq!(
+            st("journal", "", 412, 9).how(),
+            "rescanned from the change log in 2 s: 412 changes"
+        );
+        assert_eq!(
+            st("table", "", 5, 1_200_000).how(),
+            "read the file table: 1.20 M files in 2 s"
+        );
+        assert_eq!(
+            st("walk", "the change log was reset", 0, 9).how(),
+            "full walk in 2 s: the change log was reset"
+        );
+        assert!(
+            "walk journal table"
+                .split(' ')
+                .all(|m| m.parse::<Method>().is_ok())
+        );
+        assert!("everything".parse::<Method>().is_err());
     }
 }
