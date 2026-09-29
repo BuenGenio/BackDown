@@ -82,7 +82,7 @@ pub fn is_granted(path: &Path) -> bool {
 pub fn open(path: &Path) -> io::Result<File> {
     match granted(path) {
         Some(r) => r.map(|(f, _)| f),
-        None => File::open(path),
+        None => crate::paths::open_read(path),
     }
 }
 
@@ -91,7 +91,7 @@ pub fn open_at(path: &Path) -> io::Result<At> {
     let (f, size) = match granted(path) {
         Some(r) => r?,
         None => {
-            let f = File::open(path)?;
+            let f = crate::paths::open_read(path)?;
             let n = size_of(&f)?;
             (f, n)
         }
@@ -171,7 +171,7 @@ pub fn access(path: &Path) -> Access {
         a.size = Some(size);
         return a;
     }
-    match File::open(path) {
+    match crate::paths::open_read(path) {
         Ok(f) => match size_of(&f) {
             Ok(n) => {
                 a.readable = true;

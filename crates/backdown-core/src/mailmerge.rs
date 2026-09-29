@@ -665,8 +665,10 @@ fn is_mailbox_root(p: &Path) -> bool {
         })
 }
 
+/// A merged folder's name: composed (NFC), so a mailbox a Mac spelt decomposed merges with the
+/// same mailbox from elsewhere instead of becoming a second folder.
 fn folder_name(parts: &[String]) -> String {
-    let n = parts.join(".");
+    let n = crate::names::nfc(&parts.join(".")).into_owned();
     if n.eq_ignore_ascii_case("inbox") {
         "INBOX".into()
     } else {
@@ -2022,6 +2024,15 @@ pub fn export(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_folder_is_one_folder_in_either_unicode_form() {
+        let mac = folder_name(&["Entwu\u{308}rfe".to_string()]);
+        let pc = folder_name(&["Entw\u{fc}rfe".to_string()]);
+        assert_eq!(mac, pc);
+        assert_eq!(folder_name(&["Archive".into(), "2019".into()]), "Archive.2019");
+        assert_eq!(folder_name(&["inbox".into()]), "INBOX");
+    }
 
     #[test]
     fn flags_both_ways() {

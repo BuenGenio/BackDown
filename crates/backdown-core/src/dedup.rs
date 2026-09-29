@@ -178,7 +178,7 @@ pub fn check_folder(folder: &Path, index: Option<&Path>) -> Result<PathBuf> {
         bail!("the folder must be a full path");
     }
     let f =
-        dunce::canonicalize(folder).with_context(|| format!("{} isn't there", folder.display()))?;
+        paths::canonical(folder).with_context(|| format!("{} isn't there", folder.display()))?;
     if !f.is_dir() {
         bail!("{} isn't a folder", f.display());
     }
@@ -551,6 +551,8 @@ fn example(r: &mut Report, size: u64, sha: &[u8], sets: &[Set]) {
 /// What linking duplicates in `folder` would do: from the index and the files' metadata only
 /// (nothing is read or written).
 pub fn assess(db: &Db, folder: &Path, link: Link, min_size: u64) -> Result<Report> {
+    // as the index spells it (a name typed in the other Unicode form than the drive's)
+    let folder = &crate::names::as_indexed_or_same(db, folder);
     let mut r = base_report(db, folder, link, min_size)?;
     for (sha, size) in groups(db, folder, min_size)? {
         let sets = plan_group(size, members(db, folder, &sha)?, link, &mut r);
@@ -710,7 +712,7 @@ fn run_inner(
     progress: &mut dyn FnMut(u64, u64),
 ) -> Result<Report> {
     let (folder, link, min_size, _) = load(db, id)?;
-    let folder = check_folder(&folder, index)?;
+    let folder = crate::names::as_indexed_or_same(db, &check_folder(&folder, index)?);
     let mut r = base_report(db, &folder, link, min_size)?;
     if link == Link::Clone && !r.clones_possible {
         bail!(
@@ -732,7 +734,7 @@ fn run_inner(
     )?;
     let inside = |p: &Path| {
         p.parent()
-            .and_then(|d| dunce::canonicalize(d).ok())
+            .and_then(|d| paths::canonical(d).ok())
             .is_some_and(|d| d.starts_with(&folder))
     };
     let (mut seen, mut seen_bytes, mut tick) = (0u64, 0u64, Instant::now());
