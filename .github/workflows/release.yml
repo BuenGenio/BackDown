@@ -56,6 +56,9 @@ jobs:
       - name: Build (Windows)
         if: runner.os == 'Windows'
         shell: bash
+        env:
+          # the C runtime linked in, so it runs on a clean Windows without VCRUNTIME140.dll
+          RUSTFLAGS: '-C target-feature=+crt-static'
         run: |
           cargo build --locked --release --target ${{ matrix.targets }}
           mkdir -p dist && cp target/${{ matrix.targets }}/release/backdown.exe dist/

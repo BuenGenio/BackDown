@@ -95,7 +95,8 @@ CREATE TABLE IF NOT EXISTS journal (
     sha256  BLOB,
     state   TEXT NOT NULL,            -- copied | already-there | duplicate | conflict | failed
     error   TEXT,
-    at      INTEGER NOT NULL
+    at      INTEGER NOT NULL,
+    note    TEXT                      -- renamed, or what a copy didn't keep; added in 1.0 (add_column)
 );
 CREATE INDEX IF NOT EXISTS journal_src ON journal(plan_id, src);
 -- standing mirrors (mirror.rs): keep a folder copied on another drive, verified now and then
@@ -170,6 +171,17 @@ CREATE TABLE IF NOT EXISTS notifications (
     read   INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS notifications_key ON notifications(key, at);
+-- NTFS alternate data streams (streams.rs): per file version, only for files that have some; and
+-- the roots whose every file has been looked at once. Added in 1.0 without a schema bump
+CREATE TABLE IF NOT EXISTS streams (
+    file_id INTEGER PRIMARY KEY,      -- files.id
+    count   INTEGER NOT NULL,
+    bytes   INTEGER NOT NULL,
+    names   TEXT NOT NULL             -- JSON: [[name, bytes], ...]
+);
+CREATE TABLE IF NOT EXISTS streams_roots (
+    root_id INTEGER PRIMARY KEY
+);
 ";
 const VERSION: i64 = 2;
 
@@ -210,6 +222,19 @@ fn migrate_v1(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// Add a column an older index's table lacks (older versions just leave it empty).
+fn add_column(conn: &Connection, table: &str, column: &str, decl: &str) -> Result<()> {
+    let has: bool = conn.query_row(
+        &format!("SELECT COUNT(*) > 0 FROM pragma_table_info('{table}') WHERE name = ?1"),
+        [column],
+        |r| r.get(0),
+    )?;
+    if !has {
+        conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} {decl}"))?;
+    }
+    Ok(())
+}
+
 impl Db {
     pub fn open(path: &Path) -> Result<Db> {
         let conn =
@@ -234,6 +259,7 @@ impl Db {
         // journals, added without a schema bump (older versions ignore them)
         conn.execute_batch(crate::dedup::SCHEMA)?;
         conn.execute_batch(crate::mailmerge::SCHEMA)?;
+        add_column(&conn, "journal", "note", "TEXT")?;
         // names for search: added in place, without a schema bump, since older versions just
         // leave them empty on rows they write (and the next open here fills those in)
         crate::find::add_names(&conn)?;

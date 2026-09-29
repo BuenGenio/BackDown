@@ -654,6 +654,7 @@ fn udev_text(u: &Udev, key: &str) -> Option<String> {
 /// Whether this machine can mount file system `fs` (blkid's name): the running kernel lists it
 /// (`/proc/filesystems`), a module for it is installed (not loaded until it's first needed), or a
 /// FUSE mount helper (`mount.ntfs-3g`, `mount.exfat-fuse`, …) is.
+#[cfg(target_os = "linux")]
 pub(crate) fn can_mount(fs: &str) -> bool {
     let kernel = read(Path::new("/proc/filesystems")).unwrap_or_default();
     let release = read(Path::new("/proc/sys/kernel/osrelease")).unwrap_or_default();
@@ -667,6 +668,8 @@ pub(crate) fn can_mount(fs: &str) -> bool {
     })
 }
 
+// used by can_mount (Linux only) and its tests, which also run elsewhere
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn can_mount_with(
     fs: &str,
     proc_filesystems: &str,
