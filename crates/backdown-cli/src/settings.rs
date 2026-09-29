@@ -450,11 +450,44 @@ pub fn restart_soon() {
     });
 }
 
+/// The port this daemon's UI listens on (its ui.json).
+fn current_port() -> Option<u16> {
+    let v: Value =
+        serde_json::from_slice(&std::fs::read(dir().join(locations::UI_FILE)).ok()?).ok()?;
+    v["port"].as_u64().and_then(|p| u16::try_from(p).ok())
+}
+
+/// The command line again, but on the port it has now, even if that was picked at random
+/// (`--port 0`): open windows stay connected across the restart.
+fn same_port(args: Vec<std::ffi::OsString>, port: Option<u16>) -> Vec<std::ffi::OsString> {
+    let Some(port) = port else {
+        return args;
+    };
+    let mut out = Vec::with_capacity(args.len() + 2);
+    let mut skip = false;
+    for a in args {
+        if std::mem::take(&mut skip) {
+            continue;
+        }
+        let s = a.to_string_lossy();
+        if s == "--port" {
+            skip = true;
+            continue;
+        }
+        if s.starts_with("--port=") {
+            continue;
+        }
+        out.push(a);
+    }
+    out.extend(["--port".into(), port.to_string().into()]);
+    out
+}
+
 fn restart_now() -> ! {
     let exe = started_exe()
         .or_else(|| std::env::current_exe().ok())
         .unwrap_or_else(|| PathBuf::from("backdown"));
-    let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    let args = same_port(std::env::args_os().skip(1).collect(), current_port());
     eprintln!("restarting from {}", exe.display());
     if std::env::var_os("INVOCATION_ID").is_some() && std::env::var_os("NOTIFY_SOCKET").is_some() {
         // systemd restarts a service that fails (Restart=on-failure): that's the restart
@@ -513,6 +546,24 @@ mod tests {
             w.iter().any(|w| w.contains("no place for “mail-store”")),
             "{w:?}"
         );
+    }
+
+    #[test]
+    fn a_restart_keeps_the_port() {
+        let args = |v: &[&str]| v.iter().map(std::ffi::OsString::from).collect::<Vec<_>>();
+        assert_eq!(
+            same_port(args(&["daemon", "--port", "0", "--system"]), Some(41234)),
+            args(&["daemon", "--system", "--port", "41234"])
+        );
+        assert_eq!(
+            same_port(args(&["daemon", "--port=0"]), Some(8787)),
+            args(&["daemon", "--port", "8787"])
+        );
+        assert_eq!(
+            same_port(args(&["daemon"]), Some(8787)),
+            args(&["daemon", "--port", "8787"])
+        );
+        assert_eq!(same_port(args(&["daemon"]), None), args(&["daemon"]));
     }
 
     #[test]
