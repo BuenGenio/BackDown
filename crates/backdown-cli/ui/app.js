@@ -10,7 +10,8 @@ import { mountMachines, renderMachinesNav, machinesDaemon, machinePath, showMach
 import { mountCell, mountNotice, loadMounts, allowButton, browseFoundBtn, filesBody } from './drives.js';
 
 const $ = s => document.querySelector(s);
-const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// names are shown composed (NFC), whichever form the drive stores them in (HFS+ decomposes them)
+const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export const bytes = n => n >= 1e12 ? (n / 1e12).toFixed(2) + ' TB' : n >= 1e9 ? (n / 1e9).toFixed(1) + ' GB' : n >= 1e6 ? (n / 1e6).toFixed(1) + ' MB' : n >= 1e3 ? Math.round(n / 1e3) + ' KB' : n + ' B';
 const count = n => n >= 1e6 ? (n / 1e6).toFixed(2) + ' M' : n >= 1e3 ? (n / 1e3).toFixed(1) + ' K' : String(n);
 export const when = t => t ? new Date(t * 1000).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—';
@@ -424,6 +425,8 @@ async function renderInfo() {
       ${f.error ? `<dt>Read error</dt><dd>${esc(f.error)}</dd>` : ''}
       ${f.content_from ? `<dt>Read from</dt><dd>${esc(f.content_from)} <span class="note">(identical copy)</span></dd>` : ''}
       ${f.content_from === null ? `<dt>Content</dt><dd class="note">Not on any indexed drive any more. The index still remembers its size, hash and dates.</dd>` : ''}
+      ${f.streams ? `<dt>Alternate data streams</dt><dd>${f.streams.count} (${bytes(f.streams.bytes)}): ${f.streams.names.map(([n, b]) =>
+        `${esc(n)} <span class="note">${bytes(b)}${/^(zone\.identifier|smartscreen)$/i.test(n) ? ', a “downloaded from the internet” mark' : ''}</span>`).join(', ')}</dd>` : ''}
     </dl>
     <h4>Other copies (${f.copies.length})</h4>
     ${f.copies.length ? f.copies.map(c => `<button class="rowlink" type="button" data-dir="${c.dir_key}" data-sel="${c.key}">${esc(c.path)}</button>`).join('') : '<p class="note">No identical copy anywhere else in the index.</p>'}

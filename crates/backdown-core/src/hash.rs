@@ -18,7 +18,6 @@
 //! Results are committed in batches, so an interrupted run keeps what it finished.
 
 use std::collections::{HashMap, VecDeque};
-use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, mpsc};
@@ -308,7 +307,7 @@ fn sample(path: &Path, size: u64, buf: &mut [u8]) -> Outcome {
         return Ok((h.clone(), Some(h)));
     }
     let io = |e: std::io::Error| e.to_string();
-    let mut f = File::open(path).map_err(io)?;
+    let mut f = paths::open_read(path).map_err(io)?;
     if f.metadata().map_err(io)?.len() != size {
         return Err(changed());
     }
@@ -325,7 +324,7 @@ fn sample(path: &Path, size: u64, buf: &mut [u8]) -> Outcome {
 
 fn full(path: &Path, size: u64, buf: &mut [u8]) -> Result<Vec<u8>, String> {
     let io = |e: std::io::Error| e.to_string();
-    let mut f = File::open(path).map_err(io)?;
+    let mut f = paths::open_read(path).map_err(io)?;
     let mut h = Sha256::new();
     let mut read = 0u64;
     loop {

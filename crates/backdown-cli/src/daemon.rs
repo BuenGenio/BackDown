@@ -133,7 +133,9 @@ struct State {
 pub struct Daemon {
     pub db: PathBuf,
     pub started_at: i64,
-    /// the machine-wide service: its sandbox reads only, so it never wipes
+    /// the machine-wide service: its sandbox reads only, so it never wipes (read by `respond`,
+    /// which only the Unix control socket calls so far)
+    #[cfg_attr(not(unix), allow(dead_code))]
     pub shared: bool,
     /// changeable while it runs (Settings)
     rescan_every: Mutex<Option<Duration>>,
@@ -818,6 +820,18 @@ fn run_apply(d: &Daemon, db: &mut Db, job: &Job) -> Result<String> {
     );
     if st.merged > 0 {
         s += &format!("; {} messages in merged mailboxes", fmt::count(st.merged));
+    }
+    if st.renamed > 0 {
+        s += &format!(
+            "; {} renamed where the archive's drive takes names for one",
+            fmt::count(st.renamed)
+        );
+    }
+    if st.extras_not_kept > 0 {
+        s += &format!(
+            "; {} without some streams or attributes (see the journal)",
+            fmt::count(st.extras_not_kept)
+        );
     }
     if st.conflicts + st.failed > 0 {
         s += &format!(
@@ -1556,6 +1570,8 @@ fn check_roots(d: &Daemon, present: &mut HashMap<String, bool>) -> Result<()> {
 
 // ---------- requests from the CLI (and the UI's rescan button)
 
+/// One request on the control socket (Unix only so far: on Windows the CLI works on the index itself).
+#[cfg_attr(not(unix), allow(dead_code))]
 pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
     let ro = || Db::open_read_only(&d.db);
     Ok(match req["cmd"].as_str().unwrap_or("") {

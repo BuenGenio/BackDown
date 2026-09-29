@@ -25,7 +25,7 @@ use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
 use crate::plist::{self, Plist};
-use crate::{Db, browse, fmt, paths};
+use crate::{Db, browse, fmt, names, paths, timemachine};
 
 /// A recognised thing: a folder (or, for disk images and dumps, a file) with what it is.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -237,6 +237,8 @@ fn dir_marker(lower: &str) -> bool {
         || lower.starts_with("recup_dir")
         || lower.ends_with(".photoslibrary")
         || lower.ends_with(".sparsebundle")
+        || lower.ends_with(".backupbundle")
+        || timemachine::apfs_snapshot(lower)
         || lower.starts_with("takeout-")
         || lower.starts_with("facebook-")
         || lower.starts_with("instagram-")
@@ -290,6 +292,10 @@ fn file_marker(lower: &str) -> bool {
             | "id"
             | "thumbs.db"
             | ".ds_store"
+            | "com.apple.timemachine.machineid.plist"
+            | ".com.apple.timemachine.machineid.plist"
+            | "com.apple.timemachine.machineid.bckup"
+            | "com.apple.timemachine.snapshothistory.plist"
     ) || lower.starts_with("._sync_")
         || lower.ends_with(".lrcat")
         || lower.ends_with(".msf")
@@ -427,7 +433,7 @@ fn collect(db: &Db, root_id: i64, progress: &mut dyn FnMut(&str)) -> Result<Mark
             let Some(name) = child_name(&parent, &path, &sep) else {
                 continue;
             };
-            let lower = name.to_lowercase();
+            let lower = names::nfc(&name).to_lowercase();
             if dir_marker(&lower) || extra.contains(&lower) {
                 if lower != name {
                     m.dir_case.insert((parent.clone(), lower.clone()), name);
@@ -458,7 +464,7 @@ fn collect(db: &Db, root_id: i64, progress: &mut dyn FnMut(&str)) -> Result<Mark
         let Some(name) = child_name(&dir, &path, &sep) else {
             continue;
         };
-        let lower = name.to_lowercase();
+        let lower = names::nfc(&name).to_lowercase();
         let e = ext(&lower);
         if file_marker(&lower) {
             m.files
@@ -562,6 +568,68 @@ fn name_of(path: &[u8]) -> String {
 
 fn parent_of(path: &[u8]) -> Option<Vec<u8>> {
     paths::from_bytes(path).parent().map(paths::to_bytes)
+}
+
+/// A folder holding APFS Time Machine snapshots (`YYYY-MM-DD-HHMMSS.backup`): the backup volume's
+/// root, or where macOS mounts its snapshots. The computer is in the volume's name when it's the
+/// default "Backups of …"; the records (`timemachine`) may say more once the drive is read.
+fn apfs_time_machine(db: &Db, dir: &[u8]) -> Result<Candidate> {
+    let snaps: Vec<(String, timemachine::Snapshot)> = children(db, dir)?
+        .into_iter()
+        .filter(|n| timemachine::apfs_snapshot(n))
+        .filter_map(|n| timemachine::snapshot(&n).map(|s| (n, s)))
+        .collect();
+    let done: Vec<&(String, timemachine::Snapshot)> = snaps
+        .iter()
+        .filter(|(_, s)| s.state == timemachine::State::Done)
+        .collect();
+    let mut c = cand(dir.to_vec(), "timemachine", 0.95);
+    let own = name_of(dir);
+    let computer = timemachine::computer_of_volume(&own).map(|c| names::nfc(c).into_owned());
+    let n = done.len();
+    let count = if n == 1 {
+        "1 snapshot".to_string()
+    } else {
+        format!("{n} snapshots")
+    };
+    c.title = match &computer {
+        Some(m) => format!("{count} from {m}"),
+        None => format!("{count} (APFS)"),
+    };
+    if let Some(m) = &computer {
+        c.facts.push(("Computers".into(), m.clone()));
+    }
+    c.facts.push(("Snapshots".into(), n.to_string()));
+    if let (Some(first), Some(last)) = (done.first(), done.last()) {
+        c.facts
+            .push(("Span".into(), format!("{} – {}", first.1.day, last.1.day)));
+        // what was backed up: the volumes in the newest snapshot ("Macintosh HD - Data"); where
+        // macOS mounts a snapshot, the folder holds its own `….backup` folder once more
+        let mut at = join(dir, &last.0);
+        let mut vols = children(db, &at)?;
+        if vols.len() == 1 && vols[0] == last.0 {
+            at = join(&at, &last.0);
+            vols = children(db, &at)?;
+        }
+        let vols: Vec<String> = vols
+            .into_iter()
+            .filter(|v| !v.starts_with('.') && !timemachine::apfs_snapshot(v))
+            .map(|v| names::nfc(&v).into_owned())
+            .collect();
+        if !vols.is_empty() {
+            c.facts.push(("Volumes".into(), vols.join(", ")));
+        }
+    }
+    let unfinished = snaps.len() - n;
+    if unfinished > 0 {
+        c.facts.push((
+            "Unfinished".into(),
+            format!("{unfinished} (in progress or interrupted)"),
+        ));
+    }
+    c.facts
+        .push(("Layout".into(), "APFS snapshots (macOS 11 or later)".into()));
+    Ok(c)
 }
 
 fn looks_like_domain(s: &str) -> bool {
@@ -857,14 +925,61 @@ fn rules(db: &Db, root: &[u8], m: &Markers) -> Result<Vec<Candidate>> {
             if let (Some(f), Some(l)) = (first, last) {
                 c.facts.push(("Span".into(), format!("{f} – {l}")));
             }
+            c.facts
+                .push(("Layout".into(), "HFS+ (Backups.backupdb)".into()));
             out.push(c);
         }
-        for n in names.iter().filter(|n| n.ends_with(".sparsebundle")) {
-            let mut c = cand(join(dir, n), "disk-image", 0.9);
-            c.title = "sparse bundle (network Time Machine or disk image)".into();
-            c.facts
-                .push(("Format".into(), "Apple sparse bundle".into()));
-            out.push(c);
+        // APFS (macOS 11 and later): each backup a snapshot, seen as a `….backup` folder
+        if names.iter().any(|n| timemachine::apfs_snapshot(n)) {
+            out.push(apfs_time_machine(db, dir)?);
+        }
+        // network backups, and other sparse bundles; the marker names are lower case, so the
+        // bundle's own spelling comes from the index
+        let bundles: Vec<&String> = names
+            .iter()
+            .filter(|n| n.ends_with(".sparsebundle") || n.ends_with(".backupbundle"))
+            .collect();
+        if bundles.is_empty() {
+            continue;
+        }
+        let kids = children(db, dir)?;
+        for n in bundles {
+            let own = kids
+                .iter()
+                .find(|k| names::nfc(k).to_lowercase() == **n)
+                .unwrap_or(n);
+            let path = join(dir, own);
+            let apfs = n.ends_with(".backupbundle");
+            let has_id = [
+                "com.apple.timemachine.machineid.plist",
+                ".com.apple.timemachine.machineid.plist",
+                "com.apple.timemachine.machineid.bckup",
+            ]
+            .iter()
+            .any(|f| m.has_file(&path, f));
+            if apfs || has_id {
+                let computer = timemachine::bundle_computer(own).unwrap_or(own).to_string();
+                let mut c = cand(path, "timemachine", if has_id { 0.98 } else { 0.9 });
+                c.title = format!("network backup of {}", names::nfc(&computer));
+                c.facts
+                    .push(("Computers".into(), names::nfc(&computer).into_owned()));
+                c.facts.push((
+                    "Layout".into(),
+                    if apfs {
+                        "APFS backup bundle (network, macOS 11 or later)"
+                    } else {
+                        "sparse bundle (network)"
+                    }
+                    .into(),
+                ));
+                out.push(c);
+            } else {
+                let mut c = cand(path, "disk-image", 0.9);
+                c.title = "sparse bundle (network Time Machine or disk image)".into();
+                c.facts
+                    .push(("Format".into(), "Apple sparse bundle".into()));
+                out.push(c);
+            }
         }
     }
 
@@ -1731,6 +1846,38 @@ fn provenance(
             }
         }
         "timemachine" => {
+            // Time Machine's own records, where it keeps them (network bundles, APFS volumes)
+            if let Some(m) = timemachine::read(path, timemachine::MACHINE_ID) {
+                let m = timemachine::machine(&m);
+                if let Some(model) = m.model {
+                    e.facts.push(("Model".into(), model));
+                }
+                if let Some(t) = m.verified {
+                    e.facts.push(("Last verified".into(), fmt::day(t)));
+                }
+            }
+            let history = timemachine::read(path, timemachine::SNAPSHOT_HISTORY)
+                .map(|h| timemachine::history(&h))
+                .unwrap_or_default();
+            let done: Vec<_> = history
+                .iter()
+                .filter(|(s, _)| s.state == timemachine::State::Done)
+                .collect();
+            if let (Some(first), Some(last)) = (done.first(), done.last())
+                && !e.facts.iter().any(|(k, _)| k == "Span")
+            {
+                // a bundle's snapshots are inside its disk image: only the history tells them
+                e.facts.retain(|(k, _)| k != "Snapshots");
+                e.facts.push(("Snapshots".into(), done.len().to_string()));
+                e.facts
+                    .push(("Span".into(), format!("{} – {}", first.0.day, last.0.day)));
+                e.title = format!(
+                    "{}, {} snapshot{}",
+                    e.title,
+                    done.len(),
+                    if done.len() == 1 { "" } else { "s" }
+                );
+            }
             // the snapshot folders are named by date: the newest one is the last backup
             let computers = e
                 .facts
@@ -1743,11 +1890,16 @@ fn provenance(
                 .find(|(k, _)| k == "Span")
                 .and_then(|(_, v)| v.rsplit(' ').next())
                 .and_then(plist::iso_date);
-            if let (Some(c), Some(t)) = (computers.filter(|c| !c.is_empty()), last) {
-                e.provenance.push(format!(
+            match (computers.filter(|c| !c.is_empty()), last) {
+                (Some(c), Some(t)) => e.provenance.push(format!(
                     "Backed up by Time Machine from {c}, last on {}.",
                     fmt::day(t)
-                ));
+                )),
+                (None, Some(t)) => e.provenance.push(format!(
+                    "Backed up by Time Machine, last on {}.",
+                    fmt::day(t)
+                )),
+                _ => {}
             }
         }
         "system" => {

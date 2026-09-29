@@ -42,7 +42,6 @@
 //! never names a device or a path, and picks files through the filesystem's own listings (deleted
 //! ones by the segment their listing gave them).
 
-use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -50,7 +49,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 use backdown_core::{
-    Db, apply, browse, dedup, fmt, overlap, paths, plan, recognise, report, rescue, summary,
+    Db, apply, browse, dedup, fmt, names, overlap, paths, plan, recognise, report, rescue, summary,
     volumes, wipe,
 };
 
@@ -1304,7 +1303,8 @@ fn content(ctx: &Ctx, req: Request, id: Option<&str>, range: Option<&str>, downl
             return;
         }
     };
-    let mut file = match File::open(&path) {
+    // verbatim on Windows (long paths), with backup semantics when elevated
+    let mut file = match paths::open_read(&path) {
         Ok(f) => f,
         Err(e) => {
             let _ = req.respond(plain(404, &e.to_string()));
@@ -1319,7 +1319,7 @@ fn content(ctx: &Ctx, req: Request, id: Option<&str>, range: Option<&str>, downl
     }
     let name = path
         .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
+        .map(|n| names::nfc(&n.to_string_lossy()).into_owned())
         .unwrap_or_default();
     let mut headers = file_headers(&name);
     headers.push(header("Accept-Ranges", "bytes"));
@@ -1448,7 +1448,7 @@ fn open_on_desktop(ctx: &Ctx, id: Option<&str>, dir: Option<&str>, reveal: bool)
             use std::os::unix::fs::PermissionsExt;
             let mut magic = [0u8; 4];
             std::fs::metadata(&path).is_ok_and(|m| m.permissions().mode() & 0o111 != 0)
-                && File::open(&path)
+                && std::fs::File::open(&path)
                     .and_then(|mut f| f.read(&mut magic))
                     .is_ok()
                 && (magic.starts_with(b"#!")

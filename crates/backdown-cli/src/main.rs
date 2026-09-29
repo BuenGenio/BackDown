@@ -490,6 +490,9 @@ struct HashArgs {
 }
 
 fn main() -> ExitCode {
+    // run elevated on Windows: read (never write) files the user's own account can't, like other
+    // users' folders on an old drive; does nothing otherwise
+    backdown_core::paths::enable_backup_privilege();
     // BackDown.app, or backdown.exe double-clicked in Explorer: the app
     if app::double_clicked() {
         return match app::run(app::Args {
@@ -935,7 +938,7 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
             allow_empty,
         } => {
             for path in paths {
-                let abs = dunce::canonicalize(&path)
+                let abs = backdown_core::paths::canonical(&path)
                     .with_context(|| format!("can't open {}", path.display()))?;
                 let r = c.request(&json!({ "cmd": "enqueue", "kind": "index", "path": abs.display().to_string(), "cross_filesystems": cross_filesystems, "allow_empty": allow_empty }))?;
                 let summary = follow(
@@ -982,7 +985,7 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
             json,
             hashing,
         } => {
-            let abs = dunce::canonicalize(&path)
+            let abs = backdown_core::paths::canonical(&path)
                 .with_context(|| format!("can't open {}", path.display()))?;
             hash_first(&mut c, &hashing, &mut follow)?;
             let r = c.request(&json!({ "cmd": "check", "path": abs.display().to_string() }))?;

@@ -143,7 +143,9 @@ pub const UNIQUE_LISTED: u64 = 20_000;
 /// Is `dir` safe to wipe? Every non-empty file under it needs a SHA-256-identical copy somewhere
 /// outside it. A hardlink doesn't count: it is the same data on the same disk.
 pub fn check(db: &Db, dir: &Path) -> Result<Check> {
-    let dir = dunce::canonicalize(dir).with_context(|| format!("can't open {}", dir.display()))?;
+    let dir = paths::canonical(dir).with_context(|| format!("can't open {}", dir.display()))?;
+    // as the index spells it: the drive's names can be in the other Unicode form than the path given
+    let dir = crate::names::as_indexed(db, &dir)?;
     check_indexed(db, &dir)
 }
 
