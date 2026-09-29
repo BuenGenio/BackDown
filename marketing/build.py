@@ -164,7 +164,7 @@ def downloads(t, platforms):
     for p in platforms:
         if p['status'] == 'available' and p['files']:
             badge = f'<span class="tag live">{esc(p["version"])}</span>'
-            act = ''.join(f'<a class="btn btn-primary" href="{esc(f["url"])}" download>{t["download.cta_download"]} {esc(f["label"])}</a>'
+            act = ''.join(f'<a class="btn {"btn-ghost btn-cli" if f.get("kind") == "cli" else "btn-primary"}" href="{esc(f["url"])}" download>{t["download.cta_download"]} {esc(f["label"])}</a>'
                           f'<details class="sum"><summary>{t["download.checksum"]}</summary><code>{esc(f["sha256"])}</code></details>'
                           for f in p['files'])
         else:

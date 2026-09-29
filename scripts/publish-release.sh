@@ -6,12 +6,15 @@
 #
 #   scripts/publish-release.sh v0.2.0-alpha.1
 #   scripts/publish-release.sh v0.2.0-alpha.5 --local   # publish what scripts/build-local.sh built instead
+#   scripts/publish-release.sh v1.0.0-beta.1 --local --with-packages   # plus scripts/package-local.sh's installers
 #
 # Needs gh (logged in with access to both repos) and python3.
 set -euo pipefail
-tag=${1:?usage: scripts/publish-release.sh vX.Y.Z [--local]}
-local_build=
-case ${2:-} in --local) local_build=1 ;; '') ;; *) echo "unknown option $2" >&2; exit 1 ;; esac
+tag=${1:?usage: scripts/publish-release.sh vX.Y.Z [--local] [--with-packages]}
+local_build= with_packages=
+for opt in "${@:2}"; do
+  case $opt in --local) local_build=1 ;; --with-packages) with_packages=1 ;; *) echo "unknown option $opt" >&2; exit 1 ;; esac
+done
 src=BuenGenio/BackDown
 dst=BuenGenio/backdown-releases
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -50,40 +53,55 @@ else
   fi
 fi
 
+# with --with-packages: scripts/package-local.sh's installers go up beside the archives, under one
+# SHA256SUMS.txt that covers everything (`backdown update` picks archives by exact name, so extra files
+# can't confuse it)
+upload=$dist
+if [ -n "$with_packages" ]; then
+  pkgs="$root/target/packages/$tag"
+  [ -f "$pkgs/SHA256SUMS.txt" ] || { echo "no installers in $pkgs: run scripts/package-local.sh $tag" >&2; exit 1; }
+  (cd "$pkgs" && sha256sum --quiet -c SHA256SUMS.txt) || { echo "checksum mismatch in $pkgs" >&2; exit 1; }
+  upload="$root/target/release-upload/$tag"
+  rm -rf "$upload" && mkdir -p "$upload"
+  for f in "$dist"/* "$pkgs"/*; do [ "$(basename "$f")" = SHA256SUMS.txt ] || ln "$f" "$upload/" 2>/dev/null || cp "$f" "$upload/"; done
+  cat "$dist/SHA256SUMS.txt" "$pkgs/SHA256SUMS.txt" > "$upload/SHA256SUMS.txt"
+  (cd "$upload" && sha256sum --quiet -c SHA256SUMS.txt) || { echo "combined checksums don't match" >&2; exit 1; }
+fi
+notes="$root/scripts/release-notes/$tag.md"
+[ -f "$notes" ] || { echo "write the release notes first: $notes" >&2; exit 1; }
+
 pre=(); [[ $tag == *-* ]] && pre=(--prerelease)
-gh release create "$tag" "$dist"/* --repo "$dst" --title "BackDown $tag" "${pre[@]}" --notes "$(cat <<NOTES
-Command-line preview of BackDown: find out what's on your drives, what's duplicated, and which drives are safe to wipe.
+gh release create "$tag" "$upload"/* --repo "$dst" --title "BackDown $tag" "${pre[@]}" --notes-file "$notes"
 
-| Platform | Download |
-|---|---|
-| Linux x86-64 (static) | \`backdown-$tag-linux-x86_64.tar.gz\` |
-| Linux ARM64 (static) | \`backdown-$tag-linux-arm64.tar.gz\` |
-| macOS, Apple silicon + Intel | \`backdown-$tag-macos-universal.tar.gz\` |
-| Windows x86-64 | \`backdown-$tag-windows-x86_64.zip\` |
-
-\`\`\`sh
-backdown index /media/old-drive /media/archive
-backdown check /media/old-drive        # exit 0 = safe to wipe, 2 = copy first
-backdown dupes --min-size 10M
-\`\`\`
-
-Verify downloads against \`SHA256SUMS.txt\`. Builds aren't signed yet: see the README for the one-time macOS and Windows steps. Provided as-is, without warranty, for evaluation.
-NOTES
-)"
-
-python3 - "$tag" "$dist" "$root/marketing/downloads.json" <<'PY'
-import json, sys
+python3 - "$tag" "$upload" "$root/marketing/downloads.json" <<'PY'
+import fnmatch, json, sys
 from pathlib import Path
 tag, dist, path = sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3])
 sums = {name: digest for digest, name in (l.split() for l in (dist / 'SHA256SUMS.txt').read_text().splitlines())}
 base = f'https://github.com/BuenGenio/backdown-releases/releases/download/{tag}/'
-files = {'linux': [('x86-64', 'linux-x86_64.tar.gz'), ('ARM64', 'linux-arm64.tar.gz')],
-         'macos': [('Apple silicon + Intel', 'macos-universal.tar.gz')],
-         'windows': [('x86-64', 'windows-x86_64.zip')]}
+# installers first (for everyone), then the command-line archives (kind "cli": smaller buttons)
+files = {'linux': [('.deb for x86-64', 'backdown_*_amd64.deb', None), ('.deb for ARM64', 'backdown_*_arm64.deb', None),
+                   ('AppImage x86-64', 'BackDown-*-x86_64.AppImage', None), ('AppImage ARM64', 'BackDown-*-aarch64.AppImage', None),
+                   ('CLI x86-64', f'backdown-{tag}-linux-x86_64.tar.gz', 'cli'), ('CLI ARM64', f'backdown-{tag}-linux-arm64.tar.gz', 'cli')],
+         'macos': [('the app (.dmg)', 'BackDown-*.dmg', None), ('the app (.zip)', 'BackDown-*-macos.zip', None),
+                   ('CLI', f'backdown-{tag}-macos-universal.tar.gz', 'cli')],
+         'windows': [('the installer (.msi)', 'BackDown-*-x64.msi', None), ('setup (.zip)', 'BackDown-*-windows-x86_64-setup.zip', None),
+                     ('CLI', f'backdown-{tag}-windows-x86_64.zip', 'cli')]}
+formats = {'linux': '.deb · AppImage · CLI', 'macos': '.dmg · CLI · universal', 'windows': '.msi · setup · CLI'}
 data = json.loads(path.read_text())
 for p in data['platforms']:
-    names = [(label, f'backdown-{tag}-{suffix}') for label, suffix in files[p['id']]]
-    p.update(status='available', version=tag, files=[{'label': l, 'url': base + n, 'sha256': sums[n]} for l, n in names])
+    out = []
+    for label, pattern, kind in files[p['id']]:
+        match = sorted(n for n in sums if fnmatch.fnmatch(n, pattern))
+        if not match:
+            continue  # an installer that wasn't built this time
+        f = {'label': label, 'url': base + match[0], 'sha256': sums[match[0]]}
+        if kind:
+            f['kind'] = kind
+        out.append(f)
+    if any('kind' not in f for f in out):
+        p['formats'] = formats[p['id']]
+    p.update(status='available', version=tag, files=out)
 path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + '\n')
 print(f'{path}: {sum(len(p["files"]) for p in data["platforms"])} downloads for {tag}')
 PY
