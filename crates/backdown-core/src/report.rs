@@ -126,6 +126,15 @@ pub struct Check {
     pub unique_files: Vec<(String, u64)>,
     pub unreadable_files: Vec<(String, String)>,
     pub safe: bool,
+    /// of `verified`: files whose only copy outside `path` is on another machine (remote/): hashed
+    /// there, and confirmed there within the proof window
+    #[serde(default)]
+    pub remote: Tally,
+    /// the machines that could hold such copies, and the proof window in days
+    #[serde(default)]
+    pub remote_machines: Vec<String>,
+    #[serde(default)]
+    pub proof_days: i64,
 }
 
 /// How many of the unique files a check names (the largest); its totals always count them all.
@@ -161,22 +170,34 @@ pub fn check_indexed(db: &Db, dir: &Path) -> Result<Check> {
         );
     }
 
-    let mut stmt = db.conn.prepare(
+    // a copy on another machine counts too, conservatively (remote/): by hash, confirmed there
+    // within the proof window
+    let cutoff = crate::remote::cutoff(db)?;
+    let remote = match cutoff {
+        Some(_) => format!(
+            "f.sha256 IS NOT NULL AND {}",
+            crate::remote::proof_sql("f", 4)
+        ),
+        None => "(0 AND ?4 IS NULL)".into(),
+    };
+    let mut stmt = db.conn.prepare(&format!(
         "SELECT f.path, f.size, f.error,
                 f.sha256 IS NOT NULL AND EXISTS (
                     SELECT 1 FROM files g
                     WHERE g.current = 1 AND g.sha256 = f.sha256 AND g.error IS NULL
                       AND substr(g.path, 1, ?1) <> ?2
-                      AND NOT (f.ino IS NOT NULL AND g.dev = f.dev AND g.ino = f.ino))
+                      AND NOT (f.ino IS NOT NULL AND g.dev = f.dev AND g.ino = f.ino)),
+                {remote}
          FROM files f
-         WHERE f.current = 1 AND f.path >= ?2 AND f.path < ?3",
-    )?;
-    let rows = stmt.query_map(params![n, prefix, hi], |r| {
+         WHERE f.current = 1 AND f.path >= ?2 AND f.path < ?3"
+    ))?;
+    let rows = stmt.query_map(params![n, prefix, hi, cutoff], |r| {
         Ok((
             r.get::<_, Vec<u8>>(0)?,
             r.get::<_, i64>(1)?,
             r.get::<_, Option<String>>(2)?,
             r.get::<_, bool>(3)?,
+            r.get::<_, bool>(4)?,
         ))
     })?;
 
@@ -191,12 +212,15 @@ pub fn check_indexed(db: &Db, dir: &Path) -> Result<Check> {
         unique_files: Vec::new(),
         unreadable_files: Vec::new(),
         safe: false,
+        remote: Tally::default(),
+        remote_machines: Vec::new(),
+        proof_days: 0,
     };
     let mut by_dir: BTreeMap<String, Tally> = BTreeMap::new();
     let mut largest: std::collections::BinaryHeap<std::cmp::Reverse<(u64, String)>> =
         std::collections::BinaryHeap::new();
     for row in rows {
-        let (path, size, error, verified) = row?;
+        let (path, size, error, verified, elsewhere) = row?;
         let (path, size) = (paths::from_bytes(&path), size as u64);
         c.total.add(size);
         if size == 0 {
@@ -206,6 +230,9 @@ pub fn check_indexed(db: &Db, dir: &Path) -> Result<Check> {
             c.unreadable_files.push((path.display().to_string(), e));
         } else if verified {
             c.verified.add(size);
+        } else if elsewhere {
+            c.verified.add(size);
+            c.remote.add(size);
         } else {
             c.unique.add(size);
             // first folder below `dir`, or "." for files directly in it
@@ -244,6 +271,13 @@ pub fn check_indexed(db: &Db, dir: &Path) -> Result<Check> {
     c.unique_files
         .sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
     c.safe = c.unique.files == 0 && c.unreadable.files == 0;
+    if cutoff.is_some() {
+        c.remote_machines = crate::remote::list(db)?
+            .into_iter()
+            .map(|m| m.label())
+            .collect();
+        c.proof_days = crate::remote::settings(db).proof_days;
+    }
     Ok(c)
 }
 

@@ -5,7 +5,9 @@
 //! 1. Never the running system: nothing on it outside home folders (and never BackDown's index).
 //! 2. A file is deleted only when it still is what the index says (re-read: same SHA-256), and an
 //!    identical copy *outside the selection* has just been re-read and matches. Copies inside the
-//!    selection don't count: they're going too.
+//!    selection don't count: they're going too. A copy on another machine (remote/) counts only
+//!    if it's hashed there, was confirmed there within the proof window, and that machine re-reads
+//!    it (over ssh) just before and it matches.
 //! 3. What exists only in the selection is first copied to the chosen place (verified by reading it
 //!    back), and only then deleted: a move.
 //! 4. Anything else is left where it is: changed or new since the last scan, unreadable, or with
@@ -54,6 +56,15 @@ pub struct Item {
     pub copies: Vec<Place>,
     /// why this path can't be wiped at all
     pub refused: Option<String>,
+    /// of `kept`: files whose only copy is on another machine (remote/), hashed there and confirmed
+    /// within the proof window; that machine re-reads each one before it's deleted here
+    #[serde(default)]
+    pub remote_files: u64,
+    #[serde(default)]
+    pub remote_bytes: u64,
+    /// the oldest confirmation among those copies
+    #[serde(default)]
+    pub remote_confirmed: Option<i64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -66,6 +77,9 @@ pub struct Assessment {
     pub only_bytes: u64,
     /// the drive names a person types to confirm
     pub confirm: String,
+    /// copies on other machines count when confirmed there within this many days (0: no machines)
+    #[serde(default)]
+    pub proof_days: i64,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -82,6 +96,9 @@ pub struct Stats {
     pub failed: u64,
     pub dirs_removed: u64,
     pub problems: Vec<String>,
+    /// of `deleted`: proved by a copy on another machine, re-read there just before
+    #[serde(default)]
+    pub remote: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -300,6 +317,11 @@ pub fn assess(db: &Db, paths: &[PathBuf], index: Option<&Path>) -> Result<Assess
     }
     let sel = Selection::new(paths);
     let mut a = Assessment::default();
+    // copies on other machines, by hash and confirmed within the proof window (remote/)
+    let mut prover = crate::remote::Prover::new(db)?;
+    if crate::remote::cutoff(db)?.is_some() {
+        a.proof_days = prover.proof_days;
+    }
     let mut copies_q = db.conn.prepare_cached(
         "SELECT path, dev, ino FROM files WHERE current = 1 AND sha256 = ?1 AND error IS NULL LIMIT 50",
     )?;
@@ -363,6 +385,10 @@ pub fn assess(db: &Db, paths: &[PathBuf], index: Option<&Path>) -> Result<Assess
                     .map(|(g, _, _)| g),
                 _ => None,
             };
+            let there = match (&copy, &sha) {
+                (None, Some(h)) if size > 0 => prover.find(h, size)?,
+                _ => None,
+            };
             match copy {
                 Some(g) => {
                     it.kept_files += 1;
@@ -371,6 +397,16 @@ pub fn assess(db: &Db, paths: &[PathBuf], index: Option<&Path>) -> Result<Assess
                 }
                 None if size == 0 => {
                     it.kept_files += 1; // an empty file carries nothing to keep
+                }
+                None if there.is_some() => {
+                    let (machine, confirmed) = there.expect("matched");
+                    it.kept_files += 1;
+                    it.kept_bytes += size;
+                    it.remote_files += 1;
+                    it.remote_bytes += size;
+                    it.remote_confirmed =
+                        Some(it.remote_confirmed.map_or(confirmed, |c| c.min(confirmed)));
+                    *places.entry(format!("on {machine}")).or_default() += size;
                 }
                 None => {
                     it.only_files += 1;
@@ -461,7 +497,22 @@ pub fn wipe(
     index: Option<&Path>,
     progress: &mut dyn FnMut(u64, u64),
 ) -> Result<Stats> {
-    let r = run(db, id, trust_index, index, progress);
+    wipe_with(db, id, trust_index, index, None, progress)
+}
+
+/// `wipe`, with copies on other machines as proof too (remote/): a file whose only copy is there
+/// is deleted only once that machine has re-read the copy just then and it matched (trusting the
+/// index: checked it's there as scanned), and only if the copy was confirmed within the proof
+/// window before that.
+pub fn wipe_with(
+    db: &mut Db,
+    id: i64,
+    trust_index: bool,
+    index: Option<&Path>,
+    remote: Option<&mut crate::remote::Verifier>,
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<Stats> {
+    let r = run(db, id, trust_index, index, remote, progress);
     if let Err(e) = &r {
         let _ = db.conn.execute(
             "UPDATE wipes SET state = 'failed', summary = ?2 WHERE id = ?1",
@@ -476,6 +527,7 @@ fn run(
     id: i64,
     trust_index: bool,
     index: Option<&Path>,
+    mut remote: Option<&mut crate::remote::Verifier>,
     progress: &mut dyn FnMut(u64, u64),
 ) -> Result<Stats> {
     let (paths, move_to, _) = load(db, id)?;
@@ -618,6 +670,13 @@ fn run(
                         break;
                     }
                 }
+                // none here: a copy on another machine, confirmed there now
+                if proof.is_none()
+                    && let Some(v) = remote.as_deref_mut()
+                    && let Some((there, how)) = v.confirm(db, &actual, size, trust_index)?
+                {
+                    proof = Some((there.into_bytes(), how));
+                }
             }
             // none: move it to the chosen place first
             if proof.is_none() {
@@ -676,6 +735,9 @@ fn run(
                 Ok(()) => {
                     st.deleted += 1;
                     st.deleted_bytes += size;
+                    if how.starts_with("remote") {
+                        st.remote += 1;
+                    }
                     journal.execute(params![id, fb, size as i64, actual, proof, how, now()])?;
                 }
                 Err(e) => {
@@ -706,11 +768,24 @@ fn run(
             }
         }
     }
+    if let Some(v) = remote {
+        for p in v.problems.drain(..) {
+            push(&mut st.problems, p);
+        }
+    }
     let summary = format!(
-        "deleted {} files ({}), {} of them moved to the chosen place first; left {} changed or new, {} with no copy, {} unreadable{}",
+        "deleted {} files ({}), {} of them moved to the chosen place first{}; left {} changed or new, {} with no copy, {} unreadable{}",
         fmt::count(st.deleted),
         fmt::bytes(st.deleted_bytes),
         fmt::count(st.moved),
+        if st.remote > 0 {
+            format!(
+                " and {} kept only on another machine (re-read there first)",
+                fmt::count(st.remote)
+            )
+        } else {
+            String::new()
+        },
         fmt::count(st.left_changed),
         fmt::count(st.left_no_copy),
         fmt::count(st.left_unreadable),

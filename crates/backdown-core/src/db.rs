@@ -170,6 +170,54 @@ CREATE TABLE IF NOT EXISTS notifications (
     read   INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS notifications_key ON notifications(key, at);
+-- other machines (remote/): reached over ssh, read-only. What each one's index holds is cached here
+-- (its drives, and its current files with their hashes, pulled by scan), so copies there can count;
+-- `seen_at` and `hashed_at` say when a file was last confirmed there. Added without a schema bump
+CREATE TABLE IF NOT EXISTS remotes (
+    id         INTEGER PRIMARY KEY,
+    name       TEXT NOT NULL UNIQUE,
+    url        TEXT NOT NULL,             -- ssh://[user@]host[:port]
+    db         TEXT,                      -- the index there, when not its default
+    command    TEXT,                      -- where backdown is there, when not on its PATH
+    created_at INTEGER NOT NULL,
+    last_try   INTEGER,
+    last_sync  INTEGER,                   -- the last sync that finished
+    last_error TEXT,
+    info       TEXT                       -- JSON: what it said about itself (version, host, clock)
+);
+CREATE TABLE IF NOT EXISTS remote_roots (
+    remote_id   INTEGER NOT NULL REFERENCES remotes(id) ON DELETE CASCADE,
+    root_id     INTEGER NOT NULL,         -- the drive's id there
+    path        BLOB NOT NULL,            -- its path there, in that machine's raw bytes
+    display     TEXT NOT NULL,
+    last_scan   INTEGER,                  -- its latest finished scan there
+    scanned_at  INTEGER,                  -- when that finished (this machine's clock)
+    files       INTEGER NOT NULL DEFAULT 0,
+    bytes       INTEGER NOT NULL DEFAULT 0,
+    synced_scan INTEGER,                  -- the scan the cached files are complete up to
+    seen_at     INTEGER,                  -- when that scan finished (this machine's clock)
+    PRIMARY KEY (remote_id, root_id)
+);
+CREATE TABLE IF NOT EXISTS remote_files (
+    remote_id INTEGER NOT NULL,
+    rid       INTEGER NOT NULL,           -- the file's row id there
+    root_id   INTEGER NOT NULL,
+    path      BLOB NOT NULL,
+    size      INTEGER NOT NULL,
+    mtime     INTEGER NOT NULL,
+    sample    BLOB,
+    sha256    BLOB,
+    error     INTEGER NOT NULL DEFAULT 0, -- that machine couldn't read it
+    hashed_at INTEGER,                    -- when that machine last re-read it for us (this machine's clock)
+    PRIMARY KEY (remote_id, rid)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS remote_files_sha ON remote_files(sha256);
+CREATE INDEX IF NOT EXISTS remote_files_size ON remote_files(size);
+CREATE INDEX IF NOT EXISTS remote_files_path ON remote_files(remote_id, path);
+CREATE TABLE IF NOT EXISTS remote_settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 ";
 const VERSION: i64 = 2;
 

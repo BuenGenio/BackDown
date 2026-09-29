@@ -407,6 +407,15 @@ pub fn wipe(
                 fmt::count(it.unreadable_files)
             );
         }
+        if it.remote_files > 0 {
+            println!(
+                "  {} ({} files) of the copies are only on another machine, confirmed there within {} days; \
+                 that machine re-reads each one before it's deleted here, and a file stays if it can't",
+                fmt::bytes(it.remote_bytes),
+                fmt::count(it.remote_files),
+                a.proof_days
+            );
+        }
     }
     if a.items.iter().any(|i| i.refused.is_some()) {
         bail!("some of that can't be wiped (see above)");
@@ -448,13 +457,25 @@ pub fn wipe(
         done(j["summary"].as_str().unwrap_or(""));
         return Ok(ExitCode::SUCCESS);
     }
-    let st = wipe::wipe(db, id, trust_index, Some(db_path), &mut |n, b| {
-        live(&format!(
-            "wiping: {} files, {}",
-            fmt::count(n),
-            fmt::bytes(b)
-        ))
-    })?;
+    // copies on other machines count once that machine has re-read them (remote/)
+    let mut ssh = crate::remote::verifier_connect();
+    let mut verifier = ssh
+        .as_mut()
+        .map(|s| backdown_core::remote::Verifier::new(s));
+    let st = wipe::wipe_with(
+        db,
+        id,
+        trust_index,
+        Some(db_path),
+        verifier.as_mut(),
+        &mut |n, b| {
+            live(&format!(
+                "wiping: {} files, {}",
+                fmt::count(n),
+                fmt::bytes(b)
+            ))
+        },
+    )?;
     clear();
     done(&format!(
         "deleted {} files ({}), {} moved first; left {} changed, {} with no copy, {} unreadable",

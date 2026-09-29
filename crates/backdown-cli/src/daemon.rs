@@ -5,8 +5,9 @@
 //! fingerprints for the time slider. A scheduler rescans drives when due, or when one that was away
 //! comes back. A health thread reads every drive's SMART data (health.rs) every six hours and when
 //! a drive appears, keeps what's new, and notifies when a drive, a mirror or a scheduled job goes
-//! wrong. The CLI talks to it over a Unix socket (line-delimited JSON), the browser over the
-//! same local web UI as `backdown serve`. Under systemd it reports readiness, liveness and status.
+//! wrong. Other machines (remote/) are synced over ssh in the side lane, on a schedule. The CLI
+//! talks to it over a Unix socket (line-delimited JSON), the browser over the same local web UI as
+//! `backdown serve`. Under systemd it reports readiness, liveness and status.
 //!
 //! Being killed is safe: every job commits in batches and resumes where it stopped.
 
@@ -93,12 +94,14 @@ pub struct JobOpts {
     pub trust_index: bool,
     /// rescue: which recorded rescue
     pub rescue: Option<i64>,
+    /// remote-sync: which machine (remote/)
+    pub machine: Option<i64>,
 }
 
 /// Jobs that can run for hours or days and hardly touch the index (copying a failing drive,
-/// searching a card for lost files): they go in a lane of their own, one at a time, so scans and
-/// hashing carry on meanwhile, and they can be stopped.
-const SIDE: &[&str] = &["rescue"];
+/// searching a card for lost files, syncing another machine over ssh): they go in a lane of their
+/// own, one at a time, so scans and hashing carry on meanwhile, and they can be stopped.
+const SIDE: &[&str] = &["rescue", "remote-sync"];
 
 #[derive(Default)]
 struct State {
@@ -549,6 +552,7 @@ fn side_worker(d: &Daemon) {
         // its own connection: the rescue record's short writes wait their turn behind the worker's
         let result = Db::open(&d.db).and_then(|db| match job.kind {
             "rescue" => run_rescue(d, &db, &job, &stop),
+            "remote-sync" => run_remote_sync(d, &db, &job, &stop),
             k => bail!("{k} doesn't run in the side lane"),
         });
         d.state.lock().unwrap().stops.remove(&id);
@@ -709,6 +713,8 @@ fn worker(d: &Daemon) {
         if ok && job.kind == "hash" {
             // then say what the drives hold, now that duplicates are known
             d.enqueue("entities", None, "after-scan", JobOpts::default());
+            // and have other machines hash what now matches a file here by sample (remote/)
+            crate::remote::after_hash(d, &db);
         }
         if d.state.lock().unwrap().queue.is_empty() {
             notify::send("STATUS=idle");
@@ -813,27 +819,75 @@ fn run_mirror(d: &Daemon, db: &Db, job: &Job) -> Result<String> {
     }
 }
 
-/// Wipe what a recorded wipe selected (see backdown_core::wipe for the rules).
-fn run_wipe(d: &Daemon, db: &mut Db, job: &Job) -> Result<String> {
-    let id = job.opts.wipe.context("wipe without a selection")?;
-    let st = backdown_core::wipe::wipe(db, id, job.opts.trust_index, Some(&d.db), &mut |n, b| {
-        let counts = Counts {
-            stage: "wiping",
-            files: n,
-            bytes: b,
-            ..Counts::default()
-        };
+/// Sync another machine over ssh (remote/); then hash here if what's cached there changed, since
+/// files here may now match files there.
+fn run_remote_sync(d: &Daemon, db: &Db, job: &Job, stop: &AtomicBool) -> Result<String> {
+    let id = job.opts.machine.context("a sync without a machine")?;
+    let (summary, changed) = crate::remote::sync_job(db, id, stop, &mut |msg| {
         d.progress(
             job.id,
-            format!("{} files, {}", fmt::count(n), fmt::bytes(b)),
-            counts,
+            msg.to_string(),
+            Counts {
+                stage: "syncing",
+                ..Counts::default()
+            },
         );
     })?;
+    if changed && !stop.load(Ordering::Relaxed) {
+        d.enqueue(
+            "hash",
+            None,
+            "after-sync",
+            JobOpts {
+                jobs_per_device: 1,
+                ..JobOpts::default()
+            },
+        );
+    }
+    Ok(summary)
+}
+
+/// Wipe what a recorded wipe selected (see backdown_core::wipe for the rules). Copies on other
+/// machines count only once that machine has re-read them (remote/).
+fn run_wipe(d: &Daemon, db: &mut Db, job: &Job) -> Result<String> {
+    let id = job.opts.wipe.context("wipe without a selection")?;
+    let mut ssh = crate::remote::verifier_connect();
+    let mut verifier = ssh
+        .as_mut()
+        .map(|s| backdown_core::remote::Verifier::new(s));
+    let st = backdown_core::wipe::wipe_with(
+        db,
+        id,
+        job.opts.trust_index,
+        Some(&d.db),
+        verifier.as_mut(),
+        &mut |n, b| {
+            let counts = Counts {
+                stage: "wiping",
+                files: n,
+                bytes: b,
+                ..Counts::default()
+            };
+            d.progress(
+                job.id,
+                format!("{} files, {}", fmt::count(n), fmt::bytes(b)),
+                counts,
+            );
+        },
+    )?;
     Ok(format!(
-        "deleted {} files ({}), {} moved first; left {} changed, {} with no copy, {} unreadable{}",
+        "deleted {} files ({}), {} moved first{}; left {} changed, {} with no copy, {} unreadable{}",
         fmt::count(st.deleted),
         fmt::bytes(st.deleted_bytes),
         fmt::count(st.moved),
+        if st.remote > 0 {
+            format!(
+                ", {} kept only on another machine (re-read there first)",
+                fmt::count(st.remote)
+            )
+        } else {
+            String::new()
+        },
         fmt::count(st.left_changed),
         fmt::count(st.left_no_copy),
         fmt::count(st.left_unreadable),
@@ -1347,6 +1401,8 @@ fn check_roots(d: &Daemon, present: &mut HashMap<String, bool>) -> Result<()> {
         }
     }
     d.set_drives(drives);
+    // other machines due a sync (remote/)
+    crate::remote::schedule(d, &db);
     for m in backdown_core::mirror::list(&db)? {
         if !Path::new(&m.source).is_dir() || !Path::new(&m.target).is_dir() {
             continue;
@@ -1391,7 +1447,25 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
                     }
                     "wipe"
                 }
-                _ => bail!("kind must be index, hash, entities, apply or wipe"),
+                // another machine, over ssh with this user's keys (remote/)
+                Some("remote-sync") => {
+                    if d.shared {
+                        bail!(
+                            "the machine-wide service has no ssh keys of yours: sync from your own BackDown (backdown --local remote sync …)"
+                        );
+                    }
+                    let db = Db::open(&d.db)?;
+                    let m = backdown_core::remote::get(
+                        &db,
+                        req["machine"]
+                            .as_i64()
+                            .context("remote-sync needs a machine")?,
+                    )?;
+                    return Ok(
+                        json!({ "ok": true, "job": crate::remote::queue(d, &m, "requested") }),
+                    );
+                }
+                _ => bail!("kind must be index, hash, entities, apply, wipe or remote-sync"),
             };
             let plan = req["plan"].as_i64();
             let path = match kind {
@@ -1420,6 +1494,7 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
                 wipe: req["wipe"].as_i64(),
                 trust_index: req["trust_index"].as_bool().unwrap_or(false),
                 rescue: None,
+                machine: None,
             };
             json!({ "ok": true, "job": d.enqueue(kind, path, "requested", opts) })
         }

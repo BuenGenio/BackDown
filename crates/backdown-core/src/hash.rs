@@ -5,6 +5,9 @@
 //!    whole here, so their sample *is* their full hash.
 //! 3. full SHA-256, only for files whose size and sample still collide with another file.
 //!
+//! The files other machines hold (remote/, as last synced) count as other files here, so a file
+//! whose only possible copy is on a NAS is hashed too.
+//!
 //! A file whose full hash is already known (imported from the legacy index, see `legacy`) is never
 //! read again: it isn't sampled, and a file of its size is fully hashed instead of being compared by
 //! sample.
@@ -91,7 +94,9 @@ pub fn hash(db: &mut Db, opts: &Options, progress: &mut dyn FnMut(&Progress)) ->
         &format!(
             "SELECT id, path, size, dev, ino FROM files
              WHERE current = 1 AND sample IS NULL AND sha256 IS NULL AND error IS NULL AND size > 0
-               AND size IN (SELECT size FROM files WHERE current = 1 AND size > 0 GROUP BY size HAVING COUNT(DISTINCT {IDENTITY}) > 1)"
+               AND (size IN (SELECT size FROM files WHERE current = 1 AND size > 0 GROUP BY size HAVING COUNT(DISTINCT {IDENTITY}) > 1)
+                    -- a file of this size on another machine (remote/): it could be a copy of this one
+                    OR size IN (SELECT size FROM remote_files WHERE size > 0))"
         ),
     )?;
     run(db, sample_jobs, Stage::Sample, opts, &mut stats, progress)?;
@@ -106,7 +111,10 @@ pub fn hash(db: &mut Db, opts: &Options, progress: &mut dyn FnMut(&Progress)) ->
                         AND NOT (f.ino IS NOT NULL AND g.dev = f.dev AND g.ino = f.ino))
                 -- a same-size file known only by its full hash: no sample to compare with
                 OR EXISTS (SELECT 1 FROM files g WHERE g.current = 1 AND g.size = f.size AND g.sample IS NULL AND g.sha256 IS NOT NULL
-                           AND NOT (f.ino IS NOT NULL AND g.dev = f.dev AND g.ino = f.ino)))",
+                           AND NOT (f.ino IS NOT NULL AND g.dev = f.dev AND g.ino = f.ino))
+                -- the same sample on another machine, or a same-size file there known only by its full hash
+                OR EXISTS (SELECT 1 FROM remote_files g WHERE g.size = f.size AND g.error = 0
+                           AND (g.sample = f.sample OR (g.sample IS NULL AND g.sha256 IS NOT NULL))))",
     )?;
     run(db, full_jobs, Stage::Full, opts, &mut stats, progress)?;
     Ok(stats)
@@ -284,6 +292,14 @@ fn run(
         progress(&p);
         Ok(())
     })
+}
+
+/// One file's sample, and its full SHA-256 when the sample read all of it (a small file), exactly
+/// as `hash` computes them: for another machine asking about a file it has (remote/). Fails if the
+/// file's size isn't `size` any more.
+pub fn sample_of(path: &Path, size: u64) -> Result<(Vec<u8>, Option<Vec<u8>>), String> {
+    let mut buf = vec![0u8; READ_BUF];
+    sample(path, size, &mut buf)
 }
 
 fn sample(path: &Path, size: u64, buf: &mut [u8]) -> Outcome {

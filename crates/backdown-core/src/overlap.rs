@@ -6,7 +6,8 @@
 //! are those copies?". That's answered here for every drive, every top-level folder and every
 //! recognised entity in one pass over the files whose SHA-256 occurs more than once. A hardlink is
 //! the same data, so it never counts as a copy; files that were never hashed (their size is unique,
-//! so nothing can equal them) count as not found elsewhere.
+//! so nothing can equal them) count as not found elsewhere. Another machine (remote/) is a place
+//! copies can be too, counted as far as they're hashed there and confirmed within the proof window.
 
 use std::collections::HashMap;
 use std::path::{MAIN_SEPARATOR_STR, Path};
@@ -209,19 +210,47 @@ pub fn overlaps(
     recognised: &[RootEntities],
     progress: &mut dyn FnMut(&str),
 ) -> Result<Vec<Overlap>> {
-    let u = units(db, recognised)?;
+    let mut u = units(db, recognised)?;
+    // other machines (remote/) are places copies can be too: counted like drives, as far as their
+    // copies are hashed there and confirmed within the proof window, and never listed themselves
+    let cutoff = crate::remote::cutoff(db)?;
+    let mut machines: HashMap<i64, usize> = HashMap::new();
+    if cutoff.is_some() {
+        for m in crate::remote::list(db)? {
+            machines.insert(m.id, u.list.len());
+            u.list.push(Unit {
+                level: "machine".into(),
+                label: format!("on {}", m.name),
+                path: m.url.clone(),
+                key: format!("machine:{}", m.id),
+                files: 0,
+                bytes: 0,
+            });
+        }
+    }
     let n = u.list.len();
     let mut elsewhere = vec![0u64; n];
     let mut elsewhere_files = vec![0u64; n];
     let mut containers: Vec<HashMap<usize, u64>> = vec![HashMap::new(); n];
 
-    let mut stmt = db.conn.prepare(
-        "SELECT sha256, root_id, path, size, dev, ino FROM files
+    const LOCAL: &str = "SELECT sha256, root_id, path, size, dev, ino, 0 FROM files
          WHERE current = 1 AND error IS NULL AND sha256 IN (
-             SELECT sha256 FROM files WHERE current = 1 AND sha256 IS NOT NULL AND error IS NULL GROUP BY sha256 HAVING COUNT(*) > 1)
-         ORDER BY sha256",
-    )?;
-    let rows = stmt.query_map([], |r| {
+             SELECT sha256 FROM files WHERE current = 1 AND sha256 IS NOT NULL AND error IS NULL GROUP BY sha256 HAVING COUNT(*) > 1";
+    const THERE: &str = "FROM remote_files r JOIN remote_roots rr ON rr.remote_id = r.remote_id AND rr.root_id = r.root_id
+         WHERE r.sha256 IS NOT NULL AND r.error = 0 AND MAX(COALESCE(rr.seen_at, 0), COALESCE(r.hashed_at, 0)) >= ?1";
+    let sql = if cutoff.is_some() {
+        format!(
+            "{LOCAL} UNION SELECT r.sha256 {THERE})
+             UNION ALL
+             SELECT r.sha256, r.remote_id, r.path, r.size, NULL, NULL, 1 {THERE}
+               AND r.sha256 IN (SELECT sha256 FROM files WHERE current = 1 AND error IS NULL AND sha256 IS NOT NULL)
+             ORDER BY 1"
+        )
+    } else {
+        format!("{LOCAL}) AND (?1 IS NULL OR 1) ORDER BY sha256")
+    };
+    let mut stmt = db.conn.prepare(&sql)?;
+    let rows = stmt.query_map([cutoff], |r| {
         Ok((
             r.get::<_, Vec<u8>>(0)?,
             r.get::<_, i64>(1)?,
@@ -229,6 +258,7 @@ pub fn overlaps(
             r.get::<_, i64>(3)? as u64,
             r.get::<_, Option<i64>>(4)?,
             r.get::<_, Option<i64>>(5)?,
+            r.get::<_, bool>(6)?,
         ))
     })?;
     struct Member {
@@ -274,7 +304,7 @@ pub fn overlaps(
         group.clear();
     };
     for row in rows {
-        let (sha, root, path, size, dev, ino) = row?;
+        let (sha, root, path, size, dev, ino, there) = row?;
         seen += 1;
         if seen.is_multiple_of(500_000) {
             progress(&format!("comparing: {seen} files with copies"));
@@ -283,8 +313,17 @@ pub fn overlaps(
             flush(&mut group);
             current = Some(sha);
         }
+        let units = if there {
+            // `root` is the machine here
+            match machines.get(&root) {
+                Some(&m) => vec![m],
+                None => continue,
+            }
+        } else {
+            u.of(root, &path)
+        };
         group.push(Member {
-            units: u.of(root, &path),
+            units,
             inode: dev.zip(ino),
             size,
         });
@@ -294,6 +333,7 @@ pub fn overlaps(
     Ok(u.list
         .iter()
         .enumerate()
+        .filter(|(_, unit)| unit.level != "machine")
         .map(|(i, unit)| {
             let mut c: Vec<Container> = containers[i]
                 .iter()
