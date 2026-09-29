@@ -437,7 +437,8 @@ pub fn schedule(d: &Daemon, db: &Db) {
     let every = core::settings(db).sync_hours * 3600;
     let now = core::now();
     for m in machines {
-        if m.last_try.is_none_or(|t| now - t >= every) {
+        // a sync still running (the first one can take a while) isn't due again
+        if m.last_try.is_none_or(|t| now - t >= every) && !d.pending("remote-sync", &label(&m)) {
             queue(d, &m, "scheduled");
         }
     }

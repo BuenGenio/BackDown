@@ -360,6 +360,13 @@ pub fn add(
     }
     if let Some(c) = command {
         check_remote_path(c, "the backdown command there")?;
+        // only ever BackDown itself: a slip can't have ssh run some other program there
+        let file = c.rsplit(['/', '\\']).next().unwrap_or(c);
+        if !file.starts_with("backdown") {
+            bail!(
+                "the backdown command there should be backdown itself, like /usr/local/bin/backdown"
+            );
+        }
     }
     let taken: bool = db.conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM remotes WHERE name = ?1)",
@@ -1242,18 +1249,46 @@ pub fn sync(
     Ok(st)
 }
 
-/// Files there that are worth sampling (a file here has their size) or hashing (a file here has
-/// their sample), largest first.
-fn wanted(db: &Db, m: &Machine, full: bool, limit: usize) -> Result<Vec<(i64, i64)>> {
-    let sql = if full {
-        "SELECT rid, size FROM remote_files r WHERE remote_id = ?1 AND sha256 IS NULL AND sample IS NOT NULL AND error = 0
-           AND EXISTS (SELECT 1 FROM files f WHERE f.current = 1 AND f.error IS NULL AND f.size = r.size
-                       AND (f.sample = r.sample OR (f.sample IS NULL AND f.sha256 IS NOT NULL)))
-         ORDER BY size DESC LIMIT ?2"
+/// What to ask a machine to read for us.
+#[derive(Clone, Copy, PartialEq)]
+enum Want {
+    /// a sample of files whose size a file here has
+    Sample,
+    /// the full hash of files whose sample a file here has
+    Full,
+    /// the full hash of files whose size a file here has: when its samples can't be compared with
+    /// ours (another sample algorithm), so there's no sampling step
+    FullBySize,
+}
+
+/// The steps of having files hashed on machine `m`.
+fn wants(m: &Machine) -> &'static [Want] {
+    if m.info["sample"].as_u64() == Some(SAMPLE as u64) {
+        &[Want::Sample, Want::Full]
     } else {
-        "SELECT rid, size FROM remote_files r WHERE remote_id = ?1 AND sample IS NULL AND sha256 IS NULL AND error = 0 AND size > 0
-           AND size IN (SELECT size FROM files WHERE current = 1 AND error IS NULL AND size > 0)
-         ORDER BY size DESC LIMIT ?2"
+        &[Want::FullBySize]
+    }
+}
+
+/// Files there worth reading for `w`, largest first.
+fn wanted(db: &Db, m: &Machine, w: Want, limit: usize) -> Result<Vec<(i64, i64)>> {
+    let sql = match w {
+        Want::Full => {
+            "SELECT rid, size FROM remote_files r WHERE remote_id = ?1 AND sha256 IS NULL AND sample IS NOT NULL AND error = 0
+               AND EXISTS (SELECT 1 FROM files f WHERE f.current = 1 AND f.error IS NULL AND f.size = r.size
+                           AND (f.sample = r.sample OR (f.sample IS NULL AND f.sha256 IS NOT NULL)))
+             ORDER BY size DESC LIMIT ?2"
+        }
+        Want::Sample => {
+            "SELECT rid, size FROM remote_files r WHERE remote_id = ?1 AND sample IS NULL AND sha256 IS NULL AND error = 0 AND size > 0
+               AND size IN (SELECT size FROM files WHERE current = 1 AND error IS NULL AND size > 0)
+             ORDER BY size DESC LIMIT ?2"
+        }
+        Want::FullBySize => {
+            "SELECT rid, size FROM remote_files r WHERE remote_id = ?1 AND sha256 IS NULL AND error = 0 AND size > 0
+               AND size IN (SELECT size FROM files WHERE current = 1 AND error IS NULL AND size > 0)
+             ORDER BY size DESC LIMIT ?2"
+        }
     };
     let mut stmt = db.conn.prepare_cached(sql)?;
     let rows = stmt.query_map(params![m.id, limit as i64], |r| Ok((r.get(0)?, r.get(1)?)))?;
@@ -1262,12 +1297,21 @@ fn wanted(db: &Db, m: &Machine, full: bool, limit: usize) -> Result<Vec<(i64, i6
 
 /// How much sampling and hashing is still waiting on that machine.
 pub fn left_to_hash(db: &Db, m: &Machine) -> Result<u64> {
-    Ok((wanted(db, m, false, 1_000_000)?.len() + wanted(db, m, true, 1_000_000)?.len()) as u64)
+    let mut n = 0;
+    for w in wants(m) {
+        n += wanted(db, m, *w, 1_000_000)?.len() as u64;
+    }
+    Ok(n)
 }
 
 /// Some sampling or hashing is waiting on that machine (a sync would do it).
 pub fn waiting(db: &Db, m: &Machine) -> Result<bool> {
-    Ok(!wanted(db, m, true, 1)?.is_empty() || !wanted(db, m, false, 1)?.is_empty())
+    for w in wants(m) {
+        if !wanted(db, m, *w, 1)?.is_empty() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// A hash answer, stored: the sample, the full hash (re-read there just now when `read`), or why not.
@@ -1312,15 +1356,17 @@ fn hash_there(
     progress: &mut dyn FnMut(&str),
 ) -> Result<()> {
     let until = Instant::now() + opts.hash_budget;
-    let samples_ok = get(db, m.id)?.info["sample"].as_u64() == Some(SAMPLE as u64);
-    for full in [false, true] {
+    let m = &get(db, m.id)?; // as it just said hello: its sample algorithm
+    let samples_ok = m.info["sample"].as_u64() == Some(SAMPLE as u64);
+    for &want in wants(m) {
+        let full = want != Want::Sample;
         let mut skip: Vec<i64> = Vec::new();
         loop {
             let left = until.saturating_duration_since(Instant::now());
             if left.is_zero() || stopped(opts) {
                 break;
             }
-            let batch: Vec<(i64, i64)> = wanted(db, m, full, 64 + skip.len())?
+            let batch: Vec<(i64, i64)> = wanted(db, m, want, 64 + skip.len())?
                 .into_iter()
                 .filter(|(id, _)| !skip.contains(id))
                 .take(64)
@@ -1349,10 +1395,9 @@ fn hash_there(
             if !results.is_empty() {
                 st.changed = true;
             }
-            // an answer that leaves a file as it was (no sample there for a mismatching algorithm,
-            // say) mustn't be asked for again and again
+            // a file the answer left out mustn't be asked for again and again
             for id in &ids {
-                if !results.iter().any(|r| r["id"].as_i64() == Some(*id)) || !samples_ok {
+                if !results.iter().any(|r| r["id"].as_i64() == Some(*id)) {
                     skip.push(*id);
                 }
             }

@@ -88,6 +88,58 @@ impl Peer for Local {
     }
 }
 
+/// A machine running a BackDown whose samples are computed differently: they can't be compared.
+struct OtherSamples(Local);
+
+impl Peer for OtherSamples {
+    fn call(&mut self, op: &str, args: Value, t: Duration) -> Result<Value> {
+        let mut v = self.0.call(op, args, t)?;
+        if op == "hello" {
+            v["sample"] = json!(SAMPLE + 1);
+        }
+        Ok(v)
+    }
+}
+
+#[test]
+fn samples_that_cant_be_compared_are_skipped_not_looped_on() {
+    let tmp = scratch();
+    let laptop = tmp.path().join("local/Laptop");
+    let vol = tmp.path().join("nas/volume1");
+    write(&laptop.join("big/big.bin"), &blob(3, 320_000));
+    write(&vol.join("backup/big.bin"), &blob(3, 320_000));
+    write(&laptop.join("decoy.bin"), &blob(4, 310_000));
+    write(&vol.join("c.bin"), &blob(5, 310_000));
+    let nas_db = tmp.path().join("nas.db");
+    let mut there = Db::open(&nas_db).unwrap();
+    scan(&mut there, &vol);
+    let mut db = Db::open(&tmp.path().join("local.db")).unwrap();
+    scan(&mut db, &laptop);
+    let m = add(&db, "nas", "ssh://nas.example.org", None, None).unwrap();
+    let mut peer = OtherSamples(Local {
+        db: nas_db,
+        calls: Vec::new(),
+    });
+    // same size here: hashed there whole, straight away (no samples to compare)
+    let st = sync(&db, &m, &mut peer, &SyncOptions::default(), &mut |_| {}).unwrap();
+    assert_eq!((st.sampled, st.hashed, st.left), (0, 2, 0));
+    let m = get(&db, m.id).unwrap();
+    assert!(!waiting(&db, &m).unwrap(), "nothing left to ask for");
+    // hashing here then only needs their full hashes
+    hash_here(&mut db);
+    assert!(
+        report::check_indexed(&db, &laptop.join("big"))
+            .unwrap()
+            .safe
+    );
+    let st = sync(&db, &m, &mut peer, &SyncOptions::default(), &mut |_| {}).unwrap();
+    assert_eq!((st.added, st.sampled, st.hashed), (0, 0, 0));
+    assert!(
+        !st.changed,
+        "a second sync with nothing new changes nothing"
+    );
+}
+
 struct Reach(Option<PathBuf>);
 
 impl Connect for Reach {
@@ -158,6 +210,12 @@ fn addresses_are_strict() {
     for bad in ["", "-x", "/a\nb", "/a\0b"] {
         assert!(check_remote_path(bad, "db").is_err(), "{bad:?}");
     }
+    // the command there is only ever backdown itself
+    let tmp = scratch();
+    let db = Db::open(&tmp.path().join("i.db")).unwrap();
+    assert!(add(&db, "a", "ssh://nas", None, Some("/opt/bin/backdown")).is_ok());
+    assert!(add(&db, "b", "ssh://nas", None, Some("/bin/rm")).is_err());
+    assert!(add(&db, "c", "ssh://nas", None, Some("/opt/backdown-dir/sh")).is_err());
 }
 
 #[test]
