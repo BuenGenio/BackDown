@@ -26,6 +26,7 @@ pub struct Options {
     pub state_dir: PathBuf,
     pub runtime_dir: PathBuf,
     pub port: u16,
+    pub host: String,
     pub rescan_every: Option<Duration>,
     /// system-wide service: files and the socket are shared with the `backdown` group
     pub shared: bool,
@@ -436,19 +437,20 @@ pub fn run(opts: Options) -> Result<()> {
     // the local web UI, with a token that survives restarts so bookmarks keep working
     let ui_file = opts.state_dir.join(locations::UI_FILE);
     let token = existing_token(&ui_file).map_or_else(serve::new_token, Ok)?;
-    let (server, port) = serve::bind(opts.port)?;
+    let (server, port) = serve::bind_on(&opts.host, opts.port)?;
     write_private(
         &ui_file,
         &serde_json::to_vec_pretty(
-            &json!({ "port": port, "token": token, "url": format!("http://127.0.0.1:{port}/") }),
+            &json!({ "port": port, "token": token, "url": format!("http://{}:{port}/", opts.host) }),
         )?,
         opts.shared,
     )?;
 
     eprintln!(
-        "backdown {} daemon: index {}, web UI on 127.0.0.1:{port} (`backdown open`)",
+        "backdown {} daemon: index {}, web UI on {}:{port} (`backdown open`)",
         env!("CARGO_PKG_VERSION"),
-        db.display()
+        db.display(),
+        opts.host
     );
     {
         let d = Arc::clone(&d);
@@ -476,7 +478,7 @@ pub fn run(opts: Options) -> Result<()> {
             .spawn(move || control::serve(&d, socket))?;
     }
     notify::send("READY=1\nSTATUS=idle");
-    serve::run(server, db, token, port, Some(d), !opts.shared);
+    serve::run(server, db, token, port, Some(d), !opts.shared, serve::extra_hosts(&opts.host, port));
     Ok(())
 }
 

@@ -14,7 +14,7 @@ use crate::locations;
 
 const NAME: &str = "backdown.service";
 
-pub fn user_unit(exe: &Path) -> String {
+pub fn user_unit(exe: &Path, args: &str) -> String {
     format!(
         "# BackDown daemon for one user. Installed by `backdown service install`.
 [Unit]
@@ -24,7 +24,7 @@ Documentation=https://backdown.io
 [Service]
 Type=notify
 NotifyAccess=main
-ExecStart={exe} daemon
+ExecStart={exe} daemon{args}
 Restart=on-failure
 RestartSec=5
 WatchdogSec=120
@@ -38,11 +38,12 @@ SystemCallArchitectures=native
 [Install]
 WantedBy=default.target
 ",
-        exe = exe.display()
+        exe = exe.display(),
+        args = args
     )
 }
 
-pub fn system_unit(exe: &Path) -> String {
+pub fn system_unit(exe: &Path, args: &str) -> String {
     format!(
         "# BackDown daemon for this machine. Installed by `backdown service install --system`.
 # Members of the `backdown` group can use it (and so can read anything it indexes).
@@ -54,7 +55,7 @@ After=local-fs.target
 [Service]
 Type=notify
 NotifyAccess=main
-ExecStart={exe} daemon --system
+ExecStart={exe} daemon --system{args}
 User=backdown
 Group=backdown
 UMask=0027
@@ -104,7 +105,8 @@ SystemCallFilter=~@privileged @resources
 [Install]
 WantedBy=multi-user.target
 ",
-        exe = exe.display()
+        exe = exe.display(),
+        args = args
     )
 }
 
@@ -145,12 +147,15 @@ fn check(out: std::process::Output, what: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn install(system: bool, start: bool, print: bool) -> Result<ExitCode> {
+pub fn install(system: bool, host: &str, port: u16, start: bool, print: bool) -> Result<ExitCode> {
+    let mut args = String::new();
+    if host != "127.0.0.1" { args.push_str(&format!(" --host {host}")); }
+    if port != 8787 { args.push_str(&format!(" --port {port}")); }
     let exe = exe()?;
     let unit = if system {
-        system_unit(&exe)
+        system_unit(&exe, &args)
     } else {
-        user_unit(&exe)
+        user_unit(&exe, &args)
     };
     if print {
         print!("{unit}");

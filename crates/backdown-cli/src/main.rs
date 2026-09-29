@@ -119,9 +119,12 @@ enum Cmd {
     },
     /// Browse the index in your web browser: folders at any scan, versions, copies, file viewers
     Serve {
-        /// Port on 127.0.0.1
+        /// Port to listen on
         #[arg(long, default_value_t = 8787)]
         port: u16,
+        /// Address to bind (default 127.0.0.1; e.g. a Tailscale IP to reach it over your tailnet)
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
         /// Don't open a browser, just print the link
         #[arg(long)]
         no_open: bool,
@@ -134,9 +137,12 @@ enum Cmd {
     /// Run in the background: rescan drives, hash, serve the web UI. Usually started by
     /// `backdown service install` rather than by hand
     Daemon {
-        /// Port for the web UI on 127.0.0.1
+        /// Port for the web UI
         #[arg(long, default_value_t = 8787)]
         port: u16,
+        /// Address to bind (default 127.0.0.1; e.g. a Tailscale IP for tailnet access)
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
         /// Rescan each drive this often (e.g. 12h, 1d; `never` to scan only on request or when a
         /// drive comes back)
         #[arg(long, default_value = "24h")]
@@ -322,6 +328,12 @@ enum ServiceCmd {
         /// Machine-wide service running as the `backdown` user (needs sudo)
         #[arg(long)]
         system: bool,
+        /// Address the service binds (default 127.0.0.1; e.g. a Tailscale IP for tailnet access)
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+        /// Port the service binds
+        #[arg(long, default_value_t = 8787)]
+        port: u16,
         /// Install but don't start it
         #[arg(long)]
         no_start: bool,
@@ -365,6 +377,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
     match cli.cmd {
         Cmd::Daemon {
             port,
+            host,
             rescan_every,
             system,
         } => {
@@ -382,6 +395,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 state_dir,
                 runtime_dir,
                 port,
+                host,
                 rescan_every: daemon::parse_every(&rescan_every)?,
                 shared: system,
             })?;
@@ -392,9 +406,11 @@ fn run(cli: Cli) -> Result<ExitCode> {
             return match action {
                 ServiceCmd::Install {
                     system,
+                    host,
+                    port,
                     no_start,
                     print,
-                } => service::install(system, !no_start, print),
+                } => service::install(system, &host, port, !no_start, print),
                 ServiceCmd::Uninstall { system } => service::uninstall(system),
                 ServiceCmd::Status { system } => service::status(system),
             };
@@ -606,9 +622,9 @@ fn local(db_path: &Path, cmd: Cmd) -> Result<ExitCode> {
             };
         }
         Cmd::Apply { plan, go } => return filing::run_apply(&mut db, plan, go),
-        Cmd::Serve { port, no_open } => {
+        Cmd::Serve { port, host, no_open } => {
             drop(db);
-            serve::serve(db_path, port, !no_open)?;
+            serve::serve(db_path, &host, port, !no_open)?;
         }
         Cmd::Status { json } => {
             let s = db.status()?;
