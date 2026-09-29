@@ -99,6 +99,7 @@ dependencies = [
  "mail-parser",
  "quick-xml",
  "rusqlite",
+ "rustix",
  "ruzstd",
  "serde",
  "serde_json",

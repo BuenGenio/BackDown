@@ -27,6 +27,15 @@
 //! its latest round); the POSTs beside it (read now, mark notifications read, notification
 //! settings, a test notification) need the same header, change nothing but BackDown's own records
 //! and settings file, and a notification's text never goes through a shell.
+//! Drives (drives.rs; the person at the screen's BackDown only, never the system service, and each
+//! with the X-BackDown header): POST /api/mount mounts read-only (never read-write) a partition the
+//! volume probe calls mountable, and /api/attach a disk image picked by index id; /api/unmount and
+//! /api/detach undo only what BackDown mounted; /api/rescue-allow asks udisks (and so polkit's
+//! password dialog) for a read-only file for a drive the probe lists. A filesystem Rescue found is
+//! browsed (/api/fs and /api/entry with `rescue` and `at`) and copied out of (/api/rescue with mode
+//! `files`) at the place its record gives, on the drive or image the record names: the browser
+//! never names a device or a path, and picks files through the filesystem's own listings (deleted
+//! ones by the segment their listing gave them).
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -377,6 +386,30 @@ fn handle(ctx: &Ctx, req: Request) {
                 Ok(v) => json_resp(&v),
                 Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
             },
+        };
+        let _ = req.respond(resp);
+        return;
+    }
+    if *req.method() == Method::Post
+        && matches!(
+            path,
+            "/api/mount" | "/api/unmount" | "/api/attach" | "/api/detach" | "/api/rescue-allow"
+        )
+    {
+        // read-only mounts, and reading a drive through udisks (drives.rs): the person at the
+        // screen's own BackDown only
+        let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
+        let resp = if !marked {
+            plain(403, "missing X-BackDown header")
+        } else if !ctx.desktop {
+            json_resp(&json!({ "error": "the machine-wide service only reads what's mounted: mount drives from your own BackDown" }))
+                .with_status_code(409)
+        } else {
+            let p = |n: &str| get(&params, n).map(str::to_string);
+            match crate::drives::post(&ctx.db, path, &p) {
+                Ok(v) => json_resp(&v),
+                Err(e) => json_resp(&crate::drives::error_json(&e)).with_status_code(400),
+            }
         };
         let _ = req.respond(resp);
         return;
@@ -761,8 +794,19 @@ fn start_rescue(ctx: &Ctx, params: &[(String, String)]) -> Result<Value> {
             o["start"] = r.result["pos"].clone();
             rescue::set_options(&db, id, &o)?;
         }
+        if r.mode == "files" {
+            // what was copied (and checked) before the stop is left as it is
+            let mut o = r.options.clone();
+            o["resume"] = json!(true);
+            rescue::set_options(&db, id, &o)?;
+        }
         rescue::set(&db, id, "new", None, None)?;
         id
+    } else if param("mode") == Some("files") {
+        // copy files out of a filesystem: the source is looked up (drives.rs), never sent
+        let p = |n: &str| get(params, n).map(str::to_string);
+        let (src, dest, options) = crate::drives::files_request(&db, &p)?;
+        rescue::record(&db, "files", &src, Some(&dest), &options)?
     } else {
         let mode = param("mode").context("missing mode")?;
         let source = PathBuf::from(param("source").context("which drive or image?")?);
@@ -979,9 +1023,13 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
         "/api/wipe-assess" => wipe_assess(ctx, &db, param("keys"))?,
         "/api/wipes" => json!(wipe::history(&db)?),
         // can the daemon read this drive (or image file) directly, and if not, what would let it
-        "/api/rescue-access" => json!(rescue::access(Path::new(
-            param("path").context("missing path")?.trim()
-        ))),
+        "/api/rescue-access" => {
+            let a = rescue::access(Path::new(param("path").context("missing path")?.trim()));
+            let mut v = json!(a);
+            // the system can open it for this BackDown (udisks, a password dialog): drives.rs
+            v["allow"] = json!(ctx.desktop && cfg!(target_os = "linux") && a.device && !a.readable);
+            v
+        }
         "/api/rescues" => json!(rescue::history(&db)?),
         // free space where things would be moved to (the nearest folder up that exists)
         "/api/room" => {
@@ -1073,7 +1121,31 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
             param("quick").is_some(),
         )?,
         "/api/disk" => peek::disk(&file()?, param("path"))?,
-        "/api/fs" => peek::fs_list(&file()?, param("part").unwrap_or("0"), param("path"))?,
+        "/api/fs" => match param("rescue") {
+            // a filesystem a Rescue found: its place comes from the record, not from here
+            Some(r) => {
+                let (src, start, len, _) =
+                    crate::drives::found_region(&db, r.parse()?, num("at", 0)?)?;
+                peek::region_list(
+                    &src,
+                    start,
+                    len,
+                    param("path"),
+                    param("deleted") == Some("1"),
+                )?
+            }
+            None => peek::fs_list(
+                &file()?,
+                param("part").unwrap_or("0"),
+                param("path"),
+                param("deleted") == Some("1"),
+            )?,
+        },
+        // what BackDown mounted or attached (drives.rs), and so can undo; with an id, that image's
+        "/api/mounts" => {
+            let image = param("id").map(|i| Ok::<_, anyhow::Error>(source(&db, i.parse()?)?.0));
+            crate::drives::mounts(ctx.desktop, image.transpose()?.as_deref())
+        }
         // a SQL dump's schema and data sizes (sqldump.rs), a few seconds of reading at a time
         "/api/sqldump" => crate::sqldump::schema(id()?, &file()?, param("more"))?,
         // this machine's disks and what's on them: the same read-only probe as `backdown volumes`
@@ -1429,8 +1501,22 @@ fn inner(ctx: &Ctx, req: Request, path: &str, params: &[(String, String)]) {
     let param = |name: &str| get(params, name);
     let result = (|| -> Result<peek::Part> {
         let db = ro_db(ctx)?;
-        let (file, _) = source(&db, param("id").context("missing id")?.parse()?)?;
         let max = param("max").map(str::parse).transpose()?;
+        if path == "/api/entry"
+            && let Some(r) = param("rescue")
+        {
+            // a file in a filesystem a Rescue found, at the place its record says
+            let at = param("at").context("missing at")?.parse()?;
+            let (src, start, len, _) = crate::drives::found_region(&db, r.parse()?, at)?;
+            return peek::region_entry(
+                &src,
+                start,
+                len,
+                param("name").context("missing name")?,
+                max,
+            );
+        }
+        let (file, _) = source(&db, param("id").context("missing id")?.parse()?)?;
         if path == "/api/entry" {
             let name = param("name").context("missing name")?;
             match param("part") {
@@ -1679,6 +1765,8 @@ fn ui_asset(name: &str) -> Option<(&'static [u8], &'static str)> {
         "search.js" => "text/javascript; charset=utf-8",
         "tidy.js" => "text/javascript; charset=utf-8",
         "health.js" => "text/javascript; charset=utf-8",
+        "fsbrowse.js" => "text/javascript; charset=utf-8",
+        "drives.js" => "text/javascript; charset=utf-8",
         "favicon.svg" => "image/svg+xml",
         "vendor/pdf.min.mjs" => "text/javascript; charset=utf-8",
         "vendor/pdf.worker.min.mjs" => "text/javascript; charset=utf-8",

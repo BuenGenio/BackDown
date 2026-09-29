@@ -11,12 +11,15 @@ use serde_json::json;
 
 mod client;
 mod daemon;
+mod drives;
 mod filing;
+mod grant;
 mod health;
 mod insight;
 mod license;
 mod locations;
 mod mailbox;
+mod mounting;
 mod notifier;
 mod peek;
 mod rescuing;
@@ -121,6 +124,19 @@ enum Cmd {
     Health {
         #[arg(long)]
         json: bool,
+    },
+    /// Mount a partition read-only (one `backdown volumes` calls mountable), or attach a disk
+    /// image read-only and mount what's on it; never read-write, and as you: udisks on Linux,
+    /// diskutil and hdiutil on macOS (Windows attaches ISO, VHD and VHDX images). Without a
+    /// target, lists what BackDown has mounted
+    Mount {
+        /// A partition (e.g. /dev/sdb1) or a disk image file
+        target: Option<PathBuf>,
+    },
+    /// Unmount a partition, or detach a disk image, that BackDown mounted (nothing else)
+    Unmount {
+        /// The partition or disk image, as `backdown mount` lists it
+        target: PathBuf,
     },
     /// Finished scans, oldest first
     Scans {
@@ -475,6 +491,17 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Volumes { json } => return run_volumes(cli.db, json),
         // through the daemon when it runs (it keeps the readings), else here
         Cmd::Health { json } => return health::command(cli.db, cli.local, json),
+        // as the person at the screen, through the system's own mounter; never opens the index
+        Cmd::Mount { target } => return run_mount(target),
+        Cmd::Unmount { target } => {
+            let t = dunce::canonicalize(&target).unwrap_or(target);
+            let v = mounting::unmount(&locations::state_dir(), &t.display().to_string())?;
+            done(&format!(
+                "Unmounted {}",
+                v["unmounted"].as_str().unwrap_or("")
+            ));
+            return Ok(ExitCode::SUCCESS);
+        }
         // reads a drive and writes elsewhere; never opens the index (it may run under sudo)
         Cmd::Rescue { action } => return rescuing::run(action),
         _ => {}
@@ -738,7 +765,9 @@ fn local(db_path: &Path, cmd: Cmd, use_daemon: bool) -> Result<ExitCode> {
         | Cmd::ImportLegacy { .. }
         | Cmd::Rescue { .. }
         | Cmd::Volumes { .. }
-        | Cmd::Health { .. } => {
+        | Cmd::Health { .. }
+        | Cmd::Mount { .. }
+        | Cmd::Unmount { .. } => {
             unreachable!("handled in run")
         }
     }
@@ -878,7 +907,9 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
         | Cmd::Mail { .. }
         | Cmd::Rescue { .. }
         | Cmd::Volumes { .. }
-        | Cmd::Health { .. } => {
+        | Cmd::Health { .. }
+        | Cmd::Mount { .. }
+        | Cmd::Unmount { .. } => {
             unreachable!("handled in run")
         }
     }
@@ -1129,6 +1160,65 @@ fn open_ui() -> Result<ExitCode> {
     anyhow::bail!(
         "no BackDown daemon is running. Start one with `backdown service install` (or `backdown daemon`), or browse without it: `backdown serve`"
     )
+}
+
+/// `backdown mount [TARGET]`: a partition read-only, or a disk image attached read-only; without a
+/// target, what BackDown has mounted.
+fn run_mount(target: Option<PathBuf>) -> Result<ExitCode> {
+    let state = locations::state_dir();
+    let Some(t) = target else {
+        let all = mounting::current(&state);
+        if all.is_empty() {
+            println!("BackDown hasn't mounted anything.");
+        }
+        for m in all {
+            println!(
+                "{}{}",
+                m.source,
+                m.attached
+                    .as_deref()
+                    .map(|a| format!(" (attached as {a})"))
+                    .unwrap_or_default()
+            );
+            for (dev, at) in &m.mounts {
+                println!("  {dev} at {at} (read-only)");
+            }
+        }
+        return Ok(ExitCode::SUCCESS);
+    };
+    let v = if t.is_file() {
+        mounting::attach(&state, &t)?
+    } else {
+        let dev = t.display().to_string();
+        drives::check_mountable(&dev)?;
+        mounting::mount(&state, &dev)?
+    };
+    let points: Vec<String> = match v["mounts"].as_array() {
+        Some(list) => list
+            .iter()
+            .filter_map(|m| m[1].as_str().map(String::from))
+            .collect(),
+        None => v["mounted"]
+            .as_str()
+            .map(String::from)
+            .into_iter()
+            .collect(),
+    };
+    done(&format!(
+        "Mounted read-only at {}",
+        if points.is_empty() {
+            "(nowhere new)".to_string()
+        } else {
+            points.join(", ")
+        }
+    ));
+    if let Some(p) = points.first() {
+        eprintln!(
+            "To index it: backdown index {p}\nWhen you're done: backdown unmount {}",
+            t.display()
+        );
+    }
+    Ok(ExitCode::SUCCESS)
 }
 
 /// `backdown volumes`: probe the disks, then mark what the index covers, if there is an index.
