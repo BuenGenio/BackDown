@@ -2,15 +2,13 @@
 title: Free up a drive
 description: Delete only what has a verified copy elsewhere, move what exists only on the drive first, and see exactly what will happen before anything does.
 order: 1
-preview: yes
 ---
-
-> [!PREVIEW]
-> `backdown wipe` and the browser's Free up view come with the next preview. In v0.2.0-alpha.4, `backdown check` tells you whether a drive is safe to wipe, and the deleting is up to you.
 
 Freeing up a drive is the one thing BackDown deletes, and only when you ask. The rule is simple: a file is deleted only when an identical copy exists outside what you're freeing, and both have just been read again and compared. What exists only on the drive can be moved somewhere first, or left where it is.
 
 It works on whole drives or on folders, so it also cleans up duplicates: free up the copy you don't want, and the one you keep is its proof.
+
+Freeing up is marked Pro; in this beta everything is unlocked ([Free and Pro](/docs/guides/settings-and-licences/#free-and-pro)). `backdown check`, which says whether a drive is safe to wipe, is free.
 
 ## 1. Index everything that might hold copies
 
@@ -51,7 +49,7 @@ Either leave them, and they stay on the drive, or move them first with `--move-t
 backdown wipe /media/old-drive --move-to /media/archive/Unsorted
 ```
 
-Each is copied to `<move-to>/<drive name>/<its path on the drive>` (here `/media/archive/Unsorted/old-drive/Photos/2016/…`), read back to check the copy, and only then deleted from the old drive. The place to move to can't be inside what's being freed. For a tidier result, [file the drive into your archive](/docs/guides/file-into-an-archive/) first; afterwards everything on it has a copy.
+Each is copied to `<move-to>/<drive name>/<its path on the drive>` (here `/media/archive/Unsorted/old-drive/Photos/2016/…`), read back to check the copy, and only then deleted from the old drive. The place to move to can't be inside what's being freed. Names are kept as they are: if a different file is already there under a name the destination takes for the same one, the file is left in place. On a Mac or Windows, a file whose extended attributes or alternate data streams couldn't be kept on the copy is left in place too, and the message says what couldn't be kept. For a tidier result, [file the drive into your archive](/docs/guides/file-into-an-archive/) first; afterwards everything on it has a copy.
 
 ## 4. Wipe
 
@@ -65,20 +63,20 @@ For every file, in turn:
 
 1. It must still be what the index says: same size and modification time. A file that changed, or is new since the last scan, is left alone.
 2. It's read again and hashed. If it no longer matches its hash, it's left alone.
-3. A copy outside the selection is found in the index and read again too. Only if it's there and identical is the file deleted.
+3. A copy outside the selection is found in the index and read again too. Only if it's there and identical is the file deleted. On Windows, the copy must also have the same alternate data streams. A copy that's only on [another machine](/docs/guides/several-machines/) is used when there's none here: that machine reads it again, in full, just before the deletion.
 4. With no copy: with `--move-to`, it's moved (copied, verified, deleted); without, it's left.
 5. The deletion is written to BackDown's journal with its proof: which copy, its hash, and how it was checked.
 
-Folders the wipe leaves empty are removed; the drive's own top folder stays. Files that couldn't be read at the last scan are left in place.
+Folders the wipe leaves empty are removed; the drive's own top folder stays. Files that couldn't be read at the last scan are left in place, and so are online-only cloud files on Windows, which would have to be downloaded to be read.
 
-`--trust-index` skips the two reads: it checks that the copy is still there with the size and modification time it had when it was scanned, and trusts the hashes in the index. It's much faster and, right after a fresh scan and hash of both drives, nearly as safe, but a file that quietly went bad since its last hash wouldn't be noticed.
+`--trust-index` skips the two reads: it checks that the copy is still there with the size and modification time it had when it was scanned, and trusts the hashes in the index (a copy on another machine is checked the same way, there). It's much faster and, right after a fresh scan and hash of both drives, nearly as safe, but a file that quietly went bad since its last hash wouldn't be noticed.
 
 > [!NOTE]
 > A drive mounted read-only can't be wiped; the message says so. Remount it read-write first.
 
 ## 5. Let BackDown see what's gone
 
-When the daemon runs the wipe, it rescans the drives involved afterwards. Without it, index the drive again. If the wipe removed everything, the drive is now empty, and indexing an empty drive needs `--allow-empty`:
+When the background service runs the wipe, it rescans the drives involved afterwards. Without it, index the drive again. If the wipe removed everything, the drive is now empty, and indexing an empty drive needs `--allow-empty`:
 
 ```sh
 backdown index /media/old-drive --allow-empty
@@ -98,7 +96,7 @@ Other drives are fine wherever they're mounted: `/media`, `/mnt`, `/run/media`, 
 
 ## In the browser
 
-The **Free up** view does the same, with the daemon doing the work:
+The **Free up** view does the same, with the background service doing the work:
 
 1. Tick drives, folders, files or recognised things under "What to wipe". Each drive shows how much of it exists elsewhere; right-click anything in the browser and choose "Free up" to start from there.
 2. "What would happen" shows, for each, how much has an identical copy and where, how much exists only there, and anything that can't be wiped, and why.
@@ -106,4 +104,4 @@ The **Free up** view does the same, with the daemon doing the work:
 4. Under "Before deleting", "Trust the index" is the same as `--trust-index`.
 5. Type the drive names to confirm, and press **Wipe**.
 
-The wipe shows in Activity, and the view lists past wipes with what existed only there and what happened to it. The browser opened with `backdown serve` shows what would happen but can't wipe: that needs the daemon.
+The wipe shows in Activity, and the view lists past wipes with what existed only there and what happened to it. When some copies are only on another machine, "What would happen" says how much, and when that machine last confirmed them. The browser opened with `backdown serve` shows what would happen but can't wipe: that needs the background service.

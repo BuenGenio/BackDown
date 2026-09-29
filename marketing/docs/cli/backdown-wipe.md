@@ -2,7 +2,7 @@
 title: backdown wipe
 nav: wipe
 description: Free drives (or folders on them): delete only what has a verified copy elsewhere, moving what exists only here to --move-to first. Without --go, only shows what would happen.
-order: 23
+order: 28
 preview: yes
 ---
 
@@ -39,7 +39,7 @@ Also takes the [global options](/docs/cli/#global-options) `--db` and `--local`.
 
 ## Good to know
 
-Refuses the running system (outside home folders), a whole home folder, BackDown's own index, and anything not on an indexed drive. Each file is re-read before it's deleted, and so is its copy outside the selection; `--trust-index` checks only that the copy is still there as last scanned. Changed, new or unreadable files are left alone. Every deletion is journaled with its proof. Folders the wipe empties are removed (a drive's own top folder stays).
+Refuses the running system (outside home folders), a whole home folder, BackDown's own index, and anything not on an indexed drive. Each file is re-read before it's deleted, and so is its copy outside the selection; `--trust-index` checks only that the copy is still there as last scanned. Changed, new or unreadable files are left alone. Every deletion is journaled with its proof. Folders the wipe empties are removed (a drive's own top folder stays). A copy only on another machine (`backdown remote`) counts when that machine confirmed it within the proof window, and is read again there just before the deletion. `--move-to` keeps names as they are, and leaves a file in place if its extended attributes or alternate data streams couldn't be kept on the copy.
 
 ## Examples
 
@@ -53,4 +53,5 @@ backdown wipe /media/old-drive --move-to /media/archive/Unsorted --go --confirm 
 ## See also
 
 - [Free up a drive](/docs/guides/free-up-a-drive/)
+- [Several machines](/docs/guides/several-machines/)
 - [Principles](/docs/principles/)

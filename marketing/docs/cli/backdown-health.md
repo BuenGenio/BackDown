@@ -25,7 +25,7 @@ Also takes the [global options](/docs/cli/#global-options) `--db` and `--local`.
 
 ## Good to know
 
-Reads each drive's own health reports (SMART) without administrator rights and without waking a drive that has spun down: through udisks2 (and `smartctl` where it's installed and allowed) on Linux, `diskutil` (and `smartctl`) on macOS, and the storage cmdlets on Windows. Each reading is kept in the index under the drive's serial number, so its history follows it from port to port. When the daemon runs, it reads every drive every six hours and when one appears, and `health` asks it for its latest readings. Exits 2 when a connected drive is failing.
+Reads each drive's own health reports (SMART) as you, without administrator rights: through udisks (and `smartctl` where your account may use it) on Linux, `diskutil` (and `smartctl`, if installed) on macOS, and the storage cmdlets on Windows, which share error counters only with an administrator. `smartctl` is asked not to wake a drive that has spun down. What can't be read is noted, with the command that would read it. Readings are kept in the index under the drive's serial number, so its history follows it from port to port. When the daemon runs (Linux and macOS), `health` has it read every drive now; it also reads them every six hours, when a drive appears and when an indexed drive comes back. No self-tests are run. Exits 2 when a connected drive is failing.
 
 ## Examples
 
@@ -37,5 +37,5 @@ backdown health --json > health.json
 
 ## See also
 
-- [Drive health](/docs/concepts/#drive-health)
+- [Drive health](/docs/guides/drive-health/)
 - [Rescue a failing drive](/docs/guides/rescue/)

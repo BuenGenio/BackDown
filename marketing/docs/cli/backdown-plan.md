@@ -2,7 +2,7 @@
 title: backdown plan
 nav: plan
 description: Propose where everything on the old drives goes in one archive, and why (saved, so it can be applied).
-order: 18
+order: 23
 preview: yes
 ---
 
@@ -30,6 +30,9 @@ backdown plan [OPTIONS]
 `--print-schema`
 : Print the built-in schema and exit.
 
+`--merge-mail`
+: Merge copies of the same mailbox by Message-ID, instead of filing one and copying the other's extra files beside it.
+
 `--json`
 : Print it as JSON, for scripts.
 
@@ -37,7 +40,7 @@ Also takes the [global options](/docs/cli/#global-options) `--db` and `--local`.
 
 ## Good to know
 
-A plan only proposes. The archive's own drive is never a source. Nothing is copied until `backdown apply ID --go`, and nothing is ever deleted.
+A plan only proposes. The archive's own drive is never a source. Nothing is copied until `backdown apply ID --go`, and nothing is ever deleted. Mailboxes that are at least 90% the same as another of the same origin are filed once, with the other's extra files beside them; `--merge-mail` merges them by Message-ID instead.
 
 ## Examples
 
@@ -53,3 +56,4 @@ backdown plan --to /media/archive/Archive --schema schema.toml
 ## See also
 
 - [File your old drives into one archive](/docs/guides/file-into-an-archive/)
+- [Merge mailboxes](/docs/guides/merge-mailboxes/#in-a-filing-plan)

@@ -20,7 +20,7 @@ backdown check [OPTIONS] <PATH>
 ## Options
 
 `--list`
-: List every file that has no copy elsewhere.
+: List the files that have no copy elsewhere (the largest 20,000).
 
 `--json`
 : Print it as JSON, for scripts.

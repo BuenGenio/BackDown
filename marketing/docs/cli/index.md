@@ -26,12 +26,17 @@ backdown [OPTIONS] <COMMAND>
 | [`import-legacy`](/docs/cli/backdown-import-legacy/) {preview} | Import the index the pre-Rust scripts wrote (bd-index.sh, bd-hash.py), so their crawling and hashing aren't repeated. |
 | [`volumes`](/docs/cli/backdown-volumes/) {preview} | Every disk and partition on this machine: what's on it, and what BackDown can do with it (read-only; needs no root). |
 | [`health`](/docs/cli/backdown-health/) {preview} | How each drive is doing: SMART verdict, temperature, bad sectors, wear, and what changed since its first reading (read now, without root; kept in the index). Exits 2 when a connected drive is failing. |
+| [`mount`](/docs/cli/backdown-mount/) {preview} | Mount a partition read-only (one `backdown volumes` calls mountable), or attach a disk image read-only and mount what's on it; never read-write, and as you: udisks on Linux, diskutil and hdiutil on macOS (Windows attaches ISO, VHD and VHDX images). Without a target, lists what BackDown has mounted. |
+| [`unmount`](/docs/cli/backdown-unmount/) {preview} | Unmount a partition, or detach a disk image, that BackDown mounted (nothing else). |
 | [`scans`](/docs/cli/backdown-scans/) | Finished scans, oldest first. |
 | [`serve`](/docs/cli/backdown-serve/) | Browse the index in your web browser: folders at any scan, versions, copies, file viewers. |
 | [`status`](/docs/cli/backdown-status/) | What's in the index (and what the daemon is doing). |
 | [`daemon`](/docs/cli/backdown-daemon/) | Run in the background: rescan drives, hash, serve the web UI. Usually started by `backdown service install` rather than by hand. |
 | [`open`](/docs/cli/backdown-open/) | Open the running daemon's web UI in your browser. |
-| [`service`](/docs/cli/backdown-service/) | Run the daemon as a service (systemd): install, uninstall or check it. |
+| [`app`](/docs/cli/backdown-app/) {preview} | Open BackDown in a window of its own, starting its background service first if need be (what the applications menu, Start menu and BackDown.app run). |
+| [`desktop`](/docs/cli/backdown-desktop/) {preview} | Add BackDown to your applications menu, ~/Applications or the Start menu (or remove it). |
+| [`update`](/docs/cli/backdown-update/) {preview} | Is there a newer BackDown? Install it (verified against the release's SHA-256 sums). |
+| [`service`](/docs/cli/backdown-service/) | Run the daemon as a service (systemd on Linux, a login item on macOS, a task at logon on Windows): install, uninstall or check it. |
 | [`entities`](/docs/cli/backdown-entities/) {preview} | What things are: mail stores, backups, phones, systems, repositories, libraries… with where they came from (reads small files like backup scripts on connected drives). |
 | [`overlaps`](/docs/cli/backdown-overlaps/) {preview} | How much of each drive, folder and recognised thing already exists elsewhere, and where. |
 | [`report`](/docs/cli/backdown-report/) {preview} | The whole picture as a document: drives, what's on them, overlaps, duplicates, and which drives are safe to wipe. |
@@ -42,6 +47,9 @@ backdown [OPTIONS] <COMMAND>
 | [`mirror`](/docs/cli/backdown-mirror/) {preview} | Keep a folder (usually part of the archive) copied on another drive, and check the copy now and then. |
 | [`wipe`](/docs/cli/backdown-wipe/) {preview} | Free drives (or folders on them): delete only what has a verified copy elsewhere, moving what exists only here to --move-to first. Without --go, only shows what would happen. |
 | [`license`](/docs/cli/backdown-license/) {preview} | Your BackDown Pro licence: add a key, or show the one you have. |
+| [`remote`](/docs/cli/backdown-remote/) {preview} | Other machines (a NAS, another computer) whose BackDown index is read over ssh, so copies there count for duplicates and wiping (Pro). |
+| [`dedup`](/docs/cli/backdown-dedup/) {preview} | Tidy an archive: identical files in FOLDER share their storage, as hardlinks or clones. Both files are re-read first; every link is journaled. Without --go, only shows what would happen. |
+| [`mail`](/docs/cli/backdown-mail/) {preview} | Mailboxes: merge copies of one into a single Maildir, or export a Maildir folder as mbox. |
 
 ## Global options
 
@@ -61,20 +69,31 @@ Every command takes these.
 
 ## When the daemon is running
 
-When the daemon is running, it owns the index: `index`, `hash`, `dupes`, `check`, `scans`, `status`, `health` and `apply --go` are handed to it and you follow its progress in the terminal. Everything else reads the index directly. `--local` makes any command work on the index itself instead. `import-legacy` refuses to write while a daemon is running: stop it first. On Windows, commands always use the index directly.
+When the daemon is running, it owns the index: `index`, `hash`, `dupes`, `check`, `scans`, `status`, `health`, `remote sync` and `apply --go` are handed to it and you follow its progress in the terminal; `wipe`, `dedup --go` and `mail merge` check first, then hand the work to it. Everything else reads the index directly. `--local` makes any command work on the index itself instead. `import-legacy` refuses to write while a daemon is running: stop it first. On Windows, commands always use the index directly.
 
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
 | `0` | Done. For `check`: safe to wipe. |
-| `1` | Something went wrong; the message says what. `license show`: no licence. |
-| `2` | Finished, with a result to act on: `check` found files that exist nowhere else (or couldn't be read); `apply`, `wipe`, `mirror sync` or `mirror verify` had conflicts, failures or mismatches; `rescue image` couldn't read everything; `rescue find` or `rescue partitions` found nothing. |
+| `1` | Something went wrong; the message says what. `license show`: no licence. In a release version, a Pro command without a licence. |
+| `2` | Finished, with a result to act on: `check` found files that exist nowhere else (or couldn't be read); `apply`, `wipe`, `mirror sync`, `mirror verify`, `dedup` or `mail merge` had conflicts, failures or mismatches; `health` found a connected drive failing; `rescue image` couldn't read everything; `rescue find` or `rescue partitions` found nothing. |
+| `3` | `service status`: the service isn't running. |
+| `10` | `update --check`: there's a newer version. |
 
 ## Environment
 
 `BACKDOWN_DB`
 : The index database, like `--db`.
+
+`BACKDOWN_PORT`
+: The daemon's port for the browser, like `backdown daemon --port`.
+
+`BACKDOWN_BROWSER`
+: The Chromium-family browser `backdown app` uses, like `--browser`.
+
+`BACKDOWN_NO_UPDATE_CHECK`
+: When set, the daemon never looks for updates, whatever Settings says.
 
 `XDG_DATA_HOME`, `XDG_RUNTIME_DIR` (Linux)
 : Where the data folder and the daemon's socket go: `$XDG_DATA_HOME/backdown` (default `~/.local/share/backdown`) and `$XDG_RUNTIME_DIR/backdown`.
