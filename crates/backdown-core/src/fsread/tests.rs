@@ -1415,6 +1415,7 @@ fn ntfs_made_by_mkntfs() {
             link: None,
             unreadable: None,
             flags: Vec::new(),
+            deleted: None,
             node: Node::Ntfs { record: 11, seq: 0 },
         };
         let inside: Vec<String> = v
@@ -1742,3 +1743,6 @@ fn damaged_fat_images_fail_cleanly() {
         survive_damage(&fx.img, &hot, 200);
     }
 }
+
+// deleted files: listed, assessed and recovered (tests/undeleted.rs)
+mod undeleted;

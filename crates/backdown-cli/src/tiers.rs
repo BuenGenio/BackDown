@@ -190,7 +190,14 @@ pub const FEATURES: &[Feature] = &[
         unlocks: "Plan: where everything on the old drives goes in one archive and why, then verified, journaled copies.",
         tier: Pro,
         commands: &["plan", "plans", "apply"],
-        endpoints: &["/api/plan", "/api/plans", "/api/plan-dry", "/api/apply"],
+        endpoints: &[
+            "/api/plan",
+            "/api/plans",
+            "/api/plan-dry",
+            "/api/apply",
+            // merging a plan's overlapping mailboxes into one
+            "/api/plan-merge",
+        ],
         views: &["plan"],
         ready: true,
     },

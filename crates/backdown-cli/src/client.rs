@@ -93,7 +93,7 @@ impl Client {
             }
             let j = &v["job"];
             match j["state"].as_str() {
-                Some("done") => return Ok(j.clone()),
+                Some("done") | Some("stopped") => return Ok(j.clone()),
                 Some("failed") => anyhow::bail!("{}", j["error"].as_str().unwrap_or("job failed")),
                 _ => progress(j),
             }

@@ -261,7 +261,7 @@
     },
     {
       "version": "v0.5",
-      "state": "later",
+      "state": "now",
       "when": [
         2027,
         1
@@ -289,7 +289,7 @@
     },
     {
       "version": "v0.6",
-      "state": "later",
+      "state": "now",
       "when": [
         2027,
         2
@@ -317,7 +317,7 @@
     },
     {
       "version": "v1.0",
-      "state": "later",
+      "state": "now",
       "when": [
         2027,
         2

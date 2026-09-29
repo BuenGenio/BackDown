@@ -13,12 +13,15 @@ mod app;
 mod client;
 mod daemon;
 mod desktop;
+mod drives;
 mod filing;
+mod grant;
 mod health;
 mod insight;
 mod license;
 mod locations;
 mod mailbox;
+mod mounting;
 mod notifier;
 mod peek;
 mod rescuing;
@@ -26,6 +29,7 @@ mod serve;
 mod service;
 mod settings;
 mod sqldump;
+mod tidy;
 mod tiers;
 mod update;
 
@@ -82,7 +86,7 @@ enum Cmd {
     /// Exits 0 when safe, 2 when files must be copied first.
     Check {
         path: PathBuf,
-        /// List every file that has no copy elsewhere
+        /// List the files that have no copy elsewhere (the largest 20,000)
         #[arg(long)]
         list: bool,
         #[arg(long)]
@@ -125,6 +129,19 @@ enum Cmd {
     Health {
         #[arg(long)]
         json: bool,
+    },
+    /// Mount a partition read-only (one `backdown volumes` calls mountable), or attach a disk
+    /// image read-only and mount what's on it; never read-write, and as you: udisks on Linux,
+    /// diskutil and hdiutil on macOS (Windows attaches ISO, VHD and VHDX images). Without a
+    /// target, lists what BackDown has mounted
+    Mount {
+        /// A partition (e.g. /dev/sdb1) or a disk image file
+        target: Option<PathBuf>,
+    },
+    /// Unmount a partition, or detach a disk image, that BackDown mounted (nothing else)
+    Unmount {
+        /// The partition or disk image, as `backdown mount` lists it
+        target: PathBuf,
     },
     /// Finished scans, oldest first
     Scans {
@@ -198,7 +215,8 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
-    /// Run the daemon as a service (systemd): install, uninstall or check it
+    /// Run the daemon as a service (systemd on Linux, a login item on macOS, a task at logon on
+    /// Windows): install, uninstall or check it
     Service {
         #[command(subcommand)]
         action: ServiceCmd,
@@ -253,6 +271,10 @@ enum Cmd {
         /// Print the built-in schema and exit
         #[arg(long)]
         print_schema: bool,
+        /// Merge copies of the same mailbox by Message-ID, instead of filing one and copying the
+        /// other's extra files beside it
+        #[arg(long)]
+        merge_mail: bool,
         #[arg(long)]
         json: bool,
     },
@@ -300,6 +322,59 @@ enum Cmd {
     License {
         #[command(subcommand)]
         action: LicenseCmd,
+    },
+    /// Tidy an archive: identical files in FOLDER share their storage, as hardlinks or clones.
+    /// Both files are re-read first; every link is journaled. Without --go, only shows what
+    /// would happen
+    Dedup {
+        folder: PathBuf,
+        /// hard: one file with several names (any filesystem; editing one edits them all).
+        /// clone: separate files sharing blocks until one changes (btrfs, XFS, APFS)
+        #[arg(long, default_value = "hard")]
+        link: String,
+        /// Leave smaller files alone (e.g. 4K, 1M)
+        #[arg(long, default_value = "4K")]
+        min_size: String,
+        /// Only show what would happen (the default)
+        #[arg(long, conflicts_with = "go")]
+        dry_run: bool,
+        /// Link them
+        #[arg(long)]
+        go: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Mailboxes: merge copies of one into a single Maildir, or export a Maildir folder as mbox
+    Mail {
+        #[command(subcommand)]
+        action: MailCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum MailCmd {
+    /// Merge copies of the same mailbox taken at different times (Maildir, mbox files, a
+    /// Thunderbird folder, or whole mail stores, mailbox by mailbox) into one Maildir: every
+    /// message once by Message-ID, in the folder the newest copy has it in, flags combined.
+    /// The sources are only read
+    Merge {
+        #[arg(required = true)]
+        sources: Vec<PathBuf>,
+        /// The merged Maildir: a new folder (running again carries on where it stopped)
+        #[arg(long)]
+        to: PathBuf,
+        /// Read everything and show what the merge would be, writing nothing
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Export one Maildir folder (its own messages, not its subfolders) as an mbox file (mboxrd)
+    Export {
+        maildir: PathBuf,
+        /// The mbox file to write (never overwritten)
+        #[arg(long)]
+        mbox: PathBuf,
     },
 }
 
@@ -369,7 +444,7 @@ enum LicenseCmd {
 
 #[derive(Subcommand)]
 enum ServiceCmd {
-    /// Install and start the daemon as a systemd service (a user service unless --system)
+    /// Install and start the daemon as a service for you (on Linux, machine-wide with --system)
     Install {
         /// Machine-wide service running as the `backdown` user (needs sudo)
         #[arg(long)]
@@ -521,6 +596,17 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Volumes { json } => return run_volumes(cli.db, json),
         // through the daemon when it runs (it keeps the readings), else here
         Cmd::Health { json } => return health::command(cli.db, cli.local, json),
+        // as the person at the screen, through the system's own mounter; never opens the index
+        Cmd::Mount { target } => return run_mount(target),
+        Cmd::Unmount { target } => {
+            let t = dunce::canonicalize(&target).unwrap_or(target);
+            let v = mounting::unmount(&locations::state_dir(), &t.display().to_string())?;
+            done(&format!(
+                "Unmounted {}",
+                v["unmounted"].as_str().unwrap_or("")
+            ));
+            return Ok(ExitCode::SUCCESS);
+        }
         // reads a drive and writes elsewhere; never opens the index (it may run under sudo)
         Cmd::Rescue { action } => return rescuing::run(action),
         _ => {}
@@ -538,6 +624,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 | Cmd::Plans
                 | Cmd::Mirror { .. }
                 | Cmd::Wipe { .. }
+                // like wipe: they check here, then hand the real work to the daemon if it runs
+                | Cmd::Dedup { .. }
+                | Cmd::Mail { .. }
                 // a dry run only reads; a real one goes to the daemon, the index's one writer
                 | Cmd::Apply { go: false, .. }
         )
@@ -572,10 +661,10 @@ fn run(cli: Cli) -> Result<ExitCode> {
             p
         }
     };
-    local(&db_path, cli.cmd)
+    local(&db_path, cli.cmd, !cli.local)
 }
 
-fn local(db_path: &Path, cmd: Cmd) -> Result<ExitCode> {
+fn local(db_path: &Path, cmd: Cmd, use_daemon: bool) -> Result<ExitCode> {
     // junk rules added in Settings count here too
     settings::apply_to_core(&settings::load());
     if let Cmd::ImportLegacy { .. } = cmd {
@@ -667,6 +756,7 @@ fn local(db_path: &Path, cmd: Cmd) -> Result<ExitCode> {
             from,
             schema,
             print_schema,
+            merge_mail,
             json,
         } => {
             if print_schema {
@@ -681,9 +771,42 @@ fn local(db_path: &Path, cmd: Cmd) -> Result<ExitCode> {
                     to: &to,
                     from: &from,
                     schema: schema.as_deref(),
+                    merge_mail,
                     json,
                 },
             );
+        }
+        Cmd::Dedup {
+            folder,
+            link,
+            min_size,
+            dry_run: _,
+            go,
+            json,
+        } => {
+            return tidy::dedup(
+                &db,
+                db_path,
+                tidy::DedupArgs {
+                    folder: &folder,
+                    link: &link,
+                    min_size: fmt::parse_size(&min_size)?,
+                    go,
+                    json,
+                    use_daemon,
+                },
+            );
+        }
+        Cmd::Mail { action } => {
+            return match action {
+                MailCmd::Merge {
+                    sources,
+                    to,
+                    dry_run,
+                    json,
+                } => tidy::mail_merge(&db, db_path, &sources, &to, dry_run, json, use_daemon),
+                MailCmd::Export { maildir, mbox } => tidy::mail_export(&db, &maildir, &mbox),
+            };
         }
         Cmd::Plans => return filing::list_plans(&db),
         Cmd::Wipe {
@@ -701,6 +824,7 @@ fn local(db_path: &Path, cmd: Cmd) -> Result<ExitCode> {
                 trust_index,
                 go,
                 confirm.as_deref(),
+                use_daemon,
             );
         }
         Cmd::Mirror { action } => {
@@ -752,7 +876,9 @@ fn local(db_path: &Path, cmd: Cmd) -> Result<ExitCode> {
         | Cmd::ImportLegacy { .. }
         | Cmd::Rescue { .. }
         | Cmd::Volumes { .. }
-        | Cmd::Health { .. } => {
+        | Cmd::Health { .. }
+        | Cmd::Mount { .. }
+        | Cmd::Unmount { .. } => {
             unreachable!("handled in run")
         }
     }
@@ -891,9 +1017,13 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
         | Cmd::Plans
         | Cmd::Mirror { .. }
         | Cmd::Wipe { .. }
+        | Cmd::Dedup { .. }
+        | Cmd::Mail { .. }
         | Cmd::Rescue { .. }
         | Cmd::Volumes { .. }
-        | Cmd::Health { .. } => {
+        | Cmd::Health { .. }
+        | Cmd::Mount { .. }
+        | Cmd::Unmount { .. } => {
             unreachable!("handled in run")
         }
     }
@@ -1120,6 +1250,65 @@ fn print_legacy(r: &legacy::Report) {
              finds its files unchanged and keeps their hashes"
         );
     }
+}
+
+/// `backdown mount [TARGET]`: a partition read-only, or a disk image attached read-only; without a
+/// target, what BackDown has mounted.
+fn run_mount(target: Option<PathBuf>) -> Result<ExitCode> {
+    let state = locations::state_dir();
+    let Some(t) = target else {
+        let all = mounting::current(&state);
+        if all.is_empty() {
+            println!("BackDown hasn't mounted anything.");
+        }
+        for m in all {
+            println!(
+                "{}{}",
+                m.source,
+                m.attached
+                    .as_deref()
+                    .map(|a| format!(" (attached as {a})"))
+                    .unwrap_or_default()
+            );
+            for (dev, at) in &m.mounts {
+                println!("  {dev} at {at} (read-only)");
+            }
+        }
+        return Ok(ExitCode::SUCCESS);
+    };
+    let v = if t.is_file() {
+        mounting::attach(&state, &t)?
+    } else {
+        let dev = t.display().to_string();
+        drives::check_mountable(&dev)?;
+        mounting::mount(&state, &dev)?
+    };
+    let points: Vec<String> = match v["mounts"].as_array() {
+        Some(list) => list
+            .iter()
+            .filter_map(|m| m[1].as_str().map(String::from))
+            .collect(),
+        None => v["mounted"]
+            .as_str()
+            .map(String::from)
+            .into_iter()
+            .collect(),
+    };
+    done(&format!(
+        "Mounted read-only at {}",
+        if points.is_empty() {
+            "(nowhere new)".to_string()
+        } else {
+            points.join(", ")
+        }
+    ));
+    if let Some(p) = points.first() {
+        eprintln!(
+            "To index it: backdown index {p}\nWhen you're done: backdown unmount {}",
+            t.display()
+        );
+    }
+    Ok(ExitCode::SUCCESS)
 }
 
 /// `backdown volumes`: probe the disks, then mark what the index covers, if there is an index.
@@ -1458,7 +1647,7 @@ fn print_check(c: &report::Check, list: bool, json: bool) -> Result<ExitCode> {
             println!("{:>10}  {p}  ({e})", "unreadable");
         }
     } else if c.unique.files > 0 {
-        println!("  (--list shows every file)");
+        println!("  (--list shows them, the largest 20,000 first)");
     }
     Ok(code)
 }

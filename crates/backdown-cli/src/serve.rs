@@ -19,10 +19,23 @@
 //! POST /api/wipe (daemon only, never the system service) deletes: it re-checks the selection the
 //! way `backdown wipe` does and needs the drive names typed back, and the daemon re-reads every file
 //! and its copy before deleting it.
+//! POST /api/dedup (daemon only, never the system service) records a run that links identical
+//! files inside one folder, which the daemon does after re-reading both of each pair; POST
+//! /api/plan-merge changes a saved plan that hasn't started, so it merges two snapshots of a
+//! mailbox instead of copying both. Both need the same header.
 //! GET /api/health reads drive health the same unprivileged way as `backdown health` (in the daemon,
 //! its latest round); the POSTs beside it (read now, mark notifications read, notification
 //! settings, a test notification) need the same header, change nothing but BackDown's own records
 //! and settings file, and a notification's text never goes through a shell.
+//! Drives (drives.rs; the person at the screen's BackDown only, never the system service, and each
+//! with the X-BackDown header): POST /api/mount mounts read-only (never read-write) a partition the
+//! volume probe calls mountable, and /api/attach a disk image picked by index id; /api/unmount and
+//! /api/detach undo only what BackDown mounted; /api/rescue-allow asks udisks (and so polkit's
+//! password dialog) for a read-only file for a drive the probe lists. A filesystem Rescue found is
+//! browsed (/api/fs and /api/entry with `rescue` and `at`) and copied out of (/api/rescue with mode
+//! `files`) at the place its record gives, on the drive or image the record names: the browser
+//! never names a device or a path, and picks files through the filesystem's own listings (deleted
+//! ones by the segment their listing gave them).
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -32,7 +45,8 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 use backdown_core::{
-    Db, apply, browse, fmt, overlap, paths, plan, recognise, report, rescue, summary, volumes, wipe,
+    Db, apply, browse, dedup, fmt, overlap, paths, plan, recognise, report, rescue, summary,
+    volumes, wipe,
 };
 
 use crate::daemon::Daemon;
@@ -274,6 +288,26 @@ fn handle(ctx: &Ctx, req: Request) {
         let _ = req.respond(resp);
         return;
     }
+    if *req.method() == Method::Post && (path == "/api/dedup" || path == "/api/plan-merge") {
+        // tidy an archive (the daemon links, after re-reading both files), or turn a plan's
+        // overlapping mailboxes into one merged mailbox
+        let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
+        let resp = if !marked {
+            plain(403, "missing X-BackDown header")
+        } else {
+            let r = if path == "/api/dedup" {
+                start_dedup(ctx, param("folder"), param("link"), param("min"))
+            } else {
+                plan_merge(ctx, param("id"), param("item"))
+            };
+            match r {
+                Ok(v) => json_resp(&v),
+                Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
+            }
+        };
+        let _ = req.respond(resp);
+        return;
+    }
     if *req.method() == Method::Post && path == "/api/rescue" {
         let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
         let resp = if !marked {
@@ -370,6 +404,30 @@ fn handle(ctx: &Ctx, req: Request) {
                 Ok(v) => json_resp(&v),
                 Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
             },
+        };
+        let _ = req.respond(resp);
+        return;
+    }
+    if *req.method() == Method::Post
+        && matches!(
+            path,
+            "/api/mount" | "/api/unmount" | "/api/attach" | "/api/detach" | "/api/rescue-allow"
+        )
+    {
+        // read-only mounts, and reading a drive through udisks (drives.rs): the person at the
+        // screen's own BackDown only
+        let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
+        let resp = if !marked {
+            plain(403, "missing X-BackDown header")
+        } else if !ctx.desktop {
+            json_resp(&json!({ "error": "the machine-wide service only reads what's mounted: mount drives from your own BackDown" }))
+                .with_status_code(409)
+        } else {
+            let p = |n: &str| get(&params, n).map(str::to_string);
+            match crate::drives::post(&ctx.db, path, &p) {
+                Ok(v) => json_resp(&v),
+                Err(e) => json_resp(&crate::drives::error_json(&e)).with_status_code(400),
+            }
         };
         let _ = req.respond(resp);
         return;
@@ -636,6 +694,93 @@ fn start_wipe(
     Ok(json!({ "ok": true, "id": id, "job": job }))
 }
 
+/// Why this browser can't start tidying an archive, if it can't.
+fn tidy_blocker(ctx: &Ctx) -> Option<&'static str> {
+    if ctx.daemon.is_none() {
+        Some("tidying runs in the BackDown service: `backdown dedup FOLDER --go` in a terminal")
+    } else if !ctx.desktop {
+        Some(
+            "the machine-wide service only reads: tidy from your own BackDown (`backdown --local dedup FOLDER --go`)",
+        )
+    } else {
+        None
+    }
+}
+
+/// The folder, link and smallest size of a dedup request, checked.
+fn dedup_args(
+    ctx: &Ctx,
+    folder: Option<&str>,
+    link: Option<&str>,
+    min: Option<&str>,
+) -> Result<(PathBuf, dedup::Link, u64)> {
+    let folder = folder
+        .map(str::trim)
+        .filter(|f| !f.is_empty())
+        .context("which folder?")?;
+    let folder = dedup::check_folder(Path::new(folder), Some(&ctx.db))?;
+    let link = dedup::Link::parse(link.unwrap_or("hard"))?;
+    let min = min
+        .map(str::trim)
+        .filter(|m| !m.is_empty())
+        .map(fmt::parse_size)
+        .transpose()?
+        .map_or_else(|| fmt::parse_size("4K"), Ok)?;
+    Ok((folder, link, min))
+}
+
+/// What tidying a folder would do (from the index and the files' metadata), and whether it can
+/// be started from here.
+fn dedup_assess(
+    ctx: &Ctx,
+    db: &Db,
+    folder: Option<&str>,
+    link: Option<&str>,
+    min: Option<&str>,
+) -> Result<Value> {
+    let (folder, link, min) = dedup_args(ctx, folder, link, min)?;
+    let mut v = json!(dedup::assess(db, &folder, link, min)?);
+    v["why_not"] = json!(tidy_blocker(ctx));
+    v["min_size"] = json!(min);
+    Ok(v)
+}
+
+/// Record a dedup run and queue it for the daemon.
+fn start_dedup(
+    ctx: &Ctx,
+    folder: Option<&str>,
+    link: Option<&str>,
+    min: Option<&str>,
+) -> Result<Value> {
+    if let Some(why) = tidy_blocker(ctx) {
+        bail!(why);
+    }
+    let d = ctx.daemon.as_ref().context("no daemon")?;
+    let (folder, link, min) = dedup_args(ctx, folder, link, min)?;
+    let db = Db::open(&ctx.db)?;
+    let id = dedup::record(&db, &folder, link, min)?;
+    let job = d.enqueue(
+        "dedup",
+        Some(format!("dedup {id}")),
+        "requested",
+        crate::daemon::JobOpts {
+            dedup: Some(id),
+            ..Default::default()
+        },
+    );
+    Ok(json!({ "ok": true, "id": id, "job": job }))
+}
+
+/// Merge a plan item (a mailbox) with its twin, before the plan is applied.
+fn plan_merge(ctx: &Ctx, id: Option<&str>, item: Option<&str>) -> Result<Value> {
+    let id: i64 = id.context("missing id")?.parse().context("bad id")?;
+    let item: usize = item.context("missing item")?.parse().context("bad item")?;
+    // a short write to the plan, alongside the daemon
+    let db = Db::open(&ctx.db)?;
+    let p = plan::merge_mail(&db, id, item)?;
+    Ok(json!({ "ok": true, "plan": p }))
+}
+
 /// Start a rescue, or carry one on (`resume`): the checks that can be made before it runs, then a
 /// job in the daemon's side lane. Only reads the source; writes only to the destination.
 fn start_rescue(ctx: &Ctx, params: &[(String, String)]) -> Result<Value> {
@@ -667,8 +812,19 @@ fn start_rescue(ctx: &Ctx, params: &[(String, String)]) -> Result<Value> {
             o["start"] = r.result["pos"].clone();
             rescue::set_options(&db, id, &o)?;
         }
+        if r.mode == "files" {
+            // what was copied (and checked) before the stop is left as it is
+            let mut o = r.options.clone();
+            o["resume"] = json!(true);
+            rescue::set_options(&db, id, &o)?;
+        }
         rescue::set(&db, id, "new", None, None)?;
         id
+    } else if param("mode") == Some("files") {
+        // copy files out of a filesystem: the source is looked up (drives.rs), never sent
+        let p = |n: &str| get(params, n).map(str::to_string);
+        let (src, dest, options) = crate::drives::files_request(&db, &p)?;
+        rescue::record(&db, "files", &src, Some(&dest), &options)?
     } else {
         let mode = param("mode").context("missing mode")?;
         let source = PathBuf::from(param("source").context("which drive or image?")?);
@@ -870,8 +1026,17 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
         "/api/plan" => {
             let id: i64 = id()?;
             let (p, state) = plan::load(&db, id)?;
-            json!({ "id": id, "state": state, "plan": p, "journal": apply::journal_summary(&db, id)? })
+            // mailboxes that could be merged with their twin instead
+            let mergeable: Vec<usize> = (0..p.items.len())
+                .filter(|&i| plan::merge_target(&p, i).is_some())
+                .collect();
+            json!({ "id": id, "state": state, "plan": p, "journal": apply::journal_summary(&db, id)?, "mergeable": mergeable })
         }
+        "/api/dedup-assess" => {
+            dedup_assess(ctx, &db, param("folder"), param("link"), param("min"))?
+        }
+        "/api/dedups" => json!(dedup::history(&db)?),
+        "/api/mail-merges" => json!(backdown_core::mailmerge::history(&db)?),
         "/api/plan-dry" => {
             let mut db = db;
             json!(apply::apply(&mut db, id()?, true, &mut |_| {})?)
@@ -879,9 +1044,13 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
         "/api/wipe-assess" => wipe_assess(ctx, &db, param("keys"))?,
         "/api/wipes" => json!(wipe::history(&db)?),
         // can the daemon read this drive (or image file) directly, and if not, what would let it
-        "/api/rescue-access" => json!(rescue::access(Path::new(
-            param("path").context("missing path")?.trim()
-        ))),
+        "/api/rescue-access" => {
+            let a = rescue::access(Path::new(param("path").context("missing path")?.trim()));
+            let mut v = json!(a);
+            // the system can open it for this BackDown (udisks, a password dialog): drives.rs
+            v["allow"] = json!(ctx.desktop && cfg!(target_os = "linux") && a.device && !a.readable);
+            v
+        }
         "/api/rescues" => json!(rescue::history(&db)?),
         // free space where things would be moved to (the nearest folder up that exists)
         "/api/room" => {
@@ -973,7 +1142,31 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
             param("quick").is_some(),
         )?,
         "/api/disk" => peek::disk(&file()?, param("path"))?,
-        "/api/fs" => peek::fs_list(&file()?, param("part").unwrap_or("0"), param("path"))?,
+        "/api/fs" => match param("rescue") {
+            // a filesystem a Rescue found: its place comes from the record, not from here
+            Some(r) => {
+                let (src, start, len, _) =
+                    crate::drives::found_region(&db, r.parse()?, num("at", 0)?)?;
+                peek::region_list(
+                    &src,
+                    start,
+                    len,
+                    param("path"),
+                    param("deleted") == Some("1"),
+                )?
+            }
+            None => peek::fs_list(
+                &file()?,
+                param("part").unwrap_or("0"),
+                param("path"),
+                param("deleted") == Some("1"),
+            )?,
+        },
+        // what BackDown mounted or attached (drives.rs), and so can undo; with an id, that image's
+        "/api/mounts" => {
+            let image = param("id").map(|i| Ok::<_, anyhow::Error>(source(&db, i.parse()?)?.0));
+            crate::drives::mounts(ctx.desktop, image.transpose()?.as_deref())
+        }
         // a SQL dump's schema and data sizes (sqldump.rs), a few seconds of reading at a time
         "/api/sqldump" => crate::sqldump::schema(id()?, &file()?, param("more"))?,
         // this machine's disks and what's on them: the same read-only probe as `backdown volumes`
@@ -1329,8 +1522,22 @@ fn inner(ctx: &Ctx, req: Request, path: &str, params: &[(String, String)]) {
     let param = |name: &str| get(params, name);
     let result = (|| -> Result<peek::Part> {
         let db = ro_db(ctx)?;
-        let (file, _) = source(&db, param("id").context("missing id")?.parse()?)?;
         let max = param("max").map(str::parse).transpose()?;
+        if path == "/api/entry"
+            && let Some(r) = param("rescue")
+        {
+            // a file in a filesystem a Rescue found, at the place its record says
+            let at = param("at").context("missing at")?.parse()?;
+            let (src, start, len, _) = crate::drives::found_region(&db, r.parse()?, at)?;
+            return peek::region_entry(
+                &src,
+                start,
+                len,
+                param("name").context("missing name")?,
+                max,
+            );
+        }
+        let (file, _) = source(&db, param("id").context("missing id")?.parse()?)?;
         if path == "/api/entry" {
             let name = param("name").context("missing name")?;
             match param("part") {
@@ -1578,7 +1785,10 @@ fn ui_asset(name: &str) -> Option<(&'static [u8], &'static str)> {
         "sqldump.js" => "text/javascript; charset=utf-8",
         "search.js" => "text/javascript; charset=utf-8",
         "settings.js" => "text/javascript; charset=utf-8",
+        "tidy.js" => "text/javascript; charset=utf-8",
         "health.js" => "text/javascript; charset=utf-8",
+        "fsbrowse.js" => "text/javascript; charset=utf-8",
+        "drives.js" => "text/javascript; charset=utf-8",
         "favicon.svg" => "image/svg+xml",
         "vendor/pdf.min.mjs" => "text/javascript; charset=utf-8",
         "vendor/pdf.worker.min.mjs" => "text/javascript; charset=utf-8",

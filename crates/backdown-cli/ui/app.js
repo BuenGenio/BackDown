@@ -4,7 +4,9 @@ import { openViewer, openDiff, openGit, openMaildir, previewInto } from './viewe
 import { squarify, compareListings, menu, closeMenu, menuOpen, toast } from './extras.js';
 import { mountFind, find, foundHtml, setScope, setEarlier, more as findMore } from './search.js';
 import { showSettings, proGate, loadFeatures, checkUpdates } from './settings.js';
+import { tidyCard, wireTidy, mergeButton, mergeSources } from './tidy.js';
 import { mountHealth, daemonChanged, healthOfDisk, healthOfPath, pill, dot, mirrorNote, healthHead, notesSection } from './health.js';
+import { mountCell, mountNotice, loadMounts, allowButton, browseFoundBtn, filesBody } from './drives.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -1048,11 +1050,11 @@ function renderPlan() {
       <button class="btn primary" type="button" id="pl-make">Make plan</button></section>`;
   const picker = PL.list.length > 1 ? `<select id="pl-pick" aria-label="Plans">${PL.list.map(p => `<option value="${p.id}"${p.id === PL.id ? ' selected' : ''}>Plan ${p.id} · ${esc(day(p.created_at))} · ${esc(p.state)}</option>`).join('')}</select>` : '';
   if (!PL.data) {
-    v.innerHTML = `<div class="plan">${form}<div class="empty"><div><h2>No plan yet</h2><p>A plan proposes where everything on your old drives goes in one archive: mail with mail, phones with phones, each thing as a unit, with the reason for every placement.</p></div></div></div>`;
+    v.innerHTML = `<div class="plan">${form}<div class="empty"><div><h2>No plan yet</h2><p>A plan proposes where everything on your old drives goes in one archive: mail with mail, phones with phones, each thing as a unit, with the reason for every placement.</p></div></div>${tidyCard(guess)}</div>`;
   } else {
     const { plan: p, state, journal } = PL.data;
     const j = Object.fromEntries(journal.map(([s, n, b]) => [s, { n, b }]));
-    const groups = [['copy', 'Copy'], ['copy-unique', 'Copy only what’s unique'], ['skip', 'Not copied']];
+    const groups = [['copy', 'Copy'], ['copy-unique', 'Copy only what’s unique'], ['merge', 'Merge snapshots of a mailbox'], ['skip', 'Not copied']];
     v.innerHTML = `<div class="plan">
       <div class="pl-head">
         <div><h2>Plan ${PL.id}</h2><p class="muted">into <code>${esc(p.target)}</code> · made ${esc(when(p.created_at))}${/caches left out/.test(p.schema || '') ? ' · caches left out' : ''} · <span class="pill ${state === 'done' ? 'ok' : state === 'partial' ? 'warn' : ''}">${esc(state)}</span></p></div>
@@ -1061,8 +1063,8 @@ function renderPlan() {
           <button class="btn primary" type="button" id="pl-go"${S.daemon ? '' : ' disabled title="Copying runs in the BackDown service: backdown apply ' + PL.id + ' --go"'}>Apply: copy ${bytes(p.copy_bytes)}</button></div>
       </div>
       ${form}
-      ${PL.dry ? `<div class="pl-dry banner">${PL.dry.error ? esc(PL.dry.error) : `Dry run: ${count(PL.dry.would_copy)} files (${bytes(PL.dry.would_copy_bytes)}) would be copied${PL.dry.resumed ? `; ${count(PL.dry.resumed)} are done already` : ''}${PL.dry.duplicates ? `; ${count(PL.dry.duplicates)} are already in the archive` : ''}${PL.dry.conflicts ? `; ${count(PL.dry.conflicts)} destinations exist and will be compared, never overwritten` : ''}. Nothing was written.`}</div>` : ''}
-      ${journal.length ? `<div class="pl-journal"><b>Done so far:</b> ${j.copied ? `${count(j.copied.n)} files copied and verified (${bytes(j.copied.b)})` : 'nothing copied yet'}${j['already-there'] ? ` · ${count(j['already-there'].n)} already there` : ''}${j.duplicate ? ` · ${count(j.duplicate.n)} already in the archive` : ''}${j.conflict ? ` · <span class="warn-t">${count(j.conflict.n)} conflicts</span>` : ''}${j.failed ? ` · <span class="warn-t">${count(j.failed.n)} failed</span>` : ''}</div>` : ''}
+      ${PL.dry ? `<div class="pl-dry banner">${PL.dry.error ? esc(PL.dry.error) : `Dry run: ${count(PL.dry.would_copy)} files (${bytes(PL.dry.would_copy_bytes)}) would be copied${PL.dry.would_merge ? `; ${count(PL.dry.would_merge)} mailbox${PL.dry.would_merge === 1 ? '' : 'es'} would be merged from ${PL.dry.would_merge === 1 ? 'its' : 'their'} snapshots, message by message` : ''}${PL.dry.resumed ? `; ${count(PL.dry.resumed)} are done already` : ''}${PL.dry.duplicates ? `; ${count(PL.dry.duplicates)} are already in the archive` : ''}${PL.dry.conflicts ? `; ${count(PL.dry.conflicts)} destinations exist and will be compared, never overwritten` : ''}. Nothing was written.`}</div>` : ''}
+      ${journal.length ? `<div class="pl-journal"><b>Done so far:</b> ${j.copied ? `${count(j.copied.n)} files copied and verified (${bytes(j.copied.b)})` : j.merged ? '' : 'nothing copied yet'}${j.merged ? `${j.copied ? ' · ' : ''}${count(j.merged.n)} mailbox${j.merged.n === 1 ? '' : 'es'} merged (${bytes(j.merged.b)})` : ''}${j['already-there'] ? ` · ${count(j['already-there'].n)} already there` : ''}${j.duplicate ? ` · ${count(j.duplicate.n)} already in the archive` : ''}${j.conflict ? ` · <span class="warn-t">${count(j.conflict.n)} conflicts</span>` : ''}${j.failed ? ` · <span class="warn-t">${count(j.failed.n)} failed</span>` : ''}</div>` : ''}
       <h3>Drives</h3>
       <table class="list pl-drives"><thead><tr><th>Drive</th><th class="n">Size</th><th class="n">To copy</th><th class="n">Already archived</th><th>After applying</th></tr></thead><tbody>
       ${p.drives.map(d => `<tr><td><b>${esc(d.drive)}</b><small class="muted">${esc(d.path)}</small></td><td class="n">${bytes(d.bytes)}</td><td class="n">${bytes(d.copy)}</td><td class="n">${bytes(d.already)}</td>
@@ -1070,10 +1072,13 @@ function renderPlan() {
       ${groups.map(([a, label]) => { const items = p.items.filter(i => i.action === a); return items.length ? `<h3>${label} <span class="muted">(${items.length})</span></h3><div class="pl-items">${items.map(i => `
         <div class="pl-item ${a}"><div class="pl-what"><b>${esc(i.what)}</b><span class="pl-size">${bytes(i.bytes)}</span></div>
           <button class="rowlink pl-src-path" type="button" data-ent-open="${i.source_key}" data-ent-file="${i.is_file ? 1 : ''}">${esc(i.source)}</button>
+          ${mergeSources(i)}
           ${a !== 'skip' ? `<div class="pl-dest">→ <code>${esc(i.dest)}</code></div>` : ''}
-          <div class="pl-why">${esc(i.why)}</div></div>`).join('')}</div>` : ''; }).join('')}
+          <div class="pl-why">${esc(i.why)}</div>${mergeButton(PL.data, p.items.indexOf(i))}</div>`).join('')}</div>` : ''; }).join('')}
+      ${tidyCard(p.target)}
     </div>`;
   }
+  wireTidy({ planId: PL.id, reload: () => showPlan(PL.id), error: toastError, poll: () => { if (!polling) pollDaemon(true); } });
   $('#pl-make')?.addEventListener('click', makePlan);
   $('#pl-junk')?.addEventListener('change', e => { PL.junk = e.target.checked; });
   document.querySelectorAll('.pl-src').forEach(c => c.addEventListener('change', junkSize));
@@ -1499,12 +1504,19 @@ function renderRescueAccess() {
   if (!RS.src || (RS.src.kind === 'file' && !RS.src.file)) { el.innerHTML = ''; return; }
   if (!a) { el.innerHTML = '<p class="muted rs-acc">Checking…</p>'; return; }
   el.innerHTML = a.readable
-    ? `<p class="rs-acc ok"><span class="dot k"></span>BackDown can read it: ${bytes(a.size || 0)}.</p>`
+    ? `<p class="rs-acc ok"><span class="dot k"></span>BackDown can read it: ${bytes(a.size || 0)}${a.granted ? ' (opened for it by the system, read-only, until BackDown stops)' : ''}.</p>`
     : `<div class="rs-acc no"><p><span class="dot o"></span>${esc(a.why || 'It can’t be read.')}</p>
       ${a.fix ? `<p class="muted">Run this once in a terminal, then check again. It lets your account read this drive only (never change it), until it’s unplugged or the computer restarts:</p>
       <div class="rs-cmd"><code>${esc(a.fix)}</code><button class="btn sm" type="button" data-rs-copy="${esc(a.fix)}">Copy</button></div>` : ''}
+      ${allowButton(a)}
       <button class="btn sm" type="button" data-rs-recheck>Check again</button></div>`;
 }
+
+// the system opened the drive for BackDown (drives.js); a copy-out was started from a browser
+document.addEventListener('bd:access', e => {
+  if (e.detail?.path === (RS.src?.kind === 'file' ? (RS.src.file || '').trim() : RS.src?.path)) { RS.access = e.detail; renderRescueAccess(); renderRescueGo(); }
+});
+document.addEventListener('bd:rescue-started', () => { loadRescues(); if (!polling) pollDaemon(true); });
 
 function renderRescueWhat() {
   const el = $('#rs-what');
@@ -1657,7 +1669,7 @@ function renderRescueList() {
   el.innerHTML = `<h3>Rescues</h3>` + RS.list.map(r => rescueCard(r, live.get(`rescue ${r.id}`))).join('');
 }
 
-const RS_TITLE = { image: 'Copy', carve: 'Find files', parts: 'Look for partitions' };
+const RS_TITLE = { image: 'Copy', carve: 'Find files', parts: 'Look for partitions', files: 'Copy files out' };
 const RS_STATE = { done: 'ok', stopped: 'warn', failed: 'warn', running: 'busy', new: 'busy' };
 const baseName = p => (p || '').split(/[\\/]/).filter(Boolean).pop() || p;
 
@@ -1695,13 +1707,14 @@ function rescueCard(r, job) {
         ${fs.map(f => `<tr><td>${bytes(f.start)}<small class="muted">sector ${(f.start / (res.sector || 512)).toLocaleString()}</small></td><td class="n">${f.size ? bytes(f.size) : '?'}</td>
           <td>${esc(f.fs)}${f.via !== 'boot sector' && f.via !== 'superblock' ? `<small class="muted">found by its ${esc(f.via)}</small>` : ''}</td><td>${esc(f.label || '')}${f.nested ? '<small class="muted">inside another file system</small>' : ''}</td>
           <td>${f.in_table ? '<span class="pill ok">yes</span>' : '<span class="pill warn">no: lost</span>'}${f.truncated ? '<span class="pill warn">runs past the end</span>' : ''}</td>
-          <td><button class="btn sm" type="button" data-rs-pick='${esc(JSON.stringify({ source: r.source, start: f.start, end: f.size ? f.start + f.size : null, label: `${f.fs}${f.label ? ` “${f.label}”` : ''} at ${bytes(f.start)}` }))}'>Find files in it</button></td></tr>`).join('')}</tbody></table>` : ''}`;
+          <td class="rs-acts">${browseFoundBtn(r, f)}<button class="btn sm" type="button" data-rs-pick='${esc(JSON.stringify({ source: r.source, start: f.start, end: f.size ? f.start + f.size : null, label: `${f.fs}${f.label ? ` “${f.label}”` : ''} at ${bytes(f.start)}` }))}'>Find files in it</button></td></tr>`).join('')}</tbody></table>` : ''}`;
   }
+  if (r.mode === 'files') body += filesBody(r, job);
   // stopped or interrupted before it got anywhere: start it again as it was
-  if (!job && ['stopped', 'interrupted', 'failed'].includes(state) && !(r.mode === 'image' ? res.size : r.mode === 'carve' ? res.by_group : res.found))
+  if (!job && ['stopped', 'interrupted', 'failed'].includes(state) && !(r.mode === 'image' ? res.size : r.mode === 'carve' ? res.by_group : r.mode === 'files' ? res.files != null : res.found))
     body += `<div class="rs-next"><button class="btn sm" type="button" data-rs-next='${esc(JSON.stringify({ resume: r.id }))}'>Start again</button></div>`;
   if (r.state === 'failed' && !job) body += `<p class="warn-t">${esc(r.summary || 'It stopped with an error.')}</p>`;
-  else if (r.summary && !job && r.mode !== 'parts') body += `<p class="muted">${esc(r.summary)}</p>`;
+  else if (r.summary && !job && r.mode !== 'parts' && r.mode !== 'files') body += `<p class="muted">${esc(r.summary)}</p>`;
   return `<article class="rs-item">
     <header><b>${RS_TITLE[r.mode] || r.mode}</b><span class="rs-where">${where}</span>
       <span class="pill ${RS_STATE[state] || (state === 'interrupted' ? 'warn' : '')}">${state}</span>
@@ -1747,7 +1760,8 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) poll
 
 const jobName = j => j.kind === 'index' ? `Scan ${rootName(j.path)}` : j.kind === 'entities' ? 'Recognise what’s on the drives'
   : j.kind === 'apply' ? `Apply ${j.path || 'a plan'}` : j.kind === 'mirror-sync' ? `Sync ${j.path || 'a mirror'}`
-  : j.kind === 'mirror-verify' ? `Verify ${j.path || 'a mirror'}` : j.kind === 'wipe' ? `Free up (${j.path || 'a wipe'})` : j.kind === 'rescue' ? rescueJobName(j) : 'Hash new and changed files';
+  : j.kind === 'mirror-verify' ? `Verify ${j.path || 'a mirror'}` : j.kind === 'wipe' ? `Free up (${j.path || 'a wipe'})` : j.kind === 'rescue' ? rescueJobName(j)
+  : j.kind === 'dedup' ? `Tidy the archive (${j.path || 'dedup'})` : j.kind === 'mail-merge' ? `Merge mailboxes (${j.path || 'merge'})` : 'Hash new and changed files';
 function rescueJobName(j) {
   const r = RS.list.find(x => `rescue ${x.id}` === j.path);
   return r ? `${RS_TITLE[r.mode] || 'Rescue'}: ${baseName(r.source)}` : 'Rescue';
@@ -1849,8 +1863,10 @@ function eta(j, now) {
   if (p == null || p < 0.02 || took < 15) return '';
   return `about ${dur(took * (1 - p) / p)} left`;
 }
-const REASON = { requested: 'you asked', scheduled: 'scheduled', returned: 'drive came back', 'after-scan': 'after a scan', 'after-apply': 'after copying', 'after-wipe': 'after wiping', 'after-rescue': 'recovered files' };
+const REASON = { requested: 'you asked', scheduled: 'scheduled', returned: 'drive came back', 'after-scan': 'after a scan', 'after-apply': 'after copying', 'after-wipe': 'after wiping', 'after-rescue': 'recovered files', 'after-dedup': 'after tidying', 'after-merge': 'after merging mail' };
 const JOB_ICON = {
+  dedup: '<svg viewBox="0 0 24 24"><path d="M10 14a3.5 3.5 0 0 0 5 0l3-3a3.5 3.5 0 0 0-5-5l-.5.5"/><path d="M14 10a3.5 3.5 0 0 0-5 0l-3 3a3.5 3.5 0 0 0 5 5l.5-.5"/></svg>',
+  'mail-merge': '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>',
   index: '<svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg>',
   hash: '<svg viewBox="0 0 24 24"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></svg>',
   entities: '<svg viewBox="0 0 24 24"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>',
@@ -1883,15 +1899,21 @@ function connectedDrives() {
     const act = idx ? `<span class="muted">indexed${idx.scanned_at ? ` · scanned ${rel(idx.scanned_at)}` : ''}</span>`
       : vol.state === 'mounted' && mount && S.daemon ? `<button class="btn sm" type="button" data-index-path="${esc(mount.path)}">Index this</button>` : '';
     return `<tr><td><b>${esc(vol.label || vol.name)}</b><small class="muted">${esc(vol.device)}${mount ? ` · ${esc(mount.path)}${mount.read_only ? ' (read-only)' : ''}` : ''}</small></td>
-      <td>${esc(vol.fs_name || vol.fs || '—')}</td><td class="n">${bytes(vol.size || 0)}</td><td><span class="pill ${cls}">${label}</span>${vol.note ? `<small class="muted">${esc(vol.note)}</small>` : ''}</td><td>${act}</td></tr>`
+      <td>${esc(vol.fs_name || vol.fs || '—')}</td><td class="n">${bytes(vol.size || 0)}</td><td><span class="pill ${cls}">${label}</span>${vol.note ? `<small class="muted">${esc(vol.note)}</small>` : ''}</td><td class="act-do">${act}${mountCell(vol)}</td></tr>`
       + (vol.holders || []).map(rows).join('');
   };
-  return `<section>${head}${v.disks.map(dk => `<div class="vol-disk"><div class="vol-head"><b>${esc(dk.model || dk.name)}</b>${pill(healthOfDisk(dk))}
+  return `<section>${head}${mountNotice()}${v.disks.map(dk => `<div class="vol-disk"><div class="vol-head"><b>${esc(dk.model || dk.name)}</b>${pill(healthOfDisk(dk))}
       <span class="muted">${esc(dk.device)} · ${bytes(dk.size || 0)} · ${esc(dk.transport || '')}${dk.rotational ? ' · spinning disk' : dk.rotational === false ? ' · solid state' : ''}${dk.system ? ' · system disk' : ''}</span></div>
       <table class="list act-drives"><tbody>${dk.volumes.map(rows).join('')}</tbody></table></div>`).join('')}
     ${(v.notes || []).map(n => `<p class="muted pad">${esc(n)}</p>`).join('')}</section>`;
 }
+// a partition mounted or unmounted, an image attached or detached (drives.js): look again
+document.addEventListener('bd:drives', e => {
+  if (e.detail?.reprobe) probeVolumes();
+  else if (S.mode === 'activity') renderActivity();
+});
 function showActivity() {
+  loadMounts().then(() => { if (S.mode === 'activity') renderActivity(); });
   if (!ACT.volumes && !ACT.probing) probeVolumes();
   if (!RS.list.length) loadRescues().then(() => { if (S.mode === 'activity') renderActivity(); });
   api('mirrors').then(m => { ACT.mirrors = m; if (S.mode === 'activity') renderActivity(); }).catch(() => {});
@@ -1941,7 +1963,8 @@ function renderActivity() {
       <div class="act-head"><span class="pulse"></span><h2>${esc(jobName(cur))}<span class="muted">${stage}</span></h2><span class="act-pct">${p != null ? Math.round(p * 100) + '%' : ''}</span></div>
       <div class="meter${p == null ? ' unknown' : ''}"><i style="width:${p != null ? (p * 100).toFixed(1) : 100}%"></i></div>
       <p>${detail}</p>
-      <p class="muted">Started ${rel(cur.started_at)} · ${REASON[cur.reason] || ''}${eta(cur, now) ? ` · ${eta(cur, now)}` : ''}</p>
+      <p class="muted${cur.stoppable ? ' act-side-foot' : ''}"><span>Started ${rel(cur.started_at)} · ${REASON[cur.reason] || ''}${eta(cur, now) ? ` · ${eta(cur, now)}` : ''}</span>${cur.stoppable ? `
+        <button class="btn sm" type="button" data-job-stop="${cur.id}" title="Stops at the next file; running it again carries on">Stop</button>` : ''}</p>
     </section>`;
   } else {
     const next = d.drives.filter(x => x.present && x.next_at).sort((a, b) => a.next_at - b.next_at)[0];

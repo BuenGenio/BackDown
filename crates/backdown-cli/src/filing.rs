@@ -12,6 +12,8 @@ pub struct PlanArgs<'a> {
     pub to: &'a Path,
     pub from: &'a [PathBuf],
     pub schema: Option<&'a Path>,
+    /// merge overlapping mailboxes by Message-ID instead of copying the twin's extra files
+    pub merge_mail: bool,
     pub json: bool,
 }
 
@@ -70,6 +72,11 @@ pub fn make_plan(db: &Db, a: PlanArgs) -> Result<ExitCode> {
                 "built-in".into()
             }
         });
+    let merged = if a.merge_mail {
+        plan::merge_all_mail(&mut p)
+    } else {
+        0
+    };
     let id = plan::save(db, &p)?;
     if a.json {
         println!(
@@ -84,7 +91,7 @@ pub fn make_plan(db: &Db, a: PlanArgs) -> Result<ExitCode> {
         if p.drives.len() == 1 { "" } else { "s" },
         p.target
     );
-    for action in ["copy", "copy-unique", "skip"] {
+    for action in ["copy", "copy-unique", "merge", "skip"] {
         let items: Vec<&plan::Item> = p.items.iter().filter(|i| i.action == action).collect();
         if items.is_empty() {
             continue;
@@ -94,12 +101,16 @@ pub fn make_plan(db: &Db, a: PlanArgs) -> Result<ExitCode> {
             match action {
                 "copy" => "Copy",
                 "copy-unique" => "Copy only what's unique",
+                "merge" => "Merge snapshots of a mailbox (by Message-ID)",
                 _ => "Not copied",
             }
         );
         for it in items {
             println!("  {:>9}  {}  ({})", fmt::bytes(it.bytes), it.what, it.drive);
             println!("             {}", it.source);
+            for m in &it.merge {
+                println!("           + {m}");
+            }
             if action != "skip" {
                 println!(
                     "           → {}",
@@ -130,6 +141,17 @@ pub fn make_plan(db: &Db, a: PlanArgs) -> Result<ExitCode> {
         fmt::bytes(p.copy_bytes),
         fmt::count(p.copy_files)
     );
+    if merged > 0 {
+        println!(
+            "{merged} mailbox{} merged with {} twin by Message-ID instead of copied beside it.",
+            if merged == 1 { "" } else { "es" },
+            if merged == 1 { "its" } else { "their" }
+        );
+    } else if (0..p.items.len()).any(|i| plan::merge_target(&p, i).is_some()) {
+        println!(
+            "Some mailboxes are copies of others: `backdown plan … --merge-mail` merges them by Message-ID instead."
+        );
+    }
     println!(
         "Next: `backdown apply {id}` shows exactly what would happen; `backdown apply {id} --go` does it."
     );
@@ -186,6 +208,13 @@ pub fn run_apply(db: &mut Db, id: i64, go: bool) -> Result<ExitCode> {
                 fmt::count(st.duplicates)
             );
         }
+        if st.would_merge > 0 {
+            println!(
+                "{} mailbox{} will be merged from its snapshots (`backdown mail merge … --dry-run` shows the messages).",
+                fmt::count(st.would_merge),
+                if st.would_merge == 1 { "" } else { "es" }
+            );
+        }
         if st.conflicts > 0 {
             println!(
                 "{} destinations already exist: they'll be compared, and left alone if they differ.",
@@ -203,6 +232,19 @@ pub fn run_apply(db: &mut Db, id: i64, go: bool) -> Result<ExitCode> {
         fmt::count(st.duplicates),
         fmt::count(st.resumed)
     ));
+    if st.cloned + st.kernel_copied > 0 {
+        eprintln!(
+            "  {} of them cloned (sharing the source's blocks), {} copied by the kernel",
+            fmt::count(st.cloned),
+            fmt::count(st.kernel_copied)
+        );
+    }
+    if st.merged > 0 {
+        eprintln!(
+            "  {} messages in merged mailboxes, each written once and read back",
+            fmt::count(st.merged)
+        );
+    }
     if st.skipped_links > 0 {
         eprintln!(
             "  {} symbolic links were not copied",
@@ -356,6 +398,7 @@ pub fn mirror_verify(db: &Db, id: Option<i64>, percent: u8) -> Result<ExitCode> 
 }
 
 /// `backdown wipe`: what wiping would do, or (with --go and the drive names typed) do it.
+#[allow(clippy::too_many_arguments)]
 pub fn wipe(
     db: &mut Db,
     db_path: &Path,
@@ -364,6 +407,7 @@ pub fn wipe(
     trust_index: bool,
     go: bool,
     confirm: Option<&str>,
+    use_daemon: bool,
 ) -> Result<ExitCode> {
     use backdown_core::wipe;
     let targets: Vec<PathBuf> = targets
@@ -450,7 +494,11 @@ pub fn wipe(
     }
     let id = wipe::record(db, &targets, move_to.as_deref())?;
     // a running daemon owns the index: it does the wiping, and rescans afterwards
-    if let Some(mut c) = crate::client::Client::connect(Some(db_path)) {
+    // --local: here, even when a daemon is running
+    if let Some(mut c) = use_daemon
+        .then(|| crate::client::Client::connect(Some(db_path)))
+        .flatten()
+    {
         let r = c.request(&serde_json::json!({ "cmd": "enqueue", "kind": "wipe", "wipe": id, "trust_index": trust_index }))?;
         let j = c.follow(r["job"].as_u64().unwrap_or(0), |j| {
             live(&format!("wiping: {}", j["progress"].as_str().unwrap_or("")))

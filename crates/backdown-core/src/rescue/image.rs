@@ -592,7 +592,7 @@ pub struct FileSource {
 impl FileSource {
     pub fn open(path: &Path) -> Result<FileSource> {
         // read-only: nothing done through this handle can change the source
-        let file = File::open(path).map_err(|e| {
+        let file = super::open(path).map_err(|e| {
             let hint = if e.kind() == io::ErrorKind::PermissionDenied {
                 " (reading a whole drive or card needs administrator rights)"
             } else {

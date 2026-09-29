@@ -337,6 +337,227 @@ fn without_the_drive_it_still_recognises_but_says_less() {
     );
 }
 
+/// A Dovecot index header saying how many messages a mailbox holds.
+fn dovecot_index(n: u32) -> Vec<u8> {
+    let mut h = vec![0u8; 120];
+    h[0] = 7; // major version
+    h[1] = 3;
+    h[2] = 120; // base header size
+    h[12] = 1; // little-endian
+    h[32..36].copy_from_slice(&n.to_le_bytes());
+    h
+}
+
+/// A dbox file of messages received at the given times.
+fn dbox_file(received: &[u32]) -> Vec<u8> {
+    let mut f = String::from("2 M15 C5c000000\n");
+    for (i, r) in received.iter().enumerate() {
+        let body = format!("Subject: {i}\n\nhello {i}");
+        f += &format!(
+            "\x01\x02N {:016x}\n{body}\n\x01\x03\nGguid{i}\nR{r:x}\n\n",
+            body.len()
+        );
+    }
+    f.into_bytes()
+}
+
+fn mail_drive(d: &Path) {
+    // mdbox: messages in storage/m.N, three mailboxes (one nested)
+    let md = d.join("vmail/ann/mdbox");
+    write(
+        &md.join("storage/m.1"),
+        &dbox_file(&[1_400_000_000, 1_400_100_000]),
+    );
+    write(
+        &md.join("storage/m.2"),
+        &dbox_file(&[1_500_000_000, 1_600_000_000]),
+    );
+    write(&md.join("storage/dovecot.map.index"), &dovecot_index(4));
+    for (b, n) in [("INBOX", 2), ("Sent", 1), ("Archive/2019", 1)] {
+        write(
+            &md.join("mailboxes")
+                .join(b)
+                .join("dbox-Mails/dovecot.index"),
+            &dovecot_index(n),
+        );
+    }
+    // sdbox: a file per message
+    let sd = d.join("vmail/bob/sdbox");
+    for (b, n) in [("INBOX", 3), ("Sent", 1)] {
+        for i in 1..=n {
+            write(
+                &sd.join("mailboxes")
+                    .join(b)
+                    .join(format!("dbox-Mails/u.{i}")),
+                &dbox_file(&[1_450_000_000]),
+            );
+        }
+    }
+    // a Thunderbird profile: an IMAP account (a cache of server mail), a POP account and Local
+    // Folders (kept only here)
+    let tb = d.join("thunderbird/abcd1234.default");
+    write(
+        &tb.join("prefs.js"),
+        br#"user_pref("mail.accountmanager.accounts", "account1,account2,account3");
+user_pref("mail.account.account1.identities", "id1");
+user_pref("mail.account.account1.server", "server1");
+user_pref("mail.account.account2.identities", "id2");
+user_pref("mail.account.account2.server", "server2");
+user_pref("mail.account.account3.server", "server3");
+user_pref("mail.identity.id1.fullName", "Ann Example");
+user_pref("mail.identity.id1.useremail", "ann@example.org");
+user_pref("mail.identity.id2.useremail", "bob@example.net");
+user_pref("mail.server.server1.directory-rel", "[ProfD]ImapMail/imap.example.org");
+user_pref("mail.server.server1.hostname", "imap.example.org");
+user_pref("mail.server.server1.name", "ann@example.org");
+user_pref("mail.server.server1.type", "imap");
+user_pref("mail.server.server1.userName", "ann");
+user_pref("mail.server.server2.directory-rel", "[ProfD]Mail/pop.example.net");
+user_pref("mail.server.server2.hostname", "pop.example.net");
+user_pref("mail.server.server2.name", "Bob at work");
+user_pref("mail.server.server2.type", "pop3");
+user_pref("mail.server.server2.userName", "bob");
+user_pref("mail.server.server3.directory-rel", "[ProfD]Mail/Local Folders");
+user_pref("mail.server.server3.hostname", "Local Folders");
+user_pref("mail.server.server3.name", "Local Folders");
+user_pref("mail.server.server3.type", "none");
+"#,
+    );
+    let mbox = |n: usize| {
+        (0..n)
+            .map(|i| format!("From - Mon Jan  1 00:00:00 2024\nSubject: {i}\n\nbody {i}\n\n"))
+            .collect::<String>()
+    };
+    for (f, n) in [
+        ("ImapMail/imap.example.org/INBOX", 5),
+        ("ImapMail/imap.example.org/Archives.sbd/2019", 2),
+        ("Mail/pop.example.net/Inbox", 3),
+        ("Mail/Local Folders/Unsent Messages", 1),
+        ("Mail/Local Folders/Trash", 1),
+    ] {
+        write(&tb.join(f), mbox(n).as_bytes());
+        write(
+            &tb.join(format!("{f}.msf")),
+            b"// <!-- <mdb:mork:z v=\"1.4\"/> -->",
+        );
+    }
+    write(
+        &tb.join("ImapMail/imap.example.org/msgFilterRules.dat"),
+        b"version=\"9\"",
+    );
+}
+
+fn fact<'a>(e: &'a Entity, k: &str) -> &'a str {
+    e.facts
+        .iter()
+        .find(|(x, _)| x == k)
+        .map(|(_, v)| v.as_str())
+        .unwrap_or_else(|| panic!("no {k} in {:#?}", e.facts))
+}
+
+#[test]
+fn mail_stores_in_depth() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = tmp.path().join("drive");
+    mail_drive(&d);
+    let mut db = Db::open(&tmp.path().join("i.db")).unwrap();
+    index::index(
+        &mut db,
+        &d,
+        &index::Options {
+            one_file_system: true,
+            allow_empty: false,
+        },
+        &mut |_| {},
+    )
+    .unwrap();
+    let root = recognise::root_ids(&db).unwrap()[0];
+    let r = recognise::recognise(&db, root, true, &mut |_| {}).unwrap();
+    let es = &r.entities;
+
+    let md = find(es, "mdbox", "ann/mdbox");
+    assert_eq!(fact(md, "Format"), "mdbox");
+    assert_eq!(fact(md, "Mailboxes"), "3");
+    assert_eq!(fact(md, "Mailbox names"), "Archive/2019, INBOX, Sent");
+    assert_eq!(
+        fact(md, "Messages"),
+        "4",
+        "from the mailboxes' index headers"
+    );
+    assert_eq!(fact(md, "Oldest message"), "13 May 2014");
+    assert_eq!(fact(md, "Newest message"), "13 Sep 2020");
+    assert_eq!(
+        md.title,
+        "Dovecot mdbox: 3 mailboxes, 4 messages (2014–2020)"
+    );
+
+    let sd = find(es, "mdbox", "bob/sdbox");
+    assert_eq!(fact(sd, "Format"), "sdbox");
+    assert_eq!(fact(sd, "Messages"), "4", "a file per message");
+    assert_eq!(fact(sd, "Mailboxes"), "2");
+
+    let tb = find(es, "thunderbird", "abcd1234.default");
+    assert_eq!(tb.title, "mail of ann@example.org, bob@example.net");
+    assert_eq!(
+        fact(tb, "Account names"),
+        "ann@example.org, Bob at work, Local Folders"
+    );
+    assert_eq!(
+        fact(tb, "Email addresses"),
+        "Ann Example <ann@example.org>, bob@example.net"
+    );
+    assert_eq!(
+        fact(tb, "Servers"),
+        "imap.example.org (IMAP, as ann), pop.example.net (POP3, as bob)"
+    );
+    assert_eq!(fact(tb, "Main domain"), "example.org");
+    assert!(fact(tb, "Copies of server mail (IMAP)").starts_with("ann@example.org ("));
+    let local = fact(tb, "Kept here (Local Folders, POP)");
+    assert!(
+        local.contains("Local Folders (") && local.contains("Bob at work ("),
+        "{local}"
+    );
+    let folders = fact(tb, "Folders in ann@example.org");
+    assert!(
+        folders.starts_with("INBOX (") && folders.contains("Archives/2019 ("),
+        "which mbox file is which folder: {folders}"
+    );
+    assert!(!folders.contains("msgFilterRules"));
+    assert!(fact(tb, "Folders in Local Folders").contains("Unsent Messages"));
+    let (rec, ov) = {
+        let o =
+            backdown_core::overlap::overlaps(&db, std::slice::from_ref(&r), &mut |_| {}).unwrap();
+        (vec![r.clone()], o)
+    };
+    let p = backdown_core::plan::make(
+        &db,
+        &tmp.path().join("Archive"),
+        None,
+        &backdown_core::plan::Schema::default(),
+        &rec,
+        &ov,
+    )
+    .unwrap();
+    assert!(
+        p.items
+            .iter()
+            .any(|i| i.kind == "thunderbird" && i.dest == "Mail/example.org/Thunderbird"),
+        "filed by the domain its mail is for: {:#?}",
+        p.items
+    );
+
+    // without the drive: what the index alone says
+    fs::rename(&d, tmp.path().join("unplugged")).unwrap();
+    let r = recognise::recognise(&db, root, true, &mut |_| {}).unwrap();
+    let md = find(&r.entities, "mdbox", "ann/mdbox");
+    assert_eq!(fact(md, "Mailboxes"), "3");
+    assert!(!md.facts.iter().any(|(k, _)| k == "Messages"));
+    assert_eq!(md.title, "Dovecot mdbox: 3 mailboxes");
+    let tb = find(&r.entities, "thunderbird", "abcd1234.default");
+    assert!(fact(tb, "Folders in imap.example.org").contains("Archives/2019"));
+    assert!(!tb.facts.iter().any(|(k, _)| k == "Email addresses"));
+}
+
 fn blob(seed: u8, len: usize) -> Vec<u8> {
     (0..len)
         .map(|i| (i as u8).wrapping_mul(31).wrapping_add(seed))

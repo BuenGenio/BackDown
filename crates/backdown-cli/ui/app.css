@@ -782,6 +782,27 @@ a.btn{text-decoration:none;color:inherit}
 .welcome-folder{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .welcome-folder input{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line-2);border-radius:8px;padding:4px 8px;min-width:18em}
 @media(max-width:760px){.set-sec{padding:14px}.set-dl{grid-template-columns:minmax(0,1fr)}.set-dl dt{margin-top:6px}}
+/* the plan's merged mailboxes, and tidying the archive (tidy.js) */
+.pl-item.merge{border-left-color:var(--accent)}
+.pl-merged{list-style:none;margin:0;padding:0;font-size:12px}
+.pl-merged code{font:12px var(--mono);color:var(--ink-2);overflow-wrap:anywhere}
+.pl-merge{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;margin-top:4px;font-size:.8rem}
+.td-card .note{margin:0;max-width:80ch}
+.td-opts{display:flex;flex-direction:column;gap:6px;font-size:.88rem}
+.td-opts .chk{display:flex;flex-wrap:wrap;gap:2px 6px;align-items:baseline}
+.td-opts input{margin:0;accent-color:var(--accent)}
+.td-min{display:flex;align-items:center;gap:8px}
+.td-min select{height:28px;border:1px solid var(--line-2);border-radius:7px;background:var(--view);color:var(--ink);font:inherit;padding:0 6px}
+.td-result{display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--line);padding-top:10px}
+.td-result p{margin:0}
+.td-result .btn{align-self:flex-start}
+.td-warn{font-size:.84rem;color:var(--ink-2);padding:8px 10px;border-radius:8px;background:var(--hover)}
+.td-warn.warn{background:color-mix(in srgb,var(--warn) 14%,var(--view));border:1px solid color-mix(in srgb,var(--warn) 35%,transparent);color:var(--ink)}
+.td-ex summary,.td-hist summary{cursor:pointer;font-size:.84rem;font-weight:600;color:var(--ink-2)}
+.td-ex ul,.td-hist ul{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:5px;font-size:.82rem}
+.td-ex code,.td-hist code{font:12px var(--mono);overflow-wrap:anywhere}
+.td-ex .pl-size{display:inline-block;min-width:6.5em}
+.td-err{margin:0}
 /* drive health (health.js): pills, the sidebar's dots, the failing-drive banner, the details panel, notifications */
 .hpill{display:inline-flex;align-items:center;gap:5px;font:inherit;font-size:.72rem;font-weight:600;padding:1px 8px;border-radius:99px;border:1px solid var(--line-2);background:none;color:var(--ink-2);cursor:pointer;white-space:nowrap;vertical-align:1px}
 .hpill i{width:7px;height:7px;border-radius:50%;background:var(--ink-3);flex:none}
@@ -843,3 +864,27 @@ b.v-warning{color:var(--warn)}
 .hn-act{display:flex;gap:4px;align-items:center}
 @media(max-width:760px){.act-list li.hn{grid-template-columns:22px minmax(0,1fr)}.hn .hn-act,.hn>.muted{grid-column:2}.hp-trend{grid-template-columns:1fr}.hp-kv{grid-template-columns:1fr}}
 .hn-more{margin:8px 0 0}
+/* filesystem browser with deleted files and copying out (fsbrowse.js), mounts (drives.js) */
+.fsb{display:flex;flex-direction:column;height:100%;min-height:0;background:var(--view);color:var(--ink)}
+.fsb>.arc{flex:1;min-height:0;height:auto}
+.fsb-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:6px 10px;border-bottom:1px solid var(--line)}
+.fsb-bar .wp-chk{margin:0}
+.fsb-bar .fsb-copy{margin-left:auto}
+.fsb-go{padding:8px 12px 10px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+.fsb-go p{margin:0;font-size:.86rem}
+.fsb-go .rs-dest{width:min(640px,100%)}
+.fsb-go .rs-dest input{width:100%}
+.fsb .list th.fsb-ck,.fsb .list td.fsb-ck{width:28px;padding-right:0}
+.fsb .list tr.fsb-gone td{color:var(--ink-3)}
+.fsb .list tr.fsb-gone .nm{font-style:italic}
+.bdg.fsb-st.ok{border-color:color-mix(in srgb,var(--good) 55%,transparent);color:var(--good)}
+.bdg.fsb-st.warn{border-color:color-mix(in srgb,var(--warn) 60%,transparent);color:var(--warn)}
+.bdg.fsb-st.bad{border-color:color-mix(in srgb,var(--crit) 60%,transparent);color:var(--crit)}
+.fsb-problems{font-size:.82rem;margin:4px 0}
+.fsb-problems ul{margin:4px 0;padding-left:18px;max-height:180px;overflow:auto}
+.act-do,.rs-acts{white-space:nowrap}
+.act-do .btn+.btn,.rs-acts .btn+.btn{margin-left:6px}
+.mnt-msg{margin:6px 0 10px}
+.img-mount:empty{display:none}
+.img-mount{margin-top:10px;max-width:760px}
+.img-mount .pv-list li{display:flex;align-items:center;gap:8px}

@@ -177,7 +177,7 @@ pub fn search(
             opts.sector
         );
     }
-    let f = File::open(src).with_context(|| format!("can't open {}", src.display()))?;
+    let f = super::open(src).with_context(|| format!("can't open {}", src.display()))?;
     let size = super::size_of(&f).with_context(|| format!("can't size {}", src.display()))?;
     let end = opts.end.unwrap_or(size).min(size);
     let start = opts.start.min(end);

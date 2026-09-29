@@ -151,6 +151,8 @@ fn dir_marker(lower: &str) -> bool {
             | "tmp"
             | "maildir"
             | "storage"
+            | "mailboxes"
+            | "dbox-mails"
             | "imapmail"
             | "mail"
             | ".git"
@@ -360,6 +362,18 @@ struct Markers {
     scripts: Vec<Vec<u8>>,
     /// possible ddrescue mapfiles (small .log/.map/.mapfile next to images)
     mapfiles: Vec<Vec<u8>>,
+    /// folder -> Dovecot dbox files directly in it: (mdbox "m.N", sdbox "u.N")
+    dbox: HashMap<Vec<u8>, (u64, u64)>,
+}
+
+/// "m.12" / "u.7": a Dovecot dbox storage file's name (0 for m, 1 for u).
+fn dbox_file(lower: &str) -> Option<usize> {
+    let (kind, digits) = match lower.as_bytes() {
+        [b'm', b'.', rest @ ..] => (0, rest),
+        [b'u', b'.', rest @ ..] => (1, rest),
+        _ => return None,
+    };
+    (!digits.is_empty() && digits.iter().all(u8::is_ascii_digit)).then_some(kind)
 }
 
 impl Markers {
@@ -451,6 +465,14 @@ fn collect(db: &Db, root_id: i64, progress: &mut dyn FnMut(&str)) -> Result<Mark
                 .entry(dir.clone())
                 .or_default()
                 .insert(lower.clone());
+        }
+        if let Some(k) = dbox_file(&lower) {
+            let c = m.dbox.entry(dir.clone()).or_default();
+            if k == 0 {
+                c.0 += 1;
+            } else {
+                c.1 += 1;
+            }
         }
         let kind = if AUDIO.contains(&e.as_str()) {
             Some(0)
@@ -690,13 +712,46 @@ fn rules(db: &Db, root: &[u8], m: &Markers) -> Result<Vec<Candidate>> {
         }
         out.push(c);
     }
-    // Dovecot mdbox/sdbox
+    // Dovecot dbox: mdbox keeps messages in storage/m.N (its map index in there too) beside
+    // mailboxes/<name>/dbox-Mails/; sdbox has a u.N file per message in each dbox-Mails
+    let mut dbox_roots: BTreeMap<Vec<u8>, &str> = BTreeMap::new();
+    for (dir, names) in &m.dirs {
+        if names.contains("storage") && names.contains("mailboxes") {
+            let st = join(dir, "storage");
+            if m.has_file(&st, "dovecot.map.index") || m.dbox.get(&st).is_some_and(|c| c.0 > 0) {
+                dbox_roots.insert(dir.clone(), "mdbox");
+            }
+        }
+    }
+    for (dir, (_, singles)) in &m.dbox {
+        if *singles == 0 || !name_of(dir).eq_ignore_ascii_case("dbox-mails") {
+            continue;
+        }
+        let mut p = parent_of(dir);
+        while let Some(x) = p {
+            if x.len() <= root.len() {
+                break;
+            }
+            if name_of(&x) == "mailboxes" {
+                if let Some(r) = parent_of(&x) {
+                    dbox_roots.entry(r).or_insert("sdbox");
+                }
+                break;
+            }
+            p = parent_of(&x);
+        }
+    }
+    // an older layout: the map index beside storage/
     for (dir, files) in &m.files {
         if files.contains("dovecot.map.index") && m.has_dir(dir, "storage") {
-            let mut c = cand(dir.clone(), "mdbox", 0.9);
-            c.title = "Dovecot mdbox storage".into();
-            out.push(c);
+            dbox_roots.entry(dir.clone()).or_insert("mdbox");
         }
+    }
+    for (dir, format) in dbox_roots {
+        let mut c = cand(dir, "mdbox", 0.9);
+        c.title = format!("Dovecot {format} storage");
+        c.facts.push(("Format".into(), format.into()));
+        out.push(c);
     }
     // Thunderbird profiles
     for (dir, files) in &m.files {
@@ -2095,6 +2150,8 @@ pub fn recognise(
                 e.facts.push(("Messages".into(), fmt::count(messages)));
             }
         }
+        // mail stores that say more about themselves (mailstores.rs)
+        crate::mailstores::describe(db, &mut e, &p, read_drive)?;
         if read_drive {
             provenance(&mut e, &root_path, &p, &scripts, &sync_markers);
         }
