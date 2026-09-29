@@ -81,7 +81,7 @@ enum Cmd {
     /// Exits 0 when safe, 2 when files must be copied first.
     Check {
         path: PathBuf,
-        /// List every file that has no copy elsewhere
+        /// List the files that have no copy elsewhere (the largest 20,000)
         #[arg(long)]
         list: bool,
         #[arg(long)]
@@ -174,7 +174,8 @@ enum Cmd {
     },
     /// Open the running daemon's web UI in your browser
     Open,
-    /// Run the daemon as a service (systemd): install, uninstall or check it
+    /// Run the daemon as a service (systemd on Linux, a login item on macOS, a task at logon on
+    /// Windows): install, uninstall or check it
     Service {
         #[command(subcommand)]
         action: ServiceCmd,
@@ -400,7 +401,7 @@ enum LicenseCmd {
 
 #[derive(Subcommand)]
 enum ServiceCmd {
-    /// Install and start the daemon as a systemd service (a user service unless --system)
+    /// Install and start the daemon as a service for you (on Linux, machine-wide with --system)
     Install {
         /// Machine-wide service running as the `backdown` user (needs sudo)
         #[arg(long)]
@@ -717,6 +718,7 @@ fn local(db_path: &Path, cmd: Cmd, use_daemon: bool) -> Result<ExitCode> {
                 trust_index,
                 go,
                 confirm.as_deref(),
+                use_daemon,
             );
         }
         Cmd::Mirror { action } => {
@@ -1557,7 +1559,7 @@ fn print_check(c: &report::Check, list: bool, json: bool) -> Result<ExitCode> {
             println!("{:>10}  {p}  ({e})", "unreadable");
         }
     } else if c.unique.files > 0 {
-        println!("  (--list shows every file)");
+        println!("  (--list shows them, the largest 20,000 first)");
     }
     Ok(code)
 }

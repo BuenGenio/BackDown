@@ -387,6 +387,7 @@ pub fn mirror_verify(db: &Db, id: Option<i64>, percent: u8) -> Result<ExitCode> 
 }
 
 /// `backdown wipe`: what wiping would do, or (with --go and the drive names typed) do it.
+#[allow(clippy::too_many_arguments)]
 pub fn wipe(
     db: &mut Db,
     db_path: &Path,
@@ -395,6 +396,7 @@ pub fn wipe(
     trust_index: bool,
     go: bool,
     confirm: Option<&str>,
+    use_daemon: bool,
 ) -> Result<ExitCode> {
     use backdown_core::wipe;
     let targets: Vec<PathBuf> = targets
@@ -481,7 +483,11 @@ pub fn wipe(
     }
     let id = wipe::record(db, &targets, move_to.as_deref())?;
     // a running daemon owns the index: it does the wiping, and rescans afterwards
-    if let Some(mut c) = crate::client::Client::connect(Some(db_path)) {
+    // --local: here, even when a daemon is running
+    if let Some(mut c) = use_daemon
+        .then(|| crate::client::Client::connect(Some(db_path)))
+        .flatten()
+    {
         let r = c.request(&serde_json::json!({ "cmd": "enqueue", "kind": "wipe", "wipe": id, "trust_index": trust_index }))?;
         let j = c.follow(r["job"].as_u64().unwrap_or(0), |j| {
             live(&format!("wiping: {}", j["progress"].as_str().unwrap_or("")))
