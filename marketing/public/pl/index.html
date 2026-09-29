@@ -152,7 +152,7 @@
    <div class="head"><span class="eyebrow">Jak to działa</span><h2>Podłącz wszystko. Zamiast sejfu dostaniesz odpowiedzi.</h2>
     <p>Narzędzia do kopii zapasowych odpowiadają na pytanie „czy mogę przywrócić ten plik?” BackDown odpowiada też na pytanie „co mam, co jest zduplikowane i co mogę bezpiecznie usunąć?”</p></div>
    <div class="steps">
-    <article class="step card"><h3>Wskaż wszystkie swoje dyski</h3><p>Stare laptopy, udziały NAS, dysk USB z szuflady. Źródła są montowane tylko do odczytu i rozpoznawane po numerze seryjnym, nigdy po <code>/dev/sdX</code>, więc BackDown nigdy nie dotknie niewłaściwego dysku.</p></article>
+    <article class="step card"><h3>Wskaż wszystkie swoje dyski</h3><p>Stare laptopy, udziały NAS, dysk USB z szuflady. Skanowanie tylko je odczytuje, niezamontowany dysk można zamontować dla ciebie tylko do odczytu, a stan każdego dysku podąża za jego numerem seryjnym od portu do portu.</p></article>
     <article class="step card"><h3>Indeksuje, liczy hashe i rozpoznaje</h3><p>Wielostopniowe hashowanie sprawdza najpierw rozmiar, potem szybką próbkę, a na końcu pełny SHA-256, więc w całości czyta tylko pliki, które mogą być duplikatami. Jeśli dysk się odłączy albo komputer się zrestartuje, tracisz plik, który był akurat przetwarzany, a nie całą noc.</p></article>
     <article class="step card"><h3>Dostajesz werdykt dla każdego dysku</h3><p>Co na nim jest, czym jest każdy folder, co jest zduplikowane między wszystkimi źródłami, a do tego werdykt: dysk można bezpiecznie wyczyścić albo najpierw trzeba skopiować z niego te 212 GB. Nic nie zostaje usunięte bez zweryfikowanej kopii.</p></article>
    </div>

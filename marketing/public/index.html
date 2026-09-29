@@ -152,7 +152,7 @@
    <div class="head"><span class="eyebrow">How it works</span><h2>Plug in everything. Get answers, not a vault.</h2>
     <p>Backup tools answer "can I restore this file?" BackDown also answers "what do I have, what's duplicated, and what's safe to delete?"</p></div>
    <div class="steps">
-    <article class="step card"><h3>Point it at every drive you own</h3><p>Old laptops, NAS shares, the USB disk in the drawer. Sources are mounted read-only and tracked by serial number, never by <code>/dev/sdX</code>, so the wrong disk is never touched.</p></article>
+    <article class="step card"><h3>Point it at every drive you own</h3><p>Old laptops, NAS shares, the USB disk in the drawer. Scanning only ever reads them, a drive that isn't mounted can be mounted read-only for you, and each drive's health follows its serial number from port to port.</p></article>
     <article class="step card"><h3>It indexes, hashes and recognises</h3><p>Tiered hashing checks size first, then a quick sample, then a full SHA-256, so it only fully reads files that could be duplicates. If a drive disconnects or the machine reboots, you lose the file in flight, not the night.</p></article>
     <article class="step card"><h3>You get a verdict for every drive</h3><p>What's on it, what each folder is, what's duplicated across every source, and a verdict: safe to wipe, or copy these 212 GB first. Nothing is deleted without a verified copy.</p></article>
    </div>

@@ -152,7 +152,7 @@
    <div class="head"><span class="eyebrow">Jak to funguje</span><h2>Připojte všechno. Dostanete odpovědi, ne trezor.</h2>
     <p>Zálohovací nástroje odpovídají na otázku „můžu tenhle soubor obnovit?“ BackDown odpoví i na „co vlastně mám, co je duplicitní a co můžu bezpečně smazat?“</p></div>
    <div class="steps">
-    <article class="step card"><h3>Nasměrujte BackDown na všechny své disky</h3><p>Staré notebooky, sdílené složky na NAS, USB disk v šuplíku. Zdroje se připojují jen pro čtení a identifikují se podle sériového čísla, nikdy podle <code>/dev/sdX</code>, takže BackDown nikdy nesáhne na špatný disk.</p></article>
+    <article class="step card"><h3>Nasměrujte BackDown na všechny své disky</h3><p>Staré notebooky, sdílené složky na NAS, USB disk v šuplíku. Sken z nich jen čte, nepřipojený disk vám BackDown může připojit jen pro čtení a stav každého disku sleduje jeho sériové číslo, ať je zapojený kamkoli.</p></article>
     <article class="step card"><h3>Indexuje, hashuje a rozpoznává</h3><p>Víceúrovňové hashování porovná nejdřív velikost, pak rychlý vzorek a teprve nakonec úplný SHA-256, takže celé čte jen soubory, které můžou být duplikáty. Když se disk odpojí nebo se počítač restartuje, přijdete jen o rozpracovaný soubor, ne o celou noc.</p></article>
     <article class="step card"><h3>Ke každému disku dostanete verdikt</h3><p>Co na něm je, co je která složka zač, co je duplicitní napříč všemi zdroji – a verdikt: lze bezpečně smazat, nebo nejdřív zkopírujte těchto 212 GB. Bez ověřené kopie se nic nemaže.</p></article>
    </div>
