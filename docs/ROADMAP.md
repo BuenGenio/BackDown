@@ -36,7 +36,7 @@ Port the scripts into `crates/backdown-core` + `crates/backdown-cli`. Same on-di
 
 ## v0.3 — Recognisers + generated report (3 weeks, Nov 2026)
 
-**Status, 28 Sep 2026: built** on `cli/rust-v0.2`: `backdown entities` (mail stores, Time Machine, phones, systems, homes, websites, repositories, disk images, dumps, media libraries, exports, downloads piles, recovered files; junk; provenance from backup scripts, plists, hostnames, git remotes, ddrescue mapfiles, dump headers, sync markers), `backdown overlaps` (containment per drive, top folder and entity), `backdown report [--html]`; in the daemon (after every hash) and the browser (What's here, the report). Not yet: mdbox depth, binary plists, Thunderbird account names, the REPORT.md-parity dogfood on the real desk.
+**Status, 28 Sep 2026: built** on `cli/rust-v0.2`: `backdown entities` (mail stores, Time Machine, phones, systems, homes, websites, repositories, disk images, dumps, media libraries, exports, downloads piles, recovered files; junk; provenance from backup scripts, plists, hostnames, git remotes, ddrescue mapfiles, dump headers, sync markers), `backdown overlaps` (containment per drive, top folder and entity), `backdown report [--html]`; in the daemon (after every hash) and the browser (What's here, the report). Since (29 Sep): Dovecot mdbox and sdbox in depth (mailboxes and their names, message counts from the index headers, the oldest and newest message from the first and last storage files, never reading the messages) and Thunderbird profiles (accounts, addresses and servers from prefs.js; IMAP caches told apart from local mail; which mbox file is which folder, with sizes). Not yet: binary plists, the REPORT.md-parity dogfood on the real desk.
 
 - `backdown entities` — the recogniser set in `APP-PLAN.md` §6, with confidence and junk-subtree flags
 - Provenance readers: shell scripts with `rsync`/`scp`/`tar` lines, `.sync*` markers, Time Machine plists, iOS `Info.plist`, ddrescue logs
@@ -48,7 +48,7 @@ Port the scripts into `crates/backdown-core` + `crates/backdown-cli`. Same on-di
 
 ## v0.4 — Planner + journaled executor (4 weeks, Dec 2026 – Jan 2027)
 
-**Status, 28 Sep 2026: built** on `cli/rust-v0.2`: `backdown plan` (type → origin → time schema, editable; explanations; already-archived skips; ≥90% twins copy only what's unique; low-value listed not copied), `backdown apply` (dry run, then journaled copies verified by reading back, resumable, never overwrites, never deletes; free-space check), `backdown mirror add|sync|verify` (old versions kept aside, extras reported, sampled re-reads on a schedule); in the daemon and the browser (Plan view; mirrors in Activity). `backdown wipe` and the browser's Free up view: tick drives, folders or recognised things; see how much has an identical copy outside the selection and where; move what exists only there to a chosen folder or leave it; confirm by typing the drive names. The daemon re-reads each file and its copy before deleting it (or, trusting the index, still checks the copy is there as scanned), journals every deletion, then rescans. Never the running system outside home folders, never BackDown's index. Not yet: reflink/copy_file_range fast paths, the privileged helper, per-mailbox merging.
+**Status, 28 Sep 2026: built** on `cli/rust-v0.2`: `backdown plan` (type → origin → time schema, editable; explanations; already-archived skips; ≥90% twins copy only what's unique; low-value listed not copied), `backdown apply` (dry run, then journaled copies verified by reading back, resumable, never overwrites, never deletes; free-space check), `backdown mirror add|sync|verify` (old versions kept aside, extras reported, sampled re-reads on a schedule); in the daemon and the browser (Plan view; mirrors in Activity). `backdown wipe` and the browser's Free up view: tick drives, folders or recognised things; see how much has an identical copy outside the selection and where; move what exists only there to a chosen folder or leave it; confirm by typing the drive names. The daemon re-reads each file and its copy before deleting it (or, trusting the index, still checks the copy is there as scanned), journals every deletion, then rescans. Never the running system outside home folders, never BackDown's index. Since (29 Sep): every verified copy clones where the filesystem shares blocks (FICLONE on btrfs/XFS, `clonefile` on APFS) or lets the kernel copy (`copy_file_range`, hashing the source alongside), falling back to the loop, and is read back from the disk rather than the page cache; overlapping mailboxes in a plan can be merged by Message-ID instead of copied twice (`plan --merge-mail`, "Merge these mailboxes"), store by store and mailbox by mailbox, and `backdown mail merge|export` do it by hand. Not yet: the privileged helper.
 
 - `backdown plan` — filing proposal (type → origin → time), schema editable as a small TOML, explanation per placement, merge rule for >90 % overlapping entities
 - `backdown apply --dry-run` then `apply` — journaled copy (reflink/`copy_file_range` where possible), verify by re-hash, `delete`/`wipe` gated on verified copies; pause/resume; per-op logs
@@ -88,7 +88,7 @@ Tauri 2 shell + Svelte 5, sharing Innards' tokens and components.
 
 - Scheduled mirror verify (systemd timer / launchd), drift notifications
 - SMART trends per drive (reuse `innards-core` probe); "this mirror drive is dying" warnings
-- Hardlink/reflink dedup inside the archive as an opt-in post-step
+- Hardlink/reflink dedup inside the archive as an opt-in post-step (built 29 Sep: `backdown dedup`, "Tidy the archive" in the Plan view)
 - Pro tier: multi-machine — a headless `backdown agent` on a NAS reports into the desktop app
 
 ## v1.0 — macOS + Windows (6 weeks, May – Jun 2027)
@@ -100,7 +100,7 @@ Tauri 2 shell + Svelte 5, sharing Innards' tokens and components.
 
 ## Later / ideas
 
-- Mail-aware merging: union two maildir snapshots by Message-ID; export to mbox/EML; Thunderbird import helper
+- Mail-aware merging: union two maildir snapshots by Message-ID; export to mbox/EML; Thunderbird import helper (merging and mbox export built 29 Sep; EML export and the import helper not yet)
 - Photo-aware dedup: perceptual hashes, burst grouping, EXIF-date filing into `Media/Photos/YYYY/MM`
 - Cloud sources as volumes via rclone (Drive, Dropbox, iCloud Drive, S3)
 - "Time-lapse" view: how a directory tree evolved across the snapshots found on different drives

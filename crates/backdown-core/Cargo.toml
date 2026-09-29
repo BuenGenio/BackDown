@@ -19,6 +19,10 @@ serde_json = "1.0.151"
 sha2 = "0.11.0"
 walkdir = "2.5.0"
 
+# clones (FICLONE, FIDEDUPERANGE, clonefile), copy_file_range and extended attributes: fastcopy.rs, dedup.rs
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.189"
+
 [dev-dependencies]
 walkdir = "2.5.0"
 dunce = "1.0.5"
