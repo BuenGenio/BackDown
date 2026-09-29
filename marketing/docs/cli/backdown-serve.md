@@ -17,7 +17,7 @@ backdown serve [OPTIONS]
 `--port <PORT>`
 : Port to listen on. Default: `8787`.
 
-`--host <HOST>` {preview}
+`--host <HOST>`
 : Also listen on this address (e.g. this computer's Tailscale IP) so other devices can look; from there BackDown only shows, and changes need this computer. 127.0.0.1 always listens. Default: `127.0.0.1`.
 
 `--no-open`

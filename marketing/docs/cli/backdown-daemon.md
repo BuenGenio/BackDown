@@ -17,7 +17,7 @@ backdown daemon [OPTIONS]
 `--port <PORT>`
 : Port for the web UI (0: any free one). Default: `8787`. Also read from `$BACKDOWN_PORT`.
 
-`--host <HOST>` {preview}
+`--host <HOST>`
 : Also listen on this address (e.g. this computer's Tailscale IP) so other devices can look; from there BackDown only shows, and changes need this computer. 127.0.0.1 always listens. Default: `127.0.0.1`.
 
 `--rescan-every <RESCAN_EVERY>`

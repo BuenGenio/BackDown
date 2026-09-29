@@ -25,7 +25,7 @@ backdown service install [OPTIONS]
 `--system`
 : Machine-wide service running as the `backdown` user (needs sudo).
 
-`--host <HOST>` {preview}
+`--host <HOST>`
 : Also listen on this address (e.g. this computer's Tailscale IP) so other devices can look; from there BackDown only shows, and changes need this computer. 127.0.0.1 always listens. Default: `127.0.0.1`.
 
 `--port <PORT>`
