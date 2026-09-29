@@ -237,7 +237,12 @@ impl<R: Read + std::io::Seek> Copy<'_, R> {
             return Ok(());
         }
         if self.sum.files + self.sum.failed >= MAX_FILES {
-            if self.sum.problems.last().is_none_or(|p| !p.contains("at most")) {
+            if self
+                .sum
+                .problems
+                .last()
+                .is_none_or(|p| !p.contains("at most"))
+            {
                 self.sum.problem(format!(
                     "a copy takes at most {MAX_FILES} files: the rest weren't copied"
                 ));
@@ -251,8 +256,10 @@ impl<R: Read + std::io::Seek> Copy<'_, R> {
         });
         if e.dir {
             if depth > MAX_DEPTH {
-                self.sum
-                    .problem(format!("{}: folders nested too deep to follow", shown(path)));
+                self.sum.problem(format!(
+                    "{}: folders nested too deep to follow",
+                    shown(path)
+                ));
                 return Ok(());
             }
             let dir = into.join(&name);
@@ -286,10 +293,12 @@ impl<R: Read + std::io::Seek> Copy<'_, R> {
             return Ok(());
         }
         if self.resume
-            && fs::symlink_metadata(into.join(&name)).is_ok_and(|m| m.is_file() && m.len() == e.size)
+            && fs::symlink_metadata(into.join(&name))
+                .is_ok_and(|m| m.is_file() && m.len() == e.size)
         {
             // copied and checked before the stop
             self.sum.files += 1;
+            self.sum.bytes += e.size;
             self.p.files += 1;
             self.p.bytes += e.size;
             return Ok(());
@@ -297,6 +306,7 @@ impl<R: Read + std::io::Seek> Copy<'_, R> {
         match self.file(e, into, &name) {
             Ok(true) => {
                 self.sum.files += 1;
+                self.sum.bytes += e.size;
                 if let Some(d) = &e.deleted {
                     self.sum.deleted += 1;
                     if d.state != "recoverable" {

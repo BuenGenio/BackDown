@@ -57,9 +57,23 @@ pub fn post(db: &Path, path: &str, param: &dyn Fn(&str) -> Option<String>) -> Re
     }
 }
 
-/// What BackDown has mounted or attached (and can undo).
-pub fn mounts() -> Value {
-    json!(mounting::current(&locations::state_dir()))
+/// What BackDown has mounted or attached (and can undo); whether this BackDown mounts partitions
+/// (`can`) and images (`images`) at all; and, with `image`, what's attached from that image.
+pub fn mounts(desktop: bool, image: Option<&Path>) -> Value {
+    let all = mounting::current(&locations::state_dir());
+    let image = image.and_then(|p| {
+        let s = dunce::canonicalize(p)
+            .unwrap_or_else(|_| p.to_path_buf())
+            .display()
+            .to_string();
+        all.iter().find(|m| m.source == s).cloned()
+    });
+    json!({
+        "can": desktop && cfg!(any(target_os = "linux", target_os = "macos")),
+        "images": desktop && cfg!(any(target_os = "linux", target_os = "macos", windows)),
+        "mounts": all,
+        "image": image,
+    })
 }
 
 /// Every volume the probe found, holders included: (device, state, first mount point).
@@ -96,13 +110,19 @@ pub fn check_mountable(dev: &str) -> Result<()> {
         Mountable => Ok(()),
         Mounted => bail!(
             "{dev} is already mounted{}",
-            at.as_deref().map(|a| format!(" at {a}")).unwrap_or_default()
+            at.as_deref()
+                .map(|a| format!(" at {a}"))
+                .unwrap_or_default()
         ),
         System => bail!("{dev} belongs to the running system: it's left alone"),
-        Encrypted => bail!("{dev} is encrypted: unlock it first (the file manager asks for its passphrase)"),
+        Encrypted => {
+            bail!("{dev} is encrypted: unlock it first (the file manager asks for its passphrase)")
+        }
         Member => bail!("{dev} is part of something bigger (LVM, RAID…): it's read through that"),
         Swap => bail!("{dev} is swap space: there are no files on it"),
-        Empty => bail!("there's no filesystem on {dev}: Rescue can look for lost partitions and files on it"),
+        Empty => bail!(
+            "there's no filesystem on {dev}: Rescue can look for lost partitions and files on it"
+        ),
         Unknown => bail!("BackDown can't tell what's on {dev}, so it doesn't mount it"),
     }
 }
@@ -137,7 +157,10 @@ pub fn found_region(db: &Db, rescue_id: i64, at: u64) -> Result<(PathBuf, u64, u
         .flatten()
         .find(|f| f["start"].as_u64() == Some(at))
         .map(|f| {
-            let label = f["label"].as_str().map(|l| format!(" “{l}”")).unwrap_or_default();
+            let label = f["label"]
+                .as_str()
+                .map(|l| format!(" “{l}”"))
+                .unwrap_or_default();
             (
                 f["size"].as_u64().unwrap_or(rest),
                 format!("{}{label}", f["fs"].as_str().unwrap_or("file system")),
@@ -173,7 +196,10 @@ pub fn files_request(
         (Some(from), _) => found_region(
             db,
             from.parse().context("bad rescue")?,
-            param("at").context("where on the drive?")?.parse().context("bad at")?,
+            param("at")
+                .context("where on the drive?")?
+                .parse()
+                .context("bad at")?,
         )?,
         (None, Some(id)) => {
             let (image, _) = browse::resolve_content(db, id.parse().context("bad id")?)?
@@ -202,8 +228,8 @@ pub fn files_request(
             dest.display()
         );
     }
-    let items: Vec<String> = serde_json::from_str(&param("items").context("which files?")?)
-        .context("bad items")?;
+    let items: Vec<String> =
+        serde_json::from_str(&param("items").context("which files?")?).context("bad items")?;
     if items.is_empty() || items.len() > 10_000 {
         bail!("choose between 1 and 10,000 files and folders");
     }

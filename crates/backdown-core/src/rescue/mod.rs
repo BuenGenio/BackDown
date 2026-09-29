@@ -131,7 +131,8 @@ impl Seek for At {
             SeekFrom::End(d) => self.size.checked_add_signed(d),
             SeekFrom::Current(d) => self.pos.checked_add_signed(d),
         };
-        self.pos = pos.ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "seek before the start"))?;
+        self.pos = pos
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "seek before the start"))?;
         Ok(self.pos)
     }
 }

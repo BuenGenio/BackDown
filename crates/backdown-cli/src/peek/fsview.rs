@@ -456,7 +456,9 @@ mod tests {
         // qcow2 isn't raw
         let mut q = vec![0u8; 4096];
         q[..4].copy_from_slice(b"QFI\xfb");
-        let err = fs_list(tmp(&q).path(), "0", None, false).unwrap_err().to_string();
+        let err = fs_list(tmp(&q).path(), "0", None, false)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("qemu-img"), "{err}");
         // not a filesystem, and cut short
         let err = fs_list(tmp(&[0x5Au8; 8192]).path(), "0", None, false)
@@ -467,7 +469,9 @@ mod tests {
         cut.truncate((2 << 20) + 8 * 512);
         let f = tmp(&cut);
         assert!(fs_list(f.path(), "1", None, false).is_ok());
-        let err = fs_list(f.path(), "2", Some("DIR"), false).unwrap_err().to_string();
+        let err = fs_list(f.path(), "2", Some("DIR"), false)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("ends before"), "{err}");
     }
 
@@ -511,6 +515,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn made_by_mkfs_in_a_partition() {
         let Some(mkfs) = ["/usr/sbin/mkfs.ext4", "/sbin/mkfs.ext4"]
             .into_iter()

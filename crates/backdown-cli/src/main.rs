@@ -427,7 +427,10 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Unmount { target } => {
             let t = dunce::canonicalize(&target).unwrap_or(target);
             let v = mounting::unmount(&locations::state_dir(), &t.display().to_string())?;
-            done(&format!("Unmounted {}", v["unmounted"].as_str().unwrap_or("")));
+            done(&format!(
+                "Unmounted {}",
+                v["unmounted"].as_str().unwrap_or("")
+            ));
             return Ok(ExitCode::SUCCESS);
         }
         // reads a drive and writes elsewhere; never opens the index (it may run under sudo)
@@ -1085,7 +1088,11 @@ fn run_mount(target: Option<PathBuf>) -> Result<ExitCode> {
             .iter()
             .filter_map(|m| m[1].as_str().map(String::from))
             .collect(),
-        None => v["mounted"].as_str().map(String::from).into_iter().collect(),
+        None => v["mounted"]
+            .as_str()
+            .map(String::from)
+            .into_iter()
+            .collect(),
     };
     done(&format!(
         "Mounted read-only at {}",

@@ -24,6 +24,10 @@ use anyhow::Result;
 
 use super::{Run, push_run};
 
+/// A listing of deleted entries that ran out of time.
+pub(crate) const LATE: &str =
+    "only some of the deleted files are listed: looking at them took longer than allowed";
+
 /// Why ext2/3/4 can't list deleted files.
 pub(crate) const EXT_WHY: &str = "ext3 and ext4 erase where a deleted file's data was, so deleted \
     files can't be brought back by name here. Rescue's \u{201c}Find files by content\u{201d} can \

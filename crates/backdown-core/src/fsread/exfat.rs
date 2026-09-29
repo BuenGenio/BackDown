@@ -156,7 +156,9 @@ impl Exfat {
             let bytes = r.read_vec(at + start, WINDOW.min(len - start))?;
             self.bits.insert(w, bytes);
         }
-        Ok(Some(self.bits[&w][(off % WINDOW) as usize] & (1 << (bit % 8)) != 0))
+        Ok(Some(
+            self.bits[&w][(off % WINDOW) as usize] & (1 << (bit % 8)) != 0,
+        ))
     }
 
     fn fat_entry<R: Read + Seek>(&mut self, r: &mut Region<R>, n: u32) -> Result<u32> {
@@ -372,7 +374,10 @@ impl Exfat {
         }
         if !(2..=self.max).contains(&first) {
             spans.gone(len)?;
-            return Ok((spans, Verdict::lost("its first cluster is outside the volume")));
+            return Ok((
+                spans,
+                Verdict::lost("its first cluster is outside the volume"),
+            ));
         }
         let n = len.div_ceil(self.cluster);
         let mut clusters: Vec<u32> = Vec::new();
@@ -522,6 +527,9 @@ impl Exfat {
             Ok(true)
         })?;
         for (at, live) in found {
+            if r.late() {
+                return Ok(Some(super::undelete::LATE.into()));
+            }
             let Some(mut e) = entry_set(&live) else {
                 continue;
             };
@@ -534,19 +542,23 @@ impl Exfat {
             else {
                 continue;
             };
-            let v = if e.dir {
-                let (_, v) = self.assess(r, cluster, len.min(DIR_CAP), contiguous)?;
-                if v.state == "recoverable" {
-                    Verdict {
-                        state: "recoverable",
-                        confidence: v.confidence,
-                        why: "the list of what was in it is still there".into(),
-                    }
-                } else {
+            let checked = self.assess(
+                r,
+                cluster,
+                if e.dir { len.min(DIR_CAP) } else { len },
+                contiguous,
+            );
+            let v = match checked {
+                Err(err) => Verdict::lost(format!("its clusters can't be checked ({err:#})")),
+                Ok((_, v)) if e.dir && v.state == "recoverable" => Verdict {
+                    state: "recoverable",
+                    confidence: v.confidence,
+                    why: "the list of what was in it is still there".into(),
+                },
+                Ok(_) if e.dir => {
                     Verdict::lost("what was in it has been overwritten since it was deleted")
                 }
-            } else {
-                self.assess(r, cluster, len, contiguous)?.1
+                Ok((_, v)) => v,
             };
             e.unreadable = (v.state == "overwritten" && !e.dir).then(|| v.why.clone());
             e.deleted = Some(Deleted::new(&e.name, at, v));
@@ -570,7 +582,9 @@ fn checksum(set: &[[u8; 32]]) -> u16 {
         .flatten()
         .enumerate()
         .filter(|(i, _)| *i != 2 && *i != 3)
-        .fold(0u16, |s, (_, &b)| s.rotate_right(1).wrapping_add(u16::from(b)))
+        .fold(0u16, |s, (_, &b)| {
+            s.rotate_right(1).wrapping_add(u16::from(b))
+        })
 }
 
 /// A file entry set (file, stream extension, names) as an entry.

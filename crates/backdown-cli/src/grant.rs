@@ -20,6 +20,7 @@ use anyhow::{Context, Result};
 
 /// udisks' object path for a block device: its name with anything but ASCII letters and digits
 /// written as `_xx` (hex), as udisks makes them.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn object_path(device: &Path) -> Result<String> {
     let name = device
         .file_name()
@@ -87,8 +88,8 @@ impl std::error::Error for Denied {}
 /// password on the desktop (this waits for it); without, it answers at once.
 #[cfg(target_os = "linux")]
 pub fn open_for_backup(device: &Path, interactive: bool) -> Result<File> {
-    let device = dunce::canonicalize(device)
-        .with_context(|| format!("can't find {}", device.display()))?;
+    let device =
+        dunce::canonicalize(device).with_context(|| format!("can't find {}", device.display()))?;
     let path = object_path(&device)?;
     let mut bus = linux::Bus::system()?;
     let body = wire::options(&[("auth.no_user_interaction", !interactive)]);
@@ -110,6 +111,7 @@ pub fn open_for_backup(_device: &Path, _interactive: bool) -> Result<File> {
 }
 
 /// D-Bus messages, marshalled and read (little-endian out; either in).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod wire {
     pub const METHOD_CALL: u8 = 1;
     pub const METHOD_RETURN: u8 = 2;
@@ -577,8 +579,7 @@ mod linux {
                 reply.0.extend(0u32.to_le_bytes());
                 let f = std::fs::File::open(&secret).unwrap();
                 let fds = [f.as_fd()];
-                let mut space =
-                    [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(1))];
+                let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(1))];
                 let mut control = rustix::net::SendAncillaryBuffer::new(&mut space);
                 control.push(rustix::net::SendAncillaryMessage::ScmRights(&fds));
                 rustix::net::sendmsg(
@@ -650,8 +651,14 @@ mod tests {
             p("/dev/nvme0n1p2"),
             "/org/freedesktop/UDisks2/block_devices/nvme0n1p2"
         );
-        assert_eq!(p("/dev/dm-0"), "/org/freedesktop/UDisks2/block_devices/dm_2d0");
-        assert_eq!(p("/dev/a_b"), "/org/freedesktop/UDisks2/block_devices/a_5fb");
+        assert_eq!(
+            p("/dev/dm-0"),
+            "/org/freedesktop/UDisks2/block_devices/dm_2d0"
+        );
+        assert_eq!(
+            p("/dev/a_b"),
+            "/org/freedesktop/UDisks2/block_devices/a_5fb"
+        );
         assert!(object_path(Path::new("/home/me/disk.img")).is_err());
     }
 

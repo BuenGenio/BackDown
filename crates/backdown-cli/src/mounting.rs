@@ -66,8 +66,7 @@ impl Cmd {
 /// Quoted for a POSIX shell when it needs to be.
 fn quote(s: &str) -> String {
     if !s.is_empty()
-        && s
-            .chars()
+        && s.chars()
             .all(|c| c.is_ascii_alphanumeric() || "/._-:=,+@".contains(c))
     {
         s.to_string()
@@ -124,6 +123,7 @@ impl std::fmt::Display for Refused {
 
 impl std::error::Error for Refused {}
 
+#[cfg_attr(windows, allow(dead_code))]
 fn refused(message: impl Into<String>, command: Option<&Cmd>) -> anyhow::Error {
     anyhow::Error::new(Refused {
         message: message.into(),
@@ -165,7 +165,10 @@ pub mod udisks {
     }
 
     pub fn loop_delete(dev: &str, interactive: bool) -> Cmd {
-        with(interactive, Cmd::new("udisksctl", &["loop-delete", "-b", dev]))
+        with(
+            interactive,
+            Cmd::new("udisksctl", &["loop-delete", "-b", dev]),
+        )
     }
 
     /// What udisksctl's mount, unmount, loop-setup or loop-delete came to.
@@ -283,7 +286,10 @@ pub mod mac {
             .filter_map(|l| {
                 let cols: Vec<&str> = l.split('\t').map(str::trim).collect();
                 let dev = cols.first().filter(|d| d.starts_with("/dev/"))?;
-                let at = cols.get(2).filter(|m| m.starts_with('/')).map(|m| m.to_string());
+                let at = cols
+                    .get(2)
+                    .filter(|m| m.starts_with('/'))
+                    .map(|m| m.to_string());
                 Some((dev.to_string(), at))
             })
             .collect()
@@ -416,11 +422,13 @@ pub fn unmount(state: &Path, target: &str) -> Result<Value> {
 
 /// Attaches the disk image `image` read-only and mounts what's on it read-only; records it.
 pub fn attach(state: &Path, image: &Path) -> Result<Value> {
-    let image = dunce::canonicalize(image)
-        .with_context(|| format!("can't find {}", image.display()))?;
+    let image =
+        dunce::canonicalize(image).with_context(|| format!("can't find {}", image.display()))?;
     let src = image.display().to_string();
     if let Some(m) = recorded(state).into_iter().find(|m| m.source == src) {
-        return Ok(json!({ "ok": true, "already": true, "attached": m.attached, "mounts": m.mounts }));
+        return Ok(
+            json!({ "ok": true, "already": true, "attached": m.attached, "mounts": m.mounts }),
+        );
     }
     let (dev, mounts) = platform::attach(&image)?;
     change(state, |all| {
@@ -480,7 +488,9 @@ mod platform {
             Outcome::Already(p) => bail!("{dev} is already mounted at {p}"),
             Outcome::NeedsAuth => Err(auth("mount this drive", &udisks::mount(dev, true))),
             Outcome::Missing => bail!("{dev} isn't there any more: is it still plugged in?"),
-            Outcome::NotMountable => bail!("there's no filesystem on {dev} this computer can mount"),
+            Outcome::NotMountable => {
+                bail!("there's no filesystem on {dev} this computer can mount")
+            }
             Outcome::Busy => bail!("{dev} is busy"),
             Outcome::Done => bail!("udisksctl didn't say where it mounted {dev}"),
             Outcome::Failed(e) => bail!("{dev} couldn't be mounted: {e}"),
@@ -533,7 +543,9 @@ mod platform {
         }
         if mounts.is_empty() {
             let _ = detach(&img, &dev, &[]);
-            bail!("nothing on {img} could be mounted (this computer can't read its filesystems either)");
+            bail!(
+                "nothing on {img} could be mounted (this computer can't read its filesystems either)"
+            );
         }
         Ok((dev, mounts))
     }
@@ -618,7 +630,9 @@ mod platform {
     pub fn unmount(dev: &str) -> Result<()> {
         match mac::parse(&mac::unmount(dev).run()?) {
             Outcome::Done | Outcome::Mounted(_) | Outcome::Missing => Ok(()),
-            Outcome::Busy => bail!("{dev} is in use: close anything showing files from it, then try again"),
+            Outcome::Busy => {
+                bail!("{dev} is in use: close anything showing files from it, then try again")
+            }
             o => bail!("{dev} couldn't be unmounted: {o:?}"),
         }
     }
@@ -889,7 +903,10 @@ mod tests {
             mac::attach("/Users/me/old disk.dmg").args,
             ["attach", "-readonly", "-nobrowse", "/Users/me/old disk.dmg"]
         );
-        assert_eq!(mac::detach("/dev/disk5").typed(), "hdiutil detach /dev/disk5");
+        assert_eq!(
+            mac::detach("/dev/disk5").typed(),
+            "hdiutil detach /dev/disk5"
+        );
         let p = |ok, so: &str| mac::parse(&out(ok, so, ""));
         assert_eq!(
             p(true, "Volume CARD on disk4s1 mounted\n"),
@@ -906,7 +923,10 @@ mod tests {
         assert_eq!(p(false, "Could not find disk: /dev/disk9\n"), Missing);
         let info = "   Device Identifier:         disk4s1\n   Mount Point:               /Volumes/My Card\n   Read-Only Volume:          Yes\n";
         assert_eq!(mac::mount_point(info).as_deref(), Some("/Volumes/My Card"));
-        assert_eq!(mac::mount_point("   Mount Point:               Not applicable (no file system)\n"), None);
+        assert_eq!(
+            mac::mount_point("   Mount Point:               Not applicable (no file system)\n"),
+            None
+        );
         let attach = "/dev/disk5          \tGUID_partition_scheme          \t\n/dev/disk5s1        \tEFI                            \t\n/dev/disk5s2        \tApple_HFS                      \t/Volumes/Old Mac\n";
         assert_eq!(
             mac::attached(attach),

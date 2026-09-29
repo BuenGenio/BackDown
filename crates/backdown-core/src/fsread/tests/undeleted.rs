@@ -247,7 +247,10 @@ fn check_fat_deleted(fx: &FatDel) {
     // a long name comes back whole; a short one without its first letter
     let photo = by_name(&gone, "Holiday photo 2024.jpg");
     assert_eq!(state(photo), ("recoverable", 70), "{photo:?}");
-    assert_eq!((photo.size, photo.mtime), (fx.photo.len() as u64, Some(DOS_WHEN)));
+    assert_eq!(
+        (photo.size, photo.mtime),
+        (fx.photo.len() as u64, Some(DOS_WHEN))
+    );
     assert_eq!(got(&mut v, photo), fx.photo);
     let note = by_name(&gone, "_OTE.TXT");
     assert_eq!(state(note), ("recoverable", 95));
@@ -327,7 +330,10 @@ fn fat_deleted_files_on_mkfs_volumes() {
         // through a real file
         let mut v = Volume::open(File::open(t.path()).unwrap(), 0, size).unwrap();
         let gone = deleted_of(&mut v, "");
-        assert_eq!(got(&mut v, by_name(&gone, "Holiday photo 2024.jpg")), fx.photo);
+        assert_eq!(
+            got(&mut v, by_name(&gone, "Holiday photo 2024.jpg")),
+            fx.photo
+        );
     }
 }
 
@@ -371,6 +377,8 @@ fn copied_out_of_a_disk_with_a_wiped_table() {
         "{s:?}"
     );
     assert!(s.problems[0].contains("no such thing"), "{:?}", s.problems);
+    let want_bytes = (fx.photo.len() + fx.beach.len() + 8 + 3 * fx.cluster + 5) as u64;
+    assert_eq!(s.bytes, want_bytes);
     let last = seen.last().unwrap();
     assert_eq!((last.files, last.total_files), (7, 7));
     let cl = fx.cluster;
@@ -380,7 +388,10 @@ fn copied_out_of_a_disk_with_a_wiped_table() {
     assert_eq!(rd("Trip to the sea/_IARY.TXT"), b"day one\n");
     assert_eq!(rd("LATER/TAKER1.BIN"), vec![0xAA; cl]);
     assert_eq!(rd("keep.txt"), b"kept\n");
-    let t = std::fs::metadata(out.join("keep.txt")).unwrap().modified().unwrap();
+    let t = std::fs::metadata(out.join("keep.txt"))
+        .unwrap()
+        .modified()
+        .unwrap();
     assert_eq!(
         t.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64,
         DOS_WHEN
@@ -417,12 +428,43 @@ fn copied_out_of_a_disk_with_a_wiped_table() {
         std::fs::read(out2.join("BD TEST/Trip to the sea/beach day.jpg")).unwrap(),
         fx.beach
     );
-    assert!(s.problems.iter().any(|p| p.starts_with("_ONE.BIN")), "{:?}", s.problems);
+    assert!(
+        s.problems.iter().any(|p| p.starts_with("_ONE.BIN")),
+        "{:?}",
+        s.problems
+    );
     // stopped before it starts: nothing half-written
     let out3 = dir.path().join("stopped");
     let s = copy_out(&img, &opts, &out3, &mut |_| {}, &AtomicBool::new(true)).unwrap();
     assert!(s.stopped && s.files == 0);
     assert_eq!(std::fs::read_dir(&out3).unwrap().count(), 0);
+}
+
+/// Not a test by itself: writes the disk images the browser check uses into $BD_FIXTURES (a card
+/// image with an MBR and the FAT16 volume above 1 MiB in, the same with its table wiped, and the
+/// deleted files' contents to compare with). `cargo test -- --ignored browser_fixtures`.
+#[test]
+#[ignore]
+fn browser_fixtures() {
+    let Some(dir) = std::env::var_os("BD_FIXTURES").map(PathBuf::from) else {
+        eprintln!("set BD_FIXTURES to a folder");
+        return;
+    };
+    let fx = fat_with_deletes(format_fat(16, 24 << 20, 4));
+    let mut card = vec![0u8; 1 << 20];
+    card[446 + 4] = 0x06;
+    put(&mut card, 446 + 8, 2048, 4);
+    put(&mut card, 446 + 12, (fx.img.len() / 512) as u64, 4);
+    card[510] = 0x55;
+    card[511] = 0xAA;
+    card.extend(&fx.img);
+    std::fs::create_dir_all(dir.join("drive")).unwrap();
+    std::fs::write(dir.join("drive/card.img"), &card).unwrap();
+    let mut wiped = card.clone();
+    wiped[..512].fill(0);
+    std::fs::write(dir.join("wiped.img"), &wiped).unwrap();
+    std::fs::write(dir.join("expect-photo.bin"), &fx.photo).unwrap();
+    std::fs::write(dir.join("expect-beach.bin"), &fx.beach).unwrap();
 }
 
 // ---- exFAT
@@ -508,7 +550,13 @@ fn exfat_deleted_files_come_back() {
     let dir = w.alloc(1, false)[0];
     w.dirs.insert(dir, 0);
     let da = w.set(root, "Old stuff", 0x10, dir, cl as u64, cl as u64, false);
-    let (la, lc) = ex_file(&mut w, dir, "letter to grandma.txt", &letter, Lay::Contiguous);
+    let (la, lc) = ex_file(
+        &mut w,
+        dir,
+        "letter to grandma.txt",
+        &letter,
+        Lay::Contiguous,
+    );
     ex_delete(&mut w, pa, "Sunset photo.jpg", &pc, false);
     ex_delete(&mut w, va, "fragmented video.mp4", &vc, false);
     ex_delete(&mut w, oa, "in order.bin", &oc, true);
@@ -559,7 +607,13 @@ fn exfat_deleted_files_come_back() {
     let inside = deleted_of(&mut v, &seg);
     assert_eq!(names_of(&inside), ["letter to grandma.txt"]);
     assert_eq!(got(&mut v, &inside[0]), letter);
-    assert!(v.find(&format!("{seg}/{}", inside[0].deleted.as_ref().unwrap().seg)).is_ok());
+    assert!(
+        v.find(&format!(
+            "{seg}/{}",
+            inside[0].deleted.as_ref().unwrap().seg
+        ))
+        .is_ok()
+    );
     // a set whose checksum no longer matches (its name damaged since) isn't listed
     let mut bad = w.img.clone();
     bad[pa + 64 + 2] ^= 0x20;
@@ -567,7 +621,12 @@ fn exfat_deleted_files_come_back() {
     assert!(!names_of(&deleted_of(&mut b, "")).contains(&"Sunset photo.jpg"));
     survive_damage_deleted(
         &w.img,
-        &[0, le(&w.img, 80, 4) * 512, w.off(root) as u64, w.bitmap_at as u64],
+        &[
+            0,
+            le(&w.img, 80, 4) * 512,
+            w.off(root) as u64,
+            w.bitmap_at as u64,
+        ],
         150,
     );
 }
@@ -812,10 +871,18 @@ fn ntfs_deleted_files_come_back() {
         }
         std::fs::write(&img, &w.img).unwrap();
         if let Some(und) = tool("ntfsundelete") {
-            let out = Command::new(und).arg("-s").arg("-f").arg(&img).output().unwrap();
+            let out = Command::new(und)
+                .arg("-s")
+                .arg("-f")
+                .arg(&img)
+                .output()
+                .unwrap();
             let text = String::from_utf8_lossy(&out.stdout);
             for name in ["small.txt", "big.bin", "a photo.jpg", "orphan.txt"] {
-                assert!(text.contains(name), "ntfsundelete doesn't list {name}:\n{text}");
+                assert!(
+                    text.contains(name),
+                    "ntfsundelete doesn't list {name}:\n{text}"
+                );
             }
         }
         let mut v = open(&w.img);
@@ -839,7 +906,10 @@ fn ntfs_deleted_files_come_back() {
         );
         let s = by_name(&gone, "small.txt");
         assert_eq!(state(s), ("recoverable", 99));
-        assert_eq!(got(&mut v, s), b"a small file, kept inside its MFT record\n");
+        assert_eq!(
+            got(&mut v, s),
+            b"a small file, kept inside its MFT record\n"
+        );
         assert!(s.mtime.is_some_and(|t| t > 1_600_000_000));
         // big.bin: whole, or whatever after.bin took is empty and the rest is as it was
         let g = by_name(&gone, "big.bin");
@@ -865,7 +935,13 @@ fn ntfs_deleted_files_come_back() {
             runs_of(&w.read(partr), 0x80)
         );
         let o = by_name(&gone, "orphan.txt");
-        assert!(o.deleted.as_ref().unwrap().why.contains("folder was deleted too"));
+        assert!(
+            o.deleted
+                .as_ref()
+                .unwrap()
+                .why
+                .contains("folder was deleted too")
+        );
         assert_eq!(got(&mut v, o), b"its folder is gone\n");
         let t = by_name(&gone, "Trip");
         assert!(t.dir && state(t).0 == "recoverable");

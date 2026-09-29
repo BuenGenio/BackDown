@@ -3,6 +3,7 @@ import { fileIcon, folderIcon, driveIcon, kindOf } from './icons.js';
 import { openViewer, openDiff, openGit, openMaildir, previewInto } from './viewers.js';
 import { squarify, compareListings, menu, closeMenu, menuOpen, toast } from './extras.js';
 import { mountFind, find, foundHtml, setScope, setEarlier, more as findMore } from './search.js';
+import { mountCell, mountNotice, loadMounts, allowButton, browseFoundBtn, filesBody } from './drives.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -1471,12 +1472,19 @@ function renderRescueAccess() {
   if (!RS.src || (RS.src.kind === 'file' && !RS.src.file)) { el.innerHTML = ''; return; }
   if (!a) { el.innerHTML = '<p class="muted rs-acc">Checking…</p>'; return; }
   el.innerHTML = a.readable
-    ? `<p class="rs-acc ok"><span class="dot k"></span>BackDown can read it: ${bytes(a.size || 0)}.</p>`
+    ? `<p class="rs-acc ok"><span class="dot k"></span>BackDown can read it: ${bytes(a.size || 0)}${a.granted ? ' (opened for it by the system, read-only, until BackDown stops)' : ''}.</p>`
     : `<div class="rs-acc no"><p><span class="dot o"></span>${esc(a.why || 'It can’t be read.')}</p>
       ${a.fix ? `<p class="muted">Run this once in a terminal, then check again. It lets your account read this drive only (never change it), until it’s unplugged or the computer restarts:</p>
       <div class="rs-cmd"><code>${esc(a.fix)}</code><button class="btn sm" type="button" data-rs-copy="${esc(a.fix)}">Copy</button></div>` : ''}
+      ${allowButton(a)}
       <button class="btn sm" type="button" data-rs-recheck>Check again</button></div>`;
 }
+
+// the system opened the drive for BackDown (drives.js); a copy-out was started from a browser
+document.addEventListener('bd:access', e => {
+  if (e.detail?.path === (RS.src?.kind === 'file' ? (RS.src.file || '').trim() : RS.src?.path)) { RS.access = e.detail; renderRescueAccess(); renderRescueGo(); }
+});
+document.addEventListener('bd:rescue-started', () => { loadRescues(); if (!polling) pollDaemon(true); });
 
 function renderRescueWhat() {
   const el = $('#rs-what');
@@ -1629,7 +1637,7 @@ function renderRescueList() {
   el.innerHTML = `<h3>Rescues</h3>` + RS.list.map(r => rescueCard(r, live.get(`rescue ${r.id}`))).join('');
 }
 
-const RS_TITLE = { image: 'Copy', carve: 'Find files', parts: 'Look for partitions' };
+const RS_TITLE = { image: 'Copy', carve: 'Find files', parts: 'Look for partitions', files: 'Copy files out' };
 const RS_STATE = { done: 'ok', stopped: 'warn', failed: 'warn', running: 'busy', new: 'busy' };
 const baseName = p => (p || '').split(/[\\/]/).filter(Boolean).pop() || p;
 
@@ -1667,13 +1675,14 @@ function rescueCard(r, job) {
         ${fs.map(f => `<tr><td>${bytes(f.start)}<small class="muted">sector ${(f.start / (res.sector || 512)).toLocaleString()}</small></td><td class="n">${f.size ? bytes(f.size) : '?'}</td>
           <td>${esc(f.fs)}${f.via !== 'boot sector' && f.via !== 'superblock' ? `<small class="muted">found by its ${esc(f.via)}</small>` : ''}</td><td>${esc(f.label || '')}${f.nested ? '<small class="muted">inside another file system</small>' : ''}</td>
           <td>${f.in_table ? '<span class="pill ok">yes</span>' : '<span class="pill warn">no: lost</span>'}${f.truncated ? '<span class="pill warn">runs past the end</span>' : ''}</td>
-          <td><button class="btn sm" type="button" data-rs-pick='${esc(JSON.stringify({ source: r.source, start: f.start, end: f.size ? f.start + f.size : null, label: `${f.fs}${f.label ? ` “${f.label}”` : ''} at ${bytes(f.start)}` }))}'>Find files in it</button></td></tr>`).join('')}</tbody></table>` : ''}`;
+          <td class="rs-acts">${browseFoundBtn(r, f)}<button class="btn sm" type="button" data-rs-pick='${esc(JSON.stringify({ source: r.source, start: f.start, end: f.size ? f.start + f.size : null, label: `${f.fs}${f.label ? ` “${f.label}”` : ''} at ${bytes(f.start)}` }))}'>Find files in it</button></td></tr>`).join('')}</tbody></table>` : ''}`;
   }
+  if (r.mode === 'files') body += filesBody(r, job);
   // stopped or interrupted before it got anywhere: start it again as it was
-  if (!job && ['stopped', 'interrupted', 'failed'].includes(state) && !(r.mode === 'image' ? res.size : r.mode === 'carve' ? res.by_group : res.found))
+  if (!job && ['stopped', 'interrupted', 'failed'].includes(state) && !(r.mode === 'image' ? res.size : r.mode === 'carve' ? res.by_group : r.mode === 'files' ? res.files != null : res.found))
     body += `<div class="rs-next"><button class="btn sm" type="button" data-rs-next='${esc(JSON.stringify({ resume: r.id }))}'>Start again</button></div>`;
   if (r.state === 'failed' && !job) body += `<p class="warn-t">${esc(r.summary || 'It stopped with an error.')}</p>`;
-  else if (r.summary && !job && r.mode !== 'parts') body += `<p class="muted">${esc(r.summary)}</p>`;
+  else if (r.summary && !job && r.mode !== 'parts' && r.mode !== 'files') body += `<p class="muted">${esc(r.summary)}</p>`;
   return `<article class="rs-item">
     <header><b>${RS_TITLE[r.mode] || r.mode}</b><span class="rs-where">${where}</span>
       <span class="pill ${RS_STATE[state] || (state === 'interrupted' ? 'warn' : '')}">${state}</span>
@@ -1854,15 +1863,21 @@ function connectedDrives() {
     const act = idx ? `<span class="muted">indexed${idx.scanned_at ? ` · scanned ${rel(idx.scanned_at)}` : ''}</span>`
       : vol.state === 'mounted' && mount && S.daemon ? `<button class="btn sm" type="button" data-index-path="${esc(mount.path)}">Index this</button>` : '';
     return `<tr><td><b>${esc(vol.label || vol.name)}</b><small class="muted">${esc(vol.device)}${mount ? ` · ${esc(mount.path)}${mount.read_only ? ' (read-only)' : ''}` : ''}</small></td>
-      <td>${esc(vol.fs_name || vol.fs || '—')}</td><td class="n">${bytes(vol.size || 0)}</td><td><span class="pill ${cls}">${label}</span>${vol.note ? `<small class="muted">${esc(vol.note)}</small>` : ''}</td><td>${act}</td></tr>`
+      <td>${esc(vol.fs_name || vol.fs || '—')}</td><td class="n">${bytes(vol.size || 0)}</td><td><span class="pill ${cls}">${label}</span>${vol.note ? `<small class="muted">${esc(vol.note)}</small>` : ''}</td><td class="act-do">${act}${mountCell(vol)}</td></tr>`
       + (vol.holders || []).map(rows).join('');
   };
-  return `<section>${head}${v.disks.map(dk => `<div class="vol-disk"><div class="vol-head"><b>${esc(dk.model || dk.name)}</b>
+  return `<section>${head}${mountNotice()}${v.disks.map(dk => `<div class="vol-disk"><div class="vol-head"><b>${esc(dk.model || dk.name)}</b>
       <span class="muted">${esc(dk.device)} · ${bytes(dk.size || 0)} · ${esc(dk.transport || '')}${dk.rotational ? ' · spinning disk' : dk.rotational === false ? ' · solid state' : ''}${dk.system ? ' · system disk' : ''}</span></div>
       <table class="list act-drives"><tbody>${dk.volumes.map(rows).join('')}</tbody></table></div>`).join('')}
     ${(v.notes || []).map(n => `<p class="muted pad">${esc(n)}</p>`).join('')}</section>`;
 }
+// a partition mounted or unmounted, an image attached or detached (drives.js): look again
+document.addEventListener('bd:drives', e => {
+  if (e.detail?.reprobe) probeVolumes();
+  else if (S.mode === 'activity') renderActivity();
+});
 function showActivity() {
+  loadMounts().then(() => { if (S.mode === 'activity') renderActivity(); });
   if (!ACT.volumes && !ACT.probing) probeVolumes();
   if (!RS.list.length) loadRescues().then(() => { if (S.mode === 'activity') renderActivity(); });
   api('mirrors').then(m => { ACT.mirrors = m; if (S.mode === 'activity') renderActivity(); }).catch(() => {});

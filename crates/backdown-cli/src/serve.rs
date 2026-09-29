@@ -877,9 +877,13 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
         "/api/wipe-assess" => wipe_assess(ctx, &db, param("keys"))?,
         "/api/wipes" => json!(wipe::history(&db)?),
         // can the daemon read this drive (or image file) directly, and if not, what would let it
-        "/api/rescue-access" => json!(rescue::access(Path::new(
-            param("path").context("missing path")?.trim()
-        ))),
+        "/api/rescue-access" => {
+            let a = rescue::access(Path::new(param("path").context("missing path")?.trim()));
+            let mut v = json!(a);
+            // the system can open it for this BackDown (udisks, a password dialog): drives.rs
+            v["allow"] = json!(ctx.desktop && cfg!(target_os = "linux") && a.device && !a.readable);
+            v
+        }
         "/api/rescues" => json!(rescue::history(&db)?),
         // free space where things would be moved to (the nearest folder up that exists)
         "/api/room" => {
@@ -976,7 +980,13 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
             Some(r) => {
                 let (src, start, len, _) =
                     crate::drives::found_region(&db, r.parse()?, num("at", 0)?)?;
-                peek::region_list(&src, start, len, param("path"), param("deleted") == Some("1"))?
+                peek::region_list(
+                    &src,
+                    start,
+                    len,
+                    param("path"),
+                    param("deleted") == Some("1"),
+                )?
             }
             None => peek::fs_list(
                 &file()?,
@@ -985,8 +995,11 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
                 param("deleted") == Some("1"),
             )?,
         },
-        // what BackDown mounted or attached (drives.rs), and so can undo
-        "/api/mounts" => crate::drives::mounts(),
+        // what BackDown mounted or attached (drives.rs), and so can undo; with an id, that image's
+        "/api/mounts" => {
+            let image = param("id").map(|i| Ok::<_, anyhow::Error>(source(&db, i.parse()?)?.0));
+            crate::drives::mounts(ctx.desktop, image.transpose()?.as_deref())
+        }
         // a SQL dump's schema and data sizes (sqldump.rs), a few seconds of reading at a time
         "/api/sqldump" => crate::sqldump::schema(id()?, &file()?, param("more"))?,
         // this machine's disks and what's on them: the same read-only probe as `backdown volumes`
@@ -1604,6 +1617,8 @@ fn ui_asset(name: &str) -> Option<(&'static [u8], &'static str)> {
         "mailbox.js" => "text/javascript; charset=utf-8",
         "sqldump.js" => "text/javascript; charset=utf-8",
         "search.js" => "text/javascript; charset=utf-8",
+        "fsbrowse.js" => "text/javascript; charset=utf-8",
+        "drives.js" => "text/javascript; charset=utf-8",
         "favicon.svg" => "image/svg+xml",
         "vendor/pdf.min.mjs" => "text/javascript; charset=utf-8",
         "vendor/pdf.worker.min.mjs" => "text/javascript; charset=utf-8",

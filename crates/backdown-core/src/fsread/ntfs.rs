@@ -7,7 +7,6 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek};
-use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
 
@@ -906,12 +905,12 @@ impl Ntfs {
             }
             let c = lcn + i;
             let byte = self.bitmap_byte(r, c / 8)?;
-            let (used, step) = if c.is_multiple_of(8) && count - i >= 8 && (byte == 0 || byte == 0xFF)
-            {
-                (byte == 0xFF, 8)
-            } else {
-                ((byte >> (c % 8)) & 1 == 1, 1)
-            };
+            let (used, step) =
+                if c.is_multiple_of(8) && count - i >= 8 && (byte == 0 || byte == 0xFF) {
+                    (byte == 0xFF, 8)
+                } else {
+                    ((byte >> (c % 8)) & 1 == 1, 1)
+                };
             match out.last_mut() {
                 Some(l) if l.2 == used => l.1 += step,
                 _ => {
@@ -993,9 +992,15 @@ impl Ntfs {
                     match run.phys {
                         None => spans.hole(run.len)?,
                         Some(p) => {
-                            for (c, n, used) in
-                                self.stretches(r, p / self.cluster, run.len / self.cluster)?
-                            {
+                            let s =
+                                match self.stretches(r, p / self.cluster, run.len / self.cluster) {
+                                    Ok(s) => s,
+                                    Err(e) => {
+                                        let why = format!("its clusters can't be checked ({e:#})");
+                                        return Ok((None, Verdict::lost(why)));
+                                    }
+                                };
+                            for (c, n, used) in s {
                                 spans.push(c * self.cluster, n * self.cluster, used)?;
                             }
                         }
@@ -1062,7 +1067,7 @@ impl Ntfs {
         let mut buf = vec![0u8; (per * self.rec) as usize];
         let mut n = 0u64;
         while n < limit {
-            if r.until.is_some_and(|t| Instant::now() > t) {
+            if r.late() {
                 note = Some(format!(
                     "only the first {n} of its {} MFT records could be looked through in the time allowed",
                     self.records
@@ -1168,6 +1173,9 @@ impl Ntfs {
         let note = scan.note.clone();
         kids.sort_by(|a, b| (a.0.name.as_str(), a.0.record).cmp(&(b.0.name.as_str(), b.0.record)));
         for (g, orphan) in kids {
+            if r.late() {
+                return Ok(Some(super::undelete::LATE.into()));
+            }
             let mut v = if g.dir {
                 Verdict {
                     state: "recoverable",
@@ -1219,7 +1227,10 @@ fn gone_of(attrs: &[Attr], record: u64, dir: bool) -> Option<(u64, Gone)> {
         (Body::Resident(v), AT_FILE_NAME) if v.len() >= 66 => Some(v),
         _ => None,
     });
-    let v = names.clone().find(|v| v[65] != 2).or(names.clone().next())?;
+    let v = names
+        .clone()
+        .find(|v| v[65] != 2)
+        .or(names.clone().next())?;
     let nl = usize::from(v[64]);
     let name = v.get(66..66 + 2 * nl).map(utf16le).and_then(clean_name)?;
     let pref = le(v, 0, 8);

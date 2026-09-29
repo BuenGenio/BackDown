@@ -96,6 +96,11 @@ impl<R: Read + Seek> Region<R> {
         self.len
     }
 
+    /// Past the deadline (a listing stops where it got to, and says so).
+    pub(crate) fn late(&self) -> bool {
+        self.until.is_some_and(|t| Instant::now() > t)
+    }
+
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
@@ -218,7 +223,11 @@ pub(crate) enum Node {
         seq: u16,
     },
     /// A deleted FAT entry: its first cluster and size (its chain is gone).
-    FatDel { cluster: u32, size: u32, dir: bool },
+    FatDel {
+        cluster: u32,
+        size: u32,
+        dir: bool,
+    },
     /// A deleted exFAT entry set's stream extension.
     ExfatDel {
         cluster: u32,
@@ -227,7 +236,9 @@ pub(crate) enum Node {
         contiguous: bool,
     },
     /// An MFT record that's no longer in use.
-    NtfsDel { record: u64 },
+    NtfsDel {
+        record: u64,
+    },
 }
 
 /// A folder's entries, in the order the filesystem keeps them.
@@ -758,7 +769,11 @@ impl<R: Read + Seek> Volume<R> {
                 bail!("the path is too deep");
             }
             if !cur.dir {
-                bail!("no {:?} here: {} is a file", undelete::shown(path), cur.name);
+                bail!(
+                    "no {:?} here: {} is a file",
+                    undelete::shown(path),
+                    cur.name
+                );
             }
             let mut hit = None;
             if let Some((name, token)) = undelete::parse_seg(seg) {
@@ -782,9 +797,8 @@ impl<R: Read + Seek> Volume<R> {
                     }
                 })?;
             }
-            cur = hit.with_context(|| {
-                format!("no {:?} in this filesystem", undelete::shown(path))
-            })?;
+            cur =
+                hit.with_context(|| format!("no {:?} in this filesystem", undelete::shown(path)))?;
         }
         Ok(cur)
     }

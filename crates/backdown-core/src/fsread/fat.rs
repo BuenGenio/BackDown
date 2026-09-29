@@ -419,7 +419,10 @@ impl Fat {
         }
         if !(2..=self.max).contains(&first) {
             spans.gone(size)?;
-            return Ok((spans, Verdict::lost("its first cluster is outside the volume")));
+            return Ok((
+                spans,
+                Verdict::lost("its first cluster is outside the volume"),
+            ));
         }
         let n = size.div_ceil(self.cluster);
         for i in 0..n {
@@ -468,8 +471,14 @@ impl Fat {
         let phys = move |c: u32| data_at + u64::from(c - 2) * cl;
         let head = r.read_vec(phys(first), self.cluster)?;
         let dot = &head[..32];
-        let hi = if self.bits == 32 { le(dot, 20, 2) << 16 } else { 0 };
-        if &dot[..11] != b".          " || dot[11] & 0x10 == 0 || (hi | le(dot, 26, 2)) as u32 != first
+        let hi = if self.bits == 32 {
+            le(dot, 20, 2) << 16
+        } else {
+            0
+        };
+        if &dot[..11] != b".          "
+            || dot[11] & 0x10 == 0
+            || (hi | le(dot, 26, 2)) as u32 != first
         {
             bail!("{reused}");
         }
@@ -570,6 +579,9 @@ impl Fat {
             Ok(true)
         })?;
         for (at, e, long) in found {
+            if r.late() {
+                return Ok(Some(super::undelete::LATE.into()));
+            }
             let entry = self.deleted_entry(r, &e, at, long)?;
             if !each(entry) {
                 break;
@@ -595,7 +607,11 @@ impl Fat {
         });
         let name = clean_name(name).unwrap_or_else(|| "_".into());
         let dir = e[11] & 0x10 != 0;
-        let hi = if self.bits == 32 { le(e, 20, 2) << 16 } else { 0 };
+        let hi = if self.bits == 32 {
+            le(e, 20, 2) << 16
+        } else {
+            0
+        };
         let cluster = (hi | le(e, 26, 2)) as u32;
         let size = if dir { 0 } else { le(e, 28, 4) as u32 };
         let mut v = if dir {
@@ -608,7 +624,10 @@ impl Fat {
                 Err(err) => Verdict::lost(format!("{err:#}")),
             }
         } else {
-            self.assess(r, cluster, u64::from(size))?.1
+            match self.assess(r, cluster, u64::from(size)) {
+                Ok((_, v)) => v,
+                Err(err) => Verdict::lost(format!("its clusters can't be checked ({err:#})")),
+            }
         };
         if lost_letter {
             v.why = format!(
@@ -716,7 +735,9 @@ fn deleted_long_name(parts: &[[u8; 32]], e: &[u8; 32]) -> Option<String> {
     let end = units.iter().position(|&u| u == 0).unwrap_or(units.len());
     // after the end, only padding; before it, no padding; and the end is in the last part
     if units[..end].contains(&0xFFFF)
-        || units.get(end + 1..).is_some_and(|t| t.iter().any(|&u| u != 0xFFFF))
+        || units
+            .get(end + 1..)
+            .is_some_and(|t| t.iter().any(|&u| u != 0xFFFF))
         || end + 13 <= units.len() && end != units.len()
         || end == 0
     {
@@ -734,7 +755,8 @@ fn deleted_long_name(parts: &[[u8; 32]], e: &[u8; 32]) -> Option<String> {
     let lead = long.trim_start_matches(['.', ' ']).chars().next()?;
     let fits = if lead.is_ascii() {
         let u = lead.to_ascii_uppercase() as u8;
-        let valid = u.is_ascii_uppercase() || u.is_ascii_digit() || b"!#$%&'()-@^_`{}~".contains(&u);
+        let valid =
+            u.is_ascii_uppercase() || u.is_ascii_digit() || b"!#$%&'()-@^_`{}~".contains(&u);
         first == if valid { u } else { b'_' }
     } else {
         first >= 0x80 || first == b'_' || first.is_ascii_uppercase() || first.is_ascii_digit()
