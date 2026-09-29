@@ -32,6 +32,7 @@ pub mod paths;
 pub mod plan;
 pub mod plist;
 pub mod recognise;
+pub mod remote;
 pub mod report;
 pub mod rescue;
 pub mod streams;

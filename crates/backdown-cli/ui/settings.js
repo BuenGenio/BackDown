@@ -162,8 +162,8 @@ export async function showSettings(section) {
   const v = $('#view');
   v.innerHTML = '<div class="empty"><p>Loading…</p></div>';
   const soft = p => p.catch(e => ({ error: e.message }));
-  [SET.st, SET.feat, SET.sch, SET.upd, SET.notify, SET.scan] = await Promise.all([
-    soft(api('settings')), soft(api('features')), soft(api('schema')), soft(api('update')), optional('notify-settings'), optional('scan-settings')]);
+  [SET.st, SET.feat, SET.sch, SET.upd, SET.notify, SET.scan, SET.machines] = await Promise.all([
+    soft(api('settings')), soft(api('features')), soft(api('schema')), soft(api('update')), optional('notify-settings'), optional('scan-settings'), optional('machines')]);
   if (!SET.feat.error) { FEAT.data = SET.feat; paintBadges(); }
   if (!SET.upd.error) { UPD.data = SET.upd; paintUpdateBanner(); }
   render();
@@ -179,6 +179,7 @@ function render() {
     ['junk', 'Junk rules', junkSection()],
     ['schema', 'Filing schema', schemaSection()],
     SET.notify ? ['notify', 'Notifications', notifySection()] : null,
+    SET.machines ? ['machines', 'Other machines', machinesSection()] : null,
     ['data', 'Index and data', dataSection()],
     ['about', 'About', aboutSection()],
   ].filter(Boolean);
@@ -190,6 +191,20 @@ function render() {
 }
 
 const failed = x => x?.error ? `<p class="set-err">${esc(x.error)}</p>` : '';
+
+// other machines (machines.js has their pages, and how their copies count is set there)
+function machinesSection() {
+  const m = SET.machines;
+  if (m.error) return failed(m);
+  const list = m.machines || [], s = m.settings || {};
+  return `
+    <p>A NAS or another computer with BackDown on it, read over ssh with your keys. A copy there counts as proof when it’s hashed there and was
+      confirmed there within <b>${esc(s.proof_days)} days</b>; each machine is synced every ${esc(s.sync_hours)} hours.</p>
+    ${list.length ? `<ul class="set-machines">${list.map(x => `<li><button class="rowlink" type="button" data-mc="${x.id}"><b>${esc(x.name)}</b> <span class="muted">${esc(x.url)}</span></button></li>`).join('')}</ul>`
+      : '<p class="muted">None yet.</p>'}
+    ${m.why_not ? `<p class="set-err">${esc(m.why_not)}</p>` : ''}
+    <div class="set-acts"><button class="btn" type="button" data-mc-add>Add a machine</button></div>`;
+}
 
 function licenceSection() {
   const f = SET.feat;

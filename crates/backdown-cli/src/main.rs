@@ -24,6 +24,7 @@ mod mailbox;
 mod mounting;
 mod notifier;
 mod peek;
+mod remote;
 mod rescuing;
 mod serve;
 mod service;
@@ -323,6 +324,16 @@ enum Cmd {
         #[command(subcommand)]
         action: LicenseCmd,
     },
+    /// Other machines (a NAS, another computer) whose BackDown index is read over ssh, so copies
+    /// there count for duplicates and wiping (Pro)
+    Remote {
+        #[command(subcommand)]
+        action: remote::RemoteCmd,
+    },
+    /// The other end of `backdown remote`, run there by ssh: answers read-only requests, one JSON
+    /// line each, on stdin and stdout
+    #[command(hide = true)]
+    ServeStdio,
     /// Tidy an archive: identical files in FOLDER share their storage, as hardlinks or clones.
     /// Both files are re-read first; every link is journaled. Without --go, only shows what
     /// would happen
@@ -612,6 +623,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
         }
         // reads a drive and writes elsewhere; never opens the index (it may run under sudo)
         Cmd::Rescue { action } => return rescuing::run(action),
+        // the other end of `backdown remote`, run there by ssh: reads only, never through a daemon
+        Cmd::ServeStdio => return remote::stdio::run(cli.db),
+        Cmd::Remote { action } => return remote::command(cli.db, cli.local, action),
         _ => {}
     }
     // a running daemon owns the index: hand the work to it (unless told not to)
@@ -880,6 +894,8 @@ fn local(db_path: &Path, cmd: Cmd, use_daemon: bool) -> Result<ExitCode> {
         | Cmd::Rescue { .. }
         | Cmd::Volumes { .. }
         | Cmd::Health { .. }
+        | Cmd::Remote { .. }
+        | Cmd::ServeStdio
         | Cmd::Mount { .. }
         | Cmd::Unmount { .. } => {
             unreachable!("handled in run")
@@ -1025,6 +1041,8 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
         | Cmd::Rescue { .. }
         | Cmd::Volumes { .. }
         | Cmd::Health { .. }
+        | Cmd::Remote { .. }
+        | Cmd::ServeStdio
         | Cmd::Mount { .. }
         | Cmd::Unmount { .. } => {
             unreachable!("handled in run")
@@ -1609,11 +1627,26 @@ fn print_check(c: &report::Check, list: bool, json: bool) -> Result<ExitCode> {
     if c.empty > 0 {
         println!("  empty      {:>10} files (no data)", fmt::count(c.empty));
     }
+    if c.remote.files > 0 {
+        println!(
+            "  of the verified, {} in {} files are only on another machine ({}): hashed there and \
+             confirmed there within {} days; `backdown wipe` has that machine re-read each copy first",
+            fmt::bytes(c.remote.bytes),
+            fmt::count(c.remote.files),
+            c.remote_machines.join(", "),
+            c.proof_days
+        );
+    }
     println!();
     if c.safe {
         println!(
-            "SAFE TO WIPE: every file has a SHA-256-identical copy outside {}.",
-            c.path
+            "SAFE TO WIPE: every file has a SHA-256-identical copy outside {}{}.",
+            c.path,
+            if c.remote.files > 0 {
+                ", some of them on another machine"
+            } else {
+                ""
+            }
         );
         return Ok(code);
     }

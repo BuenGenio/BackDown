@@ -485,6 +485,7 @@ pub fn after_job(d: &Daemon, job: &Job, error: Option<&str>) {
             "hash" => "hashing".into(),
             "entities" => "recognition".into(),
             "mirror-sync" => format!("sync of {label}"),
+            "remote-sync" => format!("sync of the machine {label}"),
             k => k.to_string(),
         };
         Note {

@@ -27,6 +27,11 @@
 //! its latest round); the POSTs beside it (read now, mark notifications read, notification
 //! settings, a test notification) need the same header, change nothing but BackDown's own records
 //! and settings file, and a notification's text never goes through a shell.
+//! Other machines (remote/): GET /api/machines and the cache of what they hold are read from the
+//! index; browsing one live, and the POSTs (add, remove, test, sync, settings; the same header)
+//! run the system's `ssh` as the person using this browser, with arguments as a vector and a host
+//! that can't be taken for an option, to `backdown serve-stdio` there, which only reads. Never from
+//! the system-wide service, which has no ssh keys of anyone's. No file bytes come from there.
 //! Drives (drives.rs; the person at the screen's BackDown only, never the system service, and each
 //! with the X-BackDown header): POST /api/mount mounts read-only (never read-write) a partition the
 //! volume probe calls mountable, and /api/attach a disk image picked by index id; /api/unmount and
@@ -384,6 +389,21 @@ fn handle(ctx: &Ctx, req: Request) {
         } else {
             let p = |k: &str| param(k).map(str::to_string);
             match crate::health::post(ctx.daemon.as_deref(), &ctx.db, path, &p) {
+                Ok(v) => json_resp(&v),
+                Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
+            }
+        };
+        let _ = req.respond(resp);
+        return;
+    }
+    if *req.method() == Method::Post && crate::remote::handles(path) {
+        // other machines: add, remove, test, sync, settings (remote/)
+        let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
+        let resp = if !marked {
+            plain(403, "missing X-BackDown header")
+        } else {
+            let p = |k: &str| param(k).map(str::to_string);
+            match crate::remote::post(ctx.daemon.as_deref(), ctx.desktop, &ctx.db, path, &p) {
                 Ok(v) => json_resp(&v),
                 Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
             }
@@ -962,6 +982,11 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
         let p = |k: &str| param(k).map(str::to_string);
         return crate::health::get(ctx.daemon.as_deref(), &ctx.db, path, &p);
     }
+    if crate::remote::handles(path) {
+        // other machines, as cached and live over ssh (remote/)
+        let p = |k: &str| param(k).map(str::to_string);
+        return crate::remote::get(ctx.daemon.as_deref(), ctx.desktop, &ctx.db, path, &p);
+    }
     let db = ro_db(ctx)?;
     let id = || -> Result<i64> { param("id").context("missing id")?.parse().context("bad id") };
     let dir = || -> Result<PathBuf> { browse::path_of(param("dir").context("missing dir")?) };
@@ -985,7 +1010,12 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
                 .transpose()?;
             json!(browse::list(&db, &dir()?, scan)?)
         }
-        "/api/file" => json!(browse::file(&db, id()?)?),
+        "/api/file" => {
+            let mut f = json!(browse::file(&db, id()?)?);
+            // the same content on other machines, and whether those copies count (remote/)
+            crate::remote::copies_for(&db, &mut f)?;
+            f
+        }
         // what's recognised on each drive (as stored: the daemon refreshes it after each scan)
         "/api/entities" => {
             let mut roots = Vec::new();
@@ -1110,7 +1140,10 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
         }
         "/api/dupes" => {
             let min = fmt::parse_size(param("min").unwrap_or("1M"))?;
-            json!(report::dupes(&db, min, 200)?)
+            let mut d = json!(report::dupes(&db, min, 200)?);
+            // copies on other machines, and what's here once and there again (remote/)
+            backdown_core::remote::annotate_dupes(&db, &mut d, min, 200)?;
+            d
         }
         "/api/sqlite" => sqlite(
             &db,
@@ -1787,6 +1820,7 @@ fn ui_asset(name: &str) -> Option<(&'static [u8], &'static str)> {
         "settings.js" => "text/javascript; charset=utf-8",
         "tidy.js" => "text/javascript; charset=utf-8",
         "health.js" => "text/javascript; charset=utf-8",
+        "machines.js" => "text/javascript; charset=utf-8",
         "fsbrowse.js" => "text/javascript; charset=utf-8",
         "drives.js" => "text/javascript; charset=utf-8",
         "favicon.svg" => "image/svg+xml",
