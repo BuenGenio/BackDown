@@ -79,6 +79,8 @@ pub struct Drive {
     pub last_scan_at: Option<i64>,
     pub files: u64,
     pub bytes: u64,
+    /// how its last scan was made: the method (walk | journal | table), and for people
+    pub how: Option<(String, String)>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -98,6 +100,8 @@ pub struct JobOpts {
     pub rescue: Option<i64>,
     /// remote-sync: which machine (remote/)
     pub machine: Option<i64>,
+    /// index: how to make the scan (Auto: the change log, the file table, or a walk)
+    pub method: index::Method,
     /// dedup: which recorded dedup run (tidying an archive); mail-merge: which recorded merge
     pub dedup: Option<i64>,
     pub merge: Option<i64>,
@@ -426,7 +430,9 @@ impl Daemon {
                     "scheduled"
                 };
                 json!({ "path": d.path, "present": d.present, "last_scan_at": d.last_scan_at,
-                        "files": d.files, "bytes": d.bytes, "next_at": next_at, "state": state })
+                        "files": d.files, "bytes": d.bytes, "next_at": next_at, "state": state,
+                        "last_method": d.how.as_ref().map(|h| &h.0),
+                        "last_how": d.how.as_ref().map(|h| &h.1) })
             })
             .collect();
         json!({
@@ -1400,7 +1406,8 @@ fn run_index(d: &Daemon, db: &mut Db, job: &Job) -> Result<String> {
     };
     // the drive's previous scan is the best guess at how far this one has to go
     let before = d.drive(&path.display().to_string());
-    let st = index::index(db, &path, &opts, &mut |s| {
+    // the change log, the file table or a walk, whichever is safe and fastest (index.rs)
+    let st = index::scan(db, &path, &opts, job.opts.method, &mut |s| {
         let msg = format!("{} files, {}", fmt::count(s.files), fmt::bytes(s.bytes));
         let counts = Counts {
             stage: "scanning",
@@ -1412,8 +1419,9 @@ fn run_index(d: &Daemon, db: &mut Db, job: &Job) -> Result<String> {
         d.progress(job.id, msg, counts);
     })?;
     Ok(format!(
-        "{}: {} files, {} (new {}, changed {}, gone {}) · scan {}{}",
+        "{}: {} · {} files, {} (new {}, changed {}, gone {}) · scan {}{}",
         st.root.display(),
+        st.how(),
         fmt::count(st.files),
         fmt::bytes(st.bytes),
         st.new,
@@ -1499,7 +1507,7 @@ fn scheduler(d: &Daemon) {
 fn check_roots(d: &Daemon, present: &mut HashMap<String, bool>) -> Result<()> {
     let db = Db::open_read_only(&d.db)?;
     let mut stmt = db.conn.prepare(
-        "SELECT r.path, s.finished_at, COALESCE(s.files, 0), COALESCE(s.bytes, 0) FROM roots r LEFT JOIN scans s ON s.id = r.last_scan",
+        "SELECT r.path, s.finished_at, COALESCE(s.files, 0), COALESCE(s.bytes, 0), s.id FROM roots r LEFT JOIN scans s ON s.id = r.last_scan",
     )?;
     let rows = stmt.query_map([], |r| {
         Ok((
@@ -1507,22 +1515,27 @@ fn check_roots(d: &Daemon, present: &mut HashMap<String, bool>) -> Result<()> {
             r.get::<_, Option<i64>>(1)?,
             r.get::<_, i64>(2)?,
             r.get::<_, i64>(3)?,
+            r.get::<_, Option<i64>>(4)?,
         ))
     })?;
     let now = now();
     let mut drives = Vec::new();
     for row in rows {
-        let (path, last, files, bytes) = row?;
+        let (path, last, files, bytes, scan) = row?;
         let p = paths::from_bytes(&path);
         let key = p.display().to_string();
         let here = p.is_dir()
             && (files == 0 || std::fs::read_dir(&p).is_ok_and(|mut it| it.next().is_some()));
+        let how = scan
+            .and_then(|s| index::how(&db, &[s]).ok())
+            .and_then(|h| h.first().map(|h| (h.method.clone(), h.phrase())));
         drives.push(Drive {
             path: key.clone(),
             present: here,
             last_scan_at: last,
             files: files as u64,
             bytes: bytes as u64,
+            how,
         });
         let was = present.insert(key.clone(), here);
         if !here {
@@ -1664,6 +1677,7 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
                 trust_index: req["trust_index"].as_bool().unwrap_or(false),
                 rescue: None,
                 machine: None,
+                method: req["method"].as_str().unwrap_or("auto").parse()?,
                 dedup: req["dedup"].as_i64(),
                 merge: req["merge"].as_i64(),
             };

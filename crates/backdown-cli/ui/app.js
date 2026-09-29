@@ -1892,7 +1892,7 @@ const JOB_ICON = {
 };
 
 let activityClock;
-const ACT = { mirrors: null, volumes: null, probing: false };
+const ACT = { mirrors: null, volumes: null, probing: false, scanning: null };
 function probeVolumes() {
   ACT.probing = true;
   api('volumes').then(v => { ACT.volumes = v; }).catch(e => { ACT.volumes = { error: e.message }; })
@@ -1931,6 +1931,8 @@ function showActivity() {
   if (!ACT.volumes && !ACT.probing) probeVolumes();
   if (!RS.list.length) loadRescues().then(() => { if (S.mode === 'activity') renderActivity(); });
   api('mirrors').then(m => { ACT.mirrors = m; if (S.mode === 'activity') renderActivity(); }).catch(() => {});
+  // how scans may be made (the change log, the file table, a walk now and then): GET/POST /api/scan-settings
+  api('scan-settings').then(s => { ACT.scanning = s; if (S.mode === 'activity') renderActivity(); }).catch(() => {});
   S.mode = 'activity';
   closeSearch(false);
   renderTabs(); renderPlaces(); renderPath();
@@ -2026,9 +2028,19 @@ function renderActivity() {
         <span class="muted">synced ${rel(m.last_sync)} · verified ${rel(m.last_verify)}</span></li>`).join('')}</ol></section>` : ''}
     <section><h3>Recent</h3>${recent}</section>
     <p class="act-foot muted">BackDown ${esc(d.version)} · running since ${rel(d.started_at)} · ${d.rescan_every_secs ? `rescans each drive every ${dur(d.rescan_every_secs)}` : 'rescans on request'} ·
-      drives checked ${rel(d.checked_at)} · index <code>${esc(d.db)}</code></p>
+      drives checked ${rel(d.checked_at)} · index <code>${esc(d.db)}</code>${scanWays()}</p>
   </div>`;
   view.scrollTop = keepScroll;
+}
+
+// how rescans are made (the Settings view changes it through POST /api/scan-settings)
+function scanWays() {
+  const a = ACT.scanning, s = a?.settings;
+  if (!s) return '';
+  const safety = [s.walk_every_scans ? `every ${s.walk_every_scans} scans` : '', s.walk_every_days ? `every ${s.walk_every_days} days` : ''].filter(Boolean).join(' or ');
+  return s.fast
+    ? `<br>Rescans use the drive’s change log or file table when they can (<span title="${esc(`change log: ${a.journal}; file table: ${a.table}`)}">where</span>)${safety ? `, and walk every folder ${safety} to be sure` : ''}.`
+    : '<br>Every scan walks every folder (the change log and file table are turned off in settings).';
 }
 
 function drivesTable(drives, live) {
@@ -2044,7 +2056,7 @@ function drivesTable(drives, live) {
     ${drives.map(x => { const r = S.roots.find(r => r.path === x.path); return `<tr>
       <td><b>${esc(rootName(x.path))}</b>${pill(healthOfPath(x.path), { small: true })}<small class="muted">${esc(x.path)}</small></td>
       <td>${live ? label(x) : ''}</td>
-      <td title="${esc(when(x.last_scan_at))}">${x.last_scan_at ? rel(x.last_scan_at) : 'never finished'}</td>
+      <td title="${esc(when(x.last_scan_at))}">${x.last_scan_at ? rel(x.last_scan_at) : 'never finished'}${x.last_how ? `<small class="muted act-how ${esc(x.last_method || '')}" title="${esc(x.last_how)}">${esc(x.last_how)}</small>` : ''}</td>
       ${live ? `<td>${next(x)}</td>` : ''}
       <td class="n">${count(x.files)}</td><td class="n">${bytes(x.bytes)}</td>
       ${live ? `<td>${r && x.present !== false ? `<button class="btn sm" type="button" data-rescan="${r.id}"${['scanning', 'queued'].includes(x.state) ? ' disabled' : ''}>Rescan now</button>` : ''}</td>` : ''}

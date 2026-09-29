@@ -1,5 +1,7 @@
 # Run data — regenerable, huge, contains every path on the user's drives
 index/
+# (but not the indexer's own source folder)
+!crates/backdown-core/src/index/
 journal/
 stage/
 *.db

@@ -20,9 +20,20 @@ sha2 = "0.11.0"
 unicode-normalization = "0.1.25"
 walkdir = "2.5.0"
 
-# clones (FICLONE, FIDEDUPERANGE, clonefile), copy_file_range and extended attributes: fastcopy.rs, dedup.rs
+# clones (FICLONE, FIDEDUPERANGE, clonefile), copy_file_range and extended attributes: fastcopy.rs, dedup.rs;
+# statfs for the FSEvents history (index/fsevents.rs)
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.189"
+
+# the USN change journal and the file table on Windows (index/usn.rs, index/table.rs): thin calls only
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Ioctl",
+] }
 
 [dev-dependencies]
 walkdir = "2.5.0"
