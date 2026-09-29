@@ -60,11 +60,29 @@ pub fn new_token() -> Result<String> {
     Ok(fmt::hex(&raw))
 }
 
-pub fn bind(port: u16) -> Result<(Server, u16)> {
-    let server = Server::http(("127.0.0.1", port))
-        .map_err(|e| anyhow::anyhow!("can't listen on 127.0.0.1:{port}: {e}"))?;
+pub fn bind_on(host: &str, port: u16) -> Result<(Server, u16)> {
+    let server = Server::http((host, port))
+        .map_err(|e| anyhow::anyhow!("can't listen on {host}:{port}: {e}"))?;
     let port = server.server_addr().to_ip().map_or(port, |a| a.port());
     Ok((server, port))
+}
+
+#[allow(dead_code)]
+pub fn bind(port: u16) -> Result<(Server, u16)> {
+    bind_on("127.0.0.1", port)
+}
+
+/// DNS-rebinding allowlist for a non-loopback bind: the address plus this machine's hostname
+/// (so a Tailscale MagicDNS name like `nextcloud:PORT` is accepted, not just the raw IP).
+pub fn extra_hosts(host: &str, port: u16) -> Vec<String> {
+    let mut v = vec![format!("{host}:{port}")];
+    if let Ok(hn) = std::fs::read_to_string("/etc/hostname") {
+        let hn = hn.trim();
+        if !hn.is_empty() {
+            v.push(format!("{hn}:{port}"));
+        }
+    }
+    v
 }
 
 /// Serve the UI until the process ends. With a daemon, the UI also shows its activity and can
@@ -76,15 +94,18 @@ pub fn run(
     port: u16,
     daemon: Option<Arc<Daemon>>,
     desktop: bool,
+    extra_hosts: Vec<String>,
 ) {
+    let mut hosts = vec![
+        format!("127.0.0.1:{port}"),
+        format!("localhost:{port}"),
+        format!("[::1]:{port}"),
+    ];
+    hosts.extend(extra_hosts);
     let ctx = Arc::new(Ctx {
         db,
         token,
-        hosts: vec![
-            format!("127.0.0.1:{port}"),
-            format!("localhost:{port}"),
-            format!("[::1]:{port}"),
-        ],
+        hosts,
         daemon,
         desktop,
     });
@@ -95,20 +116,23 @@ pub fn run(
 }
 
 /// `backdown serve`: the UI alone, in the foreground, with a one-run link.
-pub fn serve(db: &Path, port: u16, open_browser: bool) -> Result<()> {
+pub fn serve(db: &Path, host: &str, port: u16, open_browser: bool) -> Result<()> {
     Db::open(db)?; // create/migrate once; requests then use read-only connections
     let db = dunce::canonicalize(db)?;
-    let (server, port) = bind(port)?;
+    let (server, port) = bind_on(host, port)?;
     let token = new_token()?;
-    let url = format!("http://127.0.0.1:{port}/?t={token}");
+    let extra = extra_hosts(host, port);
+    let shown = if host == "0.0.0.0" { format!("127.0.0.1:{port}") } else { format!("{host}:{port}") };
+    let url = format!("http://{shown}/?t={token}");
+    let scope = if host == "127.0.0.1" { "only on this computer" } else { "reachable at the address above" };
     eprintln!(
-        "BackDown browser for {} at\n  {url}\n(only this link, only on this computer; Ctrl-C to stop)",
+        "BackDown browser for {} at\n  {url}\n(the link carries a one-time token; {scope}; Ctrl-C to stop)",
         db.display()
     );
     if open_browser {
         open(&url);
     }
-    run(server, db, token, port, None, true);
+    run(server, db, token, port, None, true, extra);
     Ok(())
 }
 
