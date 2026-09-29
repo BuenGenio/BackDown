@@ -1,6 +1,8 @@
 //! `backdown serve`: the file browser, a local web UI over the index.
 //!
-//! Security model: listen on 127.0.0.1 only; reject any Host header but our own (DNS rebinding);
+//! Security model: listen on 127.0.0.1 (and, with `--host`, on one more address, from which only
+//! GETs and queuing a rescan are allowed: over the network BackDown shows, it doesn't change
+//! anything); reject any Host header but our own (DNS rebinding);
 //! require a random per-run token, passed once in the URL and then kept in a SameSite=Strict cookie;
 //! serve file bytes only by index id, never by arbitrary path; never serve active content (HTML is
 //! sent as text, and every file response carries a CSP sandbox), and open SQLite files immutable.
@@ -19,8 +21,29 @@
 //! POST /api/wipe (daemon only, never the system service) deletes: it re-checks the selection the
 //! way `backdown wipe` does and needs the drive names typed back, and the daemon re-reads every file
 //! and its copy before deleting it.
+//! POST /api/dedup (daemon only, never the system service) records a run that links identical
+//! files inside one folder, which the daemon does after re-reading both of each pair; POST
+//! /api/plan-merge changes a saved plan that hasn't started, so it merges two snapshots of a
+//! mailbox instead of copying both. Both need the same header.
+//! GET /api/health reads drive health the same unprivileged way as `backdown health` (in the daemon,
+//! its latest round); the POSTs beside it (read now, mark notifications read, notification
+//! settings, a test notification) need the same header, change nothing but BackDown's own records
+//! and settings file, and a notification's text never goes through a shell.
+//! Other machines (remote/): GET /api/machines and the cache of what they hold are read from the
+//! index; browsing one live, and the POSTs (add, remove, test, sync, settings; the same header)
+//! run the system's `ssh` as the person using this browser, with arguments as a vector and a host
+//! that can't be taken for an option, to `backdown serve-stdio` there, which only reads. Never from
+//! the system-wide service, which has no ssh keys of anyone's. No file bytes come from there.
+//! Drives (drives.rs; the person at the screen's BackDown only, never the system service, and each
+//! with the X-BackDown header): POST /api/mount mounts read-only (never read-write) a partition the
+//! volume probe calls mountable, and /api/attach a disk image picked by index id; /api/unmount and
+//! /api/detach undo only what BackDown mounted; /api/rescue-allow asks udisks (and so polkit's
+//! password dialog) for a read-only file for a drive the probe lists. A filesystem Rescue found is
+//! browsed (/api/fs and /api/entry with `rescue` and `at`) and copied out of (/api/rescue with mode
+//! `files`) at the place its record gives, on the drive or image the record names: the browser
+//! never names a device or a path, and picks files through the filesystem's own listings (deleted
+//! ones by the segment their listing gave them).
 
-use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -28,7 +51,8 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 use backdown_core::{
-    Db, apply, browse, fmt, overlap, paths, plan, recognise, report, rescue, summary, volumes, wipe,
+    Db, apply, browse, dedup, fmt, index, names, overlap, paths, plan, recognise, report, rescue,
+    summary, volumes, wipe,
 };
 
 use crate::daemon::Daemon;
@@ -67,9 +91,50 @@ pub fn bind_on(host: &str, port: u16) -> Result<(Server, u16)> {
     Ok((server, port))
 }
 
-#[allow(dead_code)]
-pub fn bind(port: u16) -> Result<(Server, u16)> {
-    bind_on("127.0.0.1", port)
+/// The listeners for `--host`: 127.0.0.1 always (what `backdown app` and `open` talk to, and the
+/// only place changes can come from), plus the address given on the same port, unless it's this
+/// machine anyway or a wildcard (`0.0.0.0`, `::`) that takes in 127.0.0.1 too.
+pub fn bind_all(host: &str, port: u16) -> Result<(Vec<Server>, u16)> {
+    let wildcard = host
+        .trim_matches(['[', ']'])
+        .parse::<std::net::IpAddr>()
+        .is_ok_and(|ip| ip.is_unspecified());
+    if wildcard {
+        let (s, port) = bind_on(host, port)?;
+        return Ok((vec![s], port));
+    }
+    let (here, port) = bind_on("127.0.0.1", port)?;
+    let local = matches!(host, "127.0.0.1" | "localhost")
+        || host
+            .trim_matches(['[', ']'])
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(loopback);
+    if local {
+        return Ok((vec![here], port));
+    }
+    let (there, _) = bind_on(host, port)?;
+    Ok((vec![here, there], port))
+}
+
+/// What a browser on another machine may ask for besides looking (`--host`): queuing a rescan,
+/// which only reads the drives.
+const NETWORK_POSTS: &[&str] = &["/api/rescan"];
+
+const FROM_THE_NETWORK: &str = "Over the network, BackDown only shows what's there: freeing up drives, copying, rescuing, mounting, opening files and changing settings need someone at the computer BackDown runs on.";
+
+/// Whether a request from `peer` is one only someone at this machine may make.
+fn refused_from(peer: Option<std::net::IpAddr>, method: &Method, path: &str) -> bool {
+    *method != Method::Get && !NETWORK_POSTS.contains(&path) && !peer.is_some_and(loopback)
+}
+
+/// Whether a request came from this machine (IPv4, IPv6, or IPv4 mapped into IPv6).
+fn loopback(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V6(v6) => v6
+            .to_ipv4_mapped()
+            .map_or(v6.is_loopback(), |v4| v4.is_loopback()),
+        ip => ip.is_loopback(),
+    }
 }
 
 /// DNS-rebinding allowlist for a non-loopback bind: the address plus this machine's hostname
@@ -88,7 +153,7 @@ pub fn extra_hosts(host: &str, port: u16) -> Vec<String> {
 /// Serve the UI until the process ends. With a daemon, the UI also shows its activity and can
 /// queue rescans.
 pub fn run(
-    server: Server,
+    servers: Vec<Server>,
     db: PathBuf,
     token: String,
     port: u16,
@@ -109,30 +174,48 @@ pub fn run(
         daemon,
         desktop,
     });
-    for req in server.incoming_requests() {
+    let listen = |server: Server, ctx: Arc<Ctx>| {
+        for req in server.incoming_requests() {
+            let ctx = Arc::clone(&ctx);
+            std::thread::spawn(move || handle(&ctx, req));
+        }
+    };
+    let mut servers = servers.into_iter();
+    let first = servers.next().expect("a listener");
+    for other in servers {
         let ctx = Arc::clone(&ctx);
-        std::thread::spawn(move || handle(&ctx, req));
+        std::thread::spawn(move || listen(other, ctx));
     }
+    listen(first, ctx);
 }
 
 /// `backdown serve`: the UI alone, in the foreground, with a one-run link.
 pub fn serve(db: &Path, host: &str, port: u16, open_browser: bool) -> Result<()> {
     Db::open(db)?; // create/migrate once; requests then use read-only connections
     let db = dunce::canonicalize(db)?;
-    let (server, port) = bind_on(host, port)?;
+    let (servers, port) = bind_all(host, port)?;
     let token = new_token()?;
     let extra = extra_hosts(host, port);
-    let shown = if host == "0.0.0.0" { format!("127.0.0.1:{port}") } else { format!("{host}:{port}") };
-    let url = format!("http://{shown}/?t={token}");
-    let scope = if host == "127.0.0.1" { "only on this computer" } else { "reachable at the address above" };
-    eprintln!(
-        "BackDown browser for {} at\n  {url}\n(the link carries a one-time token; {scope}; Ctrl-C to stop)",
-        db.display()
-    );
+    let url = format!("http://127.0.0.1:{port}/?t={token}");
+    eprintln!("BackDown browser for {} at\n  {url}", db.display());
+    if servers.len() > 1 || !matches!(host, "127.0.0.1" | "localhost") {
+        let there = if host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_unspecified())
+        {
+            "THIS-COMPUTER"
+        } else {
+            host
+        };
+        eprintln!(
+            "and from other devices, to look but not change anything, at\n  http://{there}:{port}/?t={token}"
+        );
+    }
+    eprintln!("(the link carries a one-time token; Ctrl-C to stop)");
     if open_browser {
         open(&url);
     }
-    run(server, db, token, port, None, true, extra);
+    run(servers, db, token, port, None, true, extra);
     Ok(())
 }
 
@@ -190,8 +273,11 @@ fn handle(ctx: &Ctx, req: Request) {
         let _ = req.respond(plain(403, "wrong host"));
         return;
     }
-    // the link carries the token once; swap it for a cookie and drop it from the address bar
-    if path == "/" && param("t") == Some(ctx.token.as_str()) {
+    // the link carries the token once (or a one-time code from `backdown app`/`open`, which keeps
+    // the token off command lines); swap it for a cookie and drop it from the address bar
+    if path == "/"
+        && (param("t") == Some(ctx.token.as_str()) || param("c").is_some_and(crate::app::redeem))
+    {
         let resp = Response::empty(StatusCode(303))
             .with_header(header("Location", "/"))
             .with_header(header(
@@ -217,8 +303,29 @@ fn handle(ctx: &Ctx, req: Request) {
     if !cookie_ok {
         let _ = req.respond(plain(
             401,
-            "Open BackDown with `backdown open` (or the link `backdown serve` printed).",
+            "This BackDown window has expired: open BackDown again from your applications (or run `backdown open`, or use the link `backdown serve` printed).",
         ));
+        return;
+    }
+    // over the network (`--host`), BackDown is for looking: what changes a drive, this machine or
+    // BackDown's settings needs someone at this machine
+    if refused_from(req.remote_addr().map(|a| a.ip()), req.method(), path) {
+        let _ = req.respond(json_resp(&json!({ "error": FROM_THE_NETWORK })).with_status_code(403));
+        return;
+    }
+    // Pro features, as tiers.rs's table says: a 402 that explains what's needed
+    if let Some(refusal) = crate::tiers::gate_endpoint(path) {
+        let _ = req.respond(json_resp(&refusal).with_status_code(402));
+        return;
+    }
+    // Settings, licence, updates and launching (settings.rs, with the same POST rules)
+    if crate::settings::handles(path) {
+        let env = crate::settings::Env {
+            daemon: ctx.daemon.as_ref(),
+            desktop: ctx.desktop,
+            db: &ctx.db,
+        };
+        crate::settings::handle(req, path, &params, env);
         return;
     }
     if *req.method() == Method::Post && path == "/api/open" {
@@ -269,6 +376,26 @@ fn handle(ctx: &Ctx, req: Request) {
                 param("confirm"),
                 param("trust") == Some("1"),
             ) {
+                Ok(v) => json_resp(&v),
+                Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
+            }
+        };
+        let _ = req.respond(resp);
+        return;
+    }
+    if *req.method() == Method::Post && (path == "/api/dedup" || path == "/api/plan-merge") {
+        // tidy an archive (the daemon links, after re-reading both files), or turn a plan's
+        // overlapping mailboxes into one merged mailbox
+        let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
+        let resp = if !marked {
+            plain(403, "missing X-BackDown header")
+        } else {
+            let r = if path == "/api/dedup" {
+                start_dedup(ctx, param("folder"), param("link"), param("min"))
+            } else {
+                plan_merge(ctx, param("id"), param("item"))
+            };
+            match r {
                 Ok(v) => json_resp(&v),
                 Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
             }
@@ -344,6 +471,52 @@ fn handle(ctx: &Ctx, req: Request) {
         let _ = req.respond(resp);
         return;
     }
+    if *req.method() == Method::Post && crate::health::handles(path) {
+        // drive health and notifications: read the drives now, mark notifications read, change
+        // or try the notification settings (health.rs)
+        let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
+        let resp = if !marked {
+            plain(403, "missing X-BackDown header")
+        } else {
+            let p = |k: &str| param(k).map(str::to_string);
+            match crate::health::post(ctx.daemon.as_deref(), &ctx.db, path, &p) {
+                Ok(v) => json_resp(&v),
+                Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
+            }
+        };
+        let _ = req.respond(resp);
+        return;
+    }
+    if *req.method() == Method::Post && crate::remote::handles(path) {
+        // other machines: add, remove, test, sync, settings (remote/)
+        let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
+        let resp = if !marked {
+            plain(403, "missing X-BackDown header")
+        } else {
+            let p = |k: &str| param(k).map(str::to_string);
+            match crate::remote::post(ctx.daemon.as_deref(), ctx.desktop, &ctx.db, path, &p) {
+                Ok(v) => json_resp(&v),
+                Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
+            }
+        };
+        let _ = req.respond(resp);
+        return;
+    }
+    if *req.method() == Method::Post && path == "/api/scan-settings" {
+        // how scans may be made: the change log and file table on or off, and how often to walk
+        // anyway (index.rs); changes nothing but the setting itself
+        let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
+        let resp = if !marked {
+            plain(403, "missing X-BackDown header")
+        } else {
+            match set_scan_settings(ctx, &params) {
+                Ok(v) => json_resp(&v),
+                Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
+            }
+        };
+        let _ = req.respond(resp);
+        return;
+    }
     if *req.method() == Method::Post && path == "/api/rescan" {
         let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
         let resp = match (marked, &ctx.daemon) {
@@ -356,6 +529,30 @@ fn handle(ctx: &Ctx, req: Request) {
                 Ok(v) => json_resp(&v),
                 Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
             },
+        };
+        let _ = req.respond(resp);
+        return;
+    }
+    if *req.method() == Method::Post
+        && matches!(
+            path,
+            "/api/mount" | "/api/unmount" | "/api/attach" | "/api/detach" | "/api/rescue-allow"
+        )
+    {
+        // read-only mounts, and reading a drive through udisks (drives.rs): the person at the
+        // screen's own BackDown only
+        let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
+        let resp = if !marked {
+            plain(403, "missing X-BackDown header")
+        } else if !ctx.desktop {
+            json_resp(&json!({ "error": "the machine-wide service only reads what's mounted: mount drives from your own BackDown" }))
+                .with_status_code(409)
+        } else {
+            let p = |n: &str| get(&params, n).map(str::to_string);
+            match crate::drives::post(&ctx.db, path, &p) {
+                Ok(v) => json_resp(&v),
+                Err(e) => json_resp(&crate::drives::error_json(&e)).with_status_code(400),
+            }
         };
         let _ = req.respond(resp);
         return;
@@ -484,16 +681,16 @@ fn new_plan(ctx: &Ctx, to: Option<&str>, from: Option<&str>, skip_junk: bool) ->
         .collect();
     let ov = overlap::overlaps(&db, &list, &mut |_| {})?;
     // caches, previews and build output can be left out: they're regenerable, but then the drives
-    // they're on can't be wiped whole (those files have no copy)
-    let schema = plan::Schema {
-        skip_junk,
-        ..plan::Schema::default()
-    };
+    // they're on can't be wiped whole (those files have no copy). The schema is yours from
+    // Settings if you've edited it.
+    let (mut schema, custom) = crate::settings::schema()?;
+    schema.skip_junk |= skip_junk;
     let mut p = plan::make(&db, &to, only.as_deref(), &schema, &list, &ov)?;
-    p.schema = if skip_junk {
-        "built-in, caches left out".into()
-    } else {
-        "built-in".into()
+    p.schema = match (custom, schema.skip_junk) {
+        (false, true) => "built-in, caches left out".into(),
+        (false, false) => "built-in".into(),
+        (true, true) => "yours (Settings), caches left out".into(),
+        (true, false) => "yours (Settings)".into(),
     };
     if p.items.is_empty() {
         bail!("nothing to file: are the drives recognised yet (What's here)?");
@@ -508,6 +705,11 @@ fn start_apply(ctx: &Ctx, id: Option<&str>) -> Result<Value> {
         .daemon
         .as_ref()
         .context("copying runs in the BackDown service: `backdown apply ID --go` in a terminal")?;
+    if !ctx.desktop {
+        bail!(
+            "the machine-wide service only reads: copy from your own BackDown (`backdown --local apply ID --go`)"
+        );
+    }
     plan::load(&ro_db(ctx)?, id)?;
     let job = d.enqueue(
         "apply",
@@ -622,6 +824,93 @@ fn start_wipe(
     Ok(json!({ "ok": true, "id": id, "job": job }))
 }
 
+/// Why this browser can't start tidying an archive, if it can't.
+fn tidy_blocker(ctx: &Ctx) -> Option<&'static str> {
+    if ctx.daemon.is_none() {
+        Some("tidying runs in the BackDown service: `backdown dedup FOLDER --go` in a terminal")
+    } else if !ctx.desktop {
+        Some(
+            "the machine-wide service only reads: tidy from your own BackDown (`backdown --local dedup FOLDER --go`)",
+        )
+    } else {
+        None
+    }
+}
+
+/// The folder, link and smallest size of a dedup request, checked.
+fn dedup_args(
+    ctx: &Ctx,
+    folder: Option<&str>,
+    link: Option<&str>,
+    min: Option<&str>,
+) -> Result<(PathBuf, dedup::Link, u64)> {
+    let folder = folder
+        .map(str::trim)
+        .filter(|f| !f.is_empty())
+        .context("which folder?")?;
+    let folder = dedup::check_folder(Path::new(folder), Some(&ctx.db))?;
+    let link = dedup::Link::parse(link.unwrap_or("hard"))?;
+    let min = min
+        .map(str::trim)
+        .filter(|m| !m.is_empty())
+        .map(fmt::parse_size)
+        .transpose()?
+        .map_or_else(|| fmt::parse_size("4K"), Ok)?;
+    Ok((folder, link, min))
+}
+
+/// What tidying a folder would do (from the index and the files' metadata), and whether it can
+/// be started from here.
+fn dedup_assess(
+    ctx: &Ctx,
+    db: &Db,
+    folder: Option<&str>,
+    link: Option<&str>,
+    min: Option<&str>,
+) -> Result<Value> {
+    let (folder, link, min) = dedup_args(ctx, folder, link, min)?;
+    let mut v = json!(dedup::assess(db, &folder, link, min)?);
+    v["why_not"] = json!(tidy_blocker(ctx));
+    v["min_size"] = json!(min);
+    Ok(v)
+}
+
+/// Record a dedup run and queue it for the daemon.
+fn start_dedup(
+    ctx: &Ctx,
+    folder: Option<&str>,
+    link: Option<&str>,
+    min: Option<&str>,
+) -> Result<Value> {
+    if let Some(why) = tidy_blocker(ctx) {
+        bail!(why);
+    }
+    let d = ctx.daemon.as_ref().context("no daemon")?;
+    let (folder, link, min) = dedup_args(ctx, folder, link, min)?;
+    let db = Db::open(&ctx.db)?;
+    let id = dedup::record(&db, &folder, link, min)?;
+    let job = d.enqueue(
+        "dedup",
+        Some(format!("dedup {id}")),
+        "requested",
+        crate::daemon::JobOpts {
+            dedup: Some(id),
+            ..Default::default()
+        },
+    );
+    Ok(json!({ "ok": true, "id": id, "job": job }))
+}
+
+/// Merge a plan item (a mailbox) with its twin, before the plan is applied.
+fn plan_merge(ctx: &Ctx, id: Option<&str>, item: Option<&str>) -> Result<Value> {
+    let id: i64 = id.context("missing id")?.parse().context("bad id")?;
+    let item: usize = item.context("missing item")?.parse().context("bad item")?;
+    // a short write to the plan, alongside the daemon
+    let db = Db::open(&ctx.db)?;
+    let p = plan::merge_mail(&db, id, item)?;
+    Ok(json!({ "ok": true, "plan": p }))
+}
+
 /// Start a rescue, or carry one on (`resume`): the checks that can be made before it runs, then a
 /// job in the daemon's side lane. Only reads the source; writes only to the destination.
 fn start_rescue(ctx: &Ctx, params: &[(String, String)]) -> Result<Value> {
@@ -653,8 +942,19 @@ fn start_rescue(ctx: &Ctx, params: &[(String, String)]) -> Result<Value> {
             o["start"] = r.result["pos"].clone();
             rescue::set_options(&db, id, &o)?;
         }
+        if r.mode == "files" {
+            // what was copied (and checked) before the stop is left as it is
+            let mut o = r.options.clone();
+            o["resume"] = json!(true);
+            rescue::set_options(&db, id, &o)?;
+        }
         rescue::set(&db, id, "new", None, None)?;
         id
+    } else if param("mode") == Some("files") {
+        // copy files out of a filesystem: the source is looked up (drives.rs), never sent
+        let p = |n: &str| get(params, n).map(str::to_string);
+        let (src, dest, options) = crate::drives::files_request(&db, &p)?;
+        rescue::record(&db, "files", &src, Some(&dest), &options)?
     } else {
         let mode = param("mode").context("missing mode")?;
         let source = PathBuf::from(param("source").context("which drive or image?")?);
@@ -728,10 +1028,11 @@ fn start_rescue(ctx: &Ctx, params: &[(String, String)]) -> Result<Value> {
 /// The report as HTML (to view) or Markdown (to save), from what's stored and indexed now.
 fn report(ctx: &Ctx, md: bool) -> Result<(String, bool)> {
     let db = ro_db(ctx)?;
-    let rec: Vec<_> = recognise::root_ids(&db)?
+    let mut rec: Vec<_> = recognise::root_ids(&db)?
         .into_iter()
         .filter_map(|id| recognise::load(&db, id).ok().flatten())
         .collect();
+    crate::tiers::strip_provenance(rec.iter_mut().map(|(r, _)| r));
     let list: Vec<_> = rec.iter().map(|(r, _)| r.clone()).collect();
     let ov = overlap::overlaps(&db, &list, &mut |_| {})?;
     let s = summary::build(&db, &rec, &ov, &mut |_| {})?;
@@ -769,6 +1070,76 @@ fn ro_db(ctx: &Ctx) -> Result<Db> {
     Db::open_read_only(&ctx.db)
 }
 
+/// GET /api/scan-settings: how scans may be made (index.rs), and what's possible on this system.
+/// The Settings view shows `settings` (booleans and numbers become controls; `note` is text) with
+/// `labels` and `help`; the Activity view reads it too.
+fn scan_settings(db: &Db) -> Result<Value> {
+    let s = index::settings(db)?;
+    let (journal, table) = match std::env::consts::OS {
+        "windows" => (
+            "the USN journal of NTFS volumes (no administrator rights needed)",
+            "NTFS volumes, when BackDown runs as administrator",
+        ),
+        "macos" => (
+            "the FSEvents history of APFS and HFS+ volumes",
+            "not used on macOS",
+        ),
+        _ => (
+            "none: Linux keeps no change log for drives",
+            "NTFS drives mounted with ntfs-3g, when the drive can be read directly",
+        ),
+    };
+    Ok(json!({
+        "settings": {
+            "fast": s.fast,
+            "walk_every_scans": s.walk_every_scans,
+            "walk_every_days": s.walk_every_days,
+            "note": format!(
+                "A rescan reads only what changed when the drive's change log says what that is \
+                 ({journal}), or reads NTFS's file table instead of every folder ({table}); \
+                 either way it records exactly what walking every folder would, and walks \
+                 whenever there's any doubt."
+            ),
+        },
+        "labels": {
+            "fast": "Use the drive's change log and file table when possible",
+            "walk_every_scans": "Walk every folder anyway, every … scans",
+            "walk_every_days": "… or when the last walk is this many days old",
+        },
+        "help": {
+            "fast": "Off: every scan walks every folder (slower, never different).",
+            "walk_every_scans": "0: not for this reason.",
+            "walk_every_days": "Catches changes made where no change log was kept (the drive plugged into another computer). 0: not for this reason.",
+        },
+        "journal": journal,
+        "table": table,
+    }))
+}
+
+/// POST /api/scan-settings?fast=0|1&walk_every_scans=N&walk_every_days=N (any of them).
+fn set_scan_settings(ctx: &Ctx, params: &[(String, String)]) -> Result<Value> {
+    let db = Db::open(&ctx.db)?;
+    let mut s = index::settings(&db)?;
+    if let Some(v) = get(params, "fast") {
+        s.fast = match v {
+            "1" | "true" | "on" => true,
+            "0" | "false" | "off" => false,
+            _ => bail!("fast is 1 or 0"),
+        };
+    }
+    if let Some(v) = get(params, "walk_every_scans") {
+        s.walk_every_scans = v.parse().context("walk_every_scans is a number")?;
+    }
+    if let Some(v) = get(params, "walk_every_days") {
+        s.walk_every_days = v.parse().context("walk_every_days is a number")?;
+    }
+    index::set_settings(&db, &s)?;
+    if let Some(d) = &ctx.daemon {
+        d.touch(); // open views show the new setting
+    }
+    scan_settings(&db)
+}
+
 fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
     let param = |name: &str| get(params, name);
     if path == "/api/daemon" {
@@ -787,6 +1158,16 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
             }
         });
     }
+    if crate::health::handles(path) {
+        // drive health, notifications and their settings (health.rs)
+        let p = |k: &str| param(k).map(str::to_string);
+        return crate::health::get(ctx.daemon.as_deref(), &ctx.db, path, &p);
+    }
+    if crate::remote::handles(path) {
+        // other machines, as cached and live over ssh (remote/)
+        let p = |k: &str| param(k).map(str::to_string);
+        return crate::remote::get(ctx.daemon.as_deref(), ctx.desktop, &ctx.db, path, &p);
+    }
     let db = ro_db(ctx)?;
     let id = || -> Result<i64> { param("id").context("missing id")?.parse().context("bad id") };
     let dir = || -> Result<PathBuf> { browse::path_of(param("dir").context("missing dir")?) };
@@ -798,6 +1179,7 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
     // the container viewers (peek.rs) read the file an index id resolves to, like `content()`
     let file = || -> Result<PathBuf> { Ok(source(&db, id()?)?.0) };
     Ok(match path {
+        "/api/scan-settings" => scan_settings(&db)?,
         "/api/roots" => json!({ "roots": browse::roots(&db)?, "status": db.status()? }),
         "/api/timeline" => json!(browse::timeline(
             &db,
@@ -810,7 +1192,12 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
                 .transpose()?;
             json!(browse::list(&db, &dir()?, scan)?)
         }
-        "/api/file" => json!(browse::file(&db, id()?)?),
+        "/api/file" => {
+            let mut f = json!(browse::file(&db, id()?)?);
+            // the same content on other machines, and whether those copies count (remote/)
+            crate::remote::copies_for(&db, &mut f)?;
+            f
+        }
         // what's recognised on each drive (as stored: the daemon refreshes it after each scan)
         "/api/entities" => {
             let mut roots = Vec::new();
@@ -821,7 +1208,9 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
                     roots.push(v);
                 }
             }
-            json!({ "roots": roots, "daemon": ctx.daemon.is_some() })
+            let mut v = json!({ "roots": roots, "daemon": ctx.daemon.is_some() });
+            crate::tiers::redact_provenance(&mut v);
+            v
         }
         "/api/mirrors" => json!(
             backdown_core::mirror::list(&db)?
@@ -848,8 +1237,17 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
         "/api/plan" => {
             let id: i64 = id()?;
             let (p, state) = plan::load(&db, id)?;
-            json!({ "id": id, "state": state, "plan": p, "journal": apply::journal_summary(&db, id)? })
+            // mailboxes that could be merged with their twin instead
+            let mergeable: Vec<usize> = (0..p.items.len())
+                .filter(|&i| plan::merge_target(&p, i).is_some())
+                .collect();
+            json!({ "id": id, "state": state, "plan": p, "journal": apply::journal_summary(&db, id)?, "mergeable": mergeable })
         }
+        "/api/dedup-assess" => {
+            dedup_assess(ctx, &db, param("folder"), param("link"), param("min"))?
+        }
+        "/api/dedups" => json!(dedup::history(&db)?),
+        "/api/mail-merges" => json!(backdown_core::mailmerge::history(&db)?),
         "/api/plan-dry" => {
             let mut db = db;
             json!(apply::apply(&mut db, id()?, true, &mut |_| {})?)
@@ -857,9 +1255,13 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
         "/api/wipe-assess" => wipe_assess(ctx, &db, param("keys"))?,
         "/api/wipes" => json!(wipe::history(&db)?),
         // can the daemon read this drive (or image file) directly, and if not, what would let it
-        "/api/rescue-access" => json!(rescue::access(Path::new(
-            param("path").context("missing path")?.trim()
-        ))),
+        "/api/rescue-access" => {
+            let a = rescue::access(Path::new(param("path").context("missing path")?.trim()));
+            let mut v = json!(a);
+            // the system can open it for this BackDown (udisks, a password dialog): drives.rs
+            v["allow"] = json!(ctx.desktop && cfg!(target_os = "linux") && a.device && !a.readable);
+            v
+        }
         "/api/rescues" => json!(rescue::history(&db)?),
         // free space where things would be moved to (the nearest folder up that exists)
         "/api/room" => {
@@ -920,7 +1322,10 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
         }
         "/api/dupes" => {
             let min = fmt::parse_size(param("min").unwrap_or("1M"))?;
-            json!(report::dupes(&db, min, 200)?)
+            let mut d = json!(report::dupes(&db, min, 200)?);
+            // copies on other machines, and what's here once and there again (remote/)
+            backdown_core::remote::annotate_dupes(&db, &mut d, min, 200)?;
+            d
         }
         "/api/sqlite" => sqlite(
             &db,
@@ -951,7 +1356,31 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
             param("quick").is_some(),
         )?,
         "/api/disk" => peek::disk(&file()?, param("path"))?,
-        "/api/fs" => peek::fs_list(&file()?, param("part").unwrap_or("0"), param("path"))?,
+        "/api/fs" => match param("rescue") {
+            // a filesystem a Rescue found: its place comes from the record, not from here
+            Some(r) => {
+                let (src, start, len, _) =
+                    crate::drives::found_region(&db, r.parse()?, num("at", 0)?)?;
+                peek::region_list(
+                    &src,
+                    start,
+                    len,
+                    param("path"),
+                    param("deleted") == Some("1"),
+                )?
+            }
+            None => peek::fs_list(
+                &file()?,
+                param("part").unwrap_or("0"),
+                param("path"),
+                param("deleted") == Some("1"),
+            )?,
+        },
+        // what BackDown mounted or attached (drives.rs), and so can undo; with an id, that image's
+        "/api/mounts" => {
+            let image = param("id").map(|i| Ok::<_, anyhow::Error>(source(&db, i.parse()?)?.0));
+            crate::drives::mounts(ctx.desktop, image.transpose()?.as_deref())
+        }
         // a SQL dump's schema and data sizes (sqldump.rs), a few seconds of reading at a time
         "/api/sqldump" => crate::sqldump::schema(id()?, &file()?, param("more"))?,
         // this machine's disks and what's on them: the same read-only probe as `backdown volumes`
@@ -1056,7 +1485,8 @@ fn content(ctx: &Ctx, req: Request, id: Option<&str>, range: Option<&str>, downl
             return;
         }
     };
-    let mut file = match File::open(&path) {
+    // verbatim on Windows (long paths), with backup semantics when elevated
+    let mut file = match paths::open_read(&path) {
         Ok(f) => f,
         Err(e) => {
             let _ = req.respond(plain(404, &e.to_string()));
@@ -1071,7 +1501,7 @@ fn content(ctx: &Ctx, req: Request, id: Option<&str>, range: Option<&str>, downl
     }
     let name = path
         .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
+        .map(|n| names::nfc(&n.to_string_lossy()).into_owned())
         .unwrap_or_default();
     let mut headers = file_headers(&name);
     headers.push(header("Accept-Ranges", "bytes"));
@@ -1200,7 +1630,7 @@ fn open_on_desktop(ctx: &Ctx, id: Option<&str>, dir: Option<&str>, reveal: bool)
             use std::os::unix::fs::PermissionsExt;
             let mut magic = [0u8; 4];
             std::fs::metadata(&path).is_ok_and(|m| m.permissions().mode() & 0o111 != 0)
-                && File::open(&path)
+                && std::fs::File::open(&path)
                     .and_then(|mut f| f.read(&mut magic))
                     .is_ok()
                 && (magic.starts_with(b"#!")
@@ -1307,8 +1737,22 @@ fn inner(ctx: &Ctx, req: Request, path: &str, params: &[(String, String)]) {
     let param = |name: &str| get(params, name);
     let result = (|| -> Result<peek::Part> {
         let db = ro_db(ctx)?;
-        let (file, _) = source(&db, param("id").context("missing id")?.parse()?)?;
         let max = param("max").map(str::parse).transpose()?;
+        if path == "/api/entry"
+            && let Some(r) = param("rescue")
+        {
+            // a file in a filesystem a Rescue found, at the place its record says
+            let at = param("at").context("missing at")?.parse()?;
+            let (src, start, len, _) = crate::drives::found_region(&db, r.parse()?, at)?;
+            return peek::region_entry(
+                &src,
+                start,
+                len,
+                param("name").context("missing name")?,
+                max,
+            );
+        }
+        let (file, _) = source(&db, param("id").context("missing id")?.parse()?)?;
         if path == "/api/entry" {
             let name = param("name").context("missing name")?;
             match param("part") {
@@ -1555,6 +1999,12 @@ fn ui_asset(name: &str) -> Option<(&'static [u8], &'static str)> {
         "mailbox.js" => "text/javascript; charset=utf-8",
         "sqldump.js" => "text/javascript; charset=utf-8",
         "search.js" => "text/javascript; charset=utf-8",
+        "settings.js" => "text/javascript; charset=utf-8",
+        "tidy.js" => "text/javascript; charset=utf-8",
+        "health.js" => "text/javascript; charset=utf-8",
+        "machines.js" => "text/javascript; charset=utf-8",
+        "fsbrowse.js" => "text/javascript; charset=utf-8",
+        "drives.js" => "text/javascript; charset=utf-8",
         "favicon.svg" => "image/svg+xml",
         "vendor/pdf.min.mjs" => "text/javascript; charset=utf-8",
         "vendor/pdf.worker.min.mjs" => "text/javascript; charset=utf-8",
@@ -1563,5 +2013,69 @@ fn ui_asset(name: &str) -> Option<(&'static [u8], &'static str)> {
         "vendor/highlight.min.js" => "text/javascript; charset=utf-8",
         "vendor/hljs-light.css" => "text/css; charset=utf-8",
         "vendor/hljs-dark.css" => "text/css; charset=utf-8",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::IpAddr;
+
+    fn ip(s: &str) -> Option<IpAddr> {
+        Some(s.parse().unwrap())
+    }
+
+    #[test]
+    fn over_the_network_it_only_shows() {
+        // at this machine: anything
+        for here in ["127.0.0.1", "::1", "::ffff:127.0.0.1"] {
+            assert!(
+                !refused_from(ip(here), &Method::Post, "/api/wipe"),
+                "{here}"
+            );
+        }
+        // from elsewhere: looking, and queuing a rescan
+        for there in [
+            "100.101.102.103",
+            "192.168.1.20",
+            "fd7a:115c:a1e0::1",
+            "::ffff:10.0.0.2",
+        ] {
+            assert!(
+                !refused_from(ip(there), &Method::Get, "/api/files"),
+                "{there}"
+            );
+            assert!(
+                !refused_from(ip(there), &Method::Post, "/api/rescan"),
+                "{there}"
+            );
+            for path in [
+                "/api/wipe",
+                "/api/apply",
+                "/api/rescue",
+                "/api/mount",
+                "/api/open",
+                "/api/settings",
+                "/api/update-install",
+            ] {
+                assert!(
+                    refused_from(ip(there), &Method::Post, path),
+                    "{there} {path}"
+                );
+            }
+        }
+        // no peer address: not taken for this machine
+        assert!(refused_from(None, &Method::Post, "/api/wipe"));
+    }
+
+    #[test]
+    fn loopback_always_listens() {
+        let (s, port) = bind_all("127.0.0.1", 0).unwrap();
+        assert_eq!(s.len(), 1);
+        assert!(port > 0);
+        drop(s);
+        // a wildcard takes in 127.0.0.1 already: one listener
+        let (s, _) = bind_all("0.0.0.0", 0).unwrap();
+        assert_eq!(s.len(), 1);
     }
 }

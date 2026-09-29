@@ -3,9 +3,15 @@ import { fileIcon, folderIcon, driveIcon, kindOf } from './icons.js';
 import { openViewer, openDiff, openGit, openMaildir, previewInto } from './viewers.js';
 import { squarify, compareListings, menu, closeMenu, menuOpen, toast } from './extras.js';
 import { mountFind, find, foundHtml, setScope, setEarlier, more as findMore } from './search.js';
+import { showSettings, proGate, loadFeatures, checkUpdates } from './settings.js';
+import { tidyCard, wireTidy, mergeButton, mergeSources } from './tidy.js';
+import { mountHealth, daemonChanged, healthOfDisk, healthOfPath, pill, dot, mirrorNote, healthHead, notesSection } from './health.js';
+import { mountMachines, renderMachinesNav, machinesDaemon, machinePath, showMachine, remoteCopiesHtml, dupesRemoteHtml, acrossHtml, wipeRemoteLine } from './machines.js';
+import { mountCell, mountNotice, loadMounts, allowButton, browseFoundBtn, filesBody } from './drives.js';
 
 const $ = s => document.querySelector(s);
-const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// names are shown composed (NFC), whichever form the drive stores them in (HFS+ decomposes them)
+const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export const bytes = n => n >= 1e12 ? (n / 1e12).toFixed(2) + ' TB' : n >= 1e9 ? (n / 1e9).toFixed(1) + ' GB' : n >= 1e6 ? (n / 1e6).toFixed(1) + ' MB' : n >= 1e3 ? Math.round(n / 1e3) + ' KB' : n + ' B';
 const count = n => n >= 1e6 ? (n / 1e6).toFixed(2) + ' M' : n >= 1e3 ? (n / 1e3).toFixed(1) + ' K' : String(n);
 export const when = t => t ? new Date(t * 1000).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—';
@@ -16,9 +22,18 @@ export async function api(path, params = {}) {
   const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== ''));
   const r = await fetch(`/api/${path}?${q}`, { credentials: 'same-origin' });
   const j = await r.json().catch(() => ({ error: r.statusText }));
-  if (!r.ok || j.error) throw new Error(j.error || r.statusText);
+  if (!r.ok || j.error) { const e = new Error(j.error || r.statusText); e.refusal = j.needs ? j : null; throw e; }
   return j;
 }
+
+// a view of its own (Activity, Settings, …): the sidebar and header follow
+export function enterView(mode) {
+  S.mode = mode;
+  closeSearch(false);
+  renderTabs(); renderPlaces(); renderPath();
+  $('#banner').hidden = true; $('#info').hidden = true; $('#timebar').hidden = true;
+}
+export const daemonState = () => S.daemon;
 
 const S = {
   roots: [], root: null, dir: null, scan: null, timeline: [], listing: null, entries: [],
@@ -36,10 +51,7 @@ async function boot() {
   const st = data.status;
   $('#status-files').textContent = summary(st);
   renderPlaces();
-  if (!S.roots.length) {
-    $('#view').innerHTML = `<div class="empty"><div>${driveIcon()}<h2>Nothing indexed yet</h2><p>Index a drive first, then reload:<br><code>backdown index /media/my-drive</code></p></div></div>`;
-    return;
-  }
+  if (!S.roots.length) return showActivity();
   const saved = sessionStorage.getItem('bd.dir');
   const start = saved && S.roots.some(r => atob64(saved).startsWith(atob64(r.key))) ? saved : S.roots[0].key;
   await go(start, { push: false });
@@ -60,7 +72,7 @@ function renderPlaces() {
     <div class="place-row">
       <button class="place" type="button" data-key="${r.key}" aria-current="${S.root?.id === r.id && S.mode === 'browse'}" title="${esc(r.path)}">
         <span class="pi">${driveIcon()}</span><span class="pn">${esc(r.name)}</span>
-        <span class="ps">${bytes(r.bytes)} · ${count(r.files)} files</span>
+        <span class="ps">${dot(healthOfPath(r.path))}${bytes(r.bytes)} · ${count(r.files)} files</span>
       </button>
       ${S.daemon?.running ? `<button class="rescan${busy.has(r.path) ? ' spin' : ''}" type="button" data-rescan="${r.id}" title="Rescan ${esc(r.name)} now" aria-label="Rescan ${esc(r.name)}"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg></button>` : ''}
     </div>`).join('');
@@ -70,6 +82,8 @@ function renderPlaces() {
   $('#plan-btn').setAttribute('aria-current', String(S.mode === 'plan'));
   $('#wipe-btn').setAttribute('aria-current', String(S.mode === 'wipe'));
   $('#rescue-btn').setAttribute('aria-current', String(S.mode === 'rescue'));
+  renderMachinesNav(); // other machines and their drives (machines.js)
+  $('#settings-btn').setAttribute('aria-current', String(S.mode === 'settings'));
 }
 
 // ---------- navigation
@@ -151,8 +165,9 @@ function renderPath() {
       `${i ? '<span class="crumb-sep">›</span>' : ''}<button class="crumb" type="button" data-key="${c.key}" title="${esc(c.name)}">${esc(i === 0 ? S.root.name : c.name)}</button>`).join('');
     return;
   }
+  if (S.mode === 'machine') { $('#pathbar').innerHTML = machinePath(); return; }
   if (S.mode !== 'browse') {
-    $('#pathbar').innerHTML = `<span class="crumb" style="cursor:default">${{ dupes: 'Duplicates', activity: 'Activity', entities: 'What’s here', plan: 'Plan', wipe: 'Free up', rescue: 'Rescue' }[S.mode] || 'Search'}</span>`;
+    $('#pathbar').innerHTML = `<span class="crumb" style="cursor:default">${{ dupes: 'Duplicates', activity: 'Activity', entities: 'What’s here', plan: 'Plan', wipe: 'Free up', rescue: 'Rescue', settings: 'Settings' }[S.mode] || 'Search'}</span>`;
     return;
   }
   $('#pathbar').innerHTML = S.listing.crumbs.map((c, i) =>
@@ -410,9 +425,12 @@ async function renderInfo() {
       ${f.error ? `<dt>Read error</dt><dd>${esc(f.error)}</dd>` : ''}
       ${f.content_from ? `<dt>Read from</dt><dd>${esc(f.content_from)} <span class="note">(identical copy)</span></dd>` : ''}
       ${f.content_from === null ? `<dt>Content</dt><dd class="note">Not on any indexed drive any more. The index still remembers its size, hash and dates.</dd>` : ''}
+      ${f.streams ? `<dt>Alternate data streams</dt><dd>${f.streams.count} (${bytes(f.streams.bytes)}): ${f.streams.names.map(([n, b]) =>
+        `${esc(n)} <span class="note">${bytes(b)}${/^(zone\.identifier|smartscreen)$/i.test(n) ? ', a “downloaded from the internet” mark' : ''}</span>`).join(', ')}</dd>` : ''}
     </dl>
     <h4>Other copies (${f.copies.length})</h4>
     ${f.copies.length ? f.copies.map(c => `<button class="rowlink" type="button" data-dir="${c.dir_key}" data-sel="${c.key}">${esc(c.path)}</button>`).join('') : '<p class="note">No identical copy anywhere else in the index.</p>'}
+    ${remoteCopiesHtml(f)}
     <h4>Versions (${f.versions.length})</h4>
     ${vers.map(v => `<div class="ver"><span class="when">${day(v.from)}${v.to !== v.from ? ` – ${v.current ? 'now' : day(v.to)}` : ''}</span>
         <span class="meta">${bytes(v.size)}${v.sha256 ? ` · ${v.sha256.slice(0, 10)}…` : ''}${v.readable ? '' : ' · bytes gone'}</span>
@@ -776,6 +794,8 @@ function tabTitle(t) {
   if (t.mode === 'plan') return 'Plan';
   if (t.mode === 'wipe') return 'Free up';
   if (t.mode === 'rescue') return 'Rescue';
+  if (t.mode === 'machine') return 'Machines';
+  if (t.mode === 'settings') return 'Settings';
   if (t.mode === 'compare') return `Compare · ${t.cmp?.listing?.name || ''}`;
   if (!t.listing) return S.roots.find(r => t.dir && atob64(t.dir).startsWith(atob64(r.key)))?.name || '…';
   return t.listing.crumbs.length > 1 ? t.listing.name : t.root?.name || t.listing.name;
@@ -824,6 +844,8 @@ async function showCurrent() {
   if (S.mode === 'plan') return showPlan();
   if (S.mode === 'wipe') return showWipe();
   if (S.mode === 'rescue') return showRescue();
+  if (S.mode === 'machine') return showMachine();
+  if (S.mode === 'settings') return showSettings();
   if (S.mode === 'compare' && S.cmp) return renderCompare();
   S.mode = 'browse';
   if (!S.listing) return S.dir ? go(S.dir, { push: false, scan: null }) : showActivity();
@@ -900,7 +922,8 @@ async function showDupes() {
     <div class="banner" style="margin:-14px -14px 14px">${bytes(d.reclaimable)} could be freed across ${count(d.groups)} groups of identical files (SHA-256 verified; hardlinks count once). ${picker}</div>
     <table class="list"><thead><tr><th>Copies</th><th class="n">Each</th><th class="n">Reclaimable</th><th>Locations</th></tr></thead><tbody>${d.largest.map(g => `
       <tr><td>${fileIcon(g.paths[0], 20)} ×${g.copies}</td><td class="n">${bytes(g.size)}</td><td class="n"><b>${bytes(g.reclaimable)}</b></td>
-      <td>${g.paths.map(p => `<button class="rowlink" type="button" data-dupe="${esc(p)}">${esc(p)}</button>`).join('')}</td></tr>`).join('')}</tbody></table>`
+      <td>${g.paths.map(p => `<button class="rowlink" type="button" data-dupe="${esc(p)}">${esc(p)}</button>`).join('')}${dupesRemoteHtml(g)}</td></tr>`).join('')}</tbody></table>${acrossHtml(d)}`
+    : d.across?.files ? `<div class="banner" style="margin:-14px -14px 14px">No duplicates on this computer ${dupesMin === '1' ? 'yet' : 'this size'}. ${picker}</div>${acrossHtml(d)}`
     : `<div class="empty"><div><h2>No duplicates ${dupesMin === '1' ? 'found yet' : 'this size'}</h2><p>${picker}</p><p>Only hashed files count: <code>backdown hash</code> hashes everything that could be a duplicate.</p></div></div>`;
   $('#dupes-min').onchange = e => { dupesMin = e.target.value; showDupes(); };
   $('#view').querySelectorAll('[data-dupe]').forEach(b => b.onclick = async () => {
@@ -986,7 +1009,7 @@ function entityCard(e, r) {
     <button class="rowlink ent-path" type="button" data-ent-open="${e.key}" data-ent-file="${e.is_file ? 1 : ''}" title="Open ${esc(e.path)}">${esc(rel)}</button>
     <div class="ent-meta">${[yearsOf(e), e.is_file ? '' : `${count(e.files)} files`, e.confidence < 0.8 ? `${Math.round(e.confidence * 100)}% sure` : ''].filter(Boolean).map(esc).join(' · ')}</div>
     ${e.facts.length ? `<dl class="ent-facts">${e.facts.filter(([k]) => k !== 'Size').map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl>` : ''}
-    ${e.provenance.length ? `<ul class="ent-prov">${e.provenance.map(p => `<li>${esc(p)}</li>`).join('')}</ul>` : ''}
+    ${e.provenance.length ? `<ul class="ent-prov">${e.provenance.map(p => `<li>${esc(p)}</li>`).join('')}</ul>` : e.provenance_locked ? '<p class="ent-junk">Where it came from is part of BackDown Pro. <button class="rowlink" type="button" data-set-go="licence">Add a licence key</button></p>' : ''}
     ${share != null ? `<div class="ent-else"><div class="meter"><i style="width:${(share * 100).toFixed(1)}%"></i></div><span>${Math.floor(share * 100)}% exists elsewhere${ov.containers[0] ? `, mostly in <button class="rowlink" type="button" data-ent-open="${ov.containers[0].key}">${esc(ov.containers[0].label)}</button>` : ''}</span></div>` : ''}
     ${junk ? `<p class="ent-junk">${bytes(junk)} regenerable: ${esc([...new Set(e.junk.map(j => j.why))].slice(0, 3).join(', '))}</p>` : ''}
     ${e.low_value ? '<p class="ent-junk">Probably not worth keeping as a unit.</p>' : ''}
@@ -1011,6 +1034,7 @@ async function showPlan(id = PL.id) {
   closeSearch(false);
   renderTabs(); renderPlaces(); renderPath();
   $('#banner').hidden = true; $('#info').hidden = true; $('#timebar').hidden = true;
+  if (proGate('plan')) return;
   $('#view').innerHTML = '<div class="empty"><p>Loading…</p></div>';
   PL.list = await api('plans').catch(() => []);
   // what's regenerable on each drive (caches, previews, build output), for "leave them out"
@@ -1036,11 +1060,11 @@ function renderPlan() {
       <button class="btn primary" type="button" id="pl-make">Make plan</button></section>`;
   const picker = PL.list.length > 1 ? `<select id="pl-pick" aria-label="Plans">${PL.list.map(p => `<option value="${p.id}"${p.id === PL.id ? ' selected' : ''}>Plan ${p.id} · ${esc(day(p.created_at))} · ${esc(p.state)}</option>`).join('')}</select>` : '';
   if (!PL.data) {
-    v.innerHTML = `<div class="plan">${form}<div class="empty"><div><h2>No plan yet</h2><p>A plan proposes where everything on your old drives goes in one archive: mail with mail, phones with phones, each thing as a unit, with the reason for every placement.</p></div></div></div>`;
+    v.innerHTML = `<div class="plan">${form}<div class="empty"><div><h2>No plan yet</h2><p>A plan proposes where everything on your old drives goes in one archive: mail with mail, phones with phones, each thing as a unit, with the reason for every placement.</p></div></div>${tidyCard(guess)}</div>`;
   } else {
     const { plan: p, state, journal } = PL.data;
     const j = Object.fromEntries(journal.map(([s, n, b]) => [s, { n, b }]));
-    const groups = [['copy', 'Copy'], ['copy-unique', 'Copy only what’s unique'], ['skip', 'Not copied']];
+    const groups = [['copy', 'Copy'], ['copy-unique', 'Copy only what’s unique'], ['merge', 'Merge snapshots of a mailbox'], ['skip', 'Not copied']];
     v.innerHTML = `<div class="plan">
       <div class="pl-head">
         <div><h2>Plan ${PL.id}</h2><p class="muted">into <code>${esc(p.target)}</code> · made ${esc(when(p.created_at))}${/caches left out/.test(p.schema || '') ? ' · caches left out' : ''} · <span class="pill ${state === 'done' ? 'ok' : state === 'partial' ? 'warn' : ''}">${esc(state)}</span></p></div>
@@ -1049,8 +1073,8 @@ function renderPlan() {
           <button class="btn primary" type="button" id="pl-go"${S.daemon ? '' : ' disabled title="Copying runs in the BackDown service: backdown apply ' + PL.id + ' --go"'}>Apply: copy ${bytes(p.copy_bytes)}</button></div>
       </div>
       ${form}
-      ${PL.dry ? `<div class="pl-dry banner">${PL.dry.error ? esc(PL.dry.error) : `Dry run: ${count(PL.dry.would_copy)} files (${bytes(PL.dry.would_copy_bytes)}) would be copied${PL.dry.resumed ? `; ${count(PL.dry.resumed)} are done already` : ''}${PL.dry.duplicates ? `; ${count(PL.dry.duplicates)} are already in the archive` : ''}${PL.dry.conflicts ? `; ${count(PL.dry.conflicts)} destinations exist and will be compared, never overwritten` : ''}. Nothing was written.`}</div>` : ''}
-      ${journal.length ? `<div class="pl-journal"><b>Done so far:</b> ${j.copied ? `${count(j.copied.n)} files copied and verified (${bytes(j.copied.b)})` : 'nothing copied yet'}${j['already-there'] ? ` · ${count(j['already-there'].n)} already there` : ''}${j.duplicate ? ` · ${count(j.duplicate.n)} already in the archive` : ''}${j.conflict ? ` · <span class="warn-t">${count(j.conflict.n)} conflicts</span>` : ''}${j.failed ? ` · <span class="warn-t">${count(j.failed.n)} failed</span>` : ''}</div>` : ''}
+      ${PL.dry ? `<div class="pl-dry banner">${PL.dry.error ? esc(PL.dry.error) : `Dry run: ${count(PL.dry.would_copy)} files (${bytes(PL.dry.would_copy_bytes)}) would be copied${PL.dry.would_merge ? `; ${count(PL.dry.would_merge)} mailbox${PL.dry.would_merge === 1 ? '' : 'es'} would be merged from ${PL.dry.would_merge === 1 ? 'its' : 'their'} snapshots, message by message` : ''}${PL.dry.resumed ? `; ${count(PL.dry.resumed)} are done already` : ''}${PL.dry.duplicates ? `; ${count(PL.dry.duplicates)} are already in the archive` : ''}${PL.dry.conflicts ? `; ${count(PL.dry.conflicts)} destinations exist and will be compared, never overwritten` : ''}. Nothing was written.`}</div>` : ''}
+      ${journal.length ? `<div class="pl-journal"><b>Done so far:</b> ${j.copied ? `${count(j.copied.n)} files copied and verified (${bytes(j.copied.b)})` : j.merged ? '' : 'nothing copied yet'}${j.merged ? `${j.copied ? ' · ' : ''}${count(j.merged.n)} mailbox${j.merged.n === 1 ? '' : 'es'} merged (${bytes(j.merged.b)})` : ''}${j['already-there'] ? ` · ${count(j['already-there'].n)} already there` : ''}${j.duplicate ? ` · ${count(j.duplicate.n)} already in the archive` : ''}${j.conflict ? ` · <span class="warn-t">${count(j.conflict.n)} conflicts</span>` : ''}${j.failed ? ` · <span class="warn-t">${count(j.failed.n)} failed</span>` : ''}</div>` : ''}
       <h3>Drives</h3>
       <table class="list pl-drives"><thead><tr><th>Drive</th><th class="n">Size</th><th class="n">To copy</th><th class="n">Already archived</th><th>After applying</th></tr></thead><tbody>
       ${p.drives.map(d => `<tr><td><b>${esc(d.drive)}</b><small class="muted">${esc(d.path)}</small></td><td class="n">${bytes(d.bytes)}</td><td class="n">${bytes(d.copy)}</td><td class="n">${bytes(d.already)}</td>
@@ -1058,10 +1082,13 @@ function renderPlan() {
       ${groups.map(([a, label]) => { const items = p.items.filter(i => i.action === a); return items.length ? `<h3>${label} <span class="muted">(${items.length})</span></h3><div class="pl-items">${items.map(i => `
         <div class="pl-item ${a}"><div class="pl-what"><b>${esc(i.what)}</b><span class="pl-size">${bytes(i.bytes)}</span></div>
           <button class="rowlink pl-src-path" type="button" data-ent-open="${i.source_key}" data-ent-file="${i.is_file ? 1 : ''}">${esc(i.source)}</button>
+          ${mergeSources(i)}
           ${a !== 'skip' ? `<div class="pl-dest">→ <code>${esc(i.dest)}</code></div>` : ''}
-          <div class="pl-why">${esc(i.why)}</div></div>`).join('')}</div>` : ''; }).join('')}
+          <div class="pl-why">${esc(i.why)}</div>${mergeButton(PL.data, p.items.indexOf(i))}</div>`).join('')}</div>` : ''; }).join('')}
+      ${tidyCard(p.target)}
     </div>`;
   }
+  wireTidy({ planId: PL.id, reload: () => showPlan(PL.id), error: toastError, poll: () => { if (!polling) pollDaemon(true); } });
   $('#pl-make')?.addEventListener('click', makePlan);
   $('#pl-junk')?.addEventListener('change', e => { PL.junk = e.target.checked; });
   document.querySelectorAll('.pl-src').forEach(c => c.addEventListener('change', junkSize));
@@ -1129,6 +1156,7 @@ function showWipe(pre = null) {
   closeSearch(false);
   renderTabs(); renderPlaces(); renderPath();
   $('#banner').hidden = true; $('#info').hidden = true; $('#timebar').hidden = true;
+  if (proGate('wipe')) return;
   if (pre) {
     WP.sel = new Map();
     for (const p of pre) if (!pre.some(o => under(p.path, o.path))) WP.sel.set(p.key, p);
@@ -1272,6 +1300,7 @@ function renderWipeAssess() {
         <li><span class="dot k"></span>${it.kept_files ? `${bytes(it.kept_bytes)} has` : 'None of it has'} an identical copy elsewhere${it.copies.length ? `: ${it.copies.map(c => `${bytes(c.bytes)} in <code>${esc(c.path)}</code>`).join(', ')}` : ''}</li>
         ${it.only_files ? `<li><span class="dot o"></span>${bytes(it.only_bytes)} (${count(it.only_files)} files) exists only here</li>` : ''}
         ${it.unreadable_files ? `<li><span class="dot u"></span>${count(it.unreadable_files)} files couldn’t be read at the last scan: left in place</li>` : ''}
+        ${wipeRemoteLine(it, a)}
         ${it.connected ? '' : '<li class="warn-t">Its drive isn’t connected: connect it to wipe</li>'}
       </ul>`}</div>`;
   }).join('') + '<p class="wp-total" id="wp-total"></p>';
@@ -1411,6 +1440,21 @@ const RS_WHAT = [
   ['parts', 'It looks empty, or a partition vanished', 'Look for file systems the partition table no longer lists. Nothing on the drive is changed.'],
 ];
 
+// "Copy it now" on a failing drive (health.js): Rescue, set up to copy that drive
+function rescueDrive(device, title) {
+  Object.assign(RS, { src: { path: device, title, kind: 'disk' }, what: 'image', dest: '', range: null, access: null });
+  showRescue();
+  checkAccess();
+  // once the list of drives is in, show the chosen one
+  const t0 = Date.now();
+  const reveal = () => {
+    const on = document.querySelector('.rs-opt.on');
+    if (on) on.scrollIntoView({ block: 'center' });
+    else if (S.mode === 'rescue' && Date.now() - t0 < 5000) setTimeout(reveal, 150);
+  };
+  reveal();
+}
+
 function showRescue() {
   S.mode = 'rescue';
   closeSearch(false);
@@ -1471,12 +1515,19 @@ function renderRescueAccess() {
   if (!RS.src || (RS.src.kind === 'file' && !RS.src.file)) { el.innerHTML = ''; return; }
   if (!a) { el.innerHTML = '<p class="muted rs-acc">Checking…</p>'; return; }
   el.innerHTML = a.readable
-    ? `<p class="rs-acc ok"><span class="dot k"></span>BackDown can read it: ${bytes(a.size || 0)}.</p>`
+    ? `<p class="rs-acc ok"><span class="dot k"></span>BackDown can read it: ${bytes(a.size || 0)}${a.granted ? ' (opened for it by the system, read-only, until BackDown stops)' : ''}.</p>`
     : `<div class="rs-acc no"><p><span class="dot o"></span>${esc(a.why || 'It can’t be read.')}</p>
       ${a.fix ? `<p class="muted">Run this once in a terminal, then check again. It lets your account read this drive only (never change it), until it’s unplugged or the computer restarts:</p>
       <div class="rs-cmd"><code>${esc(a.fix)}</code><button class="btn sm" type="button" data-rs-copy="${esc(a.fix)}">Copy</button></div>` : ''}
+      ${allowButton(a)}
       <button class="btn sm" type="button" data-rs-recheck>Check again</button></div>`;
 }
+
+// the system opened the drive for BackDown (drives.js); a copy-out was started from a browser
+document.addEventListener('bd:access', e => {
+  if (e.detail?.path === (RS.src?.kind === 'file' ? (RS.src.file || '').trim() : RS.src?.path)) { RS.access = e.detail; renderRescueAccess(); renderRescueGo(); }
+});
+document.addEventListener('bd:rescue-started', () => { loadRescues(); if (!polling) pollDaemon(true); });
 
 function renderRescueWhat() {
   const el = $('#rs-what');
@@ -1629,7 +1680,7 @@ function renderRescueList() {
   el.innerHTML = `<h3>Rescues</h3>` + RS.list.map(r => rescueCard(r, live.get(`rescue ${r.id}`))).join('');
 }
 
-const RS_TITLE = { image: 'Copy', carve: 'Find files', parts: 'Look for partitions' };
+const RS_TITLE = { image: 'Copy', carve: 'Find files', parts: 'Look for partitions', files: 'Copy files out' };
 const RS_STATE = { done: 'ok', stopped: 'warn', failed: 'warn', running: 'busy', new: 'busy' };
 const baseName = p => (p || '').split(/[\\/]/).filter(Boolean).pop() || p;
 
@@ -1667,13 +1718,14 @@ function rescueCard(r, job) {
         ${fs.map(f => `<tr><td>${bytes(f.start)}<small class="muted">sector ${(f.start / (res.sector || 512)).toLocaleString()}</small></td><td class="n">${f.size ? bytes(f.size) : '?'}</td>
           <td>${esc(f.fs)}${f.via !== 'boot sector' && f.via !== 'superblock' ? `<small class="muted">found by its ${esc(f.via)}</small>` : ''}</td><td>${esc(f.label || '')}${f.nested ? '<small class="muted">inside another file system</small>' : ''}</td>
           <td>${f.in_table ? '<span class="pill ok">yes</span>' : '<span class="pill warn">no: lost</span>'}${f.truncated ? '<span class="pill warn">runs past the end</span>' : ''}</td>
-          <td><button class="btn sm" type="button" data-rs-pick='${esc(JSON.stringify({ source: r.source, start: f.start, end: f.size ? f.start + f.size : null, label: `${f.fs}${f.label ? ` “${f.label}”` : ''} at ${bytes(f.start)}` }))}'>Find files in it</button></td></tr>`).join('')}</tbody></table>` : ''}`;
+          <td class="rs-acts">${browseFoundBtn(r, f)}<button class="btn sm" type="button" data-rs-pick='${esc(JSON.stringify({ source: r.source, start: f.start, end: f.size ? f.start + f.size : null, label: `${f.fs}${f.label ? ` “${f.label}”` : ''} at ${bytes(f.start)}` }))}'>Find files in it</button></td></tr>`).join('')}</tbody></table>` : ''}`;
   }
+  if (r.mode === 'files') body += filesBody(r, job);
   // stopped or interrupted before it got anywhere: start it again as it was
-  if (!job && ['stopped', 'interrupted', 'failed'].includes(state) && !(r.mode === 'image' ? res.size : r.mode === 'carve' ? res.by_group : res.found))
+  if (!job && ['stopped', 'interrupted', 'failed'].includes(state) && !(r.mode === 'image' ? res.size : r.mode === 'carve' ? res.by_group : r.mode === 'files' ? res.files != null : res.found))
     body += `<div class="rs-next"><button class="btn sm" type="button" data-rs-next='${esc(JSON.stringify({ resume: r.id }))}'>Start again</button></div>`;
   if (r.state === 'failed' && !job) body += `<p class="warn-t">${esc(r.summary || 'It stopped with an error.')}</p>`;
-  else if (r.summary && !job && r.mode !== 'parts') body += `<p class="muted">${esc(r.summary)}</p>`;
+  else if (r.summary && !job && r.mode !== 'parts' && r.mode !== 'files') body += `<p class="muted">${esc(r.summary)}</p>`;
   return `<article class="rs-item">
     <header><b>${RS_TITLE[r.mode] || r.mode}</b><span class="rs-where">${where}</span>
       <span class="pill ${RS_STATE[state] || (state === 'interrupted' ? 'warn' : '')}">${state}</span>
@@ -1719,7 +1771,9 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) poll
 
 const jobName = j => j.kind === 'index' ? `Scan ${rootName(j.path)}` : j.kind === 'entities' ? 'Recognise what’s on the drives'
   : j.kind === 'apply' ? `Apply ${j.path || 'a plan'}` : j.kind === 'mirror-sync' ? `Sync ${j.path || 'a mirror'}`
-  : j.kind === 'mirror-verify' ? `Verify ${j.path || 'a mirror'}` : j.kind === 'wipe' ? `Free up (${j.path || 'a wipe'})` : j.kind === 'rescue' ? rescueJobName(j) : 'Hash new and changed files';
+  : j.kind === 'mirror-verify' ? `Verify ${j.path || 'a mirror'}` : j.kind === 'wipe' ? `Free up (${j.path || 'a wipe'})` : j.kind === 'rescue' ? rescueJobName(j)
+  : j.kind === 'remote-sync' ? `Sync the machine ${j.path || ''}`
+  : j.kind === 'dedup' ? `Tidy the archive (${j.path || 'dedup'})` : j.kind === 'mail-merge' ? `Merge mailboxes (${j.path || 'merge'})` : 'Hash new and changed files';
 function rescueJobName(j) {
   const r = RS.list.find(x => `rescue ${x.id}` === j.path);
   return r ? `${RS_TITLE[r.mode] || 'Rescue'}: ${baseName(r.source)}` : 'Rescue';
@@ -1731,6 +1785,8 @@ async function applyDaemon(d) {
   let fin = [], prevSeen = null;
   S.daemon = d.running ? d : null;
   if (d.running) clockSkew = d.now - Date.now() / 1000;
+  daemonChanged(d); // drive health or notifications changed: health.js fetches them again
+  machinesDaemon(d); // a machine's sync started or ended: machines.js fetches them again
   const st = $('#status-act');
   if (S.daemon) {
     const cur = d.current, q = d.queued.length, c = cur?.counts;
@@ -1820,8 +1876,11 @@ function eta(j, now) {
   if (p == null || p < 0.02 || took < 15) return '';
   return `about ${dur(took * (1 - p) / p)} left`;
 }
-const REASON = { requested: 'you asked', scheduled: 'scheduled', returned: 'drive came back', 'after-scan': 'after a scan', 'after-apply': 'after copying', 'after-wipe': 'after wiping', 'after-rescue': 'recovered files' };
+const REASON = { requested: 'you asked', scheduled: 'scheduled', returned: 'drive came back', 'after-scan': 'after a scan', 'after-apply': 'after copying', 'after-wipe': 'after wiping', 'after-rescue': 'recovered files', 'after-dedup': 'after tidying', 'after-merge': 'after merging mail', 'after-sync': 'after a machine’s sync', 'after-hash': 'after hashing' };
 const JOB_ICON = {
+  'remote-sync': '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>',
+  dedup: '<svg viewBox="0 0 24 24"><path d="M10 14a3.5 3.5 0 0 0 5 0l3-3a3.5 3.5 0 0 0-5-5l-.5.5"/><path d="M14 10a3.5 3.5 0 0 0-5 0l-3 3a3.5 3.5 0 0 0 5 5l.5-.5"/></svg>',
+  'mail-merge': '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>',
   index: '<svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg>',
   hash: '<svg viewBox="0 0 24 24"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></svg>',
   entities: '<svg viewBox="0 0 24 24"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>',
@@ -1833,7 +1892,7 @@ const JOB_ICON = {
 };
 
 let activityClock;
-const ACT = { mirrors: null, volumes: null, probing: false };
+const ACT = { mirrors: null, volumes: null, probing: false, scanning: null };
 function probeVolumes() {
   ACT.probing = true;
   api('volumes').then(v => { ACT.volumes = v; }).catch(e => { ACT.volumes = { error: e.message }; })
@@ -1842,7 +1901,7 @@ function probeVolumes() {
 // every disk and partition here (probed when Activity opens, or on "Look again"; never on a timer)
 function connectedDrives() {
   const v = ACT.volumes;
-  const head = `<h3>Connected drives <button class="btn sm" type="button" id="vol-again"${ACT.probing ? ' disabled' : ''}>${ACT.probing ? 'Looking…' : 'Look again'}</button></h3>`;
+  const head = `<h3>Connected drives <button class="btn sm" type="button" id="vol-again"${ACT.probing ? ' disabled' : ''}>${ACT.probing ? 'Looking…' : 'Look again'}</button>${healthHead()}</h3>`;
   if (!v) return `<section>${head}<p class="muted pad">Looking…</p></section>`;
   if (v.error) return `<section>${head}<p class="muted pad">${esc(v.error)}</p></section>`;
   const STATE = { system: ['off', 'system'], mounted: ['ok', 'mounted'], mountable: ['warn', 'not mounted'], encrypted: ['warn', 'encrypted'],
@@ -1854,18 +1913,26 @@ function connectedDrives() {
     const act = idx ? `<span class="muted">indexed${idx.scanned_at ? ` · scanned ${rel(idx.scanned_at)}` : ''}</span>`
       : vol.state === 'mounted' && mount && S.daemon ? `<button class="btn sm" type="button" data-index-path="${esc(mount.path)}">Index this</button>` : '';
     return `<tr><td><b>${esc(vol.label || vol.name)}</b><small class="muted">${esc(vol.device)}${mount ? ` · ${esc(mount.path)}${mount.read_only ? ' (read-only)' : ''}` : ''}</small></td>
-      <td>${esc(vol.fs_name || vol.fs || '—')}</td><td class="n">${bytes(vol.size || 0)}</td><td><span class="pill ${cls}">${label}</span>${vol.note ? `<small class="muted">${esc(vol.note)}</small>` : ''}</td><td>${act}</td></tr>`
+      <td>${esc(vol.fs_name || vol.fs || '—')}</td><td class="n">${bytes(vol.size || 0)}</td><td><span class="pill ${cls}">${label}</span>${vol.note ? `<small class="muted">${esc(vol.note)}</small>` : ''}</td><td class="act-do">${act}${mountCell(vol)}</td></tr>`
       + (vol.holders || []).map(rows).join('');
   };
-  return `<section>${head}${v.disks.map(dk => `<div class="vol-disk"><div class="vol-head"><b>${esc(dk.model || dk.name)}</b>
+  return `<section>${head}${mountNotice()}${v.disks.map(dk => `<div class="vol-disk"><div class="vol-head"><b>${esc(dk.model || dk.name)}</b>${pill(healthOfDisk(dk))}
       <span class="muted">${esc(dk.device)} · ${bytes(dk.size || 0)} · ${esc(dk.transport || '')}${dk.rotational ? ' · spinning disk' : dk.rotational === false ? ' · solid state' : ''}${dk.system ? ' · system disk' : ''}</span></div>
       <table class="list act-drives"><tbody>${dk.volumes.map(rows).join('')}</tbody></table></div>`).join('')}
     ${(v.notes || []).map(n => `<p class="muted pad">${esc(n)}</p>`).join('')}</section>`;
 }
+// a partition mounted or unmounted, an image attached or detached (drives.js): look again
+document.addEventListener('bd:drives', e => {
+  if (e.detail?.reprobe) probeVolumes();
+  else if (S.mode === 'activity') renderActivity();
+});
 function showActivity() {
+  loadMounts().then(() => { if (S.mode === 'activity') renderActivity(); });
   if (!ACT.volumes && !ACT.probing) probeVolumes();
   if (!RS.list.length) loadRescues().then(() => { if (S.mode === 'activity') renderActivity(); });
   api('mirrors').then(m => { ACT.mirrors = m; if (S.mode === 'activity') renderActivity(); }).catch(() => {});
+  // how scans may be made (the change log, the file table, a walk now and then): GET/POST /api/scan-settings
+  api('scan-settings').then(s => { ACT.scanning = s; if (S.mode === 'activity') renderActivity(); }).catch(() => {});
   S.mode = 'activity';
   closeSearch(false);
   renderTabs(); renderPlaces(); renderPath();
@@ -1912,7 +1979,8 @@ function renderActivity() {
       <div class="act-head"><span class="pulse"></span><h2>${esc(jobName(cur))}<span class="muted">${stage}</span></h2><span class="act-pct">${p != null ? Math.round(p * 100) + '%' : ''}</span></div>
       <div class="meter${p == null ? ' unknown' : ''}"><i style="width:${p != null ? (p * 100).toFixed(1) : 100}%"></i></div>
       <p>${detail}</p>
-      <p class="muted">Started ${rel(cur.started_at)} · ${REASON[cur.reason] || ''}${eta(cur, now) ? ` · ${eta(cur, now)}` : ''}</p>
+      <p class="muted${cur.stoppable ? ' act-side-foot' : ''}"><span>Started ${rel(cur.started_at)} · ${REASON[cur.reason] || ''}${eta(cur, now) ? ` · ${eta(cur, now)}` : ''}</span>${cur.stoppable ? `
+        <button class="btn sm" type="button" data-job-stop="${cur.id}" title="Stops at the next file; running it again carries on">Stop</button>` : ''}</p>
     </section>`;
   } else {
     const next = d.drives.filter(x => x.present && x.next_at).sort((a, b) => a.next_at - b.next_at)[0];
@@ -1942,25 +2010,42 @@ function renderActivity() {
         <span class="pill">${REASON[j.reason] || ''}</span>
         <span class="muted" title="${esc(when(j.finished_at))}">${rel(j.finished_at)}${j.started_at && j.finished_at ? ` · took ${dur(j.finished_at - j.started_at)}` : ''}</span></li>`).join('')}</ol>`
     : '<p class="muted pad">Nothing has run since the daemon started.</p>';
+  const welcome = S.roots.length ? '' : `<section class="act-card welcome"><div class="act-head"><h2>Welcome to BackDown</h2></div>
+      <p>Nothing is indexed yet. Below are the drives connected to this computer: choose <b>Index this</b> on each one you want to know about. BackDown only reads them.</p>
+      <p class="muted">Each drive appears on the left when its scan is done. Then <b>Duplicates</b> shows what's stored twice, <b>What's here</b> what things are, and its <b>Report</b> button the whole picture.</p>
+      <form class="welcome-folder" id="welcome-folder"><label>Or a folder: <input id="welcome-path" spellcheck="false" placeholder="${esc(d.db.includes('\\') ? 'D:\\Photos' : '/media/me/Photos')}"></label><button class="btn sm" type="submit">Index it</button></form></section>`;
   view.innerHTML = `<div class="activity">
+    ${welcome}
     ${now_}
+    ${notesSection()}
     <section><h3>Up next</h3>${queue}</section>
     <section><h3>Drives and schedule</h3>${drivesTable(d.drives, true)}</section>
     ${connectedDrives()}
     ${ACT.mirrors?.length ? `<section><h3>Mirrors</h3><ol class="act-list">${ACT.mirrors.map(m => `
       <li class="${m.last_verify_ok === false ? 'failed' : 'done'}"><span class="ji ${m.last_verify_ok === false ? 'failed' : 'done'}">${JOB_ICON['mirror-sync']}</span>
-        <span class="jn">${esc(rootName(m.source))} → ${esc(m.target)}<small>${esc(m.last_verify_summary || 'not verified yet')}</small></span>
+        <span class="jn">${esc(rootName(m.source))} → ${esc(m.target)}<small>${esc(m.last_verify_summary || 'not verified yet')}</small>${mirrorNote(m)}</span>
         <span class="pill ${m.connected ? 'ok' : 'off'}">${m.connected ? 'both drives here' : 'a drive isn’t connected'}</span>
         <span class="muted">synced ${rel(m.last_sync)} · verified ${rel(m.last_verify)}</span></li>`).join('')}</ol></section>` : ''}
     <section><h3>Recent</h3>${recent}</section>
     <p class="act-foot muted">BackDown ${esc(d.version)} · running since ${rel(d.started_at)} · ${d.rescan_every_secs ? `rescans each drive every ${dur(d.rescan_every_secs)}` : 'rescans on request'} ·
-      drives checked ${rel(d.checked_at)} · index <code>${esc(d.db)}</code></p>
+      drives checked ${rel(d.checked_at)} · index <code>${esc(d.db)}</code>${scanWays()}</p>
   </div>`;
   view.scrollTop = keepScroll;
 }
 
+// how rescans are made (the Settings view changes it through POST /api/scan-settings)
+function scanWays() {
+  const a = ACT.scanning, s = a?.settings;
+  if (!s) return '';
+  const safety = [s.walk_every_scans ? `every ${s.walk_every_scans} scans` : '', s.walk_every_days ? `every ${s.walk_every_days} days` : ''].filter(Boolean).join(' or ');
+  return s.fast
+    ? `<br>Rescans use the drive’s change log or file table when they can (<span title="${esc(`change log: ${a.journal}; file table: ${a.table}`)}">where</span>)${safety ? `, and walk every folder ${safety} to be sure` : ''}.`
+    : '<br>Every scan walks every folder (the change log and file table are turned off in settings).';
+}
+
 function drivesTable(drives, live) {
-  if (!drives.length) return '<p class="muted pad">No drives indexed yet: <code>backdown index /media/my-drive</code></p>';
+  if (!drives.length) return live ? '<p class="muted pad">No drives indexed yet: choose <b>Index this</b> on one below.</p>'
+    : '<p class="muted pad">No drives indexed yet: <code>backdown index /media/my-drive</code></p>';
   const label = x => ({
     scanning: '<span class="pill busy">Scanning now</span>', queued: '<span class="pill busy">Waiting its turn</span>',
     away: '<span class="pill off">Not connected</span>', due: '<span class="pill warn">Due now</span>',
@@ -1969,9 +2054,9 @@ function drivesTable(drives, live) {
   const next = x => x.state === 'away' ? 'when it’s plugged back in' : x.state === 'on-request' ? '—' : x.state === 'scanning' ? 'now' : x.state === 'queued' ? 'next in line' : x.next_at ? rel(x.next_at) : '—';
   return `<table class="list act-drives"><thead><tr><th>Drive</th><th>Status</th><th>Last scan</th>${live ? '<th>Next scan</th>' : ''}<th class="n">Files</th><th class="n">Size</th>${live ? '<th></th>' : ''}</tr></thead><tbody>
     ${drives.map(x => { const r = S.roots.find(r => r.path === x.path); return `<tr>
-      <td><b>${esc(rootName(x.path))}</b><small class="muted">${esc(x.path)}</small></td>
+      <td><b>${esc(rootName(x.path))}</b>${pill(healthOfPath(x.path), { small: true })}<small class="muted">${esc(x.path)}</small></td>
       <td>${live ? label(x) : ''}</td>
-      <td title="${esc(when(x.last_scan_at))}">${x.last_scan_at ? rel(x.last_scan_at) : 'never finished'}</td>
+      <td title="${esc(when(x.last_scan_at))}">${x.last_scan_at ? rel(x.last_scan_at) : 'never finished'}${x.last_how ? `<small class="muted act-how ${esc(x.last_method || '')}" title="${esc(x.last_how)}">${esc(x.last_how)}</small>` : ''}</td>
       ${live ? `<td>${next(x)}</td>` : ''}
       <td class="n">${count(x.files)}</td><td class="n">${bytes(x.bytes)}</td>
       ${live ? `<td>${r && x.present !== false ? `<button class="btn sm" type="button" data-rescan="${r.id}"${['scanning', 'queued'].includes(x.state) ? ' disabled' : ''}>Rescan now</button>` : ''}</td>` : ''}
@@ -2026,6 +2111,8 @@ function goUp() { const c = S.listing?.crumbs; if (c && c.length > 1) go(c.at(-2
 function toastError(e) {
   const b = $('#banner');
   b.className = 'banner warn'; b.hidden = false; b.textContent = e.message || String(e);
+  // a Pro feature: say how to get it
+  if (e.refusal) b.insertAdjacentHTML('beforeend', ` <button class="btn sm" type="button" data-set-go="licence">Add a licence key</button>`);
 }
 
 // ---------- wiring
@@ -2122,6 +2209,17 @@ $('#entities-btn').onclick = showEntities;
 $('#plan-btn').onclick = () => showPlan();
 $('#wipe-btn').onclick = () => showWipe();
 $('#rescue-btn').onclick = showRescue;
+$('#settings-btn').onclick = () => showSettings();
+// first run: index a folder by its path
+document.addEventListener('submit', e => {
+  if (e.target.id !== 'welcome-folder') return;
+  e.preventDefault();
+  const path = $('#welcome-path').value.trim();
+  if (!path) return $('#welcome-path').focus();
+  fetch(`/api/index?${new URLSearchParams({ path })}`, { method: 'POST', headers: { 'X-BackDown': '1' }, credentials: 'same-origin' })
+    .then(r => r.json().then(j => { if (!r.ok || j.error) throw new Error(j.error || r.statusText); toast('Indexing: it shows up on the left when it’s done'); if (!polling) pollDaemon(true); }))
+    .catch(toastError);
+});
 $('#time').addEventListener('input', e => setScan(+e.target.value));
 $('#time-now').onclick = () => setScan(S.timeline.length - 1);
 
@@ -2179,7 +2277,18 @@ document.addEventListener('error', e => {
 try { const so = JSON.parse(localStorage.getItem('bd.sort')); if (so?.key) S.sort = so; } catch {}
 setView(S.view);
 setupFilters();
+loadFeatures();
+mountHealth({ onRescue: rescueDrive, onChange: () => { renderPlaces(); if (S.mode === 'activity') renderActivity(); } });
+mountMachines({
+  // a machine's page or folders take over the view, like Duplicates does
+  enter: enterView,
+  leave: () => { S.mode = 'browse'; showCurrent(); },
+  refreshPath: () => renderPath(),
+  isMode: m => S.mode === m,
+  openLocal: (dir, sel) => { $('#timebar').hidden = S.timeline.length < 2; go(dir, { select: sel, scan: null }); },
+});
 boot().then(restoreTabs).then(() => pollDaemon(true));
+checkUpdates();
 
 // tabs survive a reload of the page (not of the browser): reopened lazily, each loads when shown
 function restoreTabs() {

@@ -5,7 +5,8 @@ import { api, bytes, when } from './app.js';
 import { fileIcon, folderIcon } from './icons.js';
 
 const $ = s => document.querySelector(s);
-const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// names are shown composed (NFC), whichever form the drive stores them in (HFS+ decomposes them)
+const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const num = n => Number(n || 0).toLocaleString();
 const STEP = 200, MAX = 2000;
 const load = k => { try { return sessionStorage.getItem(k); } catch { return null; } };

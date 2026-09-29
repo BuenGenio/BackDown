@@ -720,4 +720,396 @@
     <xhtml:link rel="alternate" hreflang="uk" href="https://backdown.io/uk/privacy/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/privacy/"/>
   </url>
+  <url>
+    <loc>https://backdown.io/press/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.4</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/press/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/press/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/getting-started/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/getting-started/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/getting-started/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/concepts/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/concepts/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/concepts/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/guides/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/guides/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/guides/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/guides/free-up-a-drive/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/guides/free-up-a-drive/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/guides/free-up-a-drive/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/guides/file-into-an-archive/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/guides/file-into-an-archive/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/guides/file-into-an-archive/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/guides/merge-mailboxes/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/guides/merge-mailboxes/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/guides/merge-mailboxes/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/guides/mirrors/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/guides/mirrors/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/guides/mirrors/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/guides/several-machines/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/guides/several-machines/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/guides/several-machines/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/guides/drive-health/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/guides/drive-health/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/guides/drive-health/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/guides/rescue/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/guides/rescue/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/guides/rescue/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/guides/recover-deleted-files/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/guides/recover-deleted-files/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/guides/recover-deleted-files/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/guides/browse-without-restoring/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/guides/browse-without-restoring/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/guides/browse-without-restoring/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/guides/settings-and-licences/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/guides/settings-and-licences/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/guides/settings-and-licences/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/backdown-index/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-index/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/backdown-index/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/backdown-hash/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-hash/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/backdown-hash/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/backdown-dupes/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-dupes/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/backdown-dupes/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/backdown-check/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-check/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/backdown-check/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/backdown-import-legacy/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-import-legacy/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/backdown-import-legacy/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/backdown-volumes/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-volumes/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/backdown-volumes/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/backdown-health/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-health/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/backdown-health/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/backdown-mount/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-mount/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/backdown-mount/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/backdown-unmount/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-unmount/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/backdown-unmount/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/backdown-scans/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-scans/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/backdown-scans/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/backdown-serve/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-serve/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/backdown-serve/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/backdown-status/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-status/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/backdown-status/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/backdown-daemon/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-daemon/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/backdown-daemon/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/backdown-open/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-open/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/backdown-open/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/backdown-app/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-app/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/backdown-app/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/backdown-desktop/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-desktop/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/backdown-desktop/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/backdown-update/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-update/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/backdown-update/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/backdown-service/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-service/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/backdown-service/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/backdown-entities/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-entities/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/backdown-entities/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/backdown-overlaps/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-overlaps/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/backdown-overlaps/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/backdown-report/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-report/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/backdown-report/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/backdown-plan/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-plan/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/backdown-plan/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/backdown-plans/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-plans/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/backdown-plans/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/backdown-apply/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-apply/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/backdown-apply/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/backdown-rescue/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-rescue/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/backdown-rescue/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/backdown-mirror/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-mirror/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/backdown-mirror/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/backdown-wipe/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-wipe/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/backdown-wipe/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/backdown-license/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-license/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/backdown-license/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/backdown-remote/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-remote/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/backdown-remote/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/backdown-dedup/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-dedup/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/backdown-dedup/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/cli/backdown-mail/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-mail/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/cli/backdown-mail/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/troubleshooting/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/troubleshooting/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/troubleshooting/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/principles/</loc>
+    <lastmod>2026-09-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/principles/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/principles/"/>
+  </url>
 </urlset>

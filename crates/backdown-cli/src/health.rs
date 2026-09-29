@@ -1,0 +1,978 @@
+//! Drive health in the daemon, the browser and the terminal (the readings themselves are
+//! backdown_core::health), and the notifications that come with it.
+//!
+//! The daemon reads every connected drive's health in a thread of its own (a reading takes a
+//! second or two and never waits for a scan): shortly after it starts, every six hours, when a
+//! drive appears (the set of disks changed, or an indexed drive came back), and when asked
+//! (`backdown health`, the browser's "Check now"). Each reading is kept in the index when it
+//! says something new ([`health::record`]); what got worse becomes a notification
+//! (backdown_core::alerts decides whether it's news and whether it may reach the desktop, and
+//! [`notifier`] shows it). Failed scheduled jobs and mirrors that no longer match their source
+//! ([`after_job`]) are told the same way.
+//!
+//! Where readings come from is a [`Source`]: this machine's drives, or, with
+//! `BACKDOWN_FAKE_HEALTH=<file>`, a JSON file of readings read afresh each round (for tests and
+//! demos; it changes nothing else).
+
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
+use std::sync::{Condvar, Mutex};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use anyhow::{Context, Result, bail};
+use backdown_core::alerts::{self, Limits, Note};
+use backdown_core::health::{self, Change, Health, Probe, Recorded, Summary, Verdict};
+use backdown_core::{Db, fmt, mirror};
+use serde_json::{Value, json};
+
+use crate::daemon::{Daemon, Job};
+use crate::notifier::{self, Settings};
+use crate::{client, locations};
+
+/// How often every connected drive is read.
+pub const EVERY: i64 = 6 * 3600;
+
+fn now() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64)
+}
+
+// ---------- where readings come from
+
+pub trait Source: Send + Sync {
+    fn read(&self, now: i64) -> Result<Probe>;
+}
+
+/// This machine's drives.
+pub struct System;
+
+impl Source for System {
+    fn read(&self, now: i64) -> Result<Probe> {
+        health::probe(now)
+    }
+}
+
+/// Readings from a JSON file (a `Probe`: `{"drives": [...], "notes": [...]}`), read afresh each
+/// round, so a test can make a drive get worse.
+pub struct FromFile(pub PathBuf);
+
+impl Source for FromFile {
+    fn read(&self, now: i64) -> Result<Probe> {
+        let bytes =
+            std::fs::read(&self.0).with_context(|| format!("can't read {}", self.0.display()))?;
+        let mut p: Probe = serde_json::from_slice(&bytes)
+            .with_context(|| format!("{} isn't a list of readings", self.0.display()))?;
+        for h in &mut p.drives {
+            if h.read_at == 0 {
+                h.read_at = now;
+            }
+            if h.id.is_empty() {
+                h.id = health::identity(h.serial.as_deref(), h.wwn.as_deref());
+            }
+            if h.source.is_empty() {
+                h.source = "test readings".into();
+            }
+        }
+        Ok(p)
+    }
+}
+
+pub fn source_from_env() -> Box<dyn Source> {
+    match std::env::var_os("BACKDOWN_FAKE_HEALTH") {
+        Some(p) if !p.is_empty() => {
+            eprintln!(
+                "drive health: reading {} instead of the drives (BACKDOWN_FAKE_HEALTH)",
+                Path::new(&p).display()
+            );
+            Box::new(FromFile(p.into()))
+        }
+        _ => Box::new(System),
+    }
+}
+
+// ---------- the daemon's side
+
+#[derive(Default)]
+struct State {
+    asked: bool,
+    running: bool,
+    checked_at: Option<i64>,
+    next_at: Option<i64>,
+    drives: Vec<Summary>,
+    notes: Vec<String>,
+    error: Option<String>,
+    unread: u64,
+    /// bumped whenever what the browser shows changes
+    change: u64,
+}
+
+/// The daemon's view of drive health: the latest readings, when they were taken, and what's
+/// unread.
+pub struct Monitor {
+    source: Box<dyn Source>,
+    pub settings_path: PathBuf,
+    /// runs as the person at the screen, so it may show desktop notifications
+    pub desktop: bool,
+    state: Mutex<State>,
+    wake: Condvar,
+    round: Mutex<()>,
+}
+
+impl Monitor {
+    pub fn new(source: Box<dyn Source>, state_dir: &Path, desktop: bool) -> Monitor {
+        Monitor {
+            source,
+            settings_path: state_dir.join(notifier::SETTINGS_FILE),
+            desktop,
+            state: Mutex::new(State::default()),
+            wake: Condvar::new(),
+            round: Mutex::new(()),
+        }
+    }
+
+    /// Read the drives as soon as the health thread can.
+    pub fn ask(&self) {
+        self.state.lock().unwrap().asked = true;
+        self.wake.notify_all();
+    }
+
+    pub fn settings(&self) -> Settings {
+        notifier::load(&self.settings_path)
+    }
+
+    /// For the daemon's snapshot: enough for the browser to know when to fetch more.
+    pub fn snapshot(&self) -> Value {
+        let st = self.state.lock().unwrap();
+        let worst = st
+            .drives
+            .iter()
+            .filter(|d| d.present)
+            .map(|d| d.verdict)
+            .max_by_key(|v| v.rank())
+            .unwrap_or(Verdict::Unknown);
+        json!({
+            "checked_at": st.checked_at, "next_at": st.next_at, "running": st.running,
+            "change": st.change, "unread": st.unread, "worst": worst,
+        })
+    }
+
+    fn overview(&self) -> Value {
+        let st = self.state.lock().unwrap();
+        json!({
+            "drives": st.drives, "notes": st.notes, "error": st.error, "checked_at": st.checked_at,
+            "next_at": st.next_at, "running": st.running, "every_secs": EVERY, "daemon": true,
+        })
+    }
+
+    fn set_unread(&self, d: &Daemon, n: u64) {
+        {
+            let mut st = self.state.lock().unwrap();
+            st.unread = n;
+            st.change += 1;
+        }
+        d.touch();
+    }
+}
+
+/// The health thread: read the drives shortly after the daemon starts, every [`EVERY`], when the
+/// set of disks changes, and when asked.
+pub fn run(d: &Daemon) {
+    let m = &d.health;
+    let mut disks = disk_set();
+    let mut due = Instant::now() + Duration::from_secs(20);
+    // the unread count, before the first reading
+    if let Ok(db) = Db::open_read_only(&d.db) {
+        let n = alerts::unread(&db).unwrap_or(0);
+        m.state.lock().unwrap().unread = n;
+    }
+    loop {
+        let asked = {
+            let st = m.state.lock().unwrap();
+            let (mut st, _) = m
+                .wake
+                .wait_timeout_while(st, Duration::from_secs(30), |s| !s.asked)
+                .unwrap();
+            std::mem::take(&mut st.asked)
+        };
+        let now_disks = disk_set();
+        let arrived = now_disks.is_some() && now_disks != disks;
+        disks = now_disks;
+        if arrived && !asked {
+            // give the system a moment to read the new drive's SMART data
+            std::thread::sleep(Duration::from_secs(10));
+        }
+        if asked || arrived || Instant::now() >= due {
+            if let Err(e) = round(d) {
+                eprintln!("drive health: {e:#}");
+            }
+            due = Instant::now() + Duration::from_secs(EVERY as u64);
+            m.state.lock().unwrap().next_at = Some(now() + EVERY);
+        }
+    }
+}
+
+/// Which disks are there, cheaply (no tools run): changes when one is plugged in or removed.
+fn disk_set() -> Option<Vec<String>> {
+    let (dir, keep): (&str, fn(&str) -> bool) = if cfg!(target_os = "linux") {
+        ("/sys/block", |n| {
+            !["loop", "ram", "zram", "dm-", "md", "sr"]
+                .iter()
+                .any(|p| n.starts_with(p))
+        })
+    } else if cfg!(target_os = "macos") {
+        ("/dev", |n| {
+            n.strip_prefix("disk")
+                .is_some_and(|r| !r.is_empty() && r.chars().all(|c| c.is_ascii_digit()))
+        })
+    } else {
+        return None; // Windows: when an indexed drive comes back (the scheduler asks), and every 6 h
+    };
+    let mut v: Vec<String> = std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| keep(n))
+        .collect();
+    v.sort();
+    Some(v)
+}
+
+/// Read every drive now, keep what's new, tell what got worse; returns the overview.
+pub fn round(d: &Daemon) -> Result<Value> {
+    let m = &d.health;
+    let _one = m.round.lock().unwrap();
+    {
+        let mut st = m.state.lock().unwrap();
+        st.running = true;
+        st.change += 1;
+    }
+    d.touch();
+    let settings = m.settings();
+    let out = read_and_record(
+        &d.db,
+        m.source.as_ref(),
+        &settings,
+        m.desktop && settings.desktop,
+        now(),
+    );
+    {
+        let mut st = m.state.lock().unwrap();
+        st.running = false;
+        st.checked_at = Some(now());
+        st.next_at = Some(now() + EVERY);
+        st.change += 1;
+        match &out {
+            Ok(r) => {
+                st.drives = r.drives.clone();
+                st.notes = r.notes.clone();
+                st.unread = r.unread;
+                st.error = None;
+            }
+            Err(e) => st.error = Some(format!("{e:#}")),
+        }
+    }
+    d.touch();
+    let r = out?;
+    show(&r.show);
+    Ok(m.overview())
+}
+
+/// What one round found.
+pub struct Round {
+    pub drives: Vec<Summary>,
+    pub notes: Vec<String>,
+    /// notes to show on the desktop now
+    pub show: Vec<Note>,
+    pub unread: u64,
+}
+
+/// Read, keep and tell (without showing anything yet): the part of a round that's the same for
+/// the daemon and `backdown health`.
+pub fn read_and_record(
+    db_path: &Path,
+    source: &dyn Source,
+    settings: &Settings,
+    desktop: bool,
+    now: i64,
+) -> Result<Round> {
+    let probe = source.read(now)?;
+    let db = Db::open(db_path)?;
+    let mirrors = mirror::list(&db)?;
+    let mut show = Vec::new();
+    for h in &probe.drives {
+        let r = health::record(&db, h)?;
+        // Activity lists every note; the settings choose which also pop up on the desktop
+        let pop = desktop && settings.wants("health");
+        for n in notes_for(h, &r, &mirrors_on(h, &mirrors, &probe.drives)) {
+            if let Some((_, true)) = alerts::add(&db, &n, pop, now, &Limits::default())? {
+                show.push(n);
+            }
+        }
+    }
+    Ok(Round {
+        drives: health::overview(Some(&db), &probe.drives)?,
+        notes: probe.notes,
+        show,
+        unread: alerts::unread(&db)?,
+    })
+}
+
+/// Show notes on the desktop, one after the other, without holding anything up.
+fn show(notes: &[Note]) {
+    if notes.is_empty() {
+        return;
+    }
+    let notes = notes.to_vec();
+    std::thread::spawn(move || {
+        for n in notes {
+            if let Err(e) = notifier::send(&n.title, &n.body, n.level == "failing") {
+                eprintln!("notification: {e:#}");
+            }
+        }
+    });
+}
+
+/// The mirrors whose copies are on drive `h`: the deepest mount point (of every drive) holding
+/// the mirror's folder is one of `h`'s.
+pub fn mirrors_on<'a>(
+    h: &Health,
+    mirrors: &'a [mirror::Mirror],
+    drives: &[Health],
+) -> Vec<&'a mirror::Mirror> {
+    mirrors
+        .iter()
+        .filter(|m| {
+            let t = Path::new(&m.target);
+            drives
+                .iter()
+                .flat_map(|d| d.mounts.iter().map(move |mp| (d, mp)))
+                .filter(|(_, mp)| t.starts_with(mp.as_str()))
+                .max_by_key(|(_, mp)| mp.len())
+                .is_some_and(|(d, _)| d.device == h.device)
+        })
+        .collect()
+}
+
+fn capitalised(s: &str) -> String {
+    let mut c = s.chars();
+    c.next()
+        .map(|f| f.to_uppercase().collect::<String>() + c.as_str())
+        .unwrap_or_default()
+}
+
+/// What to tell about one reading: its verdict getting worse (once a week at most for the same
+/// verdict), or, short of that, counters getting worse (once a day at most per drive).
+pub fn notes_for(h: &Health, r: &Recorded, on: &[&mirror::Mirror]) -> Vec<Note> {
+    let serious: Vec<&Change> = r
+        .changes
+        .iter()
+        .filter(|c| c.level.rank() > 0 && c.code != "verdict")
+        .collect();
+    let worsened = r.changes.iter().find(|c| c.code == "verdict");
+    if worsened.is_none() && serious.is_empty() {
+        return Vec::new();
+    }
+    let label = h.label();
+    let level = r
+        .changes
+        .iter()
+        .map(|c| c.level)
+        .max_by_key(|l| l.rank())
+        .unwrap_or(Verdict::Warning);
+    let cable_only = worsened.is_none() && serious.iter().all(|c| c.code == "crc");
+    let what = if serious.is_empty() {
+        worsened
+            .map(|w| w.text.split_once(": ").map_or(w.text.as_str(), |(_, x)| x))
+            .unwrap_or("")
+            .to_string()
+    } else {
+        serious
+            .iter()
+            .map(|c| c.text.as_str())
+            .collect::<Vec<_>>()
+            .join("; ")
+    };
+    let advice = if cable_only {
+        ""
+    } else if level == Verdict::Failing {
+        " Copy what matters off it now: BackDown's Rescue can copy the whole drive."
+    } else {
+        " Make sure what's on it has another copy."
+    };
+    // the mirrored folder by its last two names: enough to recognise, short enough for a pop-up
+    let short = |p: &str| {
+        let parts: Vec<String> = Path::new(p)
+            .iter()
+            .map(|c| c.to_string_lossy().into_owned())
+            .filter(|c| !c.is_empty() && c != "/" && c != "\\")
+            .collect();
+        if parts.len() <= 2 {
+            p.to_string()
+        } else {
+            format!("…/{}", parts[parts.len() - 2..].join("/"))
+        }
+    };
+    let mirror_line = if !on.is_empty() && !cable_only {
+        format!(
+            " It holds the mirror of {}: this mirror drive is dying, add another mirror.",
+            on.iter()
+                .map(|m| short(&m.source))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    } else {
+        String::new()
+    };
+    let (title, key, quiet) = match worsened {
+        Some(_) if level == Verdict::Failing => (
+            format!("{label} is failing"),
+            format!("health:{}:verdict:failing", h.id),
+            7 * 86_400,
+        ),
+        Some(_) => (
+            format!("{label} needs watching"),
+            format!("health:{}:verdict:{}", h.id, level.as_str()),
+            7 * 86_400,
+        ),
+        None if cable_only => (
+            format!("Transfer errors on {label}"),
+            format!("health:{}:cable", h.id),
+            20 * 3600,
+        ),
+        None => (
+            format!("{label} is getting worse"),
+            format!("health:{}:worse", h.id),
+            20 * 3600,
+        ),
+    };
+    vec![Note {
+        kind: "health",
+        key,
+        level: level.as_str(),
+        title,
+        body: format!("{}.{advice}{mirror_line}", capitalised(&what)),
+        drive: Some(h.id.clone()),
+        quiet_for: quiet,
+    }]
+}
+
+/// A job ended: tell about a mirror that no longer matches its source, or a scheduled job that
+/// failed. Recording is quick; showing happens in the background.
+pub fn after_job(d: &Daemon, job: &Job, error: Option<&str>) {
+    let Some(error) = error else { return };
+    let settings = d.health.settings();
+    let label = job.path.as_deref().unwrap_or("");
+    let note = if job.kind == "mirror-verify" {
+        Note {
+            kind: "drift",
+            key: format!("drift:{label}"),
+            level: "warning",
+            title: "A mirror no longer matches its source".into(),
+            body: capitalised(error),
+            drive: None,
+            quiet_for: 20 * 3600,
+        }
+    } else if job.auto {
+        let what = match job.kind {
+            "index" => format!("scan of {label}"),
+            "hash" => "hashing".into(),
+            "entities" => "recognition".into(),
+            "mirror-sync" => format!("sync of {label}"),
+            "remote-sync" => format!("sync of the machine {label}"),
+            k => k.to_string(),
+        };
+        Note {
+            kind: "job",
+            key: format!("job:{}:{label}", job.kind),
+            level: "warning",
+            title: format!("A scheduled {what} failed"),
+            body: capitalised(error),
+            drive: None,
+            quiet_for: 20 * 3600,
+        }
+    } else {
+        return;
+    };
+    // recorded either way (Activity lists it); popped up only if that kind is chosen
+    let desktop = d.health.desktop && settings.desktop && settings.wants(note.kind);
+    let r = Db::open(&d.db).and_then(|db| {
+        let added = alerts::add(&db, &note, desktop, now(), &Limits::default())?;
+        Ok((added, alerts::unread(&db)?))
+    });
+    match r {
+        Ok((added, unread)) => {
+            d.health.set_unread(d, unread);
+            if let Some((_, true)) = added {
+                show(&[note]);
+            }
+        }
+        Err(e) => eprintln!("notification: {e:#}"),
+    }
+}
+
+/// `{"cmd": "health"}` on the control socket: read now and answer with the overview.
+#[cfg_attr(not(unix), allow(dead_code))]
+pub fn respond(d: &Daemon) -> Result<Value> {
+    Ok(json!({ "ok": true, "health": round(d)? }))
+}
+
+// ---------- the browser's endpoints
+
+/// The paths [`get`] and [`post`] answer.
+pub fn handles(path: &str) -> bool {
+    matches!(
+        path,
+        "/api/health"
+            | "/api/health-check"
+            | "/api/notifications"
+            | "/api/notify-settings"
+            | "/api/notify-test"
+    )
+}
+
+fn settings_path(d: Option<&Daemon>) -> PathBuf {
+    d.map_or_else(
+        || locations::state_dir().join(notifier::SETTINGS_FILE),
+        |d| d.health.settings_path.clone(),
+    )
+}
+
+fn settings_json(d: Option<&Daemon>) -> Value {
+    let s = notifier::load(&settings_path(d));
+    let reachable = d.is_none_or(|d| d.health.desktop);
+    let mut v = json!(s);
+    v["available"] = json!(reachable && notifier::available());
+    if !reachable {
+        v["why"] = json!(
+            "the machine-wide service runs on nobody's desktop: notifications are only listed in Activity"
+        );
+    } else if !notifier::available() {
+        v["why"] =
+            json!("this system has no way to show notifications (notify-send isn't installed)");
+    }
+    v
+}
+
+/// GET /api/health, /api/notifications, /api/notify-settings.
+pub fn get(
+    d: Option<&Daemon>,
+    db_path: &Path,
+    path: &str,
+    param: &dyn Fn(&str) -> Option<String>,
+) -> Result<Value> {
+    Ok(match path {
+        "/api/health" => match d {
+            Some(d) => {
+                let never = {
+                    let st = d.health.state.lock().unwrap();
+                    st.checked_at.is_none() && !st.running
+                };
+                if never {
+                    d.health.ask();
+                }
+                d.health.overview()
+            }
+            // `backdown serve`: read now, alongside what the index holds
+            None => {
+                let probe = System.read(now())?;
+                let db = Db::open_read_only(db_path)?;
+                let stored = health::available(&db).then_some(&db);
+                json!({ "drives": health::overview(stored, &probe.drives)?, "notes": probe.notes,
+                        "checked_at": now(), "daemon": false, "every_secs": EVERY })
+            }
+        },
+        "/api/notifications" => {
+            let db = Db::open_read_only(db_path)?;
+            let limit = param("limit")
+                .and_then(|l| l.parse().ok())
+                .unwrap_or(50usize);
+            if health::available(&db) {
+                json!({ "notes": alerts::list(&db, limit.min(500))?, "unread": alerts::unread(&db)? })
+            } else {
+                json!({ "notes": [], "unread": 0 })
+            }
+        }
+        "/api/notify-settings" => settings_json(d),
+        _ => bail!("no such endpoint"),
+    })
+}
+
+/// POST /api/health-check (read the drives now), /api/notifications (`read=all` or an id),
+/// /api/notify-settings (`desktop`, `health`, `drift`, `jobs`: 0 or 1), /api/notify-test.
+pub fn post(
+    d: Option<&Daemon>,
+    db_path: &Path,
+    path: &str,
+    param: &dyn Fn(&str) -> Option<String>,
+) -> Result<Value> {
+    Ok(match path {
+        "/api/health-check" => {
+            let d = d.context("drive health is read by the BackDown service: `backdown health` in a terminal reads it now")?;
+            d.health.ask();
+            json!({ "ok": true })
+        }
+        "/api/notifications" => {
+            let which = param("read").context("read=all or read=<id>")?;
+            let id = match which.as_str() {
+                "all" => None,
+                n => Some(n.parse::<i64>().context("bad id")?),
+            };
+            let db = Db::open(db_path)?;
+            let n = alerts::mark_read(&db, id)?;
+            let unread = alerts::unread(&db)?;
+            if let Some(d) = d {
+                d.health.set_unread(d, unread);
+            }
+            json!({ "ok": true, "marked": n, "unread": unread })
+        }
+        "/api/notify-settings" => {
+            let p = settings_path(d);
+            let mut s = notifier::load(&p);
+            for (k, field) in [
+                ("desktop", &mut s.desktop),
+                ("health", &mut s.health),
+                ("drift", &mut s.drift),
+                ("jobs", &mut s.jobs),
+            ] {
+                match param(k).as_deref() {
+                    Some("1" | "true" | "on") => *field = true,
+                    Some("0" | "false" | "off") => *field = false,
+                    Some(other) => bail!("{k} must be 0 or 1, not {other:?}"),
+                    None => {}
+                }
+            }
+            notifier::save(&p, &s)?;
+            settings_json(d)
+        }
+        "/api/notify-test" => {
+            if d.is_some_and(|d| !d.health.desktop) {
+                bail!("the machine-wide service runs on nobody's desktop");
+            }
+            notifier::send(
+                "Notifications work",
+                "BackDown will tell you here when a drive gets worse, a mirror stops matching, or a scheduled job fails.",
+                false,
+            )?;
+            json!({ "ok": true })
+        }
+        _ => bail!("no such endpoint"),
+    })
+}
+
+// ---------- `backdown health`
+
+/// `backdown health`: read every drive now (through the daemon when it runs, so it's kept), show
+/// each with its counters and how it changed since the first reading. Exits 2 when a connected
+/// drive is failing.
+pub fn command(db: Option<PathBuf>, local: bool, as_json: bool) -> Result<ExitCode> {
+    let overview = match (!local)
+        .then(|| client::Client::connect(db.as_deref()))
+        .flatten()
+    {
+        Some(mut c) => {
+            let r = c.request(&json!({ "cmd": "health" }))?;
+            r["health"].clone()
+        }
+        None => {
+            let db_path = db.unwrap_or_else(locations::default_db);
+            if let Some(dir) = db_path.parent() {
+                locations::ensure_private_dir(dir, false)
+                    .with_context(|| format!("can't create {}", dir.display()))?;
+            }
+            let settings = notifier::load(&locations::state_dir().join(notifier::SETTINGS_FILE));
+            let r = read_and_record(
+                &db_path,
+                source_from_env().as_ref(),
+                &settings,
+                false,
+                now(),
+            )?;
+            json!({ "drives": r.drives, "notes": r.notes, "checked_at": now(), "daemon": false })
+        }
+    };
+    let failing = overview["drives"].as_array().is_some_and(|a| {
+        a.iter()
+            .any(|d| d["present"] == true && d["verdict"] == "failing")
+    });
+    if as_json {
+        println!("{}", serde_json::to_string_pretty(&overview)?);
+    } else {
+        print(&overview);
+    }
+    Ok(if failing {
+        ExitCode::from(2)
+    } else {
+        ExitCode::SUCCESS
+    })
+}
+
+fn clip(s: &str, n: usize) -> String {
+    if s.chars().count() <= n {
+        s.to_string()
+    } else {
+        s.chars().take(n.saturating_sub(1)).collect::<String>() + "…"
+    }
+}
+
+fn num(v: &Value) -> String {
+    v.as_u64().map_or("-".into(), fmt::count)
+}
+
+fn print(o: &Value) {
+    let drives = o["drives"].as_array().cloned().unwrap_or_default();
+    if drives.is_empty() {
+        println!("no drives found");
+    } else {
+        println!(
+            "{:<10} {:<24} {:<18} {:<8} {:>5} {:>7} {:>7} {:>5} {:>5} {:>5} {:>5}  SINCE FIRST READING",
+            "DRIVE",
+            "MODEL",
+            "SERIAL",
+            "HEALTH",
+            "TEMP",
+            "HOURS",
+            "REALLOC",
+            "PEND",
+            "UNC",
+            "CRC",
+            "WEAR"
+        );
+    }
+    for d in &drives {
+        let h = &d["health"];
+        let name = if d["present"] == true {
+            h["name"].as_str().unwrap_or("?").to_string()
+        } else {
+            "(away)".into()
+        };
+        let pending = if h["pending"].is_null() && !h["bad_sectors"].is_null() {
+            format!("{}*", num(&h["bad_sectors"]))
+        } else {
+            num(&h["pending"])
+        };
+        let since = match (d["first_at"].as_i64(), d["trend"].as_array()) {
+            (Some(t), Some(tr)) if !tr.is_empty() => format!(
+                "{}: {}",
+                fmt::day(t),
+                tr.iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            (Some(t), _) if d["readings"].as_u64().unwrap_or(0) > 1 => {
+                format!("{}: no change", fmt::day(t))
+            }
+            _ => "first reading".into(),
+        };
+        println!(
+            "{:<10} {:<24} {:<18} {:<8} {:>5} {:>7} {:>7} {:>5} {:>5} {:>5} {:>5}  {}",
+            clip(&name, 10),
+            clip(h["model"].as_str().unwrap_or("-"), 24),
+            clip(h["serial"].as_str().unwrap_or("-"), 18),
+            d["verdict"].as_str().unwrap_or("?"),
+            h["temperature"]
+                .as_i64()
+                .map_or("-".into(), |t| format!("{t}°C")),
+            num(&h["power_on_hours"]),
+            num(&h["reallocated"]),
+            pending,
+            num(&h["uncorrectable"]),
+            num(&h["crc_errors"]),
+            h["percentage_used"]
+                .as_u64()
+                .map_or("-".into(), |w| format!("{w}%")),
+            since
+        );
+    }
+    let mut said = false;
+    for d in &drives {
+        let h = &d["health"];
+        let who = h["name"].as_str().unwrap_or("?");
+        let lines: Vec<String> = d["findings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|f| f["text"].as_str().map(str::to_string))
+            .chain(h["note"].as_str().map(str::to_string))
+            .collect();
+        if !lines.is_empty() && !said {
+            println!();
+            said = true;
+        }
+        for l in lines {
+            println!("{who}: {l}");
+        }
+    }
+    if drives
+        .iter()
+        .any(|d| d["health"]["pending"].is_null() && !d["health"]["bad_sectors"].is_null())
+    {
+        println!(
+            "* reallocated and pending sectors together (the attribute table wasn't available)"
+        );
+    }
+    for n in o["notes"].as_array().into_iter().flatten() {
+        println!("note: {}", n.as_str().unwrap_or(""));
+    }
+    if o["daemon"] == false {
+        println!(
+            "(the BackDown service isn't running: nothing re-reads the drives on its own; `backdown service install`)"
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn reading(realloc: u64, at: i64) -> Health {
+        Health {
+            id: "sn:FAKE0001".into(),
+            device: "/dev/sdb".into(),
+            name: "sdb".into(),
+            model: Some("FAKEDISK HD4000".into()),
+            serial: Some("FAKE0001".into()),
+            rotational: Some(true),
+            reported: Some(Verdict::Ok),
+            reallocated: Some(realloc),
+            pending: Some(0),
+            mounts: vec!["/media/someone/Mirror".into()],
+            read_at: at,
+            ..Health::default()
+        }
+    }
+
+    fn mirror_to(target: &str) -> mirror::Mirror {
+        mirror::Mirror {
+            id: 1,
+            source: "/home/someone/Archive".into(),
+            target: target.into(),
+            created_at: 0,
+            verify_every_days: 30,
+            last_sync: None,
+            last_sync_summary: None,
+            last_verify: None,
+            last_verify_summary: None,
+            last_verify_ok: None,
+        }
+    }
+
+    #[test]
+    fn notes_say_what_got_worse_and_about_mirrors() {
+        let prev = reading(0, 1_000);
+        let cur = reading(3, 2_000);
+        let r = Recorded {
+            stored: true,
+            first: false,
+            before: Some(Verdict::Ok),
+            verdict: Verdict::Warning,
+            changes: health::step(Some(&prev), &cur),
+        };
+        let mirrors = [mirror_to("/media/someone/Mirror/Archive")];
+        let root = Health {
+            device: "/dev/nvme0n1".into(),
+            mounts: vec!["/".into()],
+            ..Health::default()
+        };
+        let all = [root.clone(), cur.clone()];
+        let on = mirrors_on(&cur, &mirrors, &all);
+        assert_eq!(on.len(), 1);
+        // the system drive's "/" holds it too, but less deeply
+        assert!(mirrors_on(&root, &mirrors, &all).is_empty());
+        let n = notes_for(&cur, &r, &on);
+        assert_eq!(n.len(), 1);
+        assert_eq!(n[0].title, "FAKEDISK HD4000 needs watching");
+        assert_eq!(n[0].key, "health:sn:FAKE0001:verdict:warning");
+        assert_eq!(n[0].level, "warning");
+        assert!(n[0].body.starts_with("3 more sectors have gone bad"));
+        assert!(n[0].body.contains(
+            "It holds the mirror of …/someone/Archive: this mirror drive is dying, add another mirror."
+        ));
+        // not about a mirror elsewhere
+        let elsewhere = [mirror_to("/media/other/Archive")];
+        let n = notes_for(&cur, &r, &mirrors_on(&cur, &elsewhere, &all));
+        assert!(!n[0].body.contains("mirror"));
+
+        // already warning, more sectors: "getting worse", at most daily
+        let next = reading(7, 3_000);
+        let r = Recorded {
+            changes: health::step(Some(&cur), &next),
+            verdict: Verdict::Warning,
+            ..Recorded::default()
+        };
+        let n = notes_for(&next, &r, &[]);
+        assert_eq!(n[0].title, "FAKEDISK HD4000 is getting worse");
+        assert_eq!(n[0].key, "health:sn:FAKE0001:worse");
+        // nothing new: nothing to say
+        let r = Recorded {
+            changes: health::step(Some(&next), &next),
+            ..Recorded::default()
+        };
+        assert!(notes_for(&next, &r, &[]).is_empty());
+    }
+
+    #[test]
+    fn cable_errors_are_about_the_cable() {
+        let mut a = reading(0, 1_000);
+        a.crc_errors = Some(2);
+        let mut b = a.clone();
+        b.read_at = 2_000;
+        b.crc_errors = Some(40);
+        let r = Recorded {
+            changes: health::step(Some(&a), &b),
+            ..Recorded::default()
+        };
+        let m = [mirror_to("/media/someone/Mirror/x")];
+        let n = notes_for(&b, &r, &m.iter().collect::<Vec<_>>());
+        assert_eq!(n[0].title, "Transfer errors on FAKEDISK HD4000");
+        assert!(n[0].body.contains("cable"));
+        assert!(!n[0].body.contains("Copy what matters"));
+        assert!(!n[0].body.contains("dying"));
+    }
+
+    #[test]
+    fn a_round_from_fake_readings() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("index.db");
+        let file = dir.path().join("readings.json");
+        let write = |realloc: u64| {
+            std::fs::write(
+                &file,
+                serde_json::to_vec(&json!({ "drives": [ {
+                    "device": "/dev/sdb", "name": "sdb", "model": "FAKEDISK HD4000", "serial": "FAKE0001",
+                    "rotational": true, "reported": "ok", "reallocated": realloc, "pending": 0 } ] }))
+                .unwrap(),
+            )
+            .unwrap()
+        };
+        let src = FromFile(file.clone());
+        let s = Settings::default();
+        write(0);
+        let r = read_and_record(&db, &src, &s, true, 1_000).unwrap();
+        assert_eq!(r.drives.len(), 1);
+        assert_eq!(r.drives[0].id, "sn:FAKE0001");
+        assert_eq!(r.drives[0].verdict, Verdict::Ok);
+        assert!(r.show.is_empty());
+        write(5);
+        let r = read_and_record(&db, &src, &s, true, 2_000).unwrap();
+        assert_eq!(r.drives[0].verdict, Verdict::Warning);
+        assert_eq!(r.show.len(), 1);
+        assert_eq!(r.unread, 1);
+        // the same again: kept quiet
+        write(5);
+        let r = read_and_record(&db, &src, &s, true, 3_000).unwrap();
+        assert!(r.show.is_empty());
+        assert_eq!(r.unread, 1);
+        // health pop-ups turned off: listed in Activity, not popped up
+        write(9);
+        let off = Settings {
+            health: false,
+            ..Settings::default()
+        };
+        let r = read_and_record(&db, &src, &off, true, 4_000).unwrap();
+        assert!(r.show.is_empty());
+        assert_eq!(r.unread, 2);
+        assert_eq!(r.drives[0].health.reallocated, Some(9));
+    }
+}

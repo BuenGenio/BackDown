@@ -9,7 +9,7 @@ publish.workspace = true
 
 [dependencies]
 anyhow = "1.0.104"
-backdown-core = { version = "0.2.0-alpha.1", path = "../backdown-core" }
+backdown-core = { version = "1.0.0-beta.1", path = "../backdown-core" }
 base64 = "0.22"
 bzip2 = "0.6"
 calamine = "0.36"
@@ -26,9 +26,15 @@ ruzstd = "0.9"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 serde = "1.0.229"
 serde_json = "1.0.151"
+sha2 = "0.11.0"
 similar = "3.2.0"
 tar = { version = "0.4", default-features = false }
 tiny_http = "0.12.0"
+
+# "Allow BackDown to read this drive": udisks passes an open file over D-Bus (grant.rs); rustix is
+# already here through fs4, this only turns on its safe recvmsg
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { version = "1.1", features = ["net", "process"] }
 
 [dev-dependencies]
 lzma-rust2 = { version = "0.21", default-features = false, features = ["std", "xz", "encoder"] }

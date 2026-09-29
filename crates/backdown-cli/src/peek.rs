@@ -2782,7 +2782,7 @@ pub fn disk(path: &Path, dir: Option<&str>) -> Result<Value> {
 
 // the files inside a disk image's filesystems (FAT, exFAT, ext2/3/4, NTFS)
 mod fsview;
-pub use fsview::{fs_entry, fs_list};
+pub use fsview::{fs_entry, fs_list, fs_region, region_entry, region_list};
 
 #[cfg(test)]
 mod tests {

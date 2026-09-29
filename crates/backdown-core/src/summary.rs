@@ -412,7 +412,7 @@ pub fn markdown(s: &Summary) -> String {
             );
         }
     }
-    o += "\n---\nMade by BackDown · every \"elsewhere\" and verdict is backed by SHA-256; files never hashed have a size no other file has, so they count as unique.\n";
+    o += "\n---\nMade by BackDown · every \"elsewhere\" and verdict is backed by SHA-256; files without a hash count as unique: usually no other file has their size, or hashing hasn't reached them yet.\n";
     o
 }
 
@@ -572,7 +572,7 @@ td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
         }
         o += "</table>";
     }
-    o += "<p class=note style=\"margin-top:30px\">Made by BackDown. Every “elsewhere” and verdict is backed by SHA-256; files never hashed have a size no other file has, so they count as unique.</p></main></body></html>\n";
+    o += "<p class=note style=\"margin-top:30px\">Made by BackDown. Every “elsewhere” and verdict is backed by SHA-256; files without a hash count as unique: usually no other file has their size, or hashing hasn’t reached them yet.</p></main></body></html>\n";
     o
 }
 

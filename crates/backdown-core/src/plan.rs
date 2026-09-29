@@ -13,8 +13,14 @@
 //!
 //! The plan copies; it never deletes. Once it's applied and the archive indexed, `check` proves
 //! which source drives are safe to wipe.
+//!
+//! The archive's drive may take names that differ only by case or Unicode form for one (APFS,
+//! NTFS, exFAT), so places are compared that way: names are written composed (NFC), a folder
+//! keeps the spelling it's first given ("Mail/Example.org" joins "Mail/example.org" rather than
+//! merging with it unseen), and two things never share a place in any spelling.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::ffi::OsStr;
 use std::path::{MAIN_SEPARATOR_STR, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -24,7 +30,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::overlap::Overlap;
 use crate::recognise::{Entity, RootEntities};
-use crate::{Db, browse, paths};
+use crate::{Db, browse, names, paths};
 
 // ---------- the schema
 
@@ -156,12 +162,22 @@ pub struct Item {
     pub dest: String,
     pub files: u64,
     pub bytes: u64,
-    /// "copy" (everything), "copy-unique" (only content not already in the archive), "skip"
+    /// "copy" (everything), "copy-unique" (only content not already in the archive), "skip", or
+    /// "merge" (mailboxes: this one and those in `merge`, message by message)
     pub action: String,
     pub why: String,
     /// source paths inside this one that aren't copied with it (copied separately, or junk)
     pub exclude: Vec<String>,
+    /// for a thing that's mostly the same as another of its kind and origin: that one's source
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub twin: Option<String>,
+    /// "merge" (mailboxes): the other snapshots merged with `source` into one, by Message-ID
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub merge: Vec<String>,
 }
+
+/// Kinds whose snapshots can be merged message by message (mailmerge.rs).
+pub const MERGEABLE: &[&str] = &["maildir", "mail-store"];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DriveOutcome {
@@ -210,9 +226,10 @@ fn year(t: Option<i64>) -> Option<i64> {
     Some(yoe + era * 400 + i64::from(mp >= 10))
 }
 
-/// A path component made safe for any filesystem the archive might live on.
+/// A path component made safe for any filesystem the archive might live on: composed (NFC),
+/// without the characters Windows, FAT and exFAT refuse, and never a device name (`CON`).
 fn clean(s: &str) -> String {
-    let c: String = s
+    let c: String = names::nfc(s)
         .chars()
         .map(|c| {
             if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control() {
@@ -223,11 +240,17 @@ fn clean(s: &str) -> String {
         })
         .collect();
     let c = c.trim().trim_end_matches('.').trim().to_string();
-    if c.is_empty() {
+    let c: String = if c.is_empty() {
         "unknown".into()
     } else {
         c.chars().take(120).collect()
-    }
+    };
+    names::windows_name(&c).unwrap_or(c)
+}
+
+/// What two places the archive's drive may take for one have in common (case, Unicode form).
+fn place_key(s: &str) -> Vec<u8> {
+    names::Folding::ANY.key(OsStr::new(s))
 }
 
 fn host_of_url(url: &str) -> Option<String> {
@@ -347,7 +370,6 @@ pub fn make(
     if !target.is_absolute() {
         bail!("the archive folder must be an absolute path");
     }
-    let target_prefix = paths::dir_prefix(target);
     let sep = paths::to_bytes(Path::new(MAIN_SEPARATOR_STR));
     let mut roots = db
         .conn
@@ -380,7 +402,7 @@ pub fn make(
         o.containers
             .iter()
             .find(|c| {
-                Path::new(&c.path).starts_with(target) && c.bytes as f64 >= bytes as f64 * 0.999
+                names::within(Path::new(&c.path), target) && c.bytes as f64 >= bytes as f64 * 0.999
             })
             .map(|c| c.path.clone())
     };
@@ -389,9 +411,10 @@ pub fn make(
     let mut drives = Vec::new();
     for (id, root) in &roots {
         let root_b = paths::to_bytes(root);
-        // the archive's own drive isn't a source (nor is anything that holds or sits in the archive)
-        if target_prefix.starts_with(&paths::dir_prefix(root))
-            || root_b.starts_with(&target_prefix)
+        // the archive's own drive isn't a source (nor is anything that holds or sits in the
+        // archive), whichever Unicode form the archive's path was given in
+        if names::within(target, root)
+            || names::within(root, target)
             || only.is_some_and(|o| !o.contains(id))
         {
             continue;
@@ -469,6 +492,8 @@ pub fn make(
                 action,
                 why,
                 exclude,
+                twin: None,
+                merge: Vec::new(),
             });
         }
         // everything else keeps its shape under Unsorted/<drive>/
@@ -563,6 +588,8 @@ pub fn make(
                 action,
                 why,
                 exclude,
+                twin: None,
+                merge: Vec::new(),
             });
         }
         let (lf, lb): (i64, i64) =
@@ -582,6 +609,8 @@ pub fn make(
                 action: "copy".into(),
                 why: "files directly on the drive, outside any folder".into(),
                 exclude: Vec::new(),
+                twin: None,
+                merge: Vec::new(),
             });
         }
         let (dfiles, dbytes): (i64, i64) = totals
@@ -622,7 +651,8 @@ pub fn make(
     for i in order {
         let twin = filed.iter().copied().find(|&j| {
             items[j].kind == items[i].kind
-                && dest_origin(&items[j].dest) == dest_origin(&items[i].dest)
+                && place_key(&dest_origin(&items[j].dest))
+                    == place_key(&dest_origin(&items[i].dest))
                 && ov_by_key
                     .get(&("entity", items[i].source_key.as_str()))
                     .is_some_and(|o| {
@@ -651,6 +681,7 @@ pub fn make(
                     share * 100.0
                 );
                 let it = &mut items[i];
+                it.twin = Some(twin_src.clone());
                 if share >= 0.999 {
                     // nothing in it that the other hasn't got
                     it.action = "skip".into();
@@ -665,19 +696,32 @@ pub fn make(
         }
     }
 
-    // two things can't land in the same place
-    let mut used: HashSet<String> = HashSet::new();
+    // two things can't land in the same place, in any spelling the archive's drive may take for
+    // one; and each folder keeps the spelling it's first given
+    let mut spelling: HashMap<Vec<u8>, String> = HashMap::new();
+    let mut used: HashSet<Vec<u8>> = HashSet::new();
     for it in items.iter_mut().filter(|i| i.action != "skip") {
-        let mut d = it.dest.clone();
-        if used.contains(&d) {
-            d = format!("{} ({})", it.dest, clean(&it.drive));
+        let mut parts: Vec<String> = Vec::new();
+        for part in it.dest.split('/') {
+            let key = place_key(&[parts.join("/"), part.to_string()].join("/"));
+            parts.push(
+                spelling
+                    .entry(key)
+                    .or_insert_with(|| part.to_string())
+                    .clone(),
+            );
+        }
+        let base = parts.join("/");
+        let mut d = base.clone();
+        if used.contains(&place_key(&d)) {
+            d = format!("{base} ({})", clean(&it.drive));
             let mut n = 2;
-            while used.contains(&d) {
-                d = format!("{} ({} {n})", it.dest, clean(&it.drive));
+            while used.contains(&place_key(&d)) {
+                d = format!("{base} ({} {n})", clean(&it.drive));
                 n += 1;
             }
         }
-        used.insert(d.clone());
+        used.insert(place_key(&d));
         it.dest = d;
     }
     let copy_files = items
@@ -704,6 +748,88 @@ pub fn make(
 /// "Mail/example.org/…" -> "Mail/example.org": the type and origin levels of a destination
 fn dest_origin(dest: &str) -> String {
     dest.split('/').take(2).collect::<Vec<_>>().join("/")
+}
+
+// ---------- merging mailboxes instead of copying twins
+
+/// The item that item `i` (a mailbox mostly the same as another) would be merged into, if it can
+/// be: both of a kind mailmerge.rs reads, the other one filed (or merging already).
+pub fn merge_target(p: &Plan, i: usize) -> Option<usize> {
+    let it = p.items.get(i)?;
+    if !MERGEABLE.contains(&it.kind.as_str())
+        || !matches!(it.action.as_str(), "copy-unique" | "skip")
+    {
+        return None;
+    }
+    let twin = it.twin.as_deref()?;
+    p.items.iter().position(|j| {
+        j.source == twin
+            && j.kind == it.kind
+            && matches!(j.action.as_str(), "copy" | "merge")
+            && !j.merge.contains(&it.source)
+    })
+}
+
+/// Merge item `i` with its twin: the twin's place gets one mailbox merged from both snapshots by
+/// Message-ID (mailmerge.rs) instead of one copied whole and the other's extra files beside it.
+/// Returns the merged item.
+pub fn merge_into_twin(p: &mut Plan, i: usize) -> Result<usize> {
+    let j = merge_target(p, i)
+        .context("that isn't a mailbox with a twin in this plan to merge it with")?;
+    let (src, drive) = (p.items[i].source.clone(), p.items[i].drive.clone());
+    let (twin_dest, twin_src) = (p.items[j].dest.clone(), p.items[j].source.clone());
+    let t = &mut p.items[j];
+    if !t.merge.contains(&src) {
+        t.merge.push(src);
+    }
+    t.action = "merge".into();
+    t.why = format!(
+        "{} snapshots of this mailbox (also on {}) merged into one by Message-ID: every message once, in the folder the newest snapshot has it in, flags combined",
+        1 + t.merge.len(),
+        drive
+    );
+    let it = &mut p.items[i];
+    it.action = "skip".into();
+    it.why = format!("merged by Message-ID with {twin_src}, into {twin_dest}");
+    p.copy_files = p
+        .items
+        .iter()
+        .filter(|x| x.action != "skip")
+        .map(|x| x.files)
+        .sum();
+    p.copy_bytes = p
+        .items
+        .iter()
+        .filter(|x| x.action != "skip")
+        .map(|x| x.bytes)
+        .sum();
+    Ok(j)
+}
+
+/// Merge every mailbox in the plan that has a twin (`backdown plan --merge-mail`). Returns how
+/// many were merged.
+pub fn merge_all_mail(p: &mut Plan) -> usize {
+    let mut n = 0;
+    for i in 0..p.items.len() {
+        if merge_target(p, i).is_some() && merge_into_twin(p, i).is_ok() {
+            n += 1;
+        }
+    }
+    n
+}
+
+/// `merge_into_twin` on a saved plan that hasn't started yet.
+pub fn merge_mail(db: &Db, id: i64, item: usize) -> Result<Plan> {
+    let (mut p, state) = load(db, id)?;
+    if state != "new" {
+        bail!("plan {id} has started copying ({state}): make a new plan to merge mailboxes");
+    }
+    merge_into_twin(&mut p, item)?;
+    db.conn.execute(
+        "UPDATE plans SET data = ?2 WHERE id = ?1",
+        params![id, serde_json::to_string(&p)?],
+    )?;
+    Ok(p)
 }
 
 // ---------- storage

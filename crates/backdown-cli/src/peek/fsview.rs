@@ -10,15 +10,22 @@
 //!
 //! Unlike archive entries, a file here is a plain read of the image, streamed like the image
 //! itself would be, so it has no size cap (a preview still asks for only what it shows).
+//!
+//! With `deleted`, a listing also has the folder's deleted files and folders (FAT, exFAT, NTFS),
+//! each saying how likely it can be recovered; a deleted entry is asked for by the path segment
+//! its listing gave it. `region_list` and `region_entry` do the same for a filesystem at a known
+//! place on a drive or image a Rescue record names (a partition it found, or one in the table):
+//! the caller looks that place up on the record, so the browser never names a device or a path.
 
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Seek};
 use std::path::Path;
 use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
 use backdown_core::fsread::{MAX_LIST, Volume};
 use backdown_core::magic::{be, has, le, read_at};
+use backdown_core::rescue;
 use serde_json::{Value, json};
 
 use super::{Part, SCAN_BUDGET, leaf, partitions};
@@ -94,6 +101,11 @@ fn region(f: &File, part: &str) -> Result<(u64, u64)> {
     Ok((base + start, size))
 }
 
+/// Where partition `part` of the disk image at `path` is: (offset, length).
+pub fn fs_region(path: &Path, part: &str) -> Result<(u64, u64)> {
+    region(&File::open(path)?, part)
+}
+
 fn volume(path: &Path, part: &str) -> Result<Volume<File>> {
     let f = File::open(path)?;
     let (base, len) = region(&f, part)?;
@@ -103,24 +115,97 @@ fn volume(path: &Path, part: &str) -> Result<Volume<File>> {
 }
 
 /// A folder of the filesystem in partition `part`: its entries (at most `MAX_LIST`) and what
-/// the filesystem says about itself.
-pub fn fs_list(path: &Path, part: &str, dir: Option<&str>) -> Result<Value> {
-    let mut v = volume(path, part)?;
-    let dir = dir.unwrap_or("").trim_matches('/');
-    let list = v.list_path(dir, MAX_LIST)?;
-    Ok(json!({
-        "part": part,
-        "fs": v.info(),
-        "path": dir,
-        "entries": list.entries,
-        "truncated": list.truncated,
-    }))
+/// the filesystem says about itself; with `deleted`, its deleted entries too.
+pub fn fs_list(path: &Path, part: &str, dir: Option<&str>, deleted: bool) -> Result<Value> {
+    listing(volume(path, part)?, part, dir, deleted)
 }
 
 /// One file of the filesystem in partition `part`, by its path in that filesystem's listings;
 /// at most `max` bytes of it.
 pub fn fs_entry(path: &Path, part: &str, name: &str, max: Option<u64>) -> Result<Part> {
-    let mut v = volume(path, part)?;
+    entry(volume(path, part)?, name, max)
+}
+
+/// The filesystem `len` bytes from `start` on `src` (a drive or an image, as a Rescue record
+/// names it), read by position so it can share a drive with a rescue running on it.
+fn region_volume(src: &Path, start: u64, len: u64) -> Result<Volume<rescue::At>> {
+    let f = rescue::open_at(src).with_context(|| format!("can't read {}", src.display()))?;
+    if start >= f.size() {
+        bail!("it starts past the end of {}", src.display());
+    }
+    let mut v = Volume::open(f, start, len)?;
+    v.set_deadline(Instant::now() + SCAN_BUDGET);
+    Ok(v)
+}
+
+/// `fs_list` for the filesystem `len` bytes from `start` on `src`.
+pub fn region_list(
+    src: &Path,
+    start: u64,
+    len: u64,
+    dir: Option<&str>,
+    deleted: bool,
+) -> Result<Value> {
+    listing(
+        region_volume(src, start, len)?,
+        &start.to_string(),
+        dir,
+        deleted,
+    )
+}
+
+/// `fs_entry` for the filesystem `len` bytes from `start` on `src`.
+pub fn region_entry(
+    src: &Path,
+    start: u64,
+    len: u64,
+    name: &str,
+    max: Option<u64>,
+) -> Result<Part> {
+    entry(region_volume(src, start, len)?, name, max)
+}
+
+fn listing<R: Read + Seek>(
+    mut v: Volume<R>,
+    part: &str,
+    dir: Option<&str>,
+    deleted: bool,
+) -> Result<Value> {
+    let dir = dir.unwrap_or("").trim_matches('/');
+    let d = v.find(dir)?;
+    if !d.dir {
+        bail!("{} is a file, not a folder", d.name);
+    }
+    let list = v.list(&d, MAX_LIST)?;
+    let why_not = v.undelete_unsupported();
+    let mut out = json!({
+        "part": part,
+        "fs": v.info(),
+        "path": dir,
+        "entries": list.entries,
+        "truncated": list.truncated,
+        "undelete": why_not,
+        // a deleted folder's own entries are all deleted: they're the listing
+        "in_deleted": d.deleted.is_some(),
+    });
+    if deleted && d.deleted.is_none() && why_not.is_none() {
+        match v.deleted(&d, MAX_LIST) {
+            Ok(g) => {
+                out["deleted"] = json!(g.entries);
+                out["deleted_truncated"] = json!(g.truncated);
+                out["deleted_note"] = json!(g.note);
+            }
+            Err(e) => out["deleted_note"] = json!(format!("{e:#}")),
+        }
+    }
+    Ok(out)
+}
+
+fn entry<R: Read + Seek + Send + 'static>(
+    mut v: Volume<R>,
+    name: &str,
+    max: Option<u64>,
+) -> Result<Part> {
     let e = v.find(name.trim_matches('/'))?;
     if e.dir {
         bail!("{} is a folder", e.name);
@@ -281,7 +366,7 @@ mod tests {
             let d = disk(f.path(), None).unwrap();
             assert_eq!(d["table"], if gpt { "GPT" } else { "MBR" });
             assert_eq!(d["partitions"][1]["fs"]["kind"], "FAT12");
-            let one = fs_list(f.path(), "1", None).unwrap();
+            let one = fs_list(f.path(), "1", None, false).unwrap();
             assert_eq!(names(&one), ["HELLO.TXT", "DIR"]);
             assert_eq!(
                 (one["fs"]["kind"].as_str(), one["fs"]["label"].as_str()),
@@ -289,7 +374,7 @@ mod tests {
             );
             assert_eq!(one["entries"][0]["size"], 4);
             assert_eq!(one["entries"][1]["dir"], true);
-            let two = fs_list(f.path(), "2", Some("/DIR/")).unwrap();
+            let two = fs_list(f.path(), "2", Some("/DIR/"), false).unwrap();
             assert_eq!(
                 (names(&two), two["path"].as_str()),
                 (vec!["A.TXT"], Some("DIR"))
@@ -317,10 +402,10 @@ mod tests {
             ] {
                 assert!(fs_entry(f.path(), part, name, None).is_err(), "{name}");
             }
-            let err = fs_list(f.path(), "3", None).unwrap_err().to_string();
+            let err = fs_list(f.path(), "3", None, false).unwrap_err().to_string();
             assert!(err.contains("no partition 3"), "{err}");
-            assert!(fs_list(f.path(), "x", None).is_err());
-            assert!(fs_list(f.path(), "0", None).is_err()); // the table isn't a filesystem
+            assert!(fs_list(f.path(), "x", None, false).is_err());
+            assert!(fs_list(f.path(), "0", None, false).is_err()); // the table isn't a filesystem
         }
     }
 
@@ -330,10 +415,10 @@ mod tests {
         let f = tmp(&img);
         assert_eq!(disk(f.path(), None).unwrap()["fs"]["kind"], "FAT12");
         assert_eq!(
-            names(&fs_list(f.path(), "0", None).unwrap()),
+            names(&fs_list(f.path(), "0", None, false).unwrap()),
             ["HELLO.TXT", "DIR"]
         );
-        assert!(fs_list(f.path(), "1", None).is_err());
+        assert!(fs_list(f.path(), "1", None, false).is_err());
         // a fixed VHD: the disk, then a footer
         let mut vhd = img.clone();
         let mut footer = vec![0u8; 512];
@@ -350,7 +435,7 @@ mod tests {
         let mut dynamic = vhd.clone();
         let at = dynamic.len() - 512 + 60;
         dynamic[at..at + 4].copy_from_slice(&3u32.to_be_bytes());
-        let err = fs_list(tmp(&dynamic).path(), "0", None)
+        let err = fs_list(tmp(&dynamic).path(), "0", None, false)
             .unwrap_err()
             .to_string();
         assert!(err.contains("convert it to a raw image"), "{err}");
@@ -365,24 +450,28 @@ mod tests {
         let f = tmp(&vdi);
         assert_eq!(disk(f.path(), None).unwrap()["fs"]["kind"], "FAT12");
         assert_eq!(
-            names(&fs_list(f.path(), "0", Some("DIR")).unwrap()),
+            names(&fs_list(f.path(), "0", Some("DIR"), false).unwrap()),
             ["A.TXT"]
         );
         // qcow2 isn't raw
         let mut q = vec![0u8; 4096];
         q[..4].copy_from_slice(b"QFI\xfb");
-        let err = fs_list(tmp(&q).path(), "0", None).unwrap_err().to_string();
+        let err = fs_list(tmp(&q).path(), "0", None, false)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("qemu-img"), "{err}");
         // not a filesystem, and cut short
-        let err = fs_list(tmp(&[0x5Au8; 8192]).path(), "0", None)
+        let err = fs_list(tmp(&[0x5Au8; 8192]).path(), "0", None, false)
             .unwrap_err()
             .to_string();
         assert!(err.contains("no filesystem"), "{err}");
         let mut cut = two_part_disk(false);
         cut.truncate((2 << 20) + 8 * 512);
         let f = tmp(&cut);
-        assert!(fs_list(f.path(), "1", None).is_ok());
-        let err = fs_list(f.path(), "2", Some("DIR")).unwrap_err().to_string();
+        assert!(fs_list(f.path(), "1", None, false).is_ok());
+        let err = fs_list(f.path(), "2", Some("DIR"), false)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("ends before"), "{err}");
     }
 
@@ -425,7 +514,9 @@ mod tests {
         );
     }
 
+    #[cfg(unix)] // mkfs.ext4, and a symlink in its source tree
     #[test]
+    #[cfg(unix)]
     fn made_by_mkfs_in_a_partition() {
         let Some(mkfs) = ["/usr/sbin/mkfs.ext4", "/sbin/mkfs.ext4"]
             .into_iter()
@@ -456,7 +547,7 @@ mod tests {
         d[511] = 0xAA;
         d.extend(std::fs::read(&part).unwrap());
         let f = tmp(&d);
-        let root = fs_list(f.path(), "1", None).unwrap();
+        let root = fs_list(f.path(), "1", None, false).unwrap();
         assert_eq!(root["fs"]["kind"], "ext4");
         let link = root["entries"]
             .as_array()
@@ -470,5 +561,47 @@ mod tests {
             body(fs_entry(f.path(), "1", "photos/pic.txt", None).unwrap()),
             b"a picture\n"
         );
+    }
+
+    /// A FAT volume 1 MiB into a disk whose table is gone, found at its place (as a Rescue
+    /// record gives it), with a deleted file: listed, and read back by its segment.
+    #[test]
+    fn a_found_filesystem_with_a_deleted_file() {
+        let mut vol = fat12(b"FOUND      ", b"hello, again\n");
+        // HELLO.TXT deleted: E5 over its entry, its cluster (2) freed in both FATs
+        let root = 13 * 512;
+        vol[root + 32] = 0xE5;
+        for fat in [512, 7 * 512] {
+            set12(&mut vol[fat..fat + 6 * 512], 2, 0);
+        }
+        let mut d = vec![0u8; 1 << 20];
+        d.extend(&vol);
+        let f = tmp(&d);
+        let (start, len) = (1u64 << 20, vol.len() as u64);
+        let v = region_list(f.path(), start, len, None, false).unwrap();
+        assert_eq!(names(&v), ["DIR"]);
+        assert!(v.get("deleted").is_none() && v["undelete"].is_null());
+        let v = region_list(f.path(), start, len, None, true).unwrap();
+        let gone = v["deleted"].as_array().unwrap();
+        assert_eq!(gone.len(), 1);
+        assert_eq!(gone[0]["name"], "_ELLO.TXT");
+        assert_eq!(gone[0]["deleted"]["state"], "recoverable");
+        let seg = gone[0]["deleted"]["seg"].as_str().unwrap();
+        assert_eq!(
+            body(region_entry(f.path(), start, len, seg, None).unwrap()),
+            b"hello, again\n"
+        );
+        // only by its segment
+        assert!(region_entry(f.path(), start, len, "_ELLO.TXT", None).is_err());
+        assert_eq!(
+            body(region_entry(f.path(), start, len, "DIR/A.TXT", None).unwrap()),
+            b"abc"
+        );
+        // not there: the table sector isn't a filesystem, and past the end is nothing
+        assert!(region_list(f.path(), 0, 1 << 20, None, false).is_err());
+        assert!(region_list(f.path(), 64 << 20, len, None, false).is_err());
+        // an indexed image's partition, with deleted files too
+        let one = fs_list(tmp(&vol).path(), "0", None, true).unwrap();
+        assert_eq!(one["deleted"][0]["name"], "_ELLO.TXT");
     }
 }

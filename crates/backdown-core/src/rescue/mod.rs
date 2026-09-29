@@ -10,13 +10,25 @@
 //! - `parts`: find partitions missing from the partition table, by their filesystems' own
 //!   signatures (like TestDisk's search).
 //!
+//! - `files`: copy chosen files and folders (deleted ones too) out of a filesystem on the source,
+//!   read through `fsread`, into a folder on another drive.
+//!
 //! Each takes a path (a device node or an image file), a progress callback and a stop flag, so the
 //! daemon can run it as a job that reports how far it is and can be cancelled. Rescues are kept on
 //! record (`rescues` table) so they can be followed, resumed and looked back on.
+//!
+//! Reading a whole drive directly needs permission a user account doesn't normally have. The
+//! narrowest way to get it is `access`'s one command (an ACL on that device node, gone when it's
+//! unplugged). On Linux the desktop can also hand BackDown an open, read-only file for one device
+//! (udisks' OpenForBackup, after the system asks for an administrator's password): `grant` keeps
+//! it for this process, and `open` and `open_at` use it in place of the path. The engines read
+//! the source one job at a time, and everything else (`At`) by position, so sharing that one open
+//! file never moves anyone's place.
 
 use std::fs::File;
-use std::io::{self, Seek, SeekFrom};
+use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
@@ -27,6 +39,7 @@ use serde_json::Value;
 use crate::Db;
 
 pub mod carve;
+pub mod files;
 pub mod image;
 pub mod parts;
 
@@ -36,6 +49,92 @@ pub fn size_of(f: &File) -> io::Result<u64> {
     let n = r.seek(SeekFrom::End(0))?;
     r.seek(SeekFrom::Start(0))?;
     Ok(n)
+}
+
+/// Devices this process was handed an open, read-only file for (path, file, size).
+static GRANTED: Mutex<Vec<(PathBuf, File, u64)>> = Mutex::new(Vec::new());
+
+/// Keeps `f`, an open read-only file for the device at `path` that the system handed over, for
+/// every later `open` of that path in this process.
+pub fn grant(path: &Path, f: File) -> io::Result<u64> {
+    let size = size_of(&f)?;
+    let mut g = GRANTED.lock().unwrap_or_else(|e| e.into_inner());
+    g.retain(|(p, _, _)| p != path);
+    g.push((path.to_path_buf(), f, size));
+    Ok(size)
+}
+
+/// The kept file for `path`, if there is one: a duplicate (sharing its place in the file) and the
+/// size.
+fn granted(path: &Path) -> Option<io::Result<(File, u64)>> {
+    let g = GRANTED.lock().unwrap_or_else(|e| e.into_inner());
+    g.iter()
+        .find(|(p, _, _)| p == path)
+        .map(|(_, f, n)| f.try_clone().map(|f| (f, *n)))
+}
+
+/// Whether this process was handed a file for `path`.
+pub fn is_granted(path: &Path) -> bool {
+    granted(path).is_some()
+}
+
+/// Opens a source to read: the file the system handed over for it, or the path itself.
+pub fn open(path: &Path) -> io::Result<File> {
+    match granted(path) {
+        Some(r) => r.map(|(f, _)| f),
+        None => crate::paths::open_read(path),
+    }
+}
+
+/// Opens a source to read by position (see `At`).
+pub fn open_at(path: &Path) -> io::Result<At> {
+    let (f, size) = match granted(path) {
+        Some(r) => r?,
+        None => {
+            let f = crate::paths::open_read(path)?;
+            let n = size_of(&f)?;
+            (f, n)
+        }
+    };
+    Ok(At { f, pos: 0, size })
+}
+
+/// A source read by position (`pread`), keeping its own place: readers of one shared open file
+/// don't move each other.
+pub struct At {
+    f: File,
+    pos: u64,
+    size: u64,
+}
+
+impl At {
+    pub fn size(&self) -> u64 {
+        self.size
+    }
+}
+
+impl Read for At {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        #[cfg(unix)]
+        let n = std::os::unix::fs::FileExt::read_at(&self.f, buf, self.pos)?;
+        #[cfg(windows)]
+        let n = std::os::windows::fs::FileExt::seek_read(&self.f, buf, self.pos)?;
+        self.pos += n as u64;
+        Ok(n)
+    }
+}
+
+impl Seek for At {
+    fn seek(&mut self, to: SeekFrom) -> io::Result<u64> {
+        let pos = match to {
+            SeekFrom::Start(n) => Some(n),
+            SeekFrom::End(d) => self.size.checked_add_signed(d),
+            SeekFrom::Current(d) => self.pos.checked_add_signed(d),
+        };
+        self.pos = pos
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "seek before the start"))?;
+        Ok(self.pos)
+    }
 }
 
 /// Whether this process can read `path`, and if it can't, what would let it.
@@ -51,6 +150,8 @@ pub struct Access {
     /// one command that gives this user read access to that device only (until it's unplugged
     /// or the computer restarts), to paste into a terminal
     pub fix: Option<String>,
+    /// readable through an open file the system handed this process (see `grant`)
+    pub granted: bool,
 }
 
 pub fn access(path: &Path) -> Access {
@@ -62,8 +163,15 @@ pub fn access(path: &Path) -> Access {
         size: None,
         why: None,
         fix: None,
+        granted: false,
     };
-    match File::open(path) {
+    if let Some(Ok((_, size))) = granted(path) {
+        a.readable = true;
+        a.granted = true;
+        a.size = Some(size);
+        return a;
+    }
+    match crate::paths::open_read(path) {
         Ok(f) => match size_of(&f) {
             Ok(n) => {
                 a.readable = true;

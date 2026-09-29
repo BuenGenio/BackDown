@@ -4,6 +4,8 @@ import { api, bytes, when } from './app.js';
 import { kindOf, fileIcon, folderIcon } from './icons.js';
 import { mailboxInto, mailExt } from './mailbox.js';
 import { isSqlDump, sqlDumpView } from './sqldump.js';
+import { fsBrowser } from './fsbrowse.js';
+import { mountOffer } from './drives.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -41,6 +43,13 @@ function show(title, meta) {
   $('#v-tools').innerHTML = '';
   $('#vbody').innerHTML = '<div class="v-center"><div class="v-msg"><p>Loading…</p></div></div>';
   $('#vbody').scrollTop = 0;
+}
+
+// the viewer as a panel for something that isn't an indexed file (a filesystem Rescue found)
+export function showPanel(title, meta) {
+  current = null;
+  show(title, meta);
+  $('#v-prev').disabled = $('#v-next').disabled = true;
 }
 
 function message(h, p) {
@@ -369,7 +378,7 @@ async function mailView(e) {
 // anything else as hex. Everything is fetched from `url` (an /api/entry link). `streams`: the
 // server streams this entry at any size (a file in a disk image's filesystem), so only previews
 // that would load it whole are held back when it's big.
-async function entryPreview(host, url, name, size, streams = false) {
+export async function entryPreview(host, url, name, size, streams = false) {
   const x = ext(name), k = kindOf(name), base = leaf(name);
   const big = size != null && size > ENTRY_MAX;
   host.innerHTML = `<div class="pv-head"><span class="pv-name" title="${esc(name)}">${esc(base)}</span><span class="v-meta">${size != null ? bytes(size) : ''}</span>
@@ -542,10 +551,14 @@ async function diskView(e) {
         <td>${fsText(p.fs)}</td><td class="n">${bytes(p.start)}</td><td class="n">${bytes(p.size)}</td><td class="n">${browsable(p.fs) ? browseBtn(p.index, p.fs) : ''}</td></tr>`).join('')}</tbody></table>` : ''}
     ${d.dmg_parts ? `<h4>Partitions</h4><ul class="pv-list">${d.dmg_parts.map(p => `<li>${esc(p.name)} <span>${bytes(p.size)}</span></li>`).join('')}</ul>` : ''}
     ${layoutless ? '<p class="note">To browse the files inside, convert it to a raw image first (for example with <code>qemu-img convert -O raw</code>).</p>' : ''}
+    <div class="img-mount"></div>
   </div>`;
   const first = whole ? { part: '0', fs: d.fs } : parts.filter(p => browsable(p.fs)).sort((a, b) => b.size - a.size).map(p => ({ part: String(p.index), fs: p.fs }))[0];
-  if (!iso && !first) { $('#vbody').innerHTML = `<div class="v-text">${summary}</div>`; return true; }
+  // filesystems BackDown can't read itself: the system may mount them read-only (drives.js)
+  const offer = () => mountOffer($('#vbody .img-mount'), e, d, browsable);
+  if (!iso && !first) { $('#vbody').innerHTML = `<div class="v-text">${summary}</div>`; offer(); return true; }
   $('#vbody').innerHTML = `<div class="iso-view">${summary}<div class="iso-files"></div></div>`;
+  offer();
   let host = $('#vbody .iso-files');
   const list = r => ({
     dirs: r.entries.filter(x => x.dir).map(x => ({ name: x.name, mtime: x.mtime })),
@@ -574,23 +587,10 @@ async function diskView(e) {
 }
 
 // The files of the filesystem in partition `part` of a disk image ("0": the whole image), listed
-// folder by folder by the server; a file is asked for by its path in those listings.
+// folder by folder by the server, deleted ones too when asked (fsbrowse.js); a file is asked for by
+// its path in those listings.
 function fsBrowse(host, e, part, rootName) {
-  const SHOW = new Set(['compressed', 'sparse', 'encrypted']);
-  const badges = x => (x.flags || []).filter(f => SHOW.has(f));
-  const list = r => ({
-    dirs: r.entries.filter(x => x.dir).map(x => ({ name: x.name, mtime: x.mtime, badges: badges(x) })),
-    files: r.entries.filter(x => !x.dir).map(x => ({
-      ...x, base: x.name, badges: badges(x), size: x.link != null ? null : x.size,
-      unreadable: x.unreadable || (x.link != null ? `A link to ${x.link}. Links are shown, not followed.` : null),
-    })),
-    note: [r.truncated ? `Showing the first ${r.entries.length.toLocaleString()} entries of this folder.` : '', ...(r.fs.notes || []).map(n => `${n[0].toUpperCase()}${n.slice(1)}.`)].filter(Boolean).join(' '),
-  });
-  return browseInto(host, {
-    rootName, streams: true,
-    open: async path => list(await api('fs', { id: e.id, part, path: path.join('/') })),
-    url: (path, f) => `${entryUrl(e.id, [...path, f.name].join('/'))}&part=${encodeURIComponent(part)}`,
-  });
+  return fsBrowser(host, { source: { id: e.id, part }, rootName });
 }
 
 // a disk image in a few lines, for the details pane
@@ -761,7 +761,8 @@ $('#v-prev').onclick = () => { if (current && current.index > 0) { current.index
 $('#v-next').onclick = () => { if (current && current.index < current.list.length - 1) { current.index++; render(); } };
 document.addEventListener('keydown', e => {
   if ($('#viewer').hidden) return;
-  if (e.key === 'Escape') { e.preventDefault(); closeViewer(); }
+  // the view underneath doesn't also take this Escape (it would leave Rescue or Activity)
+  if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); closeViewer(); }
   else if (e.key === 'ArrowLeft' && !e.target.closest('input')) $('#v-prev').click();
   else if (e.key === 'ArrowRight' && !e.target.closest('input')) $('#v-next').click();
 });

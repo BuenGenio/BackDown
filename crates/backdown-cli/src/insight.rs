@@ -23,8 +23,8 @@ fn roots(db: &Db, only: &[PathBuf]) -> Result<Vec<i64>> {
                 .query_row("SELECT path FROM roots WHERE id = ?1", [id], |r| r.get(0))?;
         let root = paths::from_bytes(&path);
         if only.iter().any(|p| {
-            let p = dunce::canonicalize(p).unwrap_or_else(|_| p.clone());
-            p.starts_with(&root) || root.starts_with(&p)
+            let p = paths::canonical(p).unwrap_or_else(|_| p.clone());
+            backdown_core::names::within(&p, &root) || backdown_core::names::within(&root, &p)
         }) {
             out.push(id);
         }
@@ -57,6 +57,8 @@ pub fn recognised(
             }
         }
     }
+    // where things came from is a Pro feature (tiers.rs); stored results keep it either way
+    crate::tiers::strip_provenance(out.iter_mut().map(|(r, _)| r));
     Ok(out)
 }
 

@@ -3,8 +3,11 @@
 //! One worker thread runs jobs one at a time, so there is a single writer to the index and a
 //! single reader per drive; every index job is followed by hashing, so each scan keeps provable
 //! fingerprints for the time slider. A scheduler rescans drives when due, or when one that was away
-//! comes back. The CLI talks to it over a Unix socket (line-delimited JSON), the browser over the
-//! same local web UI as `backdown serve`. Under systemd it reports readiness, liveness and status.
+//! comes back. A health thread reads every drive's SMART data (health.rs) every six hours and when
+//! a drive appears, keeps what's new, and notifies when a drive, a mirror or a scheduled job goes
+//! wrong. Other machines (remote/) are synced over ssh in the side lane, on a schedule. The CLI
+//! talks to it over a Unix socket (line-delimited JSON), the browser over the same local web UI as
+//! `backdown serve`. Under systemd it reports readiness, liveness and status.
 //!
 //! Being killed is safe: every job commits in batches and resumes where it stopped.
 
@@ -30,6 +33,8 @@ pub struct Options {
     pub rescan_every: Option<Duration>,
     /// system-wide service: files and the socket are shared with the `backdown` group
     pub shared: bool,
+    /// --rescan-every was given (it wins over Settings at startup)
+    pub rescan_flag: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -53,7 +58,7 @@ pub struct Job {
     pub started_at: Option<i64>,
     pub finished_at: Option<i64>,
     #[serde(skip)]
-    opts: JobOpts,
+    pub(crate) opts: JobOpts,
 }
 
 /// Where a running job is. For a scan the totals are the drive's previous scan (an estimate); for
@@ -75,6 +80,8 @@ pub struct Drive {
     pub last_scan_at: Option<i64>,
     pub files: u64,
     pub bytes: u64,
+    /// how its last scan was made: the method (walk | journal | table), and for people
+    pub how: Option<(String, String)>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -92,12 +99,22 @@ pub struct JobOpts {
     pub trust_index: bool,
     /// rescue: which recorded rescue
     pub rescue: Option<i64>,
+    /// remote-sync: which machine (remote/)
+    pub machine: Option<i64>,
+    /// index: how to make the scan (Auto: the change log, the file table, or a walk)
+    pub method: index::Method,
+    /// dedup: which recorded dedup run (tidying an archive); mail-merge: which recorded merge
+    pub dedup: Option<i64>,
+    pub merge: Option<i64>,
 }
 
+/// Jobs in the main lane that can be stopped at their next file (and carried on later).
+const STOPPABLE: &[&str] = &["dedup", "mail-merge"];
+
 /// Jobs that can run for hours or days and hardly touch the index (copying a failing drive,
-/// searching a card for lost files): they go in a lane of their own, one at a time, so scans and
-/// hashing carry on meanwhile, and they can be stopped.
-const SIDE: &[&str] = &["rescue"];
+/// searching a card for lost files, syncing another machine over ssh): they go in a lane of their
+/// own, one at a time, so scans and hashing carry on meanwhile, and they can be stopped.
+const SIDE: &[&str] = &["rescue", "remote-sync"];
 
 #[derive(Default)]
 struct State {
@@ -121,9 +138,14 @@ struct State {
 pub struct Daemon {
     pub db: PathBuf,
     pub started_at: i64,
-    /// the machine-wide service: its sandbox reads only, so it never wipes
+    /// the machine-wide service: its sandbox reads only, so it never wipes (read by `respond`,
+    /// which only the Unix control socket calls so far)
+    #[cfg_attr(not(unix), allow(dead_code))]
     pub shared: bool,
-    pub rescan_every: Option<Duration>,
+    /// changeable while it runs (Settings)
+    rescan_every: Mutex<Option<Duration>>,
+    /// drive health, read in a thread of its own (health.rs), and notifications
+    pub health: crate::health::Monitor,
     state: Mutex<State>,
     wake: Condvar,
     changed: Condvar,
@@ -136,6 +158,19 @@ fn now() -> i64 {
 }
 
 impl Daemon {
+    pub fn rescan_every(&self) -> Option<Duration> {
+        *self.rescan_every.lock().unwrap()
+    }
+
+    /// A new rescan interval (Settings): the scheduler uses it at its next look.
+    pub fn set_rescan_every(&self, every: Option<Duration>) {
+        *self.rescan_every.lock().unwrap() = every;
+        let mut st = self.state.lock().unwrap();
+        st.recheck = true;
+        st.version += 1;
+        self.changed.notify_all();
+    }
+
     pub fn enqueue(
         &self,
         kind: &'static str,
@@ -166,6 +201,8 @@ impl Daemon {
                     "after-apply" => " (after copying into it)",
                     "after-wipe" => " (after wiping)",
                     "after-rescue" => " (what a rescue found)",
+                    "after-dedup" => " (after linking duplicates in it)",
+                    "after-merge" => " (after merging mail into it)",
                     "scheduled" => " (scheduled)",
                     "returned" => " (the drive is back)",
                     _ => "",
@@ -177,7 +214,7 @@ impl Daemon {
             kind,
             path,
             state: "queued",
-            stoppable: SIDE.contains(&kind),
+            stoppable: SIDE.contains(&kind) || STOPPABLE.contains(&kind),
             progress: String::new(),
             counts: None,
             summary: String::new(),
@@ -279,7 +316,7 @@ impl Daemon {
     }
 
     /// A running job's progress; wakes waiting viewers at most once a second.
-    fn progress(&self, id: u64, msg: String, counts: Counts) {
+    pub(crate) fn progress(&self, id: u64, msg: String, counts: Counts) {
         let mut st = self.state.lock().unwrap();
         if let Some(j) = st.jobs.iter_mut().find(|j| j.id == id) {
             j.progress = msg;
@@ -293,6 +330,12 @@ impl Daemon {
                 self.changed.notify_all();
             }
         }
+    }
+
+    /// Something a viewer would notice changed outside the job queue (drive health, notifications).
+    pub fn touch(&self) {
+        self.state.lock().unwrap().version += 1;
+        self.changed.notify_all();
     }
 
     /// Wait until something changes after `since` (the `version` of a snapshot), or `timeout`.
@@ -363,7 +406,7 @@ impl Daemon {
             .collect();
         // the plan: when each drive is scanned next, and why not if it isn't
         let now = now();
-        let every = self.rescan_every.map(|d| d.as_secs() as i64);
+        let every = self.rescan_every().map(|d| d.as_secs() as i64);
         let drives: Vec<Value> = st
             .drives
             .iter()
@@ -388,7 +431,9 @@ impl Daemon {
                     "scheduled"
                 };
                 json!({ "path": d.path, "present": d.present, "last_scan_at": d.last_scan_at,
-                        "files": d.files, "bytes": d.bytes, "next_at": next_at, "state": state })
+                        "files": d.files, "bytes": d.bytes, "next_at": next_at, "state": state,
+                        "last_method": d.how.as_ref().map(|h| &h.0),
+                        "last_how": d.how.as_ref().map(|h| &h.1) })
             })
             .collect();
         json!({
@@ -399,13 +444,14 @@ impl Daemon {
             "db": self.db.display().to_string(),
             "pid": std::process::id(),
             "started_at": self.started_at,
-            "rescan_every_secs": self.rescan_every.map(|d| d.as_secs()),
+            "rescan_every_secs": self.rescan_every().map(|d| d.as_secs()),
             "checked_at": st.checked_at,
             "current": current,
             "side": side,
             "queued": queued,
             "recent": recent,
             "drives": drives,
+            "health": self.health.snapshot(),
         })
     }
 }
@@ -420,11 +466,17 @@ pub fn run(opts: Options) -> Result<()> {
     }
     Db::open(&opts.db)?; // create or migrate before anything reads it
     let db = dunce::canonicalize(&opts.db)?;
+    crate::settings::init(&opts.state_dir, opts.shared, opts.rescan_flag);
     let d = Arc::new(Daemon {
         db: db.clone(),
         started_at: now(),
         shared: opts.shared,
-        rescan_every: opts.rescan_every,
+        rescan_every: Mutex::new(opts.rescan_every),
+        health: crate::health::Monitor::new(
+            crate::health::source_from_env(),
+            &opts.state_dir,
+            !opts.shared,
+        ),
         state: Mutex::new(State::default()),
         wake: Condvar::new(),
         changed: Condvar::new(),
@@ -437,7 +489,24 @@ pub fn run(opts: Options) -> Result<()> {
     // the local web UI, with a token that survives restarts so bookmarks keep working
     let ui_file = opts.state_dir.join(locations::UI_FILE);
     let token = existing_token(&ui_file).map_or_else(serve::new_token, Ok)?;
-    let (server, port) = serve::bind_on(&opts.host, opts.port)?;
+    // after an update on Windows the old daemon may still hold the port for a moment
+    let (servers, port) = {
+        let mut tries = if std::env::var_os("BACKDOWN_BIND_WAIT").is_some() {
+            40
+        } else {
+            1
+        };
+        loop {
+            match serve::bind_all(&opts.host, opts.port) {
+                Ok(x) => break x,
+                Err(_) if tries > 1 => {
+                    tries -= 1;
+                    std::thread::sleep(Duration::from_millis(250));
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    };
     write_private(
         &ui_file,
         &serde_json::to_vec_pretty(
@@ -470,6 +539,12 @@ pub fn run(opts: Options) -> Result<()> {
             .name("scheduler".into())
             .spawn(move || scheduler(&d))?;
     }
+    {
+        let d = Arc::clone(&d);
+        std::thread::Builder::new()
+            .name("health".into())
+            .spawn(move || crate::health::run(&d))?;
+    }
     #[cfg(unix)]
     {
         let d = Arc::clone(&d);
@@ -477,8 +552,17 @@ pub fn run(opts: Options) -> Result<()> {
             .name("control".into())
             .spawn(move || control::serve(&d, socket))?;
     }
+    crate::update::spawn_checker(opts.shared);
     notify::send("READY=1\nSTATUS=idle");
-    serve::run(server, db, token, port, Some(d), !opts.shared, serve::extra_hosts(&opts.host, port));
+    serve::run(
+        servers,
+        db,
+        token,
+        port,
+        Some(d),
+        !opts.shared,
+        serve::extra_hosts(&opts.host, port),
+    );
     Ok(())
 }
 
@@ -529,10 +613,16 @@ fn side_worker(d: &Daemon) {
         // its own connection: the rescue record's short writes wait their turn behind the worker's
         let result = Db::open(&d.db).and_then(|db| match job.kind {
             "rescue" => run_rescue(d, &db, &job, &stop),
+            "remote-sync" => run_remote_sync(d, &db, &job, &stop),
             k => bail!("{k} doesn't run in the side lane"),
         });
         d.state.lock().unwrap().stops.remove(&id);
         let stopped = stop.load(Ordering::Relaxed);
+        crate::health::after_job(
+            d,
+            &job,
+            result.as_ref().err().map(|e| format!("{e:#}")).as_deref(),
+        );
         match result {
             Ok(summary) => {
                 eprintln!("{}: {summary}", if stopped { "stopped" } else { "done" });
@@ -591,20 +681,35 @@ fn worker(d: &Daemon) {
                 .map(|p| format!(" {p}"))
                 .unwrap_or_default()
         ));
+        // tidying and merging can be stopped at their next file
+        let stop = Arc::new(AtomicBool::new(false));
+        if STOPPABLE.contains(&job.kind) {
+            d.state.lock().unwrap().stops.insert(id, Arc::clone(&stop));
+        }
         let result = match job.kind {
             "index" => run_index(d, &mut db, &job),
             "entities" => run_entities(d, &db, &job),
             "apply" => run_apply(d, &mut db, &job),
             "mirror-sync" | "mirror-verify" => run_mirror(d, &db, &job),
             "wipe" => run_wipe(d, &mut db, &job),
+            "dedup" => crate::tidy::run_dedup_job(d, &db, &job, &stop),
+            "mail-merge" => crate::tidy::run_merge_job(d, &db, &job, &stop),
             _ => run_hash(d, &mut db, &job),
         };
+        d.state.lock().unwrap().stops.remove(&id);
+        let stopped = stop.load(Ordering::Relaxed);
         let ok = result.is_ok();
+        // a mirror that no longer matches, or a scheduled job that failed: tell someone
+        crate::health::after_job(
+            d,
+            &job,
+            result.as_ref().err().map(|e| format!("{e:#}")).as_deref(),
+        );
         match result {
             Ok(summary) => {
-                eprintln!("done: {summary}");
+                eprintln!("{}: {summary}", if stopped { "stopped" } else { "done" });
                 d.update(id, |j| {
-                    j.state = "done";
+                    j.state = if stopped { "stopped" } else { "done" };
                     j.summary = summary;
                     j.finished_at = Some(now());
                 });
@@ -624,13 +729,16 @@ fn worker(d: &Daemon) {
         }
         if ok && job.kind == "index" {
             d.state.lock().unwrap().recheck = true;
-            // hash after every scan, so this scan's versions keep a provable fingerprint
+            // hash after every scan, so this scan's versions keep a provable fingerprint (with
+            // the readers per drive, and retries, from Settings)
+            let s = crate::settings::load();
             d.enqueue(
                 "hash",
                 None,
                 "after-scan",
                 JobOpts {
-                    jobs_per_device: 1,
+                    jobs_per_device: s.hash_jobs.max(1),
+                    retry_errors: s.hash_retry_errors,
                     ..JobOpts::default()
                 },
             );
@@ -675,9 +783,17 @@ fn worker(d: &Daemon) {
                 d.enqueue("index", Some(root), "after-apply", JobOpts::default());
             }
         }
+        // linked or merged files are new to the index: rescan where they are
+        if let Some((place, reason)) = crate::tidy::changed_place(&db, &job)
+            && let Some(root) = root_holding(&db, &place)
+        {
+            d.enqueue("index", Some(root), reason, JobOpts::default());
+        }
         if ok && job.kind == "hash" {
             // then say what the drives hold, now that duplicates are known
             d.enqueue("entities", None, "after-scan", JobOpts::default());
+            // and have other machines hash what now matches a file here by sample (remote/)
+            crate::remote::after_hash(d, &db);
         }
         if d.state.lock().unwrap().queue.is_empty() {
             notify::send("STATUS=idle");
@@ -718,6 +834,21 @@ fn run_apply(d: &Daemon, db: &mut Db, job: &Job) -> Result<String> {
         fmt::count(st.duplicates),
         fmt::count(st.resumed)
     );
+    if st.merged > 0 {
+        s += &format!("; {} messages in merged mailboxes", fmt::count(st.merged));
+    }
+    if st.renamed > 0 {
+        s += &format!(
+            "; {} renamed where the archive's drive takes names for one",
+            fmt::count(st.renamed)
+        );
+    }
+    if st.extras_not_kept > 0 {
+        s += &format!(
+            "; {} without some streams or attributes (see the journal)",
+            fmt::count(st.extras_not_kept)
+        );
+    }
     if st.conflicts + st.failed > 0 {
         s += &format!(
             "; {} conflicts and {} failures need a look",
@@ -782,27 +913,75 @@ fn run_mirror(d: &Daemon, db: &Db, job: &Job) -> Result<String> {
     }
 }
 
-/// Wipe what a recorded wipe selected (see backdown_core::wipe for the rules).
-fn run_wipe(d: &Daemon, db: &mut Db, job: &Job) -> Result<String> {
-    let id = job.opts.wipe.context("wipe without a selection")?;
-    let st = backdown_core::wipe::wipe(db, id, job.opts.trust_index, Some(&d.db), &mut |n, b| {
-        let counts = Counts {
-            stage: "wiping",
-            files: n,
-            bytes: b,
-            ..Counts::default()
-        };
+/// Sync another machine over ssh (remote/); then hash here if what's cached there changed, since
+/// files here may now match files there.
+fn run_remote_sync(d: &Daemon, db: &Db, job: &Job, stop: &AtomicBool) -> Result<String> {
+    let id = job.opts.machine.context("a sync without a machine")?;
+    let (summary, changed) = crate::remote::sync_job(db, id, stop, &mut |msg| {
         d.progress(
             job.id,
-            format!("{} files, {}", fmt::count(n), fmt::bytes(b)),
-            counts,
+            msg.to_string(),
+            Counts {
+                stage: "syncing",
+                ..Counts::default()
+            },
         );
     })?;
+    if changed && !stop.load(Ordering::Relaxed) {
+        d.enqueue(
+            "hash",
+            None,
+            "after-sync",
+            JobOpts {
+                jobs_per_device: 1,
+                ..JobOpts::default()
+            },
+        );
+    }
+    Ok(summary)
+}
+
+/// Wipe what a recorded wipe selected (see backdown_core::wipe for the rules). Copies on other
+/// machines count only once that machine has re-read them (remote/).
+fn run_wipe(d: &Daemon, db: &mut Db, job: &Job) -> Result<String> {
+    let id = job.opts.wipe.context("wipe without a selection")?;
+    let mut ssh = crate::remote::verifier_connect();
+    let mut verifier = ssh
+        .as_mut()
+        .map(|s| backdown_core::remote::Verifier::new(s));
+    let st = backdown_core::wipe::wipe_with(
+        db,
+        id,
+        job.opts.trust_index,
+        Some(&d.db),
+        verifier.as_mut(),
+        &mut |n, b| {
+            let counts = Counts {
+                stage: "wiping",
+                files: n,
+                bytes: b,
+                ..Counts::default()
+            };
+            d.progress(
+                job.id,
+                format!("{} files, {}", fmt::count(n), fmt::bytes(b)),
+                counts,
+            );
+        },
+    )?;
     Ok(format!(
-        "deleted {} files ({}), {} moved first; left {} changed, {} with no copy, {} unreadable{}",
+        "deleted {} files ({}), {} moved first{}; left {} changed, {} with no copy, {} unreadable{}",
         fmt::count(st.deleted),
         fmt::bytes(st.deleted_bytes),
         fmt::count(st.moved),
+        if st.remote > 0 {
+            format!(
+                ", {} kept only on another machine (re-read there first)",
+                fmt::count(st.remote)
+            )
+        } else {
+            String::new()
+        },
         fmt::count(st.left_changed),
         fmt::count(st.left_no_copy),
         fmt::count(st.left_unreadable),
@@ -825,6 +1004,7 @@ fn run_rescue(d: &Daemon, db: &Db, job: &Job, stop: &AtomicBool) -> Result<Strin
         "image" => rescue_image(d, db, job, &r, stop),
         "parts" => rescue_parts(d, job, &r, stop),
         "carve" => rescue_carve(d, db, job, &r, stop),
+        "files" => rescue_files(d, db, job, &r, stop),
         m => Err(anyhow::anyhow!("{m} can't run yet")),
     };
     match out {
@@ -931,6 +1111,71 @@ fn rescue_carve(
         }
     );
     Ok((summary, result))
+}
+
+/// Copy chosen files and folders (deleted ones too) out of a filesystem on a drive or image,
+/// reading it through fsread, each copy checked by reading it back; then index them so they open
+/// in the browser. Stopping and running it again leaves what was copied as it is.
+fn rescue_files(
+    d: &Daemon,
+    db: &Db,
+    job: &Job,
+    r: &backdown_core::rescue::Rescue,
+    stop: &AtomicBool,
+) -> Result<(String, Value)> {
+    use backdown_core::rescue::files;
+    let dest = PathBuf::from(r.dest.as_deref().context("files with nowhere to go")?);
+    let opts: files::Options = serde_json::from_value(r.options.clone())?;
+    let sum = files::copy_out(
+        Path::new(&r.source),
+        &opts,
+        &dest,
+        &mut |p| {
+            d.progress(
+                job.id,
+                format!(
+                    "{} of {} files copied ({} of {})",
+                    fmt::count(p.files),
+                    fmt::count(p.total_files),
+                    fmt::bytes(p.bytes),
+                    fmt::bytes(p.total_bytes)
+                ),
+                Counts {
+                    stage: "copying",
+                    files: p.files,
+                    total_files: p.total_files,
+                    bytes: p.bytes,
+                    total_bytes: p.total_bytes,
+                },
+            )
+        },
+        stop,
+    )?;
+    if sum.files > 0 {
+        let target = root_holding(db, &dest).unwrap_or_else(|| dest.display().to_string());
+        d.enqueue("index", Some(target), "after-rescue", JobOpts::default());
+    }
+    let summary = format!(
+        "{}copied {} file{} ({}){}{}",
+        if sum.stopped { "stopped: " } else { "" },
+        fmt::count(sum.files),
+        if sum.files == 1 { "" } else { "s" },
+        fmt::bytes(sum.bytes),
+        if sum.partly > 0 {
+            format!(
+                ", {} of them deleted and partly overwritten",
+                fmt::count(sum.partly)
+            )
+        } else {
+            String::new()
+        },
+        if sum.failed > 0 {
+            format!("; {} couldn't be copied", fmt::count(sum.failed))
+        } else {
+            String::new()
+        }
+    );
+    Ok((summary, serde_json::to_value(&sum)?))
 }
 
 /// Look for file systems the partition table doesn't list (reads only).
@@ -1171,7 +1416,8 @@ fn run_index(d: &Daemon, db: &mut Db, job: &Job) -> Result<String> {
     };
     // the drive's previous scan is the best guess at how far this one has to go
     let before = d.drive(&path.display().to_string());
-    let st = index::index(db, &path, &opts, &mut |s| {
+    // the change log, the file table or a walk, whichever is safe and fastest (index.rs)
+    let st = index::scan(db, &path, &opts, job.opts.method, &mut |s| {
         let msg = format!("{} files, {}", fmt::count(s.files), fmt::bytes(s.bytes));
         let counts = Counts {
             stage: "scanning",
@@ -1183,8 +1429,9 @@ fn run_index(d: &Daemon, db: &mut Db, job: &Job) -> Result<String> {
         d.progress(job.id, msg, counts);
     })?;
     Ok(format!(
-        "{}: {} files, {} (new {}, changed {}, gone {}) · scan {}{}",
+        "{}: {} · {} files, {} (new {}, changed {}, gone {}) · scan {}{}",
         st.root.display(),
+        st.how(),
         fmt::count(st.files),
         fmt::bytes(st.bytes),
         st.new,
@@ -1270,7 +1517,7 @@ fn scheduler(d: &Daemon) {
 fn check_roots(d: &Daemon, present: &mut HashMap<String, bool>) -> Result<()> {
     let db = Db::open_read_only(&d.db)?;
     let mut stmt = db.conn.prepare(
-        "SELECT r.path, s.finished_at, COALESCE(s.files, 0), COALESCE(s.bytes, 0) FROM roots r LEFT JOIN scans s ON s.id = r.last_scan",
+        "SELECT r.path, s.finished_at, COALESCE(s.files, 0), COALESCE(s.bytes, 0), s.id FROM roots r LEFT JOIN scans s ON s.id = r.last_scan",
     )?;
     let rows = stmt.query_map([], |r| {
         Ok((
@@ -1278,22 +1525,27 @@ fn check_roots(d: &Daemon, present: &mut HashMap<String, bool>) -> Result<()> {
             r.get::<_, Option<i64>>(1)?,
             r.get::<_, i64>(2)?,
             r.get::<_, i64>(3)?,
+            r.get::<_, Option<i64>>(4)?,
         ))
     })?;
     let now = now();
     let mut drives = Vec::new();
     for row in rows {
-        let (path, last, files, bytes) = row?;
+        let (path, last, files, bytes, scan) = row?;
         let p = paths::from_bytes(&path);
         let key = p.display().to_string();
         let here = p.is_dir()
             && (files == 0 || std::fs::read_dir(&p).is_ok_and(|mut it| it.next().is_some()));
+        let how = scan
+            .and_then(|s| index::how(&db, &[s]).ok())
+            .and_then(|h| h.first().map(|h| (h.method.clone(), h.phrase())));
         drives.push(Drive {
             path: key.clone(),
             present: here,
             last_scan_at: last,
             files: files as u64,
             bytes: bytes as u64,
+            how,
         });
         let was = present.insert(key.clone(), here);
         if !here {
@@ -1304,17 +1556,20 @@ fn check_roots(d: &Daemon, present: &mut HashMap<String, bool>) -> Result<()> {
         }
         let back = was == Some(false);
         let due = d
-            .rescan_every
+            .rescan_every()
             .is_some_and(|every| last.is_none_or(|t| now - t >= every.as_secs() as i64));
         if (back || due) && !d.pending_index(&key) {
             if back {
                 eprintln!("{key} is back");
+                d.health.ask(); // and read its health
             }
             let reason = if back { "returned" } else { "scheduled" };
             d.enqueue("index", Some(key), reason, JobOpts::default());
         }
     }
     d.set_drives(drives);
+    // other machines due a sync (remote/)
+    crate::remote::schedule(d, &db);
     for m in backdown_core::mirror::list(&db)? {
         if !Path::new(&m.source).is_dir() || !Path::new(&m.target).is_dir() {
             continue;
@@ -1338,6 +1593,8 @@ fn check_roots(d: &Daemon, present: &mut HashMap<String, bool>) -> Result<()> {
 
 // ---------- requests from the CLI (and the UI's rescan button)
 
+/// One request on the control socket (Unix only so far: on Windows the CLI works on the index itself).
+#[cfg_attr(not(unix), allow(dead_code))]
 pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
     let ro = || Db::open_read_only(&d.db);
     Ok(match req["cmd"].as_str().unwrap_or("") {
@@ -1350,7 +1607,14 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
                 Some("index") => "index",
                 Some("hash") => "hash",
                 Some("entities") => "entities",
-                Some("apply") => "apply",
+                Some("apply") => {
+                    if d.shared {
+                        bail!(
+                            "the machine-wide service reads only; copy from your own BackDown (backdown --local apply …)"
+                        );
+                    }
+                    "apply"
+                }
                 Some("wipe") => {
                     if d.shared {
                         bail!(
@@ -1359,7 +1623,43 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
                     }
                     "wipe"
                 }
-                _ => bail!("kind must be index, hash, entities, apply or wipe"),
+                // another machine, over ssh with this user's keys (remote/)
+                Some("remote-sync") => {
+                    if d.shared {
+                        bail!(
+                            "the machine-wide service has no ssh keys of yours: sync from your own BackDown (backdown --local remote sync …)"
+                        );
+                    }
+                    let db = Db::open(&d.db)?;
+                    let m = backdown_core::remote::get(
+                        &db,
+                        req["machine"]
+                            .as_i64()
+                            .context("remote-sync needs a machine")?,
+                    )?;
+                    return Ok(
+                        json!({ "ok": true, "job": crate::remote::queue(d, &m, "requested") }),
+                    );
+                }
+                Some("dedup") => {
+                    if d.shared {
+                        bail!(
+                            "the machine-wide service reads only; tidy from your own BackDown (backdown --local dedup …)"
+                        );
+                    }
+                    "dedup"
+                }
+                Some("mail-merge") => {
+                    if d.shared {
+                        bail!(
+                            "the machine-wide service reads only; merge from your own BackDown (backdown --local mail merge …)"
+                        );
+                    }
+                    "mail-merge"
+                }
+                _ => bail!(
+                    "kind must be index, hash, entities, apply, wipe, dedup, mail-merge or remote-sync"
+                ),
             };
             let plan = req["plan"].as_i64();
             let path = match kind {
@@ -1376,6 +1676,18 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
                     "wipe {}",
                     req["wipe"].as_i64().context("wipe needs a recorded wipe")?
                 )),
+                "dedup" => Some(format!(
+                    "dedup {}",
+                    req["dedup"]
+                        .as_i64()
+                        .context("dedup needs a recorded run")?
+                )),
+                "mail-merge" => Some(format!(
+                    "merge {}",
+                    req["merge"]
+                        .as_i64()
+                        .context("mail-merge needs a recorded merge")?
+                )),
                 _ => None,
             };
             let opts = JobOpts {
@@ -1388,6 +1700,10 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
                 wipe: req["wipe"].as_i64(),
                 trust_index: req["trust_index"].as_bool().unwrap_or(false),
                 rescue: None,
+                machine: None,
+                method: req["method"].as_str().unwrap_or("auto").parse()?,
+                dedup: req["dedup"].as_i64(),
+                merge: req["merge"].as_i64(),
             };
             json!({ "ok": true, "job": d.enqueue(kind, path, "requested", opts) })
         }
@@ -1405,6 +1721,8 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
             json!({ "ok": true, "report": report::dupes(&ro()?, min, limit)? })
         }
         "scans" => json!({ "ok": true, "scans": report::scans(&ro()?)? }),
+        // read every drive's health now (and keep it): `backdown health`
+        "health" => crate::health::respond(d)?,
         other => bail!("unknown command {other:?}"),
     })
 }
@@ -1487,7 +1805,7 @@ mod control {
                 )?;
                 return Ok(());
             };
-            let finished = job.state == "done" || job.state == "failed";
+            let finished = matches!(job.state, "done" | "failed" | "stopped");
             let ev = json!({ "ok": true, "job": job });
             let s = ev.to_string();
             if s != last || finished {

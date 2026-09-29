@@ -95,7 +95,8 @@ CREATE TABLE IF NOT EXISTS journal (
     sha256  BLOB,
     state   TEXT NOT NULL,            -- copied | already-there | duplicate | conflict | failed
     error   TEXT,
-    at      INTEGER NOT NULL
+    at      INTEGER NOT NULL,
+    note    TEXT                      -- renamed, or what a copy didn't keep; added in 1.0 (add_column)
 );
 CREATE INDEX IF NOT EXISTS journal_src ON journal(plan_id, src);
 -- standing mirrors (mirror.rs): keep a folder copied on another drive, verified now and then
@@ -145,6 +146,90 @@ CREATE TABLE IF NOT EXISTS rescues (
     result     TEXT,                  -- JSON: the image's totals, what was found
     updated_at INTEGER NOT NULL
 );
+-- drive health (health/): readings of each physical drive's SMART data, kept when they say
+-- something new or once a day, under the drive's serial (or WWN) so its history follows it
+-- between ports and machines; and the notifications the daemon sent about drives, mirrors and
+-- jobs (read or not). Added without a schema bump: older versions just ignore them
+CREATE TABLE IF NOT EXISTS health (
+    id      INTEGER PRIMARY KEY,
+    drive   TEXT NOT NULL,            -- sn:<serial> | wwn:<wwn>
+    at      INTEGER NOT NULL,
+    verdict TEXT NOT NULL,            -- ok | warning | failing | unknown
+    data    TEXT NOT NULL             -- JSON: health::Health
+);
+CREATE INDEX IF NOT EXISTS health_drive ON health(drive, at);
+CREATE TABLE IF NOT EXISTS notifications (
+    id     INTEGER PRIMARY KEY,
+    at     INTEGER NOT NULL,
+    kind   TEXT NOT NULL,             -- health | drift | job
+    key    TEXT NOT NULL,             -- what it's about, so the same thing isn't said twice
+    level  TEXT NOT NULL,             -- info | warning | failing
+    title  TEXT NOT NULL,
+    body   TEXT NOT NULL,
+    drive  TEXT,                      -- a drive's health id, to link to it
+    shown  INTEGER NOT NULL,          -- sent to the desktop (not turned off or held back)
+    read   INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS notifications_key ON notifications(key, at);
+-- other machines (remote/): reached over ssh, read-only. What each one's index holds is cached here
+-- (its drives, and its current files with their hashes, pulled by scan), so copies there can count;
+-- `seen_at` and `hashed_at` say when a file was last confirmed there. Added without a schema bump
+CREATE TABLE IF NOT EXISTS remotes (
+    id         INTEGER PRIMARY KEY,
+    name       TEXT NOT NULL UNIQUE,
+    url        TEXT NOT NULL,             -- ssh://[user@]host[:port]
+    db         TEXT,                      -- the index there, when not its default
+    command    TEXT,                      -- where backdown is there, when not on its PATH
+    created_at INTEGER NOT NULL,
+    last_try   INTEGER,
+    last_sync  INTEGER,                   -- the last sync that finished
+    last_error TEXT,
+    info       TEXT                       -- JSON: what it said about itself (version, host, clock)
+);
+CREATE TABLE IF NOT EXISTS remote_roots (
+    remote_id   INTEGER NOT NULL REFERENCES remotes(id) ON DELETE CASCADE,
+    root_id     INTEGER NOT NULL,         -- the drive's id there
+    path        BLOB NOT NULL,            -- its path there, in that machine's raw bytes
+    display     TEXT NOT NULL,
+    last_scan   INTEGER,                  -- its latest finished scan there
+    scanned_at  INTEGER,                  -- when that finished (this machine's clock)
+    files       INTEGER NOT NULL DEFAULT 0,
+    bytes       INTEGER NOT NULL DEFAULT 0,
+    synced_scan INTEGER,                  -- the scan the cached files are complete up to
+    seen_at     INTEGER,                  -- when that scan finished (this machine's clock)
+    PRIMARY KEY (remote_id, root_id)
+);
+CREATE TABLE IF NOT EXISTS remote_files (
+    remote_id INTEGER NOT NULL,
+    rid       INTEGER NOT NULL,           -- the file's row id there
+    root_id   INTEGER NOT NULL,
+    path      BLOB NOT NULL,
+    size      INTEGER NOT NULL,
+    mtime     INTEGER NOT NULL,
+    sample    BLOB,
+    sha256    BLOB,
+    error     INTEGER NOT NULL DEFAULT 0, -- that machine couldn't read it
+    hashed_at INTEGER,                    -- when that machine last re-read it for us (this machine's clock)
+    PRIMARY KEY (remote_id, rid)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS remote_files_sha ON remote_files(sha256);
+CREATE INDEX IF NOT EXISTS remote_files_size ON remote_files(size);
+CREATE INDEX IF NOT EXISTS remote_files_path ON remote_files(remote_id, path);
+CREATE TABLE IF NOT EXISTS remote_settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+-- NTFS alternate data streams (streams.rs): per file version, only for files that have some; and
+-- the roots whose every file has been looked at once. Added in 1.0 without a schema bump
+CREATE TABLE IF NOT EXISTS streams (
+    file_id INTEGER PRIMARY KEY,      -- files.id
+    count   INTEGER NOT NULL,
+    bytes   INTEGER NOT NULL,
+    names   TEXT NOT NULL             -- JSON: [[name, bytes], ...]
+);
+CREATE TABLE IF NOT EXISTS streams_roots (
+    root_id INTEGER PRIMARY KEY
+);
 ";
 const VERSION: i64 = 2;
 
@@ -185,6 +270,19 @@ fn migrate_v1(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// Add a column an older index's table lacks (older versions just leave it empty).
+fn add_column(conn: &Connection, table: &str, column: &str, decl: &str) -> Result<()> {
+    let has: bool = conn.query_row(
+        &format!("SELECT COUNT(*) > 0 FROM pragma_table_info('{table}') WHERE name = ?1"),
+        [column],
+        |r| r.get(0),
+    )?;
+    if !has {
+        conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} {decl}"))?;
+    }
+    Ok(())
+}
+
 impl Db {
     pub fn open(path: &Path) -> Result<Db> {
         let conn =
@@ -205,9 +303,15 @@ impl Db {
             migrate_v1(&conn)?;
         }
         conn.execute_batch(SCHEMA)?;
+        // tidying the archive (dedup.rs) and merging mailboxes (mailmerge.rs): their runs and
+        // journals, added without a schema bump (older versions ignore them)
+        conn.execute_batch(crate::dedup::SCHEMA)?;
+        conn.execute_batch(crate::mailmerge::SCHEMA)?;
+        add_column(&conn, "journal", "note", "TEXT")?;
         // names for search: added in place, without a schema bump, since older versions just
         // leave them empty on rows they write (and the next open here fills those in)
         crate::find::add_names(&conn)?;
+        crate::index::add_columns(&conn)?;
         conn.execute_batch(&format!("PRAGMA user_version = {VERSION}"))?;
         Ok(Db { conn })
     }

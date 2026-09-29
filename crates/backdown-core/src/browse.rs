@@ -2,7 +2,8 @@
 //! other copies, and where its bytes can still be read from.
 //!
 //! Paths travel as "keys": base64url of the raw path bytes, so names that aren't valid UTF-8 still
-//! round-trip. `name`/`path` fields are display strings only.
+//! round-trip. `name`/`path` fields are display strings only: composed (NFC) whatever form the
+//! drive stores names in, and on Windows without a verbatim prefix.
 
 use std::path::{Path, PathBuf};
 
@@ -28,8 +29,8 @@ pub fn path_of(key: &str) -> Result<PathBuf> {
 
 fn name_of(path: &Path) -> String {
     path.file_name().map_or_else(
-        || path.display().to_string(),
-        |n| n.to_string_lossy().into_owned(),
+        || paths::show(path),
+        |n| crate::names::nfc(&n.to_string_lossy()).into_owned(),
     )
 }
 
@@ -56,7 +57,7 @@ pub fn roots(db: &Db) -> Result<Vec<Root>> {
             id: r.get(0)?,
             name: name_of(&path),
             key: key(&path),
-            path: path.display().to_string(),
+            path: paths::show(&path),
             last_scan: r.get(2)?,
             scanned_at: r.get(3)?,
             files: r.get::<_, i64>(4)? as u64,
@@ -364,7 +365,7 @@ pub fn list(db: &Db, dir: &Path, scan: Option<i64>) -> Result<Listing> {
         first_scan: root.first_scan,
         scanned_at,
         name: name_of(dir),
-        path: dir.display().to_string(),
+        path: paths::show(dir),
         key: key(dir),
         crumbs,
         files: files_total as u64,
@@ -420,6 +421,8 @@ pub struct FileInfo {
     pub copies: Vec<Copy>,
     /// where the bytes would be read from if this exact file is gone ("" when it's this file)
     pub content_from: Option<String>,
+    /// NTFS alternate data streams, when the index noted some (Windows)
+    pub streams: Option<crate::streams::Streams>,
 }
 
 // path, size, mtime, sha256, error, current, dev, ino
@@ -508,7 +511,7 @@ pub fn file(db: &Db, id: i64) -> Result<FileInfo> {
             let cp = paths::from_bytes(&cpath);
             copies.push(Copy {
                 id: cid,
-                path: cp.display().to_string(),
+                path: paths::show(&cp),
                 key: key(&cp),
                 dir_key: key(cp.parent().unwrap_or(&cp)),
             });
@@ -519,7 +522,7 @@ pub fn file(db: &Db, id: i64) -> Result<FileInfo> {
         if from == p {
             String::new()
         } else {
-            from.display().to_string()
+            paths::show(&from)
         }
     });
     Ok(FileInfo {
@@ -527,7 +530,7 @@ pub fn file(db: &Db, id: i64) -> Result<FileInfo> {
         name: name_of(&p),
         dir_key: key(p.parent().unwrap_or(&p)),
         key: key(&p),
-        path: p.display().to_string(),
+        path: paths::show(&p),
         size: size as u64,
         mtime,
         sha256: sha.as_deref().map(fmt::hex),
@@ -536,6 +539,7 @@ pub fn file(db: &Db, id: i64) -> Result<FileInfo> {
         versions,
         copies,
         content_from,
+        streams: crate::streams::get(db, id),
     })
 }
 
@@ -648,7 +652,7 @@ pub fn search(db: &Db, within: &Path, q: &str, limit: usize) -> Result<Vec<Hit>>
                 kind,
                 id,
                 name,
-                path: p.display().to_string(),
+                path: paths::show(&p),
                 key: key(&p),
                 dir_key: key(p.parent().unwrap_or(&p)),
                 size: size as u64,

@@ -1101,9 +1101,13 @@ fn ext_source() -> ExtSource {
     std::fs::write(p("ünïcødé ✓.txt"), "unicode\n").unwrap();
     std::fs::write(p("empty.txt"), "").unwrap();
     std::fs::hard_link(p("hello.txt"), p("hard.txt")).unwrap();
-    std::os::unix::fs::symlink("hello.txt", p("link")).unwrap();
-    let long_target = format!("{}/target.txt", "x".repeat(100));
-    std::os::unix::fs::symlink(&long_target, p("longlink")).unwrap();
+    // (mke2fs, which these trees are for, is a Unix tool: elsewhere the tests skip before using them)
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink("hello.txt", p("link")).unwrap();
+        let long_target = format!("{}/target.txt", "x".repeat(100));
+        std::os::unix::fs::symlink(&long_target, p("longlink")).unwrap();
+    }
     if let Some(mkfifo) = tool("mkfifo") {
         run(Command::new(mkfifo).arg(p("fifo")));
     }
@@ -1118,12 +1122,13 @@ fn ext_source() -> ExtSource {
 
 /// Writes only the non-zero 4 KiB pieces, so the file has holes.
 fn write_sparse(path: &Path, data: &[u8]) {
-    use std::os::unix::fs::FileExt;
-    let f = File::create(path).unwrap();
+    use std::io::{Seek, SeekFrom, Write};
+    let mut f = File::create(path).unwrap();
     f.set_len(data.len() as u64).unwrap();
     for (k, piece) in data.chunks(4096).enumerate() {
         if piece.iter().any(|&b| b != 0) {
-            f.write_all_at(piece, (k * 4096) as u64).unwrap();
+            f.seek(SeekFrom::Start((k * 4096) as u64)).unwrap();
+            f.write_all(piece).unwrap();
         }
     }
 }
@@ -1415,6 +1420,7 @@ fn ntfs_made_by_mkntfs() {
             link: None,
             unreadable: None,
             flags: Vec::new(),
+            deleted: None,
             node: Node::Ntfs { record: 11, seq: 0 },
         };
         let inside: Vec<String> = v
@@ -1742,3 +1748,6 @@ fn damaged_fat_images_fail_cleanly() {
         survive_damage(&fx.img, &hot, 200);
     }
 }
+
+// deleted files: listed, assessed and recovered (tests/undeleted.rs)
+mod undeleted;
