@@ -103,6 +103,9 @@ targets=(x86_64-unknown-linux-musl aarch64-unknown-linux-musl aarch64-apple-darw
 rustup target add "${targets[@]}" 2>&1 | { grep -v 'is up to date' || true; }
 echo "${targets[*]}"
 
+python3 scripts/third-party-notices.py --check ||
+  die "THIRD-PARTY-NOTICES.txt is out of date: run scripts/third-party-notices.py and commit it"
+
 if [ -n "$run_tests" ]; then
   step "cargo test --locked --release ($host)"
   cargo test --locked --release
