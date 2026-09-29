@@ -406,7 +406,7 @@ pub fn assess(db: &Db, paths: &[PathBuf], index: Option<&Path>) -> Result<Assess
                     it.remote_bytes += size;
                     it.remote_confirmed =
                         Some(it.remote_confirmed.map_or(confirmed, |c| c.min(confirmed)));
-                    *places.entry(format!("on {machine}")).or_default() += size;
+                    *places.entry(machine).or_default() += size;
                 }
                 None => {
                     it.only_files += 1;

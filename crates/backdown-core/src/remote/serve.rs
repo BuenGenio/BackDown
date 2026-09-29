@@ -52,7 +52,8 @@ pub enum Request {
         scan: Option<i64>,
     },
     File {
-        id: i64,
+        /// the file's id in the index (`id` is the request's own)
+        file: i64,
     },
     Find {
         q: String,
@@ -213,7 +214,7 @@ pub fn answer(db: &Db, here: &Here, req: &Request, deadline: Instant) -> Result<
             }
             l
         }
-        Request::File { id } => json!(browse::file(db, *id)?),
+        Request::File { file } => json!(browse::file(db, *file)?),
         Request::Find {
             q,
             within,

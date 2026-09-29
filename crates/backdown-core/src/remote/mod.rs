@@ -518,6 +518,16 @@ pub fn cutoff(db: &Db) -> Result<Option<i64>> {
     Ok(any.then(|| now() - settings(db).proof_days * 86_400))
 }
 
+/// SQL: the machine holding a copy of `f` that counts as proof as of the cutoff in `?{cutoff}`
+/// (NULL when none): the scalar form of `proof_sql`.
+pub fn proof_machine_sql(f: &str, cutoff: usize) -> String {
+    format!(
+        "(SELECT r.remote_id FROM remote_files r JOIN remote_roots rr ON rr.remote_id = r.remote_id AND rr.root_id = r.root_id
+          WHERE {f}.sha256 IS NOT NULL AND r.sha256 = {f}.sha256 AND r.size = {f}.size AND r.error = 0
+            AND MAX(COALESCE(rr.seen_at, 0), COALESCE(r.hashed_at, 0)) >= ?{cutoff} LIMIT 1)"
+    )
+}
+
 /// SQL: a copy of `f` (a `files` row: `{f}.sha256`, `{f}.size`) on another machine that counts as
 /// proof as of the cutoff in parameter `?{cutoff}`: hashed there, readable, and confirmed since.
 pub fn proof_sql(f: &str, cutoff: usize) -> String {
@@ -802,7 +812,7 @@ pub struct CachedEntry {
 /// through the cached paths, so they cost one lookup per entry.
 pub fn cached_list(db: &Db, m: &Machine, dir: &[u8]) -> Result<Value> {
     let os = m.os();
-    let (root_id, root_path, root_display): (i64, Vec<u8>, String) = {
+    let (root_id, root_path, _): (i64, Vec<u8>, String) = {
         let mut stmt = db
             .conn
             .prepare("SELECT root_id, path, display FROM remote_roots WHERE remote_id = ?1")?;
@@ -883,7 +893,7 @@ pub fn cached_list(db: &Db, m: &Machine, dir: &[u8]) -> Result<Value> {
     let mut crumbs = Vec::new();
     let mut at = dir.to_vec();
     loop {
-        crumbs.push(json!({ "name": if at == root_path { root_display.clone() } else { name_of(os, &at) }, "key": browse::key_bytes(&at) }));
+        crumbs.push(json!({ "name": name_of(os, &at), "key": browse::key_bytes(&at) }));
         if at == root_path || !at.starts_with(&root_path) {
             break;
         }
@@ -1025,8 +1035,8 @@ fn stopped(o: &SyncOptions) -> bool {
     o.stop.is_some_and(|s| s.load(Ordering::Relaxed))
 }
 
-/// Say hello, check the protocol, and keep what the machine says about itself.
-pub fn hello(db: &Db, m: &Machine, peer: &mut dyn Peer) -> Result<Value> {
+/// Say hello and check the protocol: what the machine says about itself, and when we asked.
+pub fn greet(m: &Machine, peer: &mut dyn Peer) -> Result<(Value, i64)> {
     let asked = now();
     let h = peer.call("hello", json!({}), ASK)?;
     let proto = h["proto"].as_u64().unwrap_or(0);
@@ -1038,6 +1048,12 @@ pub fn hello(db: &Db, m: &Machine, peer: &mut dyn Peer) -> Result<Value> {
             env!("CARGO_PKG_VERSION")
         );
     }
+    Ok((h, asked))
+}
+
+/// Say hello, check the protocol, and keep what the machine says about itself.
+pub fn hello(db: &Db, m: &Machine, peer: &mut dyn Peer) -> Result<Value> {
+    let (h, asked) = greet(m, peer)?;
     record_hello(db, m.id, &h, asked)
 }
 

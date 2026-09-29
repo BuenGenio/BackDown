@@ -239,6 +239,10 @@ impl Peer for SshPeer {
         self.next += 1;
         let id = self.next;
         let mut req = if args.is_object() { args } else { json!({}) };
+        // the envelope's own keys can't be arguments
+        if ["id", "v", "op"].iter().any(|k| req.get(k).is_some()) {
+            bail!("a request's arguments can't be called id, v or op");
+        }
         req["v"] = json!(1);
         req["id"] = json!(id);
         req["op"] = json!(op);

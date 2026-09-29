@@ -185,6 +185,7 @@ fn requests_are_parsed_strictly() {
     assert!(ok(r#"{"id":1,"op":"hello"}"#));
     assert!(ok(r#"{"v":1,"id":2,"op":"ls","dir":"L3Y"}"#));
     assert!(ok(r#"{"id":3,"op":"hash","ids":[1,2],"mode":"sample"}"#));
+    assert!(ok(r#"{"id":4,"op":"file","file":12}"#));
     for bad in [
         "",
         "not json",
@@ -317,6 +318,17 @@ fn sync_is_incremental_and_copies_there_count_conservatively() {
     assert!(sha_of(&db, "b.txt").is_some());
     assert!(sha_of(&db, "big.bin").is_none());
     let m = get(&db, m.id).unwrap();
+    // a file there, by its id there (the request's own id is separate)
+    let rid: i64 = db
+        .conn
+        .query_row(
+            "SELECT rid FROM remote_files WHERE CAST(path AS TEXT) LIKE '%/b.txt'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let f = peer.call("file", json!({ "file": rid }), ASK).unwrap();
+    assert_eq!(f["name"], "b.txt");
     assert_eq!(m.info["host"], "nas");
     assert!(m.last_sync.is_some());
 
@@ -413,7 +425,7 @@ fn sync_is_incremental_and_copies_there_count_conservatively() {
         a.items[0]
             .copies
             .iter()
-            .any(|p| p.path == "on nas (ssh://alice@nas.example.org:2222)")
+            .any(|p| p.path == "nas (ssh://alice@nas.example.org:2222)")
     );
     assert_eq!(a.proof_days, 7);
 

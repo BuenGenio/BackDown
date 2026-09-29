@@ -498,24 +498,32 @@ static POOL: LazyLock<Mutex<HashMap<i64, Pooled>>> = LazyLock::new(|| {
     Mutex::new(HashMap::new())
 });
 
-/// Ask machine `m` something now, reusing an open conversation when there is one.
-fn live(db: &Db, m: &Machine, op: &str, args: Value) -> Result<Value> {
+/// Ask machine `m` something now, reusing an open conversation when there is one. A new one is
+/// noted in the index (what the machine said, or why it couldn't be reached): a short write of
+/// its own, as the browser's reads use read-only connections.
+fn live(db_path: &Path, m: &Machine, op: &str, args: Value) -> Result<Value> {
     let pooled = POOL.lock().unwrap().remove(&m.id);
     let fresh = pooled.is_none();
     let mut peer = match pooled {
         Some(p) => p.peer,
         None => {
-            let mut p = ssh::SshPeer::open(m)?;
-            match core::hello(db, m, &mut p) {
-                Ok(_) => {
-                    let _ = core::record_try(db, m.id, None);
+            let r = ssh::SshPeer::open(m).and_then(|mut p| core::greet(m, &mut p).map(|h| (p, h)));
+            let note = Db::open(db_path);
+            match r {
+                Ok((p, (h, asked))) => {
+                    if let Ok(w) = &note {
+                        let _ = core::record_hello(w, m.id, &h, asked);
+                        let _ = core::record_try(w, m.id, None);
+                    }
+                    p
                 }
                 Err(e) => {
-                    let _ = core::record_try(db, m.id, Some(&format!("{e:#}")));
+                    if let Ok(w) = &note {
+                        let _ = core::record_try(w, m.id, Some(&format!("{e:#}")));
+                    }
                     return Err(e);
                 }
             }
-            p
         }
     };
     match peer.call(op, args.clone(), Duration::from_secs(30)) {
@@ -532,7 +540,7 @@ fn live(db: &Db, m: &Machine, op: &str, args: Value) -> Result<Value> {
         // a conversation left open may have died meanwhile: once more, afresh
         Err(_) if !fresh => {
             drop(peer);
-            live(db, m, op, args)
+            live(db_path, m, op, args)
         }
         Err(e) => Err(e),
     }
@@ -611,8 +619,8 @@ pub fn get(
                     why = Some(b.to_string());
                 } else {
                     let r = match &dir {
-                        None => live(&db, &m, "roots", json!({})),
-                        Some(k) => live(&db, &m, "ls", json!({ "dir": k })),
+                        None => live(db_path, &m, "roots", json!({})),
+                        Some(k) => live(db_path, &m, "ls", json!({ "dir": k })),
                     };
                     match r {
                         Ok(mut v) => {
@@ -647,11 +655,21 @@ pub fn get(
             let rid = param_id(param, "id")?;
             let live_file = match blocker(desktop) {
                 Some(b) => Err(anyhow::anyhow!(b)),
-                None => live(&db, &m, "file", json!({ "id": rid })),
+                None => live(db_path, &m, "file", json!({ "file": rid })),
             };
             let mut v = match live_file {
                 Ok(mut v) => {
                     v["live"] = json!(true);
+                    // its hash, when that machine computed it for us rather than for itself
+                    if v["sha256"].is_null()
+                        && let Ok(c) = core::cached_file(&db, &m, rid)
+                        && c["size"] == v["size"]
+                        && c["mtime"] == v["mtime"]
+                        && c["sha256"].is_string()
+                    {
+                        v["sha256"] = c["sha256"].clone();
+                        v["hashed_at"] = c["hashed_at"].clone();
+                    }
                     v
                 }
                 Err(e) => {
@@ -687,7 +705,7 @@ pub fn get(
             if let Some(dir) = param("dir").filter(|d| !d.is_empty()) {
                 args["within"] = json!(dir);
             }
-            live(&db, &m, "find", args)?
+            live(db_path, &m, "find", args)?
         }
         _ => bail!("no such endpoint"),
     })

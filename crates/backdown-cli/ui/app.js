@@ -4,6 +4,7 @@ import { openViewer, openDiff, openGit, openMaildir, previewInto } from './viewe
 import { squarify, compareListings, menu, closeMenu, menuOpen, toast } from './extras.js';
 import { mountFind, find, foundHtml, setScope, setEarlier, more as findMore } from './search.js';
 import { mountHealth, daemonChanged, healthOfDisk, healthOfPath, pill, dot, mirrorNote, healthHead, notesSection } from './health.js';
+import { mountMachines, renderMachinesNav, machinesDaemon, machinePath, showMachine, remoteCopiesHtml, dupesRemoteHtml, acrossHtml, wipeRemoteLine } from './machines.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -71,6 +72,7 @@ function renderPlaces() {
   $('#plan-btn').setAttribute('aria-current', String(S.mode === 'plan'));
   $('#wipe-btn').setAttribute('aria-current', String(S.mode === 'wipe'));
   $('#rescue-btn').setAttribute('aria-current', String(S.mode === 'rescue'));
+  renderMachinesNav(); // other machines and their drives (machines.js)
 }
 
 // ---------- navigation
@@ -152,6 +154,7 @@ function renderPath() {
       `${i ? '<span class="crumb-sep">›</span>' : ''}<button class="crumb" type="button" data-key="${c.key}" title="${esc(c.name)}">${esc(i === 0 ? S.root.name : c.name)}</button>`).join('');
     return;
   }
+  if (S.mode === 'machine') { $('#pathbar').innerHTML = machinePath(); return; }
   if (S.mode !== 'browse') {
     $('#pathbar').innerHTML = `<span class="crumb" style="cursor:default">${{ dupes: 'Duplicates', activity: 'Activity', entities: 'What’s here', plan: 'Plan', wipe: 'Free up', rescue: 'Rescue' }[S.mode] || 'Search'}</span>`;
     return;
@@ -414,6 +417,7 @@ async function renderInfo() {
     </dl>
     <h4>Other copies (${f.copies.length})</h4>
     ${f.copies.length ? f.copies.map(c => `<button class="rowlink" type="button" data-dir="${c.dir_key}" data-sel="${c.key}">${esc(c.path)}</button>`).join('') : '<p class="note">No identical copy anywhere else in the index.</p>'}
+    ${remoteCopiesHtml(f)}
     <h4>Versions (${f.versions.length})</h4>
     ${vers.map(v => `<div class="ver"><span class="when">${day(v.from)}${v.to !== v.from ? ` – ${v.current ? 'now' : day(v.to)}` : ''}</span>
         <span class="meta">${bytes(v.size)}${v.sha256 ? ` · ${v.sha256.slice(0, 10)}…` : ''}${v.readable ? '' : ' · bytes gone'}</span>
@@ -777,6 +781,7 @@ function tabTitle(t) {
   if (t.mode === 'plan') return 'Plan';
   if (t.mode === 'wipe') return 'Free up';
   if (t.mode === 'rescue') return 'Rescue';
+  if (t.mode === 'machine') return 'Machines';
   if (t.mode === 'compare') return `Compare · ${t.cmp?.listing?.name || ''}`;
   if (!t.listing) return S.roots.find(r => t.dir && atob64(t.dir).startsWith(atob64(r.key)))?.name || '…';
   return t.listing.crumbs.length > 1 ? t.listing.name : t.root?.name || t.listing.name;
@@ -825,6 +830,7 @@ async function showCurrent() {
   if (S.mode === 'plan') return showPlan();
   if (S.mode === 'wipe') return showWipe();
   if (S.mode === 'rescue') return showRescue();
+  if (S.mode === 'machine') return showMachine();
   if (S.mode === 'compare' && S.cmp) return renderCompare();
   S.mode = 'browse';
   if (!S.listing) return S.dir ? go(S.dir, { push: false, scan: null }) : showActivity();
@@ -901,7 +907,8 @@ async function showDupes() {
     <div class="banner" style="margin:-14px -14px 14px">${bytes(d.reclaimable)} could be freed across ${count(d.groups)} groups of identical files (SHA-256 verified; hardlinks count once). ${picker}</div>
     <table class="list"><thead><tr><th>Copies</th><th class="n">Each</th><th class="n">Reclaimable</th><th>Locations</th></tr></thead><tbody>${d.largest.map(g => `
       <tr><td>${fileIcon(g.paths[0], 20)} ×${g.copies}</td><td class="n">${bytes(g.size)}</td><td class="n"><b>${bytes(g.reclaimable)}</b></td>
-      <td>${g.paths.map(p => `<button class="rowlink" type="button" data-dupe="${esc(p)}">${esc(p)}</button>`).join('')}</td></tr>`).join('')}</tbody></table>`
+      <td>${g.paths.map(p => `<button class="rowlink" type="button" data-dupe="${esc(p)}">${esc(p)}</button>`).join('')}${dupesRemoteHtml(g)}</td></tr>`).join('')}</tbody></table>${acrossHtml(d)}`
+    : d.across?.files ? `<div class="banner" style="margin:-14px -14px 14px">No duplicates on this computer ${dupesMin === '1' ? 'yet' : 'this size'}. ${picker}</div>${acrossHtml(d)}`
     : `<div class="empty"><div><h2>No duplicates ${dupesMin === '1' ? 'found yet' : 'this size'}</h2><p>${picker}</p><p>Only hashed files count: <code>backdown hash</code> hashes everything that could be a duplicate.</p></div></div>`;
   $('#dupes-min').onchange = e => { dupesMin = e.target.value; showDupes(); };
   $('#view').querySelectorAll('[data-dupe]').forEach(b => b.onclick = async () => {
@@ -1273,6 +1280,7 @@ function renderWipeAssess() {
         <li><span class="dot k"></span>${it.kept_files ? `${bytes(it.kept_bytes)} has` : 'None of it has'} an identical copy elsewhere${it.copies.length ? `: ${it.copies.map(c => `${bytes(c.bytes)} in <code>${esc(c.path)}</code>`).join(', ')}` : ''}</li>
         ${it.only_files ? `<li><span class="dot o"></span>${bytes(it.only_bytes)} (${count(it.only_files)} files) exists only here</li>` : ''}
         ${it.unreadable_files ? `<li><span class="dot u"></span>${count(it.unreadable_files)} files couldn’t be read at the last scan: left in place</li>` : ''}
+        ${wipeRemoteLine(it, a)}
         ${it.connected ? '' : '<li class="warn-t">Its drive isn’t connected: connect it to wipe</li>'}
       </ul>`}</div>`;
   }).join('') + '<p class="wp-total" id="wp-total"></p>';
@@ -1735,7 +1743,8 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) poll
 
 const jobName = j => j.kind === 'index' ? `Scan ${rootName(j.path)}` : j.kind === 'entities' ? 'Recognise what’s on the drives'
   : j.kind === 'apply' ? `Apply ${j.path || 'a plan'}` : j.kind === 'mirror-sync' ? `Sync ${j.path || 'a mirror'}`
-  : j.kind === 'mirror-verify' ? `Verify ${j.path || 'a mirror'}` : j.kind === 'wipe' ? `Free up (${j.path || 'a wipe'})` : j.kind === 'rescue' ? rescueJobName(j) : 'Hash new and changed files';
+  : j.kind === 'mirror-verify' ? `Verify ${j.path || 'a mirror'}` : j.kind === 'wipe' ? `Free up (${j.path || 'a wipe'})` : j.kind === 'rescue' ? rescueJobName(j)
+  : j.kind === 'remote-sync' ? `Sync the machine ${j.path || ''}` : 'Hash new and changed files';
 function rescueJobName(j) {
   const r = RS.list.find(x => `rescue ${x.id}` === j.path);
   return r ? `${RS_TITLE[r.mode] || 'Rescue'}: ${baseName(r.source)}` : 'Rescue';
@@ -1748,6 +1757,7 @@ async function applyDaemon(d) {
   S.daemon = d.running ? d : null;
   if (d.running) clockSkew = d.now - Date.now() / 1000;
   daemonChanged(d); // drive health or notifications changed: health.js fetches them again
+  machinesDaemon(d); // a machine's sync started or ended: machines.js fetches them again
   const st = $('#status-act');
   if (S.daemon) {
     const cur = d.current, q = d.queued.length, c = cur?.counts;
@@ -1837,8 +1847,9 @@ function eta(j, now) {
   if (p == null || p < 0.02 || took < 15) return '';
   return `about ${dur(took * (1 - p) / p)} left`;
 }
-const REASON = { requested: 'you asked', scheduled: 'scheduled', returned: 'drive came back', 'after-scan': 'after a scan', 'after-apply': 'after copying', 'after-wipe': 'after wiping', 'after-rescue': 'recovered files' };
+const REASON = { requested: 'you asked', scheduled: 'scheduled', returned: 'drive came back', 'after-scan': 'after a scan', 'after-apply': 'after copying', 'after-wipe': 'after wiping', 'after-rescue': 'recovered files', 'after-sync': 'after a machine’s sync', 'after-hash': 'after hashing' };
 const JOB_ICON = {
+  'remote-sync': '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>',
   index: '<svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg>',
   hash: '<svg viewBox="0 0 24 24"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></svg>',
   entities: '<svg viewBox="0 0 24 24"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>',
@@ -2198,6 +2209,14 @@ try { const so = JSON.parse(localStorage.getItem('bd.sort')); if (so?.key) S.sor
 setView(S.view);
 setupFilters();
 mountHealth({ onRescue: rescueDrive, onChange: () => { renderPlaces(); if (S.mode === 'activity') renderActivity(); } });
+mountMachines({
+  // a machine's page or folders take over the view, like Duplicates does
+  enter: mode => { S.mode = mode; closeSearch(false); renderTabs(); renderPlaces(); renderPath(); $('#banner').hidden = true; $('#info').hidden = true; $('#timebar').hidden = true; },
+  leave: () => { S.mode = 'browse'; showCurrent(); },
+  refreshPath: () => renderPath(),
+  isMode: m => S.mode === m,
+  openLocal: (dir, sel) => { $('#timebar').hidden = S.timeline.length < 2; go(dir, { select: sel, scan: null }); },
+});
 boot().then(restoreTabs).then(() => pollDaemon(true));
 
 // tabs survive a reload of the page (not of the browser): reopened lazily, each loads when shown

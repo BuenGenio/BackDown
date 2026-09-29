@@ -174,11 +174,8 @@ pub fn check_indexed(db: &Db, dir: &Path) -> Result<Check> {
     // within the proof window
     let cutoff = crate::remote::cutoff(db)?;
     let remote = match cutoff {
-        Some(_) => format!(
-            "f.sha256 IS NOT NULL AND {}",
-            crate::remote::proof_sql("f", 4)
-        ),
-        None => "(0 AND ?4 IS NULL)".into(),
+        Some(_) => crate::remote::proof_machine_sql("f", 4),
+        None => "(CASE WHEN ?4 IS NULL THEN NULL END)".into(),
     };
     let mut stmt = db.conn.prepare(&format!(
         "SELECT f.path, f.size, f.error,
@@ -197,9 +194,10 @@ pub fn check_indexed(db: &Db, dir: &Path) -> Result<Check> {
             r.get::<_, i64>(1)?,
             r.get::<_, Option<String>>(2)?,
             r.get::<_, bool>(3)?,
-            r.get::<_, bool>(4)?,
+            r.get::<_, Option<i64>>(4)?,
         ))
     })?;
+    let mut machines: Vec<i64> = Vec::new();
 
     let mut c = Check {
         path: dir.display().to_string(),
@@ -230,9 +228,12 @@ pub fn check_indexed(db: &Db, dir: &Path) -> Result<Check> {
             c.unreadable_files.push((path.display().to_string(), e));
         } else if verified {
             c.verified.add(size);
-        } else if elsewhere {
+        } else if let Some(m) = elsewhere {
             c.verified.add(size);
             c.remote.add(size);
+            if !machines.contains(&m) {
+                machines.push(m);
+            }
         } else {
             c.unique.add(size);
             // first folder below `dir`, or "." for files directly in it
@@ -274,6 +275,7 @@ pub fn check_indexed(db: &Db, dir: &Path) -> Result<Check> {
     if cutoff.is_some() {
         c.remote_machines = crate::remote::list(db)?
             .into_iter()
+            .filter(|m| machines.contains(&m.id))
             .map(|m| m.label())
             .collect();
         c.proof_days = crate::remote::settings(db).proof_days;
