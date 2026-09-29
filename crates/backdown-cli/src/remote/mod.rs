@@ -26,19 +26,19 @@ use crate::{client, locations};
 pub mod ssh;
 pub mod stdio;
 
-/// Multi-machine is a Pro feature (backdown.io/pricing).
-///
-/// TODO: ask the feature gating table (feature → tier, where pre-release versions unlock
-/// everything) for "multi-machine" once it lands on cli/v1; until then every build allows it, as
-/// every build is a pre-release.
+/// Several machines are a Pro feature: "multi-machine" in tiers.rs's table (which unlocks
+/// everything in a preview). Reaching machines (add, test, sync, browse, a wipe's re-reads, the
+/// daemon's schedule) asks here; listing and forgetting them never do. Without it, what was
+/// cached stops being refreshed, and so stops counting once the proof window has passed.
 pub fn allowed() -> bool {
-    true
+    crate::tiers::feature("multi-machine").is_none_or(|f| crate::tiers::access().allows(f))
 }
 
 fn gate() -> Result<()> {
     if !allowed() {
         bail!(
-            "several machines are a BackDown Pro feature: `backdown license add <key>` (backdown.io/pricing)"
+            "reaching other machines is part of BackDown Pro: add a licence key with `backdown license add <key>` (see {})",
+            crate::tiers::PRICING_URL
         );
     }
     Ok(())

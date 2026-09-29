@@ -62,6 +62,11 @@ impl Env {
     /// `backdown ARGS` with the fake ssh first on the PATH, and a home of its own (so no daemon
     /// of the person running the tests is ever found)
     fn run(&self, db: &Path, args: &[&str]) -> Output {
+        self.run_as(db, args, false)
+    }
+
+    /// `release`: behave like a release build without a licence (BACKDOWN_PRETEND_RELEASE)
+    fn run_as(&self, db: &Path, args: &[&str], release: bool) -> Output {
         let home = self.root.join("home");
         fs::create_dir_all(&home).unwrap();
         let path = format!(
@@ -69,18 +74,22 @@ impl Env {
             self.bin.display(),
             std::env::var("PATH").unwrap_or_default()
         );
-        Command::new(env!("CARGO_BIN_EXE_backdown"))
-            .arg("--db")
+        let mut c = Command::new(env!("CARGO_BIN_EXE_backdown"));
+        c.arg("--db")
             .arg(db)
             .arg("--local")
             .args(args)
             .env("PATH", path)
             .env("HOME", &home)
             .env("XDG_DATA_HOME", home.join("data"))
+            .env("XDG_CONFIG_HOME", home.join("config"))
             .env("XDG_RUNTIME_DIR", home.join("run"))
             .env("FAKE_SSH_LOG", &self.log)
-            .output()
-            .unwrap()
+            .env_remove("BACKDOWN_PRETEND_RELEASE");
+        if release {
+            c.env("BACKDOWN_PRETEND_RELEASE", "1");
+        }
+        c.output().unwrap()
     }
 
     fn ok(&self, db: &Path, args: &[&str]) -> String {
@@ -268,4 +277,25 @@ fn a_nas_over_ssh_end_to_end() {
     assert_eq!(lines[2]["error"], "request too long");
     assert_eq!(lines[3]["ok"], true);
     assert_eq!(fs::metadata(&nas_db).unwrap().modified().unwrap(), before);
+
+    // Pro: a release without a licence can't reach machines, but can still list and forget them
+    let o = e.run_as(&e.local_db, &["remote", "sync", "nas"], true);
+    assert!(!o.status.success());
+    assert!(String::from_utf8_lossy(&o.stderr).contains("BackDown Pro"));
+    let o = e.run_as(
+        &e.local_db,
+        &["remote", "add", "pc2", "ssh://pc2.example.org", "--no-test"],
+        true,
+    );
+    assert!(!o.status.success());
+    assert!(
+        e.run_as(&e.local_db, &["remote", "list"], true)
+            .status
+            .success()
+    );
+    assert!(
+        e.run_as(&e.local_db, &["remote", "remove", "locked"], true)
+            .status
+            .success()
+    );
 }

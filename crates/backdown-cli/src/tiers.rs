@@ -222,6 +222,26 @@ pub const FEATURES: &[Feature] = &[
         ready: true,
     },
     Feature {
+        // roadmap v0.6: "Pro tier: multi-machine". Forgetting a machine (`remote remove`,
+        // /api/machine-remove) and seeing the list stay free, so nothing gets stuck
+        key: "multi-machine",
+        name: "Several machines",
+        unlocks: "A NAS or another computer with BackDown on it, read over ssh with your keys: browse it, and let its copies count for duplicates, overlaps and freeing drives.",
+        tier: Pro,
+        commands: &[],
+        endpoints: &[
+            "/api/machine-ls",
+            "/api/machine-file",
+            "/api/machine-find",
+            "/api/machine-add",
+            "/api/machine-test",
+            "/api/machine-sync",
+            "/api/machine-settings",
+        ],
+        views: &[],
+        ready: true,
+    },
+    Feature {
         key: "cloud",
         name: "Encrypted cloud targets",
         unlocks: "Mirror the archive to cloud storage, encrypted before it leaves this computer.",

@@ -93,7 +93,7 @@ Tauri 2 shell + Svelte 5, sharing Innards' tokens and components.
 - Scheduled mirror verify (systemd timer / launchd), drift notifications
 - SMART trends per drive (reuse `innards-core` probe); "this mirror drive is dying" warnings
 - Hardlink/reflink dedup inside the archive as an opt-in post-step (built 29 Sep: `backdown dedup`, "Tidy the archive" in the Plan view)
-- Pro tier: multi-machine — a headless `backdown agent` on a NAS reports into the desktop app
+- Pro tier: multi-machine — a headless `backdown agent` on a NAS reports into the desktop app (built 29 Sep, over ssh rather than an agent that listens: `backdown remote add|list|remove|sync|test|settings` reaches another machine with the system's `ssh` and your keys (BatchMode, host key checking on) and runs `backdown serve-stdio` there, a read-only JSON-lines answerer; the daemon syncs each machine's files and hashes incrementally by its scan ids, has files there that could be copies of files here hashed there, and hashes here against what's there. Duplicates, overlaps, `check` and Free up count a copy there only by SHA-256 and only when confirmed there within 7 days (a setting); a wipe has that machine re-read the copy just before deleting. The browser's Machines section browses them read-only. Not yet: previews of files there, Windows machines as the other end)
 
 ## v1.0 — macOS + Windows (6 weeks, May – Jun 2027)
 
