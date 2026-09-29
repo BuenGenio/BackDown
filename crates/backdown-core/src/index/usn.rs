@@ -343,7 +343,8 @@ pub(crate) mod sys {
     }
 
     fn open(path: &Path, access: u32) -> Option<Handle> {
-        let w = wide(path);
+        // verbatim: long paths, names ending in a dot (device paths stay as they are)
+        let w = wide(&crate::paths::os(path));
         // SAFETY: a NUL-terminated path; the handle is checked
         let h = unsafe {
             CreateFileW(
@@ -386,13 +387,14 @@ pub(crate) mod sys {
     /// Every name of a file (its hard links), as full paths.
     pub(crate) fn link_names(path: &Path) -> Vec<PathBuf> {
         let mut vol = [0u16; 1024];
-        let w = wide(path);
+        let w = wide(&crate::paths::os(path));
         // SAFETY: NUL-terminated input, a buffer of the given length
         if unsafe { GetVolumePathNameW(w.as_ptr(), vol.as_mut_ptr(), vol.len() as u32) } == 0 {
             return Vec::new();
         }
         let n = vol.iter().position(|&c| c == 0).unwrap_or(0);
-        let vol = PathBuf::from(OsString::from_wide(&vol[..n]));
+        // as stored: the normal form ("E:\", not "\\?\E:\")
+        let vol = crate::paths::normal(&PathBuf::from(OsString::from_wide(&vol[..n]))).into_owned();
         let mut out = Vec::new();
         let mut buf = vec![0u16; 32_768];
         let mut len = buf.len() as u32;
@@ -513,7 +515,7 @@ pub(crate) mod sys {
             return None;
         }
         let p = PathBuf::from(OsString::from_wide(&buf[..n]));
-        Some(dunce::simplified(&p).to_path_buf())
+        Some(crate::paths::normal(&p).into_owned())
     }
 
     /// Reads the records from `from` up to `to`: unprivileged on a handle to the root, else the

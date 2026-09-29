@@ -11,7 +11,7 @@ use anyhow::{Context, Result, bail};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use ed25519_dalek::{Signature, VerifyingKey};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::locations;
 
@@ -20,7 +20,7 @@ const PUBLIC_KEY: [u8; 32] =
     hex32("16ac6f9b2da14811a852880437b302766f9b6b943e92a33b86ba645eb49992c1");
 const FILE: &str = "license.txt";
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Licence {
     pub v: u32,
     pub id: String,
@@ -31,6 +31,9 @@ pub struct Licence {
     #[serde(default)]
     pub name: Option<String>,
     pub issued: String,
+    /// last day it unlocks anything (YYYY-MM-DD); none on keys that don't lapse, or haven't started
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires: Option<String>,
 }
 
 const fn hex32(s: &str) -> [u8; 32] {
@@ -87,8 +90,34 @@ pub fn parse(key: &str, public_key: &[u8; 32]) -> Result<Licence> {
     Ok(licence)
 }
 
-fn path() -> PathBuf {
+pub fn path() -> PathBuf {
     locations::state_dir().join(FILE)
+}
+
+/// The licence kept in the data folder: none, or a valid one (an invalid file is an error).
+pub fn load() -> Result<Option<Licence>> {
+    let p = path();
+    match std::fs::read_to_string(&p) {
+        Ok(k) => parse(&k, &PUBLIC_KEY)
+            .map(Some)
+            .with_context(|| format!("the licence in {} isn't valid", p.display())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e).with_context(|| format!("can't read {}", p.display())),
+    }
+}
+
+/// Check a key and keep it (replacing any earlier one); what `license add` and the Settings view do.
+pub fn store(key: &str) -> Result<Licence> {
+    let key = key.trim();
+    let licence = parse(key, &PUBLIC_KEY)?;
+    let p = path();
+    if let Some(dir) = p.parent() {
+        locations::ensure_private_dir(dir, false)
+            .with_context(|| format!("can't create {}", dir.display()))?;
+    }
+    std::fs::write(&p, format!("{key}\n"))
+        .with_context(|| format!("can't write {}", p.display()))?;
+    Ok(licence)
 }
 
 fn describe(l: &Licence) {
@@ -108,6 +137,9 @@ fn describe(l: &Licence) {
         if l.seats == 1 { "" } else { "s" },
         l.issued
     );
+    if let Some(e) = &l.expires {
+        println!("  unlocks Pro features until {e}");
+    }
     if l.kind == "preorder" {
         println!(
             "  pre-order: Pro features switch on in the release that ships them; your first year starts then"
@@ -131,17 +163,10 @@ pub fn add(key: &str) -> Result<ExitCode> {
     } else {
         key.to_string()
     };
-    let key = key.trim();
-    let licence = parse(key, &PUBLIC_KEY)?;
-    let p = path();
-    if let Some(dir) = p.parent() {
-        locations::ensure_private_dir(dir, false)
-            .with_context(|| format!("can't create {}", dir.display()))?;
-    }
-    std::fs::write(&p, format!("{key}\n"))
-        .with_context(|| format!("can't write {}", p.display()))?;
+    let licence = store(&key)?;
     describe(&licence);
-    eprintln!("saved to {}", p.display());
+    println!("  {}", crate::tiers::access().summary());
+    eprintln!("saved to {}", path().display());
     Ok(ExitCode::SUCCESS)
 }
 
@@ -154,6 +179,7 @@ pub fn show() -> Result<ExitCode> {
             println!(
                 "No licence: this is BackDown Community (free). Add a Pro key with `backdown license add <key>`."
             );
+            println!("{}", crate::tiers::access().summary());
             return Ok(ExitCode::FAILURE);
         }
         Err(e) => return Err(e).with_context(|| format!("can't read {}", p.display())),
@@ -161,6 +187,7 @@ pub fn show() -> Result<ExitCode> {
     let licence = parse(&key, &PUBLIC_KEY)
         .with_context(|| format!("the licence in {} isn't valid", p.display()))?;
     describe(&licence);
+    println!("  {}", crate::tiers::access().summary());
     Ok(ExitCode::SUCCESS)
 }
 

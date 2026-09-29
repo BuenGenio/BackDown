@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
 use crate::apply::{Outcome, copy_verified, hash_file, mtime};
-use crate::{Db, fmt, paths};
+use crate::{Db, extras, fmt, names, paths, streams};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Place {
@@ -244,15 +244,24 @@ struct Selection {
     files: Vec<Vec<u8>>,
 }
 
+/// What's selected. A path counts as inside whatever the Unicode form of its names: a copy that
+/// is only spelt differently is still going, so it can't vouch for anything.
 impl Selection {
     fn new(paths: &[PathBuf]) -> Self {
         Selection {
-            prefixes: paths.iter().map(|p| paths::dir_prefix(p)).collect(),
-            files: paths.iter().map(|p| paths::to_bytes(p)).collect(),
+            prefixes: paths
+                .iter()
+                .map(|p| names::nfc_path(&paths::dir_prefix(p)).into_owned())
+                .collect(),
+            files: paths
+                .iter()
+                .map(|p| names::nfc_path(&paths::to_bytes(p)).into_owned())
+                .collect(),
         }
     }
     fn contains(&self, p: &[u8]) -> bool {
-        self.prefixes.iter().any(|x| p.starts_with(x)) || self.files.iter().any(|f| f == p)
+        let p = names::nfc_path(p);
+        self.prefixes.iter().any(|x| p.starts_with(x)) || self.files.iter().any(|f| *f == *p)
     }
 }
 
@@ -298,6 +307,12 @@ pub fn assess(db: &Db, paths: &[PathBuf], index: Option<&Path>) -> Result<Assess
     if paths.is_empty() {
         bail!("nothing selected");
     }
+    // as the index spells them (a name typed in the other Unicode form than the drive's)
+    let paths: Vec<PathBuf> = paths
+        .iter()
+        .map(|p| names::as_indexed_or_same(db, p))
+        .collect();
+    let paths = &paths[..];
     let sel = Selection::new(paths);
     let mut a = Assessment::default();
     let mut copies_q = db.conn.prepare_cached(
@@ -479,6 +494,10 @@ fn run(
     progress: &mut dyn FnMut(u64, u64),
 ) -> Result<Stats> {
     let (paths, move_to, _) = load(db, id)?;
+    let paths: Vec<PathBuf> = paths
+        .iter()
+        .map(|p| names::as_indexed_or_same(db, p))
+        .collect();
     for p in &paths {
         if let Some(why) = refusal(p, index) {
             bail!("{} can't be wiped: {why}", p.display());
@@ -488,7 +507,7 @@ fn run(
         }
     }
     if let Some(m) = &move_to
-        && paths.iter().any(|p| m.starts_with(p))
+        && paths.iter().any(|p| names::within(m, p))
     {
         bail!("the place to move things to is inside what's being wiped");
     }
@@ -499,16 +518,17 @@ fn run(
     )?;
     let mut st = Stats::default();
     let mut row_q = db.conn.prepare_cached(
-        "SELECT size, mtime, sha256, dev, ino FROM files WHERE path = ?1 AND current = 1",
+        "SELECT size, mtime, sha256, dev, ino, id FROM files WHERE path = ?1 AND current = 1",
     )?;
-    let mut copies_q = db.conn.prepare_cached("SELECT path, dev, ino, mtime FROM files WHERE current = 1 AND sha256 = ?1 AND error IS NULL LIMIT 20")?;
+    let mut copies_q = db.conn.prepare_cached("SELECT path, dev, ino, mtime, id FROM files WHERE current = 1 AND sha256 = ?1 AND error IS NULL LIMIT 20")?;
     let mut journal = db.conn.prepare_cached(
         "INSERT INTO deletions(wipe_id, path, size, sha256, proof, proof_how, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
     )?;
     let (mut seen, mut seen_bytes, mut tick) = (0u64, 0u64, Instant::now());
     for root in &paths {
         let drive_root = drive_of(db, &paths::to_bytes(root))?.map(|(_, r)| r);
-        for entry in WalkDir::new(root).follow_links(false) {
+        // walked verbatim on Windows (long paths, names ending in a dot); compared in normal form
+        for entry in WalkDir::new(paths::os(root)).follow_links(false) {
             let entry = match entry {
                 Ok(e) => e,
                 Err(e) => {
@@ -526,6 +546,7 @@ fn run(
             }
             let f = entry.path();
             let fb = paths::to_bytes(f);
+            let nf = paths::from_bytes(&fb);
             let meta = entry.metadata()?;
             seen += 1;
             seen_bytes += meta.len();
@@ -536,10 +557,17 @@ fn run(
             // the index must know this file as it is now
             let known: Option<IndexRow> = row_q
                 .query_row(params![fb], |r| {
-                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                    ))
                 })
                 .optional()?;
-            let Some((size, _mtime, sha, dev, ino)) =
+            let Some((size, _mtime, sha, dev, ino, file_id)) =
                 known.filter(|k| k.0 as u64 == meta.len() && k.1 == mtime(&meta))
             else {
                 st.left_changed += 1;
@@ -547,7 +575,7 @@ fn run(
                     &mut st.problems,
                     format!(
                         "changed or new since the last scan, left alone: {}",
-                        f.display()
+                        nf.display()
                     ),
                 );
                 continue;
@@ -562,7 +590,7 @@ fn run(
                         st.left_unreadable += 1;
                         push(
                             &mut st.problems,
-                            format!("can't read {}, left alone: {e}", f.display()),
+                            format!("can't read {}, left alone: {e}", nf.display()),
                         );
                         continue;
                     }
@@ -574,11 +602,14 @@ fn run(
                     &mut st.problems,
                     format!(
                         "its content isn't what was scanned, left alone: {}",
-                        f.display()
+                        nf.display()
                     ),
                 );
                 continue;
             }
+            // alternate data streams the index knows this file has (Windows): a copy only counts
+            // if it has them too, or they'd go with it
+            let wanted = kept_streams(db, file_id);
             // a copy outside the selection, re-read now
             let mut proof: Option<(Vec<u8>, &str)> = None;
             if size == 0 {
@@ -591,14 +622,19 @@ fn run(
                             r.get::<_, Option<i64>>(1)?,
                             r.get::<_, Option<i64>>(2)?,
                             r.get::<_, i64>(3)?,
+                            r.get::<_, i64>(4)?,
                         ))
                     })?
                     .filter_map(Result::ok)
-                    .filter(|(g, gd, gi, _)| {
-                        !sel.contains(g) && !(ino.is_some() && *gd == dev && *gi == ino)
+                    .filter(|(g, gd, gi, _, gid)| {
+                        !sel.contains(g)
+                            && !(ino.is_some() && *gd == dev && *gi == ino)
+                            && wanted
+                                .as_ref()
+                                .is_none_or(|w| kept_streams(db, *gid).as_ref() == Some(w))
                     })
                     .collect();
-                for (g, _, _, gm) in cands {
+                for (g, _, _, gm, _) in cands {
                     let gp = paths::from_bytes(&g);
                     let Ok(gmeta) = fs::metadata(&gp) else {
                         continue; // gone, or its drive isn't connected
@@ -627,17 +663,42 @@ fn run(
                 };
                 let rel = drive_root
                     .as_ref()
-                    .and_then(|r| f.strip_prefix(r).ok())
-                    .unwrap_or(f);
+                    .and_then(|r| nf.strip_prefix(r).ok())
+                    .unwrap_or(&nf);
                 let drive_name = drive_root
                     .as_ref()
                     .and_then(|r| r.file_name())
                     .map(|n| n.to_string_lossy().into_owned())
                     .unwrap_or_else(|| "drive".into());
-                let dest = dest_root
-                    .join(drive_name)
-                    .join(rel.strip_prefix(MAIN_SEPARATOR_STR).unwrap_or(rel));
-                match copy_verified(f, &dest, &meta) {
+                let dest = paths::os(
+                    &dest_root
+                        .join(drive_name)
+                        .join(rel.strip_prefix(MAIN_SEPARATOR_STR).unwrap_or(rel)),
+                )
+                .into_owned();
+                let outcome = copy_verified(f, &dest, &meta);
+                // what the file has besides its bytes (streams, extended attributes) must survive
+                // the move too
+                if matches!(
+                    outcome,
+                    Ok(Outcome::Copied(_)) | Ok(Outcome::AlreadyThere(_))
+                ) {
+                    let carried = extras::carry(f, &dest, &meta);
+                    if carried.lost_any() {
+                        st.left_no_copy += 1;
+                        push(
+                            &mut st.problems,
+                            format!(
+                                "{} was copied to {}, but {}: left alone",
+                                nf.display(),
+                                paths::show(&dest),
+                                carried.note().unwrap_or_default()
+                            ),
+                        );
+                        continue;
+                    }
+                }
+                match outcome {
                     Ok(Outcome::Copied(h)) | Ok(Outcome::AlreadyThere(h))
                         if h.as_slice() == actual.as_slice() =>
                     {
@@ -657,7 +718,10 @@ fn run(
                         st.failed += 1;
                         push(
                             &mut st.problems,
-                            format!("the moved copy of {} didn't match, left alone", f.display()),
+                            format!(
+                                "the moved copy of {} didn't match, left alone",
+                                nf.display()
+                            ),
                         );
                         continue;
                     }
@@ -665,7 +729,7 @@ fn run(
                         st.failed += 1;
                         push(
                             &mut st.problems,
-                            format!("couldn't move {}, left alone: {e:#}", f.display()),
+                            format!("couldn't move {}, left alone: {e:#}", nf.display()),
                         );
                         continue;
                     }
@@ -687,19 +751,19 @@ fn run(
                     };
                     push(
                         &mut st.problems,
-                        format!("couldn't delete {}: {e}{hint}", f.display()),
+                        format!("couldn't delete {}: {e}{hint}", nf.display()),
                     );
                 }
             }
         }
         // folders the wipe emptied (the drive's own top folder stays)
-        for entry in WalkDir::new(root)
+        for entry in WalkDir::new(paths::os(root))
             .contents_first(true)
             .into_iter()
             .filter_map(Result::ok)
         {
             if entry.file_type().is_dir()
-                && drive_root.as_deref() != Some(entry.path())
+                && drive_root.as_deref() != Some(&*paths::normal(entry.path()))
                 && fs::remove_dir(entry.path()).is_ok()
             {
                 st.dirs_removed += 1;
@@ -732,11 +796,23 @@ fn run(
     Ok(st)
 }
 
-/// path, dev, ino, mtime of a possible copy
-type CopyRow = (Vec<u8>, Option<i64>, Option<i64>, i64);
+/// path, dev, ino, mtime, id of a possible copy
+type CopyRow = (Vec<u8>, Option<i64>, Option<i64>, i64, i64);
 
-/// size, mtime, sha256, dev, ino of a file's current row
-type IndexRow = (i64, i64, Option<Vec<u8>>, Option<i64>, Option<i64>);
+/// The alternate data streams worth keeping that the index noted for a file version (not the
+/// download marks), as (name, bytes), sorted; `None` when it has none.
+fn kept_streams(db: &Db, file_id: i64) -> Option<Vec<(String, u64)>> {
+    let mut names: Vec<(String, u64)> = streams::get(db, file_id)?
+        .names
+        .into_iter()
+        .filter(|(n, _)| !streams::quiet(n))
+        .collect();
+    names.sort();
+    (!names.is_empty()).then_some(names)
+}
+
+/// size, mtime, sha256, dev, ino, id of a file's current row
+type IndexRow = (i64, i64, Option<Vec<u8>>, Option<i64>, Option<i64>, i64);
 
 fn push(v: &mut Vec<String>, s: String) {
     if v.len() < 30 {

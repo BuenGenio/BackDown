@@ -217,7 +217,7 @@ fn names_of(rel: &Path) -> Option<Vec<Vec<u16>>> {
 /// table is of the volume that's mounted there.
 #[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
 fn same_listing(root: &Path, mft: &mft_scan::Table, top: u64) -> Result<(), String> {
-    let mut shown: Vec<std::ffi::OsString> = std::fs::read_dir(root)
+    let mut shown: Vec<std::ffi::OsString> = std::fs::read_dir(crate::paths::os(root))
         .map_err(|e| format!("can't list {}: {e}", root.display()))?
         .filter_map(|e| e.ok().map(|e| e.file_name()))
         .collect();

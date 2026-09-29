@@ -4,6 +4,7 @@ The selected paired lowercase **bd** mark has been rebuilt as a clean vector and
 
 - Production master: `../public/brand/backdown-mark.svg`.
 - Website and app wordmark: lowercase **backdown**, using the existing Bricolage Grotesque brand typeface.
+- Outlined masters for use outside the site (the press kit): `../public/brand/backdown-wordmark.svg` (the wordmark alone) and `../public/brand/backdown-logo.svg` (mark and wordmark, laid out as the site header draws them: mark 32×24, 10 px gap, 20 px lettering). The lettering is Bricolage Grotesque's default instance (ExtraBold, display optical size) with −0.045 em letter-spacing, converted to outlines with fontkit on 29 September 2026, so it needs no font. The press kit's dark variants are derived from these by colour.
 - Light colors: orange `#d8432b`, ivory `#f5f3ec`, charcoal `#17161b`; the website uses its existing brighter orange in dark mode.
 - Website favicon, installed icons, social cards and demonstration screenshots use the same mark.
 

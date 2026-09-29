@@ -453,9 +453,8 @@ impl<E: Into<anyhow::Error>> From<E> for Fallback {
 
 /// The root, canonical, checked and on record.
 fn prepare(db: &mut Db, root: &Path, opts: &Options) -> Result<(PathBuf, i64)> {
-    let root =
-        dunce::canonicalize(root).with_context(|| format!("can't open {}", root.display()))?;
-    if !root.is_dir() {
+    let root = paths::canonical(root).with_context(|| format!("can't open {}", root.display()))?;
+    if !paths::os(&root).is_dir() {
         bail!("{} is not a directory", root.display());
     }
     let root_bytes = paths::to_bytes(&root);
@@ -476,7 +475,7 @@ fn prepare(db: &mut Db, root: &Path, opts: &Options) -> Result<(PathBuf, i64)> {
             params![root_id],
             |r| r.get(0),
         )?;
-        let empty = std::fs::read_dir(&root)
+        let empty = std::fs::read_dir(paths::os(&root))
             .with_context(|| format!("can't read {}", root.display()))?
             .next()
             .is_none();
@@ -711,6 +710,11 @@ pub(crate) struct Writer<'c> {
     last: Instant,
     /// in a transaction (until `finish` commits it)
     open: bool,
+    /// notes the alternate streams of files as they're recorded (Windows: streams.rs)
+    streams: crate::streams::Recorder<'c>,
+    /// every file of the root was looked at (a walk or the file table, not the change log): only
+    /// then does the streams recorder count the drive as looked at whole
+    whole: bool,
 }
 
 impl Drop for Writer<'_> {
@@ -744,6 +748,8 @@ impl<'c> Writer<'c> {
             pending: 0,
             last: Instant::now(),
             open: true,
+            streams: crate::streams::Recorder::new(conn, root_id)?,
+            whole: false,
         })
     }
 
@@ -772,6 +778,7 @@ impl<'c> Writer<'c> {
                         "UPDATE files SET last_scan = ?2, root_id = ?3, dev = ?4, ino = ?5 WHERE id = ?1",
                     )?
                     .execute(params![id, self.scan, self.root_id, dev, ino])?;
+                self.streams.note(id, path, false)?;
                 return Ok(id);
             }
             Some((id, ..)) => {
@@ -799,7 +806,9 @@ impl<'c> Writer<'c> {
                 self.scan,
                 find::lname(path)
             ])?;
-        Ok(self.conn.last_insert_rowid())
+        let id = self.conn.last_insert_rowid();
+        self.streams.note(id, path, true)?;
+        Ok(id)
     }
 
     /// Records a folder with its totals, as `file` does files (the root has no parent).
@@ -880,6 +889,7 @@ impl<'c> Writer<'c> {
 
     /// After a walk of the whole root: anything of this root it didn't see is gone.
     fn close_unseen(&mut self) -> Result<()> {
+        self.whole = true;
         self.st.removed += self.conn.execute(
             "UPDATE files SET current = 0 WHERE root_id = ?1 AND current = 1 AND last_scan < ?2",
             params![self.root_id, self.scan],
@@ -922,6 +932,9 @@ impl<'c> Writer<'c> {
             "UPDATE roots SET last_scan = ?2 WHERE id = ?1",
             params![self.root_id, self.scan],
         )?;
+        if self.whole {
+            self.streams.finish()?;
+        }
         self.conn.execute_batch("COMMIT")?;
         self.open = false;
         progress(&self.st);
@@ -1048,9 +1061,10 @@ fn close_top(w: &mut Writer, stack: &mut Vec<OpenDir>, seen: Option<&mut Seen>) 
     Ok(())
 }
 
-/// Walks `top` (not following symlinks, staying on its filesystem if `one_fs`).
+/// Walks `top` (not following symlinks, staying on its filesystem if `one_fs`). Opened verbatim on
+/// Windows (long paths, names ending in a dot); the paths it yields are in normal form, as stored.
 pub(crate) fn walk_items(top: &Path, one_fs: bool) -> impl Iterator<Item = Item> + use<> {
-    WalkDir::new(top)
+    WalkDir::new(paths::os(top))
         .follow_links(false)
         .same_file_system(one_fs)
         .into_iter()
@@ -1063,7 +1077,7 @@ pub(crate) fn walk_items(top: &Path, one_fs: bool) -> impl Iterator<Item = Item>
             if entry.file_type().is_dir() {
                 let (dev, ino) = dir_identity(entry.path());
                 return Some(Item::Dir {
-                    path: entry.into_path(),
+                    path: paths::normal(entry.path()).into_owned(),
                     depth,
                     dev,
                     ino,
@@ -1076,7 +1090,7 @@ pub(crate) fn walk_items(top: &Path, one_fs: bool) -> impl Iterator<Item = Item>
                 Ok(meta) => {
                     let (dev, ino) = inode(&meta);
                     Some(Item::File {
-                        path: entry.into_path(),
+                        path: paths::normal(entry.path()).into_owned(),
                         depth,
                         size: meta.len(),
                         mtime: mtime_of(&meta),
@@ -1105,10 +1119,12 @@ pub(crate) fn parent_of(p: &Path) -> &Path {
 fn refuse_nested(db: &Db, root: &Path, root_bytes: &[u8]) -> Result<()> {
     let mut stmt = db.conn.prepare("SELECT path FROM roots WHERE path <> ?1")?;
     let others = stmt.query_map(params![root_bytes], |r| r.get::<_, Vec<u8>>(0))?;
-    let mine = paths::dir_prefix(root);
+    // whatever the Unicode form of their names (a Mac drive's folder typed on another system)
+    let mine = crate::names::nfc_path(&paths::dir_prefix(root)).into_owned();
     for other in others {
         let other = other?;
         let theirs = paths::dir_prefix(&paths::from_bytes(&other));
+        let theirs = crate::names::nfc_path(&theirs);
         if mine.starts_with(&theirs) || theirs.starts_with(&mine) {
             bail!(
                 "{} overlaps the already indexed {}; index each drive or top-level folder once, without nesting",

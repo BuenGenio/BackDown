@@ -475,13 +475,11 @@ impl Harness {
                 }
             }
             _ => {
-                // a symlink (walks don't record them)
-                if let Some(to) = self.free_name(&dir) {
+                // a symlink (walks don't record them); Windows needs rights to make one
+                if let (true, Some(to)) = (cfg!(unix), self.free_name(&dir)) {
                     self.log.push(format!("symlink {}", to.display()));
                     #[cfg(unix)]
                     std::os::unix::fs::symlink("elsewhere", &to).unwrap();
-                    #[cfg(not(unix))]
-                    return;
                     let id = self.new_id();
                     self.ids.insert(to.clone(), id);
                     self.emit(

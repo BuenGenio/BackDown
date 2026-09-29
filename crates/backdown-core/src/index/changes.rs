@@ -155,7 +155,7 @@ pub(crate) enum Found {
 }
 
 pub(crate) fn look(path: &Path) -> Found {
-    let m = match std::fs::symlink_metadata(path) {
+    let m = match std::fs::symlink_metadata(paths::os(path)) {
         Ok(m) => m,
         Err(e)
             if matches!(
@@ -189,6 +189,11 @@ pub(crate) fn look(path: &Path) -> Found {
     } else {
         Found::Other
     }
+}
+
+/// A folder there now (not following symlinks).
+fn is_dir_now(p: &Path) -> bool {
+    std::fs::symlink_metadata(paths::os(p)).is_ok_and(|m| m.is_dir())
 }
 
 /// How many names (hard links) a file has.
@@ -369,7 +374,7 @@ impl Resolver<'_> {
             while let Some(parent) = top.parent()
                 && parent != root
                 && parent.starts_with(root)
-                && !std::fs::symlink_metadata(parent).is_ok_and(|m| m.is_dir())
+                && !is_dir_now(parent)
             {
                 top = parent.to_path_buf();
             }
@@ -533,7 +538,7 @@ impl Resolver<'_> {
                 }
             }
         }
-        let listing = match std::fs::read_dir(d) {
+        let listing = match std::fs::read_dir(paths::os(d)) {
             Ok(l) => l,
             Err(e) => {
                 self.plan.errors.push(format!("{}: {e}", d.display()));
@@ -550,7 +555,8 @@ impl Resolver<'_> {
                     continue;
                 }
             };
-            let c = entry.path();
+            // as stored, whichever form it was listed in
+            let c = paths::normal(&entry.path()).into_owned();
             here.insert(c.clone());
             if self.done.contains(&c) {
                 continue;
@@ -728,7 +734,7 @@ pub(crate) fn execute(
         }
     }
     for (_, d) in &up {
-        if d != root && !std::fs::symlink_metadata(d).is_ok_and(|m| m.is_dir()) {
+        if d != root && !is_dir_now(d) {
             continue; // something named below it was a folder once, but it's a file now
         }
         let t = totals_of(conn, d)?;

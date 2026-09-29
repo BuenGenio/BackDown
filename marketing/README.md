@@ -1,6 +1,6 @@
 # backdown.io
 
-The website, in English (`/`), Spanish (`/es/`), Brazilian Portuguese (`/pt-br/`), German (`/de/`), Polish (`/pl/`), Czech (`/cs/`), Slovak (`/sk/`) and Ukrainian (`/uk/`). Each language has the same pages: home, `features/`, `pricing/`, `download/`, `status/` and `privacy/`, plus `terms/` (English) and `thanks/` once pre-orders are switched on.
+The website, in English (`/`), Spanish (`/es/`), Brazilian Portuguese (`/pt-br/`), German (`/de/`), Polish (`/pl/`), Czech (`/cs/`), Slovak (`/sk/`) and Ukrainian (`/uk/`). Each language has the same pages: home, `features/`, `pricing/`, `download/`, `status/` and `privacy/`, plus `terms/` (English) and `thanks/` once pre-orders are switched on. The docs (`/docs/`) and the press kit (`/press/`) are in English only for now; every language links to them from the header or footer, and on those pages the language menu says so and sends the other languages to their home page.
 
 A Cloudflare Worker serves `public/` as static assets. `src/` runs only for `/api/*` and an hourly cron:
 
@@ -19,6 +19,45 @@ The pages are generated: edit `templates/` (markup: `base.html` is the shell, on
 `site.css` and `site.js` are served immutable with a `?v=<hash>` the build stamps into every page, so edit them, rebuild, deploy.
 
 Moving between pages fades: cross-document view transitions in Chrome, Edge and Safari (`@view-transition` in `site.css`), and a short fade-out in `site.js` elsewhere; the header stays put. Links are prefetched on hover (speculation rules).
+
+### Docs (`docs/`)
+
+`docs/**/*.md` become `/docs/…/` (`docs/guides/rescue.md` → `/docs/guides/rescue/`, `index.md` → its folder). Each file starts with front matter:
+
+```
+---
+title: Rescue a failing drive
+description: One sentence: the page's lede, meta description and card text.
+order: 4
+nav: Short sidebar label (optional)
+group: start | help (top-level files only; files in guides/ and cli/ belong to that folder's group)
+preview: yes (optional: marks the whole page "next preview")
+---
+```
+
+The Markdown is a small, strict subset rendered by `mdlite.py` (standard library only; its docstring lists what it supports), plus `{preview}` for the "next preview" badge, `> [!NOTE]` / `[!TIP]` / `[!WARNING]` / `[!PREVIEW]` callouts, definition lists, and `<!-- cards -->` for a group's page list. `build.py` adds the sidebar (groups in `DOC_GROUPS`), breadcrumbs, "on this page" for pages with three or more sections, previous/next links, JSON-LD (TechArticle, BreadcrumbList), sitemap entries (English only, so hreflang lists `en` and `x-default`), and `public/docs/search.json`, the small index the docs' search box filters in the page (`/` focuses it). Code blocks get a copy button from `site.js`.
+
+Keep the docs true to the code: things built but not in the current download are marked **next preview** (`{preview}`, or `preview: yes` for a whole page). At a release, remove those marks for what shipped.
+
+`docs/cli/` is generated from the real binary; don't edit it by hand:
+
+```sh
+cargo build -p backdown-cli            # from the repository root
+python3 tools/cli-reference.py         # --check exits 1 if docs/cli is out of date
+python3 build.py
+```
+
+It runs `backdown --help` and `backdown <command> [<subcommand>] --help` in a clean environment (no local path or `$BACKDOWN_DB` can leak in; it refuses if one does), and marks commands and options the current download (the version in `downloads.json`, or `--released <tag>`) doesn't have. Examples, argument descriptions and notes that clap doesn't know live at the top of the script.
+
+### Press kit (`/press/`)
+
+`templates/press.html`, filled by `press_kit()` in `build.py`: boilerplates in 25, 50 and 100 words (the build checks the counts), a fact sheet from `downloads.json`, `status.json` and `site.json` (a press contact appears once `contact_email` is set), logos and screenshots. The build writes `public/press/logos/*.svg` from the brand masters (`public/brand/backdown-mark.svg`, `backdown-wordmark.svg`, `backdown-logo.svg`, `public/favicon.svg`, with dark variants by colour) and zips everything into `public/press/backdown-press-kit.zip` (fixed entry dates and order, so it only changes when its contents do). The transparent PNGs come from `cd screenshots && npm run press` after a build; build again afterwards so the zip includes them.
+
+### Checking before a deploy
+
+`python3 tools/check-links.py` checks every internal link, anchor, canonical/hreflang URL, sitemap entry and search-index entry in `public/`, that no page has an inline script or event handler the CSP would block, and that nothing mentions this machine's paths.
+
+`python3 tools/i18n-add.py KEY --after OTHER_KEY en="…" es="…" …` adds or changes a string in every language at once, keeping the files' order and layout.
 
 ### Status page
 
@@ -51,7 +90,10 @@ Run from this directory unless noted:
 | Read sign-ups | `npx wrangler kv key list --binding WAITLIST --remote` |
 | Read orders | `npx wrangler kv key list --binding ORDERS --remote --prefix order:` |
 | Re-shoot the slideshow | `cd screenshots && npm install && npm run capture` |
-| Re-render OG cards + icons | `cd screenshots && npm run assets` (one card per page per language) |
+| Re-render OG cards + icons | `cd screenshots && npm run assets` (one card per page per language, plus the English-only `en-docs`/`en-press`; `node assets.mjs en-docs.png` renders just one) |
+| Press kit logo PNGs | `python3 build.py && cd screenshots && npm run press && cd .. && python3 build.py` |
+| Regenerate the CLI reference | `python3 tools/cli-reference.py` (after `cargo build -p backdown-cli`) |
+| Check links before deploying | `python3 tools/check-links.py` |
 
 ## Screenshots (`screenshots/`)
 

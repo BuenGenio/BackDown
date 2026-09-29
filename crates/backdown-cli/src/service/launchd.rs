@@ -172,6 +172,21 @@ pub fn install(exe: &Path, system: bool, start: bool, print: bool) -> Result<Exi
     Ok(ExitCode::SUCCESS)
 }
 
+/// Start the installed agent now, if there is one (`backdown app`): kickstart it where it's
+/// loaded, load it where it isn't. False when there's no agent.
+pub fn start_installed() -> bool {
+    let path = plist_path();
+    if !path.exists() {
+        return false;
+    }
+    let Ok(domain) = domain() else {
+        return false;
+    };
+    launchctl(&["kickstart", &format!("{domain}/{LABEL}")]).is_ok_and(|o| o.status.success())
+        || launchctl(&["bootstrap", &domain, &path.display().to_string()])
+            .is_ok_and(|o| o.status.success())
+}
+
 pub fn uninstall(system: bool) -> Result<ExitCode> {
     if system {
         return no_system();

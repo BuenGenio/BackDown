@@ -651,6 +651,49 @@ fn udev_text(u: &Udev, key: &str) -> Option<String> {
 }
 
 /// A sysfs attribute, trimmed; None if missing or empty.
+/// Whether this machine can mount file system `fs` (blkid's name): the running kernel lists it
+/// (`/proc/filesystems`), a module for it is installed (not loaded until it's first needed), or a
+/// FUSE mount helper (`mount.ntfs-3g`, `mount.exfat-fuse`, …) is.
+#[cfg(target_os = "linux")]
+pub(crate) fn can_mount(fs: &str) -> bool {
+    let kernel = read(Path::new("/proc/filesystems")).unwrap_or_default();
+    let release = read(Path::new("/proc/sys/kernel/osrelease")).unwrap_or_default();
+    let modules = Path::new("/lib/modules")
+        .join(release.trim())
+        .join("kernel/fs");
+    can_mount_with(fs, &kernel, &|m| modules.join(m).is_dir(), &|h| {
+        ["/sbin", "/usr/sbin", "/bin", "/usr/bin"]
+            .iter()
+            .any(|d| Path::new(d).join(format!("mount.{h}")).exists())
+    })
+}
+
+// used by can_mount (Linux only) and its tests, which also run elsewhere
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn can_mount_with(
+    fs: &str,
+    proc_filesystems: &str,
+    module: &dyn Fn(&str) -> bool,
+    helper: &dyn Fn(&str) -> bool,
+) -> bool {
+    // blkid's names → the kernel's drivers, and the FUSE helpers that can stand in for them
+    let same = [fs];
+    let (drivers, helpers): (&[&str], &[&str]) = match fs {
+        "ext2" | "ext3" | "ext4" => (&["ext4", "ext3", "ext2"], &[]),
+        "ntfs" => (&["ntfs3", "ntfs"], &["ntfs-3g", "ntfs", "lowntfs-3g"]),
+        "exfat" => (&["exfat"], &["exfat-fuse", "exfat"]),
+        "vfat" => (&["vfat"], &[]),
+        "apfs" => (&["apfs"], &["apfs"]),
+        _ => (&same, &same),
+    };
+    let listed = |d: &str| {
+        proc_filesystems
+            .lines()
+            .any(|l| l.split_whitespace().last() == Some(d))
+    };
+    drivers.iter().any(|d| listed(d) || module(d)) || helpers.iter().any(|h| helper(h))
+}
+
 fn read(path: &Path) -> Option<String> {
     let s = fs::read_to_string(path).ok()?;
     let s = s.trim();
@@ -676,6 +719,32 @@ fn list(dir: &Path) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn what_this_machine_can_mount() {
+        let procfs = "nodev\tsysfs\n\text4\n\tvfat\nnodev\tfuse\n";
+        let no = |_: &str| false;
+        assert!(can_mount_with("ext4", procfs, &no, &no));
+        assert!(can_mount_with("ext2", procfs, &no, &no), "ext4 reads ext2");
+        assert!(
+            !can_mount_with("apfs", procfs, &no, &no),
+            "APFS needs a driver Linux lacks"
+        );
+        assert!(
+            can_mount_with("apfs", procfs, &|m| m == "apfs", &no),
+            "unless a module is installed"
+        );
+        assert!(!can_mount_with("ntfs", procfs, &no, &no));
+        assert!(
+            can_mount_with("ntfs", procfs, &|m| m == "ntfs3", &no),
+            "the kernel's ntfs3 module"
+        );
+        assert!(
+            can_mount_with("ntfs", procfs, &no, &|h| h == "ntfs-3g"),
+            "or ntfs-3g"
+        );
+        assert!(!can_mount_with("refs", procfs, &no, &no));
+    }
+
     use super::*;
     use crate::volumes::State;
 

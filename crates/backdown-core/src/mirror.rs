@@ -7,6 +7,10 @@
 //! silently destroy the good copy; files only on the mirror are reported, not removed.
 //! A verify re-reads a sample of the mirror (or all of it) and compares hashes with the source,
 //! which is how a dying mirror drive gets noticed before it's needed.
+//!
+//! Names that the mirror's drive takes for one ("Photo.jpg" and "photo.jpg" on a case-insensitive
+//! drive) are kept apart the way `apply` keeps them (`names::Renamer`: the second gets a numbered
+//! name, the same one every time), and streams and extended attributes go along (`extras`).
 
 use std::collections::HashSet;
 use std::fs;
@@ -20,7 +24,8 @@ use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
 use crate::apply::{Outcome, copy_verified, free_space, hash_file, mtime};
-use crate::{Db, fmt, paths};
+use crate::names::{self, Renamer};
+use crate::{Db, extras, fmt, paths};
 
 pub const VERSIONS: &str = ".backdown-versions";
 
@@ -52,6 +57,15 @@ pub struct SyncStats {
     pub extra: u64,
     pub skipped_links: u64,
     pub problems: Vec<String>,
+    /// copied under another name: its own collides with another's on the mirror's drive
+    #[serde(default)]
+    pub renamed: u64,
+    /// copied, but without some of its streams or extended attributes
+    #[serde(default)]
+    pub extras_not_kept: u64,
+    /// renames and what copies didn't keep (the first ones)
+    #[serde(default)]
+    pub notes: Vec<String>,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -90,7 +104,7 @@ const COLS: &str = "id, source, target, created_at, verify_every_days, last_sync
 
 pub fn add(db: &Db, source: &Path, target: &Path, verify_every_days: i64) -> Result<i64> {
     let source =
-        dunce::canonicalize(source).with_context(|| format!("can't open {}", source.display()))?;
+        paths::canonical(source).with_context(|| format!("can't open {}", source.display()))?;
     if !source.is_dir() {
         bail!("{} isn't a folder", source.display());
     }
@@ -98,7 +112,7 @@ pub fn add(db: &Db, source: &Path, target: &Path, verify_every_days: i64) -> Res
         bail!("the mirror folder must be a full path");
     }
     let target = if target.exists() {
-        dunce::canonicalize(target)?
+        paths::canonical(target)?
     } else {
         target.to_path_buf()
     };
@@ -165,9 +179,15 @@ fn present(m: &Mirror) -> Result<(PathBuf, PathBuf)> {
 pub fn sync(db: &Db, id: i64, progress: &mut dyn FnMut(u64, u64)) -> Result<SyncStats> {
     let m = get(db, id)?;
     let (src, dst) = present(&m)?;
-    fs::create_dir_all(&dst).with_context(|| format!("can't create {}", dst.display()))?;
+    fs::create_dir_all(paths::os(&dst))
+        .with_context(|| format!("can't create {}", dst.display()))?;
+    let folding = names::probe_or_assume(&dst);
+    // opened verbatim on Windows (long paths, names ending in a dot)
+    let (src, dst) = (paths::os(&src).into_owned(), paths::os(&dst).into_owned());
+    let mut renamer = Renamer::new(&src, folding);
     let mut st = SyncStats::default();
-    let mut seen: HashSet<PathBuf> = HashSet::new();
+    // what's been copied to, as the mirror's drive tells names apart
+    let mut seen: HashSet<Vec<u8>> = HashSet::new();
     let stamp = now();
     for entry in WalkDir::new(&src).follow_links(false) {
         let entry = match entry {
@@ -185,13 +205,10 @@ pub fn sync(db: &Db, id: i64, progress: &mut dyn FnMut(u64, u64)) -> Result<Sync
         if !entry.file_type().is_file() {
             continue;
         }
-        let rel = entry
-            .path()
-            .strip_prefix(&src)
-            .unwrap_or(entry.path())
-            .to_path_buf();
+        let src_rel = entry.path().strip_prefix(&src).unwrap_or(entry.path());
+        let (rel, renamed) = renamer.map(src_rel);
         let dest = dst.join(&rel);
-        seen.insert(rel.clone());
+        seen.insert(folding.path_key(&rel));
         let meta = entry.metadata()?;
         st.files += 1;
         st.bytes += meta.len();
@@ -221,8 +238,30 @@ pub fn sync(db: &Db, id: i64, progress: &mut dyn FnMut(u64, u64)) -> Result<Sync
             }
             st.updated += 1;
         }
+        if !renamed.is_empty() {
+            st.renamed += 1;
+            push(
+                &mut st.notes,
+                format!(
+                    "{}: renamed {} on the mirror's drive",
+                    paths::show(src_rel),
+                    names::describe(&renamed)
+                ),
+            );
+        }
         match copy_verified(entry.path(), &dest, &meta) {
-            Ok(Outcome::Copied(_)) | Ok(Outcome::AlreadyThere(_)) => {
+            Ok(Outcome::Copied(_)) => {
+                st.copied += 1;
+                st.copied_bytes += meta.len();
+                let carried = extras::carry(entry.path(), &dest, &meta);
+                if carried.lost_any() {
+                    st.extras_not_kept += 1;
+                }
+                if let Some(n) = carried.note() {
+                    push(&mut st.notes, format!("{}: {n}", paths::show(src_rel)));
+                }
+            }
+            Ok(Outcome::AlreadyThere(_)) => {
                 st.copied += 1;
                 st.copied_bytes += meta.len();
             }
@@ -244,7 +283,7 @@ pub fn sync(db: &Db, id: i64, progress: &mut dyn FnMut(u64, u64)) -> Result<Sync
     {
         if entry.file_type().is_file()
             && let Ok(rel) = entry.path().strip_prefix(&dst)
-            && !seen.contains(rel)
+            && !seen.contains(&folding.path_key(rel))
             && !rel
                 .file_name()
                 .is_some_and(|n| n.to_string_lossy().ends_with(".backdown-partial"))
@@ -309,6 +348,8 @@ pub fn verify(
             dst.display()
         );
     }
+    // the same names `sync` gave: it depends on what the mirror's drive tells apart
+    let mut renamer = Renamer::new(&src, names::probe_or_assume(&dst));
     let mut st = VerifyStats::default();
     let day = now() / 86_400;
     let mut known = db.conn.prepare_cached(
@@ -331,7 +372,7 @@ pub fn verify(
             continue;
         }
         let meta = entry.metadata()?;
-        let dest = dst.join(&rel);
+        let dest = dst.join(renamer.map(&rel).0);
         st.checked += 1;
         st.checked_bytes += meta.len();
         if st.checked.is_multiple_of(100) {
