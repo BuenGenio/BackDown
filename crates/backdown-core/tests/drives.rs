@@ -110,6 +110,72 @@ fn duplicates_ignore_hardlinks_and_count_reclaimable_space() {
     assert_eq!(dupes.reclaimable, 2 * 250_000);
 }
 
+/// Three duplicated groups of different sizes, and one file that isn't duplicated.
+fn three_groups(d: &Path) {
+    for (seed, len, copies) in [(11u8, 300_000, 3), (12, 200_000, 2), (13, 100_000, 2)] {
+        for c in 0..copies {
+            write(&d.join(format!("g{seed}/copy{c}.bin")), &big(seed, len));
+        }
+    }
+    write(&d.join("solo.bin"), &big(14, 150_000));
+}
+
+#[test]
+fn the_totals_cover_every_group_when_only_the_largest_are_listed() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = tmp.path().join("drive");
+    three_groups(&d);
+    let mut db = Db::open(&tmp.path().join("idx.db")).unwrap();
+    scan(&mut db, &d);
+    hash_all(&mut db);
+    let all = 2 * 300_000 + 200_000 + 100_000;
+    for limit in [0, 1, 2, 10] {
+        let r = report::dupes(&db, 1, limit).unwrap();
+        assert_eq!(r.groups, 3, "limit {limit}");
+        assert_eq!(r.reclaimable, all, "limit {limit}");
+        assert_eq!(r.largest.len(), limit.min(3), "limit {limit}");
+        let sizes: Vec<u64> = r.largest.iter().map(|g| g.size).collect();
+        assert_eq!(
+            sizes,
+            [300_000, 200_000, 100_000][..limit.min(3)],
+            "limit {limit}"
+        );
+    }
+    // the size floor drops whole groups
+    let r = report::dupes(&db, 150_000, 10).unwrap();
+    assert_eq!((r.groups, r.reclaimable), (2, 2 * 300_000 + 200_000));
+}
+
+#[test]
+fn duplicates_are_the_same_with_or_without_the_covering_index() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = tmp.path().join("drive");
+    three_groups(&d);
+    let path = tmp.path().join("idx.db");
+    let mut db = Db::open(&path).unwrap();
+    scan(&mut db, &d);
+    hash_all(&mut db);
+    // opening doesn't build it (minutes on a big index): the daemon does, as a job
+    assert!(!db.has_dupes_index().unwrap());
+    let key = |r: &report::Dupes| {
+        let groups: Vec<_> = r
+            .largest
+            .iter()
+            .map(|g| (g.sha256.clone(), g.copies, g.reclaimable, g.paths.clone()))
+            .collect();
+        (r.groups, r.reclaimable, groups)
+    };
+    let without = key(&report::dupes(&db, 1, 10).unwrap());
+    // read-only without it, like another machine's index through serve-stdio: still answers
+    let ro = key(&report::dupes(&Db::open_read_only(&path).unwrap(), 1, 10).unwrap());
+    assert_eq!(ro, without);
+    assert!(db.ensure_dupes_index().unwrap());
+    assert!(!db.ensure_dupes_index().unwrap(), "only built once");
+    let with = key(&report::dupes(&db, 1, 10).unwrap());
+    assert_eq!(with, without);
+    assert_eq!(with.0, 3);
+}
+
 #[cfg(unix)]
 #[test]
 fn a_hardlink_is_not_a_copy() {

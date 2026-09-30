@@ -491,7 +491,12 @@ fn sync_is_incremental_and_copies_there_count_conservatively() {
     let ov = overlap::overlaps(&db, &[], &mut |_| {}).unwrap();
     let drive = ov.iter().find(|o| o.unit.level == "drive").unwrap();
     assert_eq!(drive.elsewhere_files, 3);
-    assert!(drive.containers.iter().any(|c| c.label == "the machine nas"));
+    assert!(
+        drive
+            .containers
+            .iter()
+            .any(|c| c.label == "the machine nas")
+    );
     assert!(ov.iter().all(|o| o.unit.level != "machine"));
 
     // duplicates across machines
