@@ -67,6 +67,11 @@ CREATE INDEX IF NOT EXISTS files_root ON files(root_id, current, last_scan);
 CREATE INDEX IF NOT EXISTS files_size_sample ON files(size, sample) WHERE current = 1;
 CREATE INDEX IF NOT EXISTS files_inode ON files(dev, ino) WHERE current = 1;
 CREATE INDEX IF NOT EXISTS files_sha256 ON files(sha256);
+-- covering index for the duplicates report (report::dupes): grouping current, hashed files by
+-- sha256 and collapsing hardlinks by (dev, ino) is answered index-only, without a table lookup
+-- per row. Partial so it holds only rows the report can use.
+CREATE INDEX IF NOT EXISTS files_dupes ON files(sha256, size, dev, ino)
+    WHERE current = 1 AND sha256 IS NOT NULL;
 -- what's recognised on each root (recognise.rs), as of one scan; added in 0.3 without a schema
 -- bump, since older versions just ignore it
 CREATE TABLE IF NOT EXISTS entities (

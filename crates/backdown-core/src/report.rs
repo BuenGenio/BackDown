@@ -28,65 +28,122 @@ pub struct Dupes {
 }
 
 /// Content that exists more than once (by full SHA-256), largest reclaimable space first.
+///
+/// Two passes, both driven by the covering index `files_dupes(sha256, size, dev, ino)
+/// WHERE current = 1 AND sha256 IS NOT NULL`:
+///   1. an index-only scan groups every hashed file by sha256, collapsing hardlinks by
+///      (dev, ino), to get the exact group count and reclaimable total over *all* groups and to
+///      pick the `limit` largest — without touching the table or decoding a single path;
+///   2. for just those largest groups, look up their paths.
+///
+/// `INDEXED BY` pins the covering index on purpose: left to choose, SQLite prefers the narrower
+/// `files_sha256` (which also gives sha256 order) and then does a table lookup per row — ~200s on
+/// a 16M-file index, versus a few seconds index-only. The index always exists here because the
+/// daemon and CLI open the db read-write (running `SCHEMA`) before anything reads it.
 pub fn dupes(db: &Db, min_size: u64, limit: usize) -> Result<Dupes> {
-    let mut stmt = db.conn.prepare(
-        "SELECT sha256, size, path, dev, ino FROM files
-         WHERE current = 1 AND size >= ?1 AND sha256 IN (
-             SELECT sha256 FROM files WHERE current = 1 AND sha256 IS NOT NULL AND size >= ?1 GROUP BY sha256 HAVING COUNT(*) > 1)
-         ORDER BY sha256, path",
+    // Pass 1: index-only scan, in sha256 order, of every current+hashed file at/above min_size.
+    // Files sharing a sha256 have identical size, so the size filter keeps or drops a group whole.
+    let mut scan = db.conn.prepare(
+        "SELECT sha256, size, dev, ino FROM files INDEXED BY files_dupes
+         WHERE current = 1 AND sha256 IS NOT NULL AND size >= ?1
+         ORDER BY sha256",
     )?;
-    let rows = stmt.query_map(params![min_size as i64], |r| {
+    let rows = scan.query_map(params![min_size as i64], |r| {
         Ok((
             r.get::<_, Vec<u8>>(0)?,
             r.get::<_, i64>(1)?,
-            r.get::<_, Vec<u8>>(2)?,
+            r.get::<_, Option<i64>>(2)?,
             r.get::<_, Option<i64>>(3)?,
-            r.get::<_, Option<i64>>(4)?,
         ))
     })?;
 
-    let mut groups: Vec<DupeGroup> = Vec::new();
+    // One entry per duplicated group: (reclaimable, size, sha256). Even millions of files yield
+    // only as many groups as there are distinct duplicated hashes — small enough to hold and sort.
+    let mut meta: Vec<(u64, u64, Vec<u8>)> = Vec::new();
     let mut seen_inodes: HashSet<(i64, i64)> = HashSet::new();
     let mut current: Option<Vec<u8>> = None;
-    for row in rows {
-        let (sha, size, path, dev, ino) = row?;
-        if current.as_deref() != Some(&sha[..]) {
-            seen_inodes.clear();
-            groups.push(DupeGroup {
-                sha256: fmt::hex(&sha),
-                size: size as u64,
-                copies: 0,
-                reclaimable: 0,
-                paths: Vec::new(),
-            });
-            current = Some(sha);
+    let mut size: u64 = 0;
+    let mut copies: u64 = 0;
+    let close_group = |sha: Vec<u8>, size: u64, copies: u64, meta: &mut Vec<(u64, u64, Vec<u8>)>| {
+        if copies > 1 {
+            // hardlinks of one inode collapse to a single copy: nothing to reclaim
+            meta.push((size * (copies - 1), size, sha));
         }
-        let g = groups.last_mut().expect("pushed above");
+    };
+    for row in rows {
+        let (sha, sz, dev, ino) = row?;
+        if current.as_deref() != Some(&sha[..]) {
+            if let Some(prev) = current.take() {
+                close_group(prev, size, copies, &mut meta);
+            }
+            current = Some(sha);
+            size = sz as u64;
+            copies = 0;
+            seen_inodes.clear();
+        }
         let new_copy = match (dev, ino) {
             (Some(d), Some(i)) => seen_inodes.insert((d, i)),
             _ => true,
         };
         if new_copy {
-            g.copies += 1;
+            copies += 1;
         }
-        g.paths.push(paths::from_bytes(&path).display().to_string());
     }
-    groups.retain(|g| g.copies > 1); // only hardlinks of one inode: nothing to reclaim
-    for g in &mut groups {
-        g.reclaimable = g.size * (g.copies - 1);
+    if let Some(prev) = current.take() {
+        close_group(prev, size, copies, &mut meta);
     }
-    groups.sort_by(|a, b| {
+
+    let count = meta.len() as u64;
+    let reclaimable = meta.iter().map(|m| m.0).sum();
+    // keep only the largest `limit` groups (by reclaimable, then sha256 for a stable choice)
+    meta.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.2.cmp(&b.2)));
+    meta.truncate(limit);
+
+    // Pass 2: fetch paths for just the kept groups, recomputing copies the same way.
+    let mut paths_of = db.conn.prepare(
+        "SELECT path, dev, ino FROM files
+         WHERE current = 1 AND sha256 = ?1 ORDER BY path",
+    )?;
+    let mut largest: Vec<DupeGroup> = Vec::with_capacity(meta.len());
+    for (_, size, sha) in &meta {
+        let prows = paths_of.query_map(params![sha], |r| {
+            Ok((
+                r.get::<_, Vec<u8>>(0)?,
+                r.get::<_, Option<i64>>(1)?,
+                r.get::<_, Option<i64>>(2)?,
+            ))
+        })?;
+        let mut paths = Vec::new();
+        let mut inodes: HashSet<(i64, i64)> = HashSet::new();
+        let mut copies: u64 = 0;
+        for pr in prows {
+            let (path, dev, ino) = pr?;
+            let new_copy = match (dev, ino) {
+                (Some(d), Some(i)) => inodes.insert((d, i)),
+                _ => true,
+            };
+            if new_copy {
+                copies += 1;
+            }
+            paths.push(paths::from_bytes(&path).display().to_string());
+        }
+        largest.push(DupeGroup {
+            sha256: fmt::hex(sha),
+            size: *size,
+            copies,
+            reclaimable: size * copies.saturating_sub(1),
+            paths,
+        });
+    }
+    largest.sort_by(|a, b| {
         b.reclaimable
             .cmp(&a.reclaimable)
             .then_with(|| a.paths.cmp(&b.paths))
     });
-    let reclaimable = groups.iter().map(|g| g.reclaimable).sum();
-    let count = groups.len() as u64;
-    groups.truncate(limit);
     Ok(Dupes {
         groups: count,
         reclaimable,
-        largest: groups,
+        largest,
     })
 }
 
