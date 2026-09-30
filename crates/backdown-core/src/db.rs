@@ -67,11 +67,6 @@ CREATE INDEX IF NOT EXISTS files_root ON files(root_id, current, last_scan);
 CREATE INDEX IF NOT EXISTS files_size_sample ON files(size, sample) WHERE current = 1;
 CREATE INDEX IF NOT EXISTS files_inode ON files(dev, ino) WHERE current = 1;
 CREATE INDEX IF NOT EXISTS files_sha256 ON files(sha256);
--- covering index for the duplicates report (report::dupes): grouping current, hashed files by
--- sha256 and collapsing hardlinks by (dev, ino) is answered index-only, without a table lookup
--- per row. Partial so it holds only rows the report can use.
-CREATE INDEX IF NOT EXISTS files_dupes ON files(sha256, size, dev, ino)
-    WHERE current = 1 AND sha256 IS NOT NULL;
 -- what's recognised on each root (recognise.rs), as of one scan; added in 0.3 without a schema
 -- bump, since older versions just ignore it
 CREATE TABLE IF NOT EXISTS entities (
@@ -288,7 +283,34 @@ fn add_column(conn: &Connection, table: &str, column: &str, decl: &str) -> Resul
     Ok(())
 }
 
+/// The duplicates report's covering index (report::dupes): current, hashed files by sha256 with
+/// their size and inode, so grouping them and collapsing hardlinks is answered from the index
+/// alone, without a table lookup per row. Partial, so it holds only rows the report can use.
+/// Not in SCHEMA: on a big index it takes minutes to build (about 3 on 16.9M files), longer than
+/// a service may take to start, so the daemon builds it as a job of its own once it's running
+/// (and `backdown dupes` before its first report). Until then the report reads the table instead.
+const DUPES_INDEX: &str = "CREATE INDEX IF NOT EXISTS files_dupes ON files(sha256, size, dev, ino)
+    WHERE current = 1 AND sha256 IS NOT NULL";
+
 impl Db {
+    /// Whether the duplicates report's covering index is there (see `DUPES_INDEX`).
+    pub fn has_dupes_index(&self) -> Result<bool> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'files_dupes')",
+            [],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// Build the duplicates report's covering index if it isn't there; whether it was built now.
+    pub fn ensure_dupes_index(&self) -> Result<bool> {
+        if self.has_dupes_index()? {
+            return Ok(false);
+        }
+        self.conn.execute_batch(DUPES_INDEX)?;
+        Ok(true)
+    }
+
     pub fn open(path: &Path) -> Result<Db> {
         let conn =
             Connection::open(path).with_context(|| format!("opening index {}", path.display()))?;

@@ -521,6 +521,12 @@ pub fn run(opts: Options) -> Result<()> {
         db.display(),
         opts.host
     );
+    // once, after an upgrade: the duplicates report's covering index, first in the queue. Minutes
+    // on a big index, so it's a job once the service is up rather than part of opening the index
+    // (which systemd would time out); until it's there, the report reads the table instead.
+    if !Db::open_read_only(&db)?.has_dupes_index()? {
+        d.enqueue("dupes-index", None, "scheduled", JobOpts::default());
+    }
     {
         let d = Arc::clone(&d);
         std::thread::Builder::new()
@@ -694,6 +700,7 @@ fn worker(d: &Daemon) {
             "wipe" => run_wipe(d, &mut db, &job),
             "dedup" => crate::tidy::run_dedup_job(d, &db, &job, &stop),
             "mail-merge" => crate::tidy::run_merge_job(d, &db, &job, &stop),
+            "dupes-index" => run_dupes_index(d, &db, &job),
             _ => run_hash(d, &mut db, &job),
         };
         d.state.lock().unwrap().stops.remove(&id);
@@ -1370,6 +1377,27 @@ fn archive_root(db: &Db, plan: i64) -> Option<String> {
 }
 
 /// Recognise what's on every drive whose stored results are older than its latest scan.
+/// The duplicates report's covering index (db.rs `DUPES_INDEX`): built once, in the worker lane
+/// so no scan or hash writes alongside it.
+fn run_dupes_index(d: &Daemon, db: &Db, job: &Job) -> Result<String> {
+    d.progress(
+        job.id,
+        "preparing the duplicates index (once; a few minutes on a big index)".into(),
+        Counts {
+            stage: "preparing",
+            files: 0,
+            total_files: 0,
+            bytes: 0,
+            total_bytes: 0,
+        },
+    );
+    Ok(if db.ensure_dupes_index()? {
+        "the duplicates report is quick from now on".into()
+    } else {
+        "the duplicates index was there already".into()
+    })
+}
+
 fn run_entities(d: &Daemon, db: &Db, job: &Job) -> Result<String> {
     use backdown_core::recognise;
     let ids = recognise::root_ids(db)?;

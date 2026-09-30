@@ -1,7 +1,8 @@
 //! Answers from a hashed index: duplicate groups, "is this safe to wipe", and the scan timeline.
 //! Run `hash::hash` first; unhashed files are never reported as duplicates or as verified.
 
-use std::collections::{BTreeMap, HashSet};
+use std::cmp::Reverse;
+use std::collections::{BTreeMap, BinaryHeap, HashSet};
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
@@ -27,27 +28,34 @@ pub struct Dupes {
     pub largest: Vec<DupeGroup>,
 }
 
+/// A duplicated group while the largest are picked: (reclaimable, the lower hash first on a tie,
+/// size).
+type Kept = (u64, Reverse<Vec<u8>>, u64);
+
 /// Content that exists more than once (by full SHA-256), largest reclaimable space first.
 ///
-/// Two passes, both driven by the covering index `files_dupes(sha256, size, dev, ino)
-/// WHERE current = 1 AND sha256 IS NOT NULL`:
-///   1. an index-only scan groups every hashed file by sha256, collapsing hardlinks by
-///      (dev, ino), to get the exact group count and reclaimable total over *all* groups and to
-///      pick the `limit` largest — without touching the table or decoding a single path;
-///   2. for just those largest groups, look up their paths.
+/// Two passes:
+///   1. one scan, in sha256 order, of every current hashed file groups them, collapsing
+///      hardlinks by (dev, ino): the exact group count and reclaimable total over *all* groups,
+///      keeping only the `limit` largest (ties go to the lower hash), without decoding a path;
+///   2. the paths of just those groups.
 ///
-/// `INDEXED BY` pins the covering index on purpose: left to choose, SQLite prefers the narrower
-/// `files_sha256` (which also gives sha256 order) and then does a table lookup per row — ~200s on
-/// a 16M-file index, versus a few seconds index-only. The index always exists here because the
-/// daemon and CLI open the db read-write (running `SCHEMA`) before anything reads it.
+/// With the covering index `files_dupes` (db.rs `DUPES_INDEX`), pass 1 reads the index alone,
+/// pinned with `INDEXED BY`: left to choose, SQLite prefers the narrower `files_sha256` and then
+/// looks up the table for every row (about 200 s on a 16M-file index, against a few seconds).
+/// Without it (an index the daemon hasn't prepared yet, or one read read-only, like another
+/// machine's through `serve-stdio`) the same scan goes through the table: slower, never wrong.
 pub fn dupes(db: &Db, min_size: u64, limit: usize) -> Result<Dupes> {
-    // Pass 1: index-only scan, in sha256 order, of every current+hashed file at/above min_size.
-    // Files sharing a sha256 have identical size, so the size filter keeps or drops a group whole.
-    let mut scan = db.conn.prepare(
+    // files sharing a sha256 have the same size, so the size filter keeps or drops a group whole
+    let mut scan = db.conn.prepare(if db.has_dupes_index()? {
         "SELECT sha256, size, dev, ino FROM files INDEXED BY files_dupes
          WHERE current = 1 AND sha256 IS NOT NULL AND size >= ?1
-         ORDER BY sha256",
-    )?;
+         ORDER BY sha256"
+    } else {
+        "SELECT sha256, size, dev, ino FROM files
+         WHERE current = 1 AND sha256 IS NOT NULL AND size >= ?1
+         ORDER BY sha256"
+    })?;
     let rows = scan.query_map(params![min_size as i64], |r| {
         Ok((
             r.get::<_, Vec<u8>>(0)?,
@@ -57,24 +65,29 @@ pub fn dupes(db: &Db, min_size: u64, limit: usize) -> Result<Dupes> {
         ))
     })?;
 
-    // One entry per duplicated group: (reclaimable, size, sha256). Even millions of files yield
-    // only as many groups as there are distinct duplicated hashes — small enough to hold and sort.
-    let mut meta: Vec<(u64, u64, Vec<u8>)> = Vec::new();
-    let mut seen_inodes: HashSet<(i64, i64)> = HashSet::new();
-    let mut current: Option<Vec<u8>> = None;
-    let mut size: u64 = 0;
-    let mut copies: u64 = 0;
-    let close_group = |sha: Vec<u8>, size: u64, copies: u64, meta: &mut Vec<(u64, u64, Vec<u8>)>| {
+    // the `limit` largest groups so far, smallest on top
+    let mut top: BinaryHeap<Reverse<Kept>> = BinaryHeap::new();
+    let (mut count, mut reclaimable) = (0u64, 0u64);
+    let mut close = |sha: Vec<u8>, size: u64, copies: u64| {
+        // hardlinks of one inode collapse to a single copy: nothing to reclaim
         if copies > 1 {
-            // hardlinks of one inode collapse to a single copy: nothing to reclaim
-            meta.push((size * (copies - 1), size, sha));
+            let r = size * (copies - 1);
+            count += 1;
+            reclaimable += r;
+            top.push(Reverse((r, Reverse(sha), size)));
+            if top.len() > limit {
+                top.pop();
+            }
         }
     };
+    let mut seen_inodes: HashSet<(i64, i64)> = HashSet::new();
+    let mut current: Option<Vec<u8>> = None;
+    let (mut size, mut copies) = (0u64, 0u64);
     for row in rows {
         let (sha, sz, dev, ino) = row?;
         if current.as_deref() != Some(&sha[..]) {
             if let Some(prev) = current.take() {
-                close_group(prev, size, copies, &mut meta);
+                close(prev, size, copies);
             }
             current = Some(sha);
             size = sz as u64;
@@ -90,14 +103,12 @@ pub fn dupes(db: &Db, min_size: u64, limit: usize) -> Result<Dupes> {
         }
     }
     if let Some(prev) = current.take() {
-        close_group(prev, size, copies, &mut meta);
+        close(prev, size, copies);
     }
-
-    let count = meta.len() as u64;
-    let reclaimable = meta.iter().map(|m| m.0).sum();
-    // keep only the largest `limit` groups (by reclaimable, then sha256 for a stable choice)
-    meta.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.2.cmp(&b.2)));
-    meta.truncate(limit);
+    let meta: Vec<(u64, u64, Vec<u8>)> = top
+        .into_iter()
+        .map(|Reverse((r, Reverse(sha), size))| (r, size, sha))
+        .collect();
 
     // Pass 2: fetch paths for just the kept groups, recomputing copies the same way.
     let mut paths_of = db.conn.prepare(

@@ -760,6 +760,10 @@ fn local(db_path: &Path, cmd: Cmd, use_daemon: bool) -> Result<ExitCode> {
             hashing,
         } => {
             run_hash(&mut db, &hashing)?;
+            if !db.has_dupes_index()? {
+                eprintln!("preparing the duplicates index, once (a few minutes on a big index)…");
+                db.ensure_dupes_index()?;
+            }
             print_dupes(
                 &report::dupes(&db, fmt::parse_size(&min_size)?, limit)?,
                 &min_size,
