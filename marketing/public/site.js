@@ -92,7 +92,9 @@ if (analytics && navigator.doNotTrack !== '1' && !navigator.globalPrivacyControl
   const base = analytics.dataset.url;
   // the thanks page's ?session_id= unlocks a licence key: never send it anywhere
   if (document.documentElement.dataset.page === 'thanks') window._paq.push(['setCustomUrl', location.origin + location.pathname]);
-  window._paq.push(['disableCookies'], ['setDoNotTrack', true], ['trackPageView'], ['enableLinkTracking'],
+  // titles as "backdown.io/Page", as in Matomo's own snippet
+  window._paq.push(['disableCookies'], ['setDoNotTrack', true], ['setDocumentTitle', `${document.domain}/${document.title}`],
+    ['trackPageView'], ['enableLinkTracking'],
     ['setTrackerUrl', `${base}matomo.php`], ['setSiteId', analytics.dataset.site]);
   const s = document.createElement('script');
   s.async = true; s.src = `${base}matomo.js`;
