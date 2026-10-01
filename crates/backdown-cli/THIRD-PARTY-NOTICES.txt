@@ -17,7 +17,7 @@ Windows builds include startup and runtime support code from mingw-w64 (Zope Pub
 public domain) and LLVM's compiler-rt (Apache-2.0 WITH LLVM-exception), linked by the Zig toolchain.
 All builds include compiler_rt from the Zig project (MIT). macOS builds link the system's libSystem.
 
-Rust crates (140)
+Rust crates (141)
 -----------------
 adler2 2.0.1: 0BSD OR MIT OR Apache-2.0
 anstream 1.0.0: MIT OR Apache-2.0
@@ -41,6 +41,7 @@ cfg-if 1.0.5: MIT OR Apache-2.0
 chunked_transfer 1.5.0: MIT OR Apache-2.0
 clap 4.6.7: MIT OR Apache-2.0
 clap_builder 4.6.7: MIT OR Apache-2.0
+clap_complete 4.6.11: MIT OR Apache-2.0
 clap_derive 4.6.7: MIT OR Apache-2.0
 clap_lex 1.1.1: MIT OR Apache-2.0
 codepage 0.1.3: Apache-2.0 OR MIT

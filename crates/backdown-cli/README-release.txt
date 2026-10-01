@@ -87,6 +87,8 @@ Commands
   serve, open, app, daemon,   the browser, the app and the background service
   service, desktop, token     (token: its browser link, e.g. for another device)
   update                      a newer BackDown, verified against SHA256SUMS.txt
+  completions                 Tab completion: `backdown completions --install`
+                              (the .deb installs it for bash, zsh and fish)
   license                     your BackDown Pro licence
 
   --db FILE       index database (default: ~/.local/share/backdown/index.db on

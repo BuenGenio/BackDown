@@ -34,6 +34,7 @@ backdown [OPTIONS] <COMMAND>
 | [`daemon`](/docs/cli/backdown-daemon/) | Run in the background: rescan drives, hash, serve the web UI. Usually started by `backdown service install` rather than by hand. |
 | [`open`](/docs/cli/backdown-open/) | Open the running daemon's web UI in your browser. |
 | [`token`](/docs/cli/backdown-token/) {preview} | The background service's browser token, for opening BackDown from a browser yourself (in a terminal, also the links with it in, including the one for other devices with --host). |
+| [`completions`](/docs/cli/backdown-completions/) {preview} | Tab completion for backdown's commands and options: print the script for a shell, or --install it for yours. |
 | [`app`](/docs/cli/backdown-app/) | Open BackDown in a window of its own, starting its background service first if need be (what the applications menu, Start menu and BackDown.app run). |
 | [`desktop`](/docs/cli/backdown-desktop/) | Add BackDown to your applications menu, ~/Applications or the Start menu (or remove it). |
 | [`update`](/docs/cli/backdown-update/) | Is there a newer BackDown? Install it (verified against the release's SHA-256 sums). |

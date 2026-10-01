@@ -151,6 +151,12 @@ for pair in x86_64:amd64 aarch64:arm64; do
   install -D -m 755 "$work/$platform/backdown" "$r/usr/bin/backdown"
   files linux "$r" --exe /usr/bin/backdown
   docs "$r/usr/share/doc/backdown"
+  # Tab completion for every user, where bash-completion, zsh and fish look for packages' own
+  install -d "$r/usr/share/bash-completion/completions" "$r/usr/share/zsh/vendor-completions" "$r/usr/share/fish/vendor_completions.d"
+  "$host" completions bash > "$r/usr/share/bash-completion/completions/backdown"
+  "$host" completions zsh > "$r/usr/share/zsh/vendor-completions/_backdown"
+  "$host" completions fish > "$r/usr/share/fish/vendor_completions.d/backdown.fish"
+  chmod 644 "$r"/usr/share/bash-completion/completions/backdown "$r"/usr/share/zsh/vendor-completions/_backdown "$r"/usr/share/fish/vendor_completions.d/backdown.fish
   find "$r" -type d -exec chmod 755 {} +
   install -d -m 755 "$r/DEBIAN"
   cat > "$r/DEBIAN/control" <<EOF
@@ -177,7 +183,7 @@ EOF
   dpkg-deb --root-owner-group -Zxz --build "$r" "$deb" >/dev/null
   # check: what dpkg says, what's inside, and that it installs (into a throwaway root) and runs
   dpkg-deb --info "$deb" | sed -n 's/^ \(Package\|Version\|Architecture\|Installed-Size\): /  \1: /p'
-  dpkg-deb --contents "$deb" | awk '{print "  " $1, $2, $6}' | grep -E 'usr/bin/backdown$|\.desktop$|backdown\.service$|256x256|metainfo' || true
+  dpkg-deb --contents "$deb" | awk '{print "  " $1, $2, $6}' | grep -E 'usr/bin/backdown$|\.desktop$|backdown\.service$|256x256|metainfo|completions/backdown$' || true
   [ "$(dpkg-deb --contents "$deb" | awk '{print $2}' | sort -u)" = "root/root" ] || die "$deb: files not owned by root"
   x=$work/deb-check-$debarch
   dpkg -x "$deb" "$x"

@@ -11,6 +11,7 @@ use serde_json::json;
 
 mod app;
 mod client;
+mod completions;
 mod daemon;
 mod desktop;
 mod drives;
@@ -199,6 +200,15 @@ enum Cmd {
         /// Print only the links, one per line
         #[arg(long)]
         links: bool,
+    },
+    /// Tab completion for backdown's commands and options: print the script for a shell, or
+    /// --install it for yours
+    Completions {
+        /// bash, zsh, fish, powershell or elvish (default: your shell, from $SHELL)
+        shell: Option<clap_complete::Shell>,
+        /// Put it where your shell picks it up, for you alone (bash, zsh, fish)
+        #[arg(long)]
+        install: bool,
     },
     /// Open BackDown in a window of its own, starting its background service first if need be
     /// (what the applications menu, Start menu and BackDown.app run)
@@ -589,6 +599,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         }
         Cmd::Open => return app::open_in_browser(),
         Cmd::Token { links } => return app::print_token(links),
+        Cmd::Completions { shell, install } => return completions::run(shell, install),
         Cmd::App {
             no_window,
             print,
@@ -929,6 +940,7 @@ fn local(db_path: &Path, cmd: Cmd, use_daemon: bool) -> Result<ExitCode> {
         Cmd::Daemon { .. }
         | Cmd::Open
         | Cmd::Token { .. }
+        | Cmd::Completions { .. }
         | Cmd::App { .. }
         | Cmd::Desktop { .. }
         | Cmd::Update { .. }
@@ -1069,6 +1081,7 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
         | Cmd::Daemon { .. }
         | Cmd::Open
         | Cmd::Token { .. }
+        | Cmd::Completions { .. }
         | Cmd::App { .. }
         | Cmd::Desktop { .. }
         | Cmd::Update { .. }
