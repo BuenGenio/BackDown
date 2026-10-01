@@ -1,6 +1,6 @@
 {
   "_comment": "The /status/ page's roadmap and changelog. Text fields are {lang: text}; a missing language falls back to English (marked lang=en), so English can be updated first. Keep it public-safe: no real paths, hosts or drive names.",
-  "updated": "2026-09-29",
+  "updated": "2026-10-01",
   "now": [
     {
       "state": "done",
@@ -371,6 +371,20 @@
     }
   ],
   "shipped": [
+    {
+      "date": "2026-10-01",
+      "version": "v1.0.0-beta.2",
+      "text": {
+        "en": "Faster on very large indexes: the duplicates report in seconds on 17 million files, and the app’s first screen no longer waits for the totals. <code>--host</code> answers to the computer’s Tailscale name; <code>backdown token</code> prints the link for your other devices; Tab completion with <code>backdown completions</code>. The Linux package is now called <code>backdown-io</code> (Ubuntu’s own “backdown” is a different program).",
+        "es": "Más rápido con índices muy grandes: el informe de duplicados en segundos con 17 millones de archivos, y la primera pantalla de la app ya no espera a los totales. <code>--host</code> responde al nombre de Tailscale del equipo; <code>backdown token</code> muestra el enlace para tus otros dispositivos; autocompletado con Tab mediante <code>backdown completions</code>. El paquete de Linux ahora se llama <code>backdown-io</code> (el «backdown» de Ubuntu es otro programa).",
+        "pt-br": "Mais rápido com índices muito grandes: o relatório de duplicados em segundos com 17 milhões de arquivos, e a primeira tela do app não espera mais pelos totais. <code>--host</code> responde ao nome do computador no Tailscale; <code>backdown token</code> mostra o link para seus outros dispositivos; autocompletar com Tab via <code>backdown completions</code>. O pacote para Linux agora se chama <code>backdown-io</code> (o “backdown” do Ubuntu é outro programa).",
+        "de": "Schneller bei sehr großen Indizes: der Duplikatbericht in Sekunden bei 17 Millionen Dateien, und der erste Bildschirm der App wartet nicht mehr auf die Summen. <code>--host</code> antwortet auf den Tailscale-Namen des Rechners; <code>backdown token</code> zeigt den Link für Ihre anderen Geräte; Tab-Vervollständigung mit <code>backdown completions</code>. Das Linux-Paket heißt jetzt <code>backdown-io</code> (Ubuntus eigenes „backdown“ ist ein anderes Programm).",
+        "pl": "Szybciej przy bardzo dużych indeksach: raport duplikatów w kilka sekund przy 17 milionach plików, a pierwszy ekran aplikacji nie czeka już na podsumowania. <code>--host</code> odpowiada na nazwę komputera w Tailscale; <code>backdown token</code> pokazuje link dla innych urządzeń; uzupełnianie klawiszem Tab dzięki <code>backdown completions</code>. Pakiet dla Linuksa nazywa się teraz <code>backdown-io</code> („backdown” z Ubuntu to inny program).",
+        "cs": "Rychlejší u velmi velkých indexů: přehled duplicit během pár sekund i u 17 milionů souborů a první obrazovka aplikace už nečeká na souhrny. <code>--host</code> odpovídá na jméno počítače v Tailscale; <code>backdown token</code> vypíše odkaz pro vaše další zařízení; doplňování klávesou Tab přes <code>backdown completions</code>. Balíček pro Linux se teď jmenuje <code>backdown-io</code> („backdown“ z Ubuntu je jiný program).",
+        "sk": "Rýchlejší pri veľmi veľkých indexoch: prehľad duplikátov za pár sekúnd aj pri 17 miliónoch súborov a prvá obrazovka aplikácie už nečaká na súhrny. <code>--host</code> odpovedá na meno počítača v Tailscale; <code>backdown token</code> vypíše odkaz pre vaše ďalšie zariadenia; dopĺňanie klávesom Tab cez <code>backdown completions</code>. Balík pre Linux sa teraz volá <code>backdown-io</code> („backdown“ z Ubuntu je iný program).",
+        "uk": "Швидше на дуже великих індексах: звіт про дублікати за лічені секунди на 17 мільйонах файлів, а перший екран застосунку більше не чекає на підсумки. <code>--host</code> відповідає на ім’я комп’ютера в Tailscale; <code>backdown token</code> показує посилання для інших ваших пристроїв; доповнення клавішею Tab через <code>backdown completions</code>. Пакет для Linux тепер називається <code>backdown-io</code> («backdown» з Ubuntu — інша програма)."
+      }
+    },
     {
       "date": "2026-09-29",
       "version": "v1.0.0-beta.1",
