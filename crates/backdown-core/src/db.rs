@@ -237,7 +237,7 @@ pub struct Db {
     pub conn: Connection,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Status {
     pub roots: Vec<String>,
     pub scans: u64,
@@ -362,18 +362,43 @@ impl Db {
             .query_map([], |r| r.get::<_, Vec<u8>>(0))?
             .map(|p| p.map(|b| crate::paths::from_bytes(&b).display().to_string()))
             .collect::<rusqlite::Result<_>>()?;
-        let n = |sql: &str| -> Result<u64> {
-            Ok(self.conn.query_row(sql, [], |r| r.get::<_, i64>(0))? as u64)
-        };
+        let scans: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM scans WHERE finished_at IS NOT NULL",
+            [],
+            |r| r.get(0),
+        )?;
+        // every count in one read of the files table: it can be bigger than the memory there is
+        // to cache it in (23 GB for 17M files), so each separate count would read it from disk
+        let c: [i64; 6] = self.conn.query_row(
+            "SELECT COALESCE(SUM(current = 1), 0),
+                    COALESCE(SUM(CASE WHEN current = 1 THEN size END), 0),
+                    COUNT(CASE WHEN current = 1 THEN sample END),
+                    COUNT(CASE WHEN current = 1 THEN sha256 END),
+                    COUNT(CASE WHEN current = 1 THEN error END),
+                    COALESCE(SUM(current = 0), 0)
+             FROM files",
+            [],
+            |r| {
+                Ok([
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                ])
+            },
+        )?;
+        let [files, bytes, sampled, hashed, unreadable, versions] = c.map(|n| n as u64);
         Ok(Status {
             roots,
-            scans: n("SELECT COUNT(*) FROM scans WHERE finished_at IS NOT NULL")?,
-            files: n("SELECT COUNT(*) FROM files WHERE current = 1")?,
-            bytes: n("SELECT COALESCE(SUM(size), 0) FROM files WHERE current = 1")?,
-            sampled: n("SELECT COUNT(sample) FROM files WHERE current = 1")?,
-            hashed: n("SELECT COUNT(sha256) FROM files WHERE current = 1")?,
-            unreadable: n("SELECT COUNT(error) FROM files WHERE current = 1")?,
-            versions: n("SELECT COUNT(*) FROM files WHERE current = 0")?,
+            scans: scans as u64,
+            files,
+            bytes,
+            sampled,
+            hashed,
+            unreadable,
+            versions,
         })
     }
 }

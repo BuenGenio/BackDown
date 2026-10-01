@@ -468,7 +468,7 @@ fn print_network_link() {
 fn print_daemon() -> Result<()> {
     match crate::client::Client::connect(None) {
         Some(mut c) => {
-            let s = c.request(&serde_json::json!({ "cmd": "status" }))?;
+            let s = c.request(&serde_json::json!({ "cmd": "status", "index": false }))?;
             let d = &s["daemon"];
             println!(
                 "  daemon {} (pid {}) · index {}",

@@ -47,7 +47,8 @@
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use backdown_core::{
@@ -1202,6 +1203,37 @@ fn set_scan_settings(ctx: &Ctx, params: &[(String, String)]) -> Result<Value> {
     scan_settings(&db)
 }
 
+/// The index's counts (`Db::status`) as last worked out in this process. On a big index they take
+/// a full read of the files table, so they're kept until a job changes the index (the daemon
+/// forgets them then) or for five minutes, whichever comes first.
+static INDEX_STATUS: Mutex<Option<(PathBuf, Instant, backdown_core::db::Status)>> =
+    Mutex::new(None);
+const STATUS_FOR: Duration = Duration::from_secs(300);
+
+/// The counts if they're known and fresh, without working them out.
+pub fn known_index_status(path: &Path) -> Option<backdown_core::db::Status> {
+    let g = INDEX_STATUS.lock().unwrap_or_else(|e| e.into_inner());
+    g.as_ref()
+        .filter(|(p, at, _)| p == path && at.elapsed() < STATUS_FOR)
+        .map(|(_, _, s)| s.clone())
+}
+
+/// The counts, worked out if they aren't known (or are older than five minutes).
+pub fn index_status(db: &Db, path: &Path) -> Result<backdown_core::db::Status> {
+    if let Some(s) = known_index_status(path) {
+        return Ok(s);
+    }
+    let s = db.status()?;
+    *INDEX_STATUS.lock().unwrap_or_else(|e| e.into_inner()) =
+        Some((path.to_path_buf(), Instant::now(), s.clone()));
+    Ok(s)
+}
+
+/// A job changed the index: work the counts out afresh next time.
+pub fn forget_index_status() {
+    *INDEX_STATUS.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
 fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
     let param = |name: &str| get(params, name);
     if path == "/api/daemon" {
@@ -1242,7 +1274,11 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
     let file = || -> Result<PathBuf> { Ok(source(&db, id()?)?.0) };
     Ok(match path {
         "/api/scan-settings" => scan_settings(&db)?,
-        "/api/roots" => json!({ "roots": browse::roots(&db)?, "status": db.status()? }),
+        // the drives at once; their counts only if known (the page asks /api/index-status for them)
+        "/api/roots" => {
+            json!({ "roots": browse::roots(&db)?, "status": known_index_status(&ctx.db) })
+        }
+        "/api/index-status" => json!(index_status(&db, &ctx.db)?),
         "/api/timeline" => json!(browse::timeline(
             &db,
             param("root").context("missing root")?.parse()?
