@@ -140,14 +140,83 @@ fn loopback(ip: std::net::IpAddr) -> bool {
 /// DNS-rebinding allowlist for a non-loopback bind: the address plus this machine's hostname
 /// (so a Tailscale MagicDNS name like `nextcloud:PORT` is accepted, not just the raw IP).
 pub fn extra_hosts(host: &str, port: u16) -> Vec<String> {
-    let mut v = vec![format!("{host}:{port}")];
+    let mut names = vec![host.to_string()];
     if let Ok(hn) = std::fs::read_to_string("/etc/hostname") {
         let hn = hn.trim();
         if !hn.is_empty() {
-            v.push(format!("{hn}:{port}"));
+            names.push(hn.to_string());
         }
     }
-    v
+    // its full Tailscale name (`nextcloud.tailnet-1234.ts.net`), which browsers send as is
+    if !local_host(host)
+        && let Some(n) = tailscale_name()
+    {
+        names.push(n);
+    }
+    // the names it's reached by in any other setup (your own DNS, a reverse proxy)
+    if let Ok(more) = std::env::var("BACKDOWN_HOST_NAMES") {
+        names.extend(
+            more.split(',')
+                .map(str::trim)
+                .filter(|n| !n.is_empty())
+                .map(str::to_string),
+        );
+    }
+    names.into_iter().map(|n| format!("{n}:{port}")).collect()
+}
+
+/// Whether `--host` names this machine only (the default).
+pub fn local_host(host: &str) -> bool {
+    matches!(host, "127.0.0.1" | "localhost")
+        || host
+            .trim_matches(['[', ']'])
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(loopback)
+}
+
+/// This machine's full name on its tailnet (`nextcloud.tailnet-1234.ts.net`), when Tailscale
+/// runs here: the name MagicDNS gives it on other devices.
+pub fn tailscale_name() -> Option<String> {
+    let out = Command::new("tailscale")
+        .args(["status", "--json"])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let v: Value = serde_json::from_slice(&out.stdout).ok()?;
+    let name = v["Self"]["DNSName"].as_str()?.trim_end_matches('.');
+    (!name.is_empty()).then(|| name.to_lowercase())
+}
+
+/// The name other devices reach this machine by when it listens on `host`: its Tailscale name
+/// when that's where it listens (a tailnet address, or every address), else `host` itself.
+pub fn network_name(host: &str) -> String {
+    let ip = host
+        .trim_matches(['[', ']'])
+        .parse::<std::net::IpAddr>()
+        .ok();
+    let wildcard = ip.is_some_and(|ip| ip.is_unspecified());
+    if (wildcard || ip.is_some_and(tailnet))
+        && let Some(n) = tailscale_name()
+    {
+        return n;
+    }
+    if wildcard {
+        "THIS-COMPUTER".into()
+    } else {
+        host.to_string()
+    }
+}
+
+/// Tailscale's addresses: 100.64.0.0/10 and fd7a:115c:a1e0::/48.
+fn tailnet(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => v4.octets()[0] == 100 && (v4.octets()[1] & 0xc0) == 64,
+        std::net::IpAddr::V6(v6) => v6.segments()[..3] == [0xfd7a, 0x115c, 0xa1e0],
+    }
 }
 
 /// Serve the UI until the process ends. With a daemon, the UI also shows its activity and can
@@ -198,15 +267,8 @@ pub fn serve(db: &Path, host: &str, port: u16, open_browser: bool) -> Result<()>
     let extra = extra_hosts(host, port);
     let url = format!("http://127.0.0.1:{port}/?t={token}");
     eprintln!("BackDown browser for {} at\n  {url}", db.display());
-    if servers.len() > 1 || !matches!(host, "127.0.0.1" | "localhost") {
-        let there = if host
-            .parse::<std::net::IpAddr>()
-            .is_ok_and(|ip| ip.is_unspecified())
-        {
-            "THIS-COMPUTER"
-        } else {
-            host
-        };
+    if servers.len() > 1 || !local_host(host) {
+        let there = network_name(host);
         eprintln!(
             "and from other devices, to look but not change anything, at\n  http://{there}:{port}/?t={token}"
         );
@@ -2066,6 +2128,35 @@ mod tests {
         }
         // no peer address: not taken for this machine
         assert!(refused_from(None, &Method::Post, "/api/wipe"));
+    }
+
+    #[test]
+    fn which_addresses_are_this_machine_and_which_a_tailnet() {
+        for here in ["127.0.0.1", "localhost", "::1", "[::1]"] {
+            assert!(local_host(here), "{here}");
+        }
+        for there in ["0.0.0.0", "100.101.102.103", "192.168.1.20"] {
+            assert!(!local_host(there), "{there}");
+        }
+        let ip = |s: &str| s.parse::<IpAddr>().unwrap();
+        assert!(tailnet(ip("100.64.0.1")) && tailnet(ip("100.127.255.254")));
+        assert!(!tailnet(ip("100.128.0.1")) && !tailnet(ip("100.63.255.255")));
+        assert!(tailnet(ip("fd7a:115c:a1e0::1")) && !tailnet(ip("fd7a:115c:a1e1::1")));
+        // a LAN address is named as given, whatever Tailscale says
+        assert_eq!(network_name("192.168.1.20"), "192.168.1.20");
+    }
+
+    #[test]
+    fn names_from_the_environment_are_allowed_too() {
+        // only read with --host beyond this machine; set for this test's process alone
+        unsafe { std::env::set_var("BACKDOWN_HOST_NAMES", "backdown.lan, nas.example ") };
+        let h = extra_hosts("192.168.1.20", 8787);
+        unsafe { std::env::remove_var("BACKDOWN_HOST_NAMES") };
+        assert!(h.contains(&"192.168.1.20:8787".to_string()));
+        assert!(
+            h.contains(&"backdown.lan:8787".to_string())
+                && h.contains(&"nas.example:8787".to_string())
+        );
     }
 
     #[test]
