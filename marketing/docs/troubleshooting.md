@@ -140,7 +140,7 @@ It holds:
 1. Stop and remove the background service, if you installed one: `backdown service uninstall` (or, on Linux, `sudo backdown service uninstall --system`). Removing the app doesn't do this for you. The index is kept.
 2. Remove BackDown from your applications, if `backdown desktop install` added it: `backdown desktop uninstall`.
 3. Remove the program:
-   - `.deb`: `sudo apt remove backdown`;
+   - `.deb`: `sudo apt remove backdown-io` (`backdown` for beta.1 and earlier);
    - AppImage, or a plain archive: delete the file (`backdown` from wherever you put it, such as `/usr/local/bin`);
    - macOS: move BackDown from Applications to the Trash;
    - Windows (`.msi` or setup): Settings > Apps > BackDown > Uninstall.
