@@ -507,7 +507,7 @@ pub fn run(opts: Options) -> Result<()> {
             }
         }
     };
-    // with --host, the address other devices use (`backdown service status` adds the token; the
+    // with --host, the address other devices use (`backdown token` adds the token; the
     // log doesn't, since more people can read a log than this private file)
     let network = (!serve::local_host(&opts.host))
         .then(|| format!("http://{}:{port}/", serve::network_name(&opts.host)));
@@ -521,7 +521,7 @@ pub fn run(opts: Options) -> Result<()> {
     )?;
     if let Some(n) = &network {
         eprintln!(
-            "from other devices (look only): {n} (with its token: `backdown service status`)"
+            "from other devices (look only): {n} (the link with its token: `backdown token --links`)"
         );
     }
 

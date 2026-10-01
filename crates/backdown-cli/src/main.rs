@@ -193,6 +193,13 @@ enum Cmd {
     },
     /// Open the running daemon's web UI in your browser
     Open,
+    /// The background service's browser token, for opening BackDown from a browser yourself (in a
+    /// terminal, also the links with it in, including the one for other devices with --host)
+    Token {
+        /// Print only the links, one per line
+        #[arg(long)]
+        links: bool,
+    },
     /// Open BackDown in a window of its own, starting its background service first if need be
     /// (what the applications menu, Start menu and BackDown.app run)
     App {
@@ -581,6 +588,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             return Ok(ExitCode::SUCCESS);
         }
         Cmd::Open => return app::open_in_browser(),
+        Cmd::Token { links } => return app::print_token(links),
         Cmd::App {
             no_window,
             print,
@@ -920,6 +928,7 @@ fn local(db_path: &Path, cmd: Cmd, use_daemon: bool) -> Result<ExitCode> {
         }
         Cmd::Daemon { .. }
         | Cmd::Open
+        | Cmd::Token { .. }
         | Cmd::App { .. }
         | Cmd::Desktop { .. }
         | Cmd::Update { .. }
@@ -1059,6 +1068,7 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
         Cmd::Serve { .. }
         | Cmd::Daemon { .. }
         | Cmd::Open
+        | Cmd::Token { .. }
         | Cmd::App { .. }
         | Cmd::Desktop { .. }
         | Cmd::Update { .. }
