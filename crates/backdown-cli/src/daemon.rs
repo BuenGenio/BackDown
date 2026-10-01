@@ -714,6 +714,7 @@ fn worker(d: &Daemon) {
             _ => run_hash(d, &mut db, &job),
         };
         d.state.lock().unwrap().stops.remove(&id);
+        serve::forget_index_status();
         let stopped = stop.load(Ordering::Relaxed);
         let ok = result.is_ok();
         // a mirror that no longer matches, or a scheduled job that failed: tell someone
@@ -1639,7 +1640,15 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
         "hello" => {
             json!({ "ok": true, "version": env!("CARGO_PKG_VERSION"), "db": d.db.display().to_string(), "pid": std::process::id() })
         }
-        "status" => json!({ "ok": true, "index": ro()?.status()?, "daemon": d.snapshot() }),
+        // `"index": false`: only what the daemon is doing (the counts can take a while to work out)
+        "status" => {
+            let index = if req["index"] == false {
+                Value::Null
+            } else {
+                json!(serve::index_status(&ro()?, &d.db)?)
+            };
+            json!({ "ok": true, "index": index, "daemon": d.snapshot() })
+        }
         "enqueue" => {
             let kind = match req["kind"].as_str() {
                 Some("index") => "index",

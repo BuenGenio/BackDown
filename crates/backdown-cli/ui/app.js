@@ -48,8 +48,7 @@ async function boot() {
   let data;
   try { data = await api('roots'); } catch (e) { return fatal(e.message); }
   S.roots = data.roots;
-  const st = data.status;
-  $('#status-files').textContent = summary(st);
+  showSummary(data.status);
   renderPlaces();
   if (!S.roots.length) return showActivity();
   const saved = sessionStorage.getItem('bd.dir');
@@ -58,6 +57,14 @@ async function boot() {
 }
 
 const summary = st => `${count(st.files)} files · ${bytes(st.bytes)} · ${count(st.hashed)} hashed`;
+// the index's counts: at once when the server has them, else asked for separately, since on a
+// big index they take a full read of it, and the drives shouldn't wait for that
+function showSummary(st) {
+  const el = $('#status-files');
+  if (st) { el.textContent = summary(st); return; }
+  if (!el.textContent) el.textContent = 'Counting files…';
+  api('index-status').then(s => { el.textContent = summary(s); }).catch(() => {});
+}
 
 function fatal(msg) {
   $('#view').innerHTML = `<div class="empty"><div><h2>Can't load the index</h2><p>${esc(msg)}</p></div></div>`;
@@ -1798,7 +1805,7 @@ async function applyDaemon(d) {
     const done = d.recent.find(j => j.state === 'done');
     if (lastDone !== undefined && done && done.id !== lastDone) {
       const data = await api('roots').catch(() => null);
-      if (data) { S.roots = data.roots; $('#status-files').textContent = summary(data.status); renderPlaces(); }
+      if (data) { S.roots = data.roots; showSummary(data.status); renderPlaces(); }
       if (S.mode === 'browse' && done.kind === 'index' && S.root && done.path === S.root.path) {
         await loadTimeline();
         if (S.scan == null) await go(S.dir, { push: false, scan: null, select: S.anchor });
