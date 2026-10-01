@@ -67,6 +67,12 @@ if [ -n "$with_packages" ]; then
   cat "$dist/SHA256SUMS.txt" "$pkgs/SHA256SUMS.txt" > "$upload/SHA256SUMS.txt"
   (cd "$upload" && sha256sum --quiet -c SHA256SUMS.txt) || { echo "combined checksums don't match" >&2; exit 1; }
 fi
+# GitHub rewrites other characters in asset names ("~" becomes "."), which would break the site's
+# links and SHA256SUMS.txt: refuse such a name rather than publish it
+for f in "$upload"/*; do
+  n=$(basename "$f")
+  [[ $n =~ ^[A-Za-z0-9._-]+$ ]] || { echo "$n: GitHub would rename it (only letters, digits, . _ - survive); rename it first" >&2; exit 1; }
+done
 notes="$root/scripts/release-notes/$tag.md"
 [ -f "$notes" ] || { echo "write the release notes first: $notes" >&2; exit 1; }
 

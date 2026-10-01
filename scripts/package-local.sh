@@ -7,7 +7,8 @@
 #   scripts/package-local.sh --fetch-tools    # first get the packaging tools (below) into ~/.local/opt
 #
 # From target/dist/<tag>/ (read only; publish-release.sh publishes exactly that folder) into target/packages/<tag>/:
-#   Linux    backdown-io_<version>_amd64.deb, backdown-io_<version>_arm64.deb ("backdown" is taken: Debian and
+#   Linux    backdown-io_<version>_amd64.deb, backdown-io_<version>_arm64.deb (named 1.0.0-beta.2, versioned
+#            1.0.0~beta.2 inside; "backdown" is taken: Debian and
 #            Ubuntu ship an unrelated duplicate remover by that name, so ours conflicts with and replaces it,
 #            and with our own packages from before the rename): /usr/bin/backdown, the applications-menu
 #            entry and icons, AppStream metadata, and a systemd *user* unit anyone can turn on
@@ -187,7 +188,9 @@ Description: see what's on your drives, what's duplicated, and what's safe to wi
  its window. The command line is \`backdown\`. To keep the service running
  whenever you're logged in: systemctl --user enable --now backdown
 EOF
-  deb=$out/backdown-io_${debversion}_$debarch.deb
+  # the file is named with the tag's version: GitHub rewrites "~" in uploaded names (to "."), which
+  # would break the download links and SHA256SUMS.txt; the version inside keeps "~" so apt orders it
+  deb=$out/backdown-io_${version}_$debarch.deb
   dpkg-deb --root-owner-group -Zxz --build "$r" "$deb" >/dev/null
   # check: what dpkg says, what's inside, and that it installs (into a throwaway root) and runs
   dpkg-deb --info "$deb" | sed -n 's/^ \(Package\|Version\|Architecture\|Installed-Size\): /  \1: /p'
