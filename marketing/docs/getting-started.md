@@ -41,8 +41,10 @@ The installers add BackDown to your applications menu, Launchpad or Start menu. 
 The `.deb` installs the program as `/usr/bin/backdown`, the menu entry and icons, and a background service for each user that nobody's turned on:
 
 ```sh
-sudo apt install ./backdown_*_amd64.deb
+sudo apt install ./backdown-io_*_amd64.deb
 ```
+
+The package is called `backdown-io` because Debian and Ubuntu already have an unrelated duplicate remover called `backdown`. If a terminal ever suggests `sudo apt install backdown`, that's the other program. Both install `/usr/bin/backdown`, so ours replaces it, along with the `backdown` package of BackDown beta.1 and earlier.
 
 Nothing starts by itself: open **BackDown** from your applications menu. The package manager keeps it up to date (download the new `.deb`); `backdown update` says so rather than changing a packaged file.
 

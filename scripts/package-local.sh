@@ -7,7 +7,9 @@
 #   scripts/package-local.sh --fetch-tools    # first get the packaging tools (below) into ~/.local/opt
 #
 # From target/dist/<tag>/ (read only; publish-release.sh publishes exactly that folder) into target/packages/<tag>/:
-#   Linux    backdown_<version>_amd64.deb, backdown_<version>_arm64.deb: /usr/bin/backdown, the applications-menu
+#   Linux    backdown-io_<version>_amd64.deb, backdown-io_<version>_arm64.deb ("backdown" is taken: Debian and
+#            Ubuntu ship an unrelated duplicate remover by that name, so ours conflicts with and replaces it,
+#            and with our own packages from before the rename): /usr/bin/backdown, the applications-menu
 #            entry and icons, AppStream metadata, and a systemd *user* unit anyone can turn on
 #            (systemctl --user enable --now backdown); nothing is enabled for anyone by installing. No maintainer
 #            scripts: dpkg's triggers refresh the menu and icon caches.
@@ -150,7 +152,7 @@ for pair in x86_64:amd64 aarch64:arm64; do
   r=$work/deb-$debarch
   install -D -m 755 "$work/$platform/backdown" "$r/usr/bin/backdown"
   files linux "$r" --exe /usr/bin/backdown
-  docs "$r/usr/share/doc/backdown"
+  docs "$r/usr/share/doc/backdown-io"
   # Tab completion for every user, where bash-completion, zsh and fish look for packages' own
   install -d "$r/usr/share/bash-completion/completions" "$r/usr/share/zsh/vendor-completions" "$r/usr/share/fish/vendor_completions.d"
   "$host" completions bash > "$r/usr/share/bash-completion/completions/backdown"
@@ -160,7 +162,7 @@ for pair in x86_64:amd64 aarch64:arm64; do
   find "$r" -type d -exec chmod 755 {} +
   install -d -m 755 "$r/DEBIAN"
   cat > "$r/DEBIAN/control" <<EOF
-Package: backdown
+Package: backdown-io
 Version: $debversion
 Architecture: $debarch
 Maintainer: $maintainer
@@ -169,17 +171,23 @@ Section: utils
 Priority: optional
 Homepage: https://backdown.io
 Suggests: chromium | google-chrome-stable | microsoft-edge-stable | brave-browser
+Conflicts: backdown
+Replaces: backdown
 Description: see what's on your drives, what's duplicated, and what's safe to wipe
  BackDown indexes your drives, finds what is duplicated with a SHA-256 hash
  behind every claim, recognises what things are (mail stores, backups, phones,
  systems, repositories, photo libraries) and tells you which drives are safe
- to wipe. It only ever reads your drives.
+ to wipe. Scanning only ever reads your drives; it writes only when you ask it
+ to copy, free up a drive or save what a rescue found.
+ .
+ This is BackDown from backdown.io. It isn't the "backdown" duplicate remover
+ in Debian and Ubuntu: both install /usr/bin/backdown, so this one replaces it.
  .
  Open it from the applications menu: it starts its background service and shows
  its window. The command line is \`backdown\`. To keep the service running
  whenever you're logged in: systemctl --user enable --now backdown
 EOF
-  deb=$out/backdown_${debversion}_$debarch.deb
+  deb=$out/backdown-io_${debversion}_$debarch.deb
   dpkg-deb --root-owner-group -Zxz --build "$r" "$deb" >/dev/null
   # check: what dpkg says, what's inside, and that it installs (into a throwaway root) and runs
   dpkg-deb --info "$deb" | sed -n 's/^ \(Package\|Version\|Architecture\|Installed-Size\): /  \1: /p'
