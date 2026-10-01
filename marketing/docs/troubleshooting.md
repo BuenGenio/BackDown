@@ -126,7 +126,7 @@ It holds:
 - `settings.json` and `schema.toml`: Settings, and your filing schema if you changed it;
 - `notifications.json`: which notifications show;
 - `license.txt`: your licence key, if you added one;
-- `ui.json`: the service's browser link and token;
+- `ui.json`: the service's browser link and token (`backdown token` prints them);
 - `mounts.json`: what BackDown has mounted, so it only unmounts that;
 - `update.json`, and `previous/` with `previous.json` after an update: the last update check, and the version an update replaced;
 - `app-window/` and `app.json`: the app window's browser profile, and which window is open;

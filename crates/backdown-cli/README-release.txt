@@ -85,7 +85,7 @@ Commands
   mount, unmount              read-only mounts and disk images
   remote                      other machines over ssh (Pro)
   serve, open, app, daemon,   the browser, the app and the background service
-  service, desktop
+  service, desktop, token     (token: its browser link, e.g. for another device)
   update                      a newer BackDown, verified against SHA256SUMS.txt
   license                     your BackDown Pro licence
 

@@ -154,6 +154,52 @@ pub fn find_daemon() -> Option<Found> {
     None
 }
 
+/// `backdown token`: the background service's browser token, alone on stdout so scripts can use
+/// it, and in a terminal also the links with it in. `links`: only the links, one per line. The
+/// token is the one in ui.json, which the service keeps across restarts so bookmarks keep working.
+pub fn print_token(links: bool) -> Result<ExitCode> {
+    use std::io::IsTerminal;
+    let running = find_daemon();
+    // the running service's file (this user's, or the machine-wide one), else the first saved one
+    let v = locations::candidate_ui_files()
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| running.as_ref().is_none_or(|f| f.system == (*i > 0)))
+        .find_map(|(_, f)| {
+            let v: Value = serde_json::from_slice(&std::fs::read(f).ok()?).ok()?;
+            v["token"].as_str().is_some().then_some(v)
+        })
+        .context(
+            "no BackDown service has run here yet: start one with `backdown service install` or \
+             `backdown app` (`backdown serve` prints its own link)",
+        )?;
+    let token = v["token"].as_str().unwrap_or_default();
+    let port = v["port"].as_u64().unwrap_or(8787);
+    let mut all = vec![(
+        "on this computer",
+        format!("http://127.0.0.1:{port}/?t={token}"),
+    )];
+    if let Some(n) = v["network_url"].as_str() {
+        all.push(("from other devices (look only)", format!("{n}?t={token}")));
+    }
+    if links {
+        for (_, l) in &all {
+            println!("{l}");
+        }
+    } else {
+        println!("{token}");
+        if std::io::stdout().is_terminal() {
+            for (what, l) in &all {
+                eprintln!("{what}: {l}");
+            }
+        }
+    }
+    if running.is_none() {
+        eprintln!("(the service isn't running now; it uses this token again when it starts)");
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
 /// The program to run for BackDown itself: inside an AppImage, the AppImage (its mount point goes
 /// away when the process that mounted it ends).
 pub fn self_exe() -> Result<PathBuf> {

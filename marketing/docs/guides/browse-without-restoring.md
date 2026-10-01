@@ -98,9 +98,9 @@ and from other devices, to look but not change anything, at
 From anywhere but this computer, BackDown only shows what's there. Browsing, the time slider, search, the viewers and downloading a copy of a file work, and so does asking for a rescan. Nothing can be wiped, copied, rescued, mounted, opened with a program or otherwise changed, and settings stay as they are: "Over the network, BackDown only shows what's there: freeing up drives, copying, rescuing, mounting, opening files and changing settings need someone at the computer BackDown runs on."
 
 - The link's token is still needed, as on this computer. 127.0.0.1 keeps listening, so `backdown app` and `backdown open` work as before.
-- The link works with the address you gave; on Linux, also with this computer's own name (a Tailscale name, say).
+- The link works with the address you gave, with this computer's full Tailscale name (`nextcloud.tailnet-1234.ts.net`, when Tailscale runs here) and, on Linux, with its short name. Other names it's reached by (your own DNS, a reverse proxy) can be allowed with `BACKDOWN_HOST_NAMES=name1,name2`.
 - The connection is plain HTTP. Over Tailscale the network encrypts it; on any other network, someone who can watch it could read the token and what you look at. Prefer an address only your own devices can reach: a wildcard such as `0.0.0.0` listens on every network the computer is on.
-- For the background service: `backdown daemon --host 100.x.y.z`, or, on Linux, `backdown service install --host 100.x.y.z`. Its link is `http://100.x.y.z:8787/?t=TOKEN`, with the token from `ui.json` in your [data folder](/docs/troubleshooting/#where-the-index-lives). On macOS and Windows, `service install` doesn't pass `--host` on to the service yet, and the machine-wide service on Linux stays cut off from the network by systemd.
+- For the background service: `backdown daemon --host 100.x.y.z`, or, on Linux, `backdown service install --host 100.x.y.z`. `backdown token --links` prints its links with the token in them: one for this computer and one for your other devices, named by Tailscale when it can be. `backdown token` prints the token alone. On macOS and Windows, `service install` doesn't pass `--host` on to the service yet, and the machine-wide service on Linux stays cut off from the network by systemd.
 
 ## Nothing is changed
 
