@@ -82,7 +82,7 @@ dependencies = [
 
 [[package]]
 name = "backdown-cli"
-version = "1.0.0-beta.1"
+version = "1.0.0-beta.2"
 dependencies = [
  "anyhow",
  "backdown-core",
@@ -114,7 +114,7 @@ dependencies = [
 
 [[package]]
 name = "backdown-core"
-version = "1.0.0-beta.1"
+version = "1.0.0-beta.2"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
