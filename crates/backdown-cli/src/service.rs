@@ -442,11 +442,26 @@ pub fn status(system: bool) -> Result<ExitCode> {
         active
     );
     print_daemon()?;
+    print_network_link();
     Ok(if active == "active" {
         ExitCode::SUCCESS
     } else {
         ExitCode::from(3)
     })
+}
+
+/// The link for other devices, when this user's daemon listens beyond this machine (`--host`).
+fn print_network_link() {
+    let file = locations::state_dir().join(locations::UI_FILE);
+    let Some(v) = std::fs::read(&file)
+        .ok()
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+    else {
+        return;
+    };
+    if let (Some(url), Some(token)) = (v["network_url"].as_str(), v["token"].as_str()) {
+        println!("  from other devices (look only): {url}?t={token}");
+    }
 }
 
 /// What the running daemon (if one answers) is doing.

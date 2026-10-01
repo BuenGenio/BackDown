@@ -507,13 +507,23 @@ pub fn run(opts: Options) -> Result<()> {
             }
         }
     };
+    // with --host, the address other devices use (`backdown service status` adds the token; the
+    // log doesn't, since more people can read a log than this private file)
+    let network = (!serve::local_host(&opts.host))
+        .then(|| format!("http://{}:{port}/", serve::network_name(&opts.host)));
     write_private(
         &ui_file,
-        &serde_json::to_vec_pretty(
-            &json!({ "port": port, "token": token, "url": format!("http://{}:{port}/", opts.host) }),
-        )?,
+        &serde_json::to_vec_pretty(&json!({
+            "port": port, "token": token, "url": format!("http://{}:{port}/", opts.host),
+            "network_url": network,
+        }))?,
         opts.shared,
     )?;
+    if let Some(n) = &network {
+        eprintln!(
+            "from other devices (look only): {n} (with its token: `backdown service status`)"
+        );
+    }
 
     eprintln!(
         "backdown {} daemon: index {}, web UI on {}:{port} (`backdown open`)",
