@@ -30,6 +30,7 @@ sha2 = "0.11.0"
 similar = "3.2.0"
 tar = { version = "0.4", default-features = false }
 tiny_http = "0.12.0"
+clap_complete = "4"
 
 # "Allow BackDown to read this drive": udisks passes an open file over D-Bus (grant.rs); rustix is
 # already here through fs4, this only turns on its safe recvmsg

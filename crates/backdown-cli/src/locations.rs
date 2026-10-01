@@ -8,7 +8,7 @@ use std::path::PathBuf;
 pub const SYSTEM_STATE: &str = "/var/lib/backdown";
 pub const SYSTEM_RUNTIME: &str = "/run/backdown";
 
-fn home() -> PathBuf {
+pub fn home() -> PathBuf {
     std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map_or_else(|| PathBuf::from("."), PathBuf::from)
