@@ -89,7 +89,9 @@ The sidebar lists drives you've indexed; Activity's "Connected drives" lists eve
 | macOS | `backdown service status` | `~/Library/Logs/BackDown/daemon.log` |
 | Windows | `backdown service status`, or Task Scheduler, task "BackDown" | not kept yet: Activity in the app shows what it's doing |
 
-On Linux, after a reboot a user service starts when you log in; `loginctl enable-linger $USER` keeps it running without a login. On Windows, commands in a terminal work on the index directly rather than through the service, so use the app to follow what the service is doing.
+On Linux, after a reboot a user service starts when you log in; `loginctl enable-linger $USER` keeps it running without a login.
+
+On a server, install the service as the account it should run as, logged in as that account (over ssh, say), not from `sudo` or `su`: those shells have no login session, so systemd can't run a user service from them ("Failed to connect to user scope bus"), and as root it would be a service for root. `sudo loginctl enable-linger USER` then keeps it running with nobody logged in. The machine-wide service (`sudo backdown service install --system`) is the other choice. It reads every file and writes none, but systemd keeps it off the network, so `--host` can't reach it from other devices. On Windows, commands in a terminal work on the index directly rather than through the service, so use the app to follow what the service is doing.
 
 The service does one job at a time, so a command may wait ("waiting for the daemon's current job"). Queued jobs can be taken off the list in Activity. A running scan, hash, copy or wipe can't be stopped from there, but rescues, tidying, mail merges and syncs can; stopping the service (on Linux, `systemctl --user stop backdown`; on Windows, End the task in Task Scheduler) is safe too, and it carries on where it stopped when it starts again.
 

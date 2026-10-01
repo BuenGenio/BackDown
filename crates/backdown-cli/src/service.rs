@@ -174,7 +174,48 @@ fn check(out: std::process::Output, what: &str) -> Result<()> {
     Ok(())
 }
 
+/// Why a systemd user service can't be set up from here, if it can't: as root it would be root's
+/// own service (which needs a login session root doesn't have under su or sudo), and without a
+/// login session there's no user manager to talk to.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn user_service_blocker(root: bool, session: bool, user: &str) -> Option<String> {
+    if root {
+        return Some(
+            "you're root, so this would be a service for the root account. For the whole machine: \
+             `backdown service install --system` (it reads every file, writes none, and stays off \
+             the network). For your own account (and --host): run `backdown service install` as \
+             that user, without sudo; `sudo loginctl enable-linger USER` keeps it running after \
+             they log out."
+                .into(),
+        );
+    }
+    if !session {
+        return Some(format!(
+            "there's no login session here (a shell from su or sudo?), so systemd can't run a \
+             service for you: log in as {user} directly (ssh, or a desktop session) and run this \
+             again. `sudo loginctl enable-linger {user}` keeps it running after you log out."
+        ));
+    }
+    None
+}
+
 pub fn install(system: bool, host: &str, port: u16, start: bool, print: bool) -> Result<ExitCode> {
+    #[cfg(target_os = "linux")]
+    if !system && !print {
+        let session = std::env::var_os("XDG_RUNTIME_DIR").is_some()
+            || std::env::var_os("DBUS_SESSION_BUS_ADDRESS").is_some();
+        let user = std::env::var("USER").unwrap_or_else(|_| "your user".into());
+        if let Some(why) =
+            user_service_blocker(rustix::process::geteuid().is_root(), session, &user)
+        {
+            bail!(why);
+        }
+    }
+    if system && !matches!(host, "127.0.0.1" | "localhost") {
+        eprintln!(
+            "note: the machine-wide service is kept off the network by systemd, so --host {host} is only reachable from this machine; for other devices, use your own account's service"
+        );
+    }
     let mut args = String::new();
     if host != "127.0.0.1" {
         args.push_str(&format!(" --host {host}"));
@@ -445,4 +486,18 @@ fn print_daemon() -> Result<()> {
         ),
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_user_service_needs_a_user_with_a_session() {
+        let root = user_service_blocker(true, true, "root").unwrap();
+        assert!(root.contains("--system") && root.contains("enable-linger"));
+        let su = user_service_blocker(false, false, "alex").unwrap();
+        assert!(su.contains("log in as alex") && su.contains("enable-linger alex"));
+        assert!(user_service_blocker(false, true, "alex").is_none());
+    }
 }
