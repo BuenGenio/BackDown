@@ -937,3 +937,12 @@ b.v-warning{color:var(--warn)}
 .img-mount{margin-top:10px;max-width:760px}
 .img-mount .pv-list li{display:flex;align-items:center;gap:8px}
 .set-machines{list-style:none;padding:0;margin:0 0 10px}
+/* a request under way: a bar along the top after a moment, a note if it's still going after a few
+   seconds (app.js, around fetch) */
+.busy{position:fixed;inset:0 0 auto 0;height:3px;z-index:1000;overflow:hidden;background:color-mix(in srgb,var(--accent) 22%,transparent);pointer-events:none}
+.busy::before{content:"";position:absolute;inset:0 auto 0 0;width:35%;background:var(--accent);animation:busy 1.2s ease-in-out infinite}
+@keyframes busy{from{transform:translateX(-100%)}to{transform:translateX(300%)}}
+.busy-note{display:none}
+.busy[data-slow] .busy-note{display:block;position:fixed;top:10px;left:50%;transform:translateX(-50%);padding:.35em .9em;border-radius:999px;background:var(--head);color:var(--ink-2);border:1px solid var(--line);box-shadow:var(--shadow);font-size:.82rem;white-space:nowrap}
+html.is-busy,html.is-busy *{cursor:progress}
+@media(prefers-reduced-motion:reduce){.busy::before{animation:none;width:100%;opacity:.6}}
