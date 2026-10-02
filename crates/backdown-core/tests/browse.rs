@@ -150,3 +150,65 @@ fn folders_list_even_without_folder_totals() {
     );
     assert!(inner.entries.iter().any(|e| e.name == "top.txt"));
 }
+
+#[test]
+fn folders_list_the_same_with_the_path_index_and_use_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let drive = tmp.path().join("drive");
+    for sub in ["a", "b/inner", "c"] {
+        write(&drive.join(sub).join("f.txt"), sub.as_bytes());
+    }
+    let mut db = Db::open(&tmp.path().join("idx.db")).unwrap();
+    let first = scan(&mut db, &drive);
+    write(&drive.join("a/more.txt"), b"a second version of a");
+    fs::remove_dir_all(drive.join("c")).unwrap();
+    scan(&mut db, &drive);
+    let drive = dunce::canonicalize(&drive).unwrap();
+
+    let listing = |db: &Db, dir: &Path, scan: Option<i64>| {
+        let l = browse::list(db, dir, scan).unwrap();
+        let entries: Vec<_> = l
+            .entries
+            .iter()
+            .map(|e| (e.name.clone(), e.files, e.size, e.versions, e.later))
+            .collect();
+        (l.files, l.bytes, entries)
+    };
+    // opening the index doesn't build it: the service does, as a job
+    assert!(
+        db.missing_later_indexes()
+            .unwrap()
+            .contains(&"dirs_path_history")
+    );
+    let before = [
+        listing(&db, &drive, None),
+        listing(&db, &drive, Some(first)),
+        listing(&db, &drive.join("b"), None),
+    ];
+    let mut doing = Vec::new();
+    let built = db
+        .build_later_indexes(&mut |w| doing.push(w.to_string()))
+        .unwrap();
+    assert_eq!(built, ["opening folders", "the duplicates report"]);
+    assert_eq!(doing, built);
+    assert!(db.missing_later_indexes().unwrap().is_empty());
+    let after = [
+        listing(&db, &drive, None),
+        listing(&db, &drive, Some(first)),
+        listing(&db, &drive.join("b"), None),
+    ];
+    assert_eq!(before, after);
+    // "a" has two versions, and the folder that's gone shows in the first scan only
+    assert!(after[0].2.iter().any(|e| e.0 == "a" && e.3 == 2));
+    assert!(after[1].2.iter().any(|e| e.0 == "c") && !after[0].2.iter().any(|e| e.0 == "c"));
+    // and a folder's versions are looked up by the index, not by reading every folder
+    let plan: String = db
+        .conn
+        .prepare("EXPLAIN QUERY PLAN SELECT COUNT(*) FROM dirs v WHERE v.path = ?1")
+        .unwrap()
+        .query_map([b"/x".to_vec()], |r| r.get::<_, String>(3))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert!(plan.contains("dirs_path_history"), "{plan}");
+}

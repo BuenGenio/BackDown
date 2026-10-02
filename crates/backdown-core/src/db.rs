@@ -292,7 +292,54 @@ fn add_column(conn: &Connection, table: &str, column: &str, decl: &str) -> Resul
 const DUPES_INDEX: &str = "CREATE INDEX IF NOT EXISTS files_dupes ON files(sha256, size, dev, ino)
     WHERE current = 1 AND sha256 IS NOT NULL";
 
+/// Indexes that are slow to build on a big index, so they're made by a job once the service runs
+/// (`Db::build_later_indexes`) rather than when the index opens; until each exists, what it speeds
+/// up still works, reading the table instead. (name, what it's for, SQL)
+const LATER_INDEXES: &[(&str, &str, &str)] = &[
+    (
+        "dirs_path_history",
+        "opening folders",
+        // every version of a folder by its path: a folder's totals at a scan and how many
+        // versions each subfolder has (browse.rs). Without it each is a read of all folders.
+        "CREATE INDEX IF NOT EXISTS dirs_path_history ON dirs(path, first_scan)",
+    ),
+    ("files_dupes", "the duplicates report", DUPES_INDEX),
+];
+
 impl Db {
+    fn has_index(&self, name: &str) -> Result<bool> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?1)",
+            [name],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// The slow-to-build indexes that aren't there yet (see `LATER_INDEXES`).
+    pub fn missing_later_indexes(&self) -> Result<Vec<&'static str>> {
+        let mut v = Vec::new();
+        for (name, _, _) in LATER_INDEXES {
+            if !self.has_index(name)? {
+                v.push(*name);
+            }
+        }
+        Ok(v)
+    }
+
+    /// Build the slow-to-build indexes that are missing, saying which one is under way; what each
+    /// one speeds up, for those built now.
+    pub fn build_later_indexes(&self, doing: &mut dyn FnMut(&str)) -> Result<Vec<&'static str>> {
+        let mut built = Vec::new();
+        for (name, what, sql) in LATER_INDEXES {
+            if !self.has_index(name)? {
+                doing(what);
+                self.conn.execute_batch(sql)?;
+                built.push(*what);
+            }
+        }
+        Ok(built)
+    }
+
     /// Whether the duplicates report's covering index is there (see `DUPES_INDEX`).
     pub fn has_dupes_index(&self) -> Result<bool> {
         Ok(self.conn.query_row(

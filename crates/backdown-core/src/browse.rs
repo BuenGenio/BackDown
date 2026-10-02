@@ -197,7 +197,7 @@ pub fn list(db: &Db, dir: &Path, scan: Option<i64>) -> Result<Listing> {
         .optional()?;
     let needs_reindex = totals.is_none()
         && db.conn.query_row(
-            "SELECT COUNT(*) = 0 FROM dirs WHERE root_id = ?1",
+            "SELECT NOT EXISTS (SELECT 1 FROM dirs WHERE root_id = ?1)",
             params![root.id],
             |r| r.get::<_, bool>(0),
         )?;

@@ -18,6 +18,31 @@ export const when = t => t ? new Date(t * 1000).toLocaleString(undefined, { date
 const day = t => t ? new Date(t * 1000).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—';
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 
+// ---------- feedback while the server works: every request (from any module) that takes more than a
+// moment shows a bar along the top, and a note if it's still going after a few seconds. Not the
+// Activity view's long-poll, which waits on purpose.
+const BUSY = { n: 0, shown: 0, slow: 0 };
+const waitsOnPurpose = url => /^\/api\/daemon\?/.test(url) && /[?&]wait=/.test(url);
+const plainFetch = window.fetch.bind(window);
+window.fetch = (input, init) => {
+  const url = typeof input === 'string' ? input : input?.url || '';
+  if (!url.startsWith('/api/') || waitsOnPurpose(url)) return plainFetch(input, init);
+  busy(1);
+  return plainFetch(input, init).finally(() => busy(-1));
+};
+function busy(d) {
+  BUSY.n = Math.max(0, BUSY.n + d);
+  const bar = document.getElementById('busy');
+  if (!bar) return;
+  if (BUSY.n > 0) {
+    BUSY.shown ||= setTimeout(() => { bar.hidden = false; document.documentElement.classList.add('is-busy'); }, 200);
+    BUSY.slow ||= setTimeout(() => { bar.dataset.slow = ''; }, 4000);
+    return;
+  }
+  clearTimeout(BUSY.shown); clearTimeout(BUSY.slow); BUSY.shown = BUSY.slow = 0;
+  bar.hidden = true; delete bar.dataset.slow; document.documentElement.classList.remove('is-busy');
+}
+
 export async function api(path, params = {}) {
   const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== ''));
   const r = await fetch(`/api/${path}?${q}`, { credentials: 'same-origin' });
@@ -1781,7 +1806,7 @@ const jobName = j => j.kind === 'index' ? `Scan ${rootName(j.path)}` : j.kind ==
   : j.kind === 'mirror-verify' ? `Verify ${j.path || 'a mirror'}` : j.kind === 'wipe' ? `Free up (${j.path || 'a wipe'})` : j.kind === 'rescue' ? rescueJobName(j)
   : j.kind === 'remote-sync' ? `Sync the machine ${j.path || ''}`
   : j.kind === 'dedup' ? `Tidy the archive (${j.path || 'dedup'})` : j.kind === 'mail-merge' ? `Merge mailboxes (${j.path || 'merge'})`
-  : j.kind === 'dupes-index' ? 'Prepare the duplicates index (once)' : 'Hash new and changed files';
+  : j.kind === 'indexes' || j.kind === 'dupes-index' ? 'Prepare the index for speed (once)' : 'Hash new and changed files';
 function rescueJobName(j) {
   const r = RS.list.find(x => `rescue ${x.id}` === j.path);
   return r ? `${RS_TITLE[r.mode] || 'Rescue'}: ${baseName(r.source)}` : 'Rescue';
