@@ -2,9 +2,15 @@
 // and nothing polls anything in real time. The status page asks once on load and again only while it stays visible.
 
 import { preorderPrice } from './store.js';
+import offered from '../downloads.json';
 
 const RELEASES = 'https://github.com/BuenGenio/backdown-releases';
 const STALE = 2 * 3600e3; // the cron runs hourly; past this, recheck inline so a stopped cron can't show old news
+// the release this deploy of the site offers (publish-release.sh writes downloads.json and the site is
+// deployed right after): a cached check that names another is rechecked then, not at the next hourly
+// run, but at most every five minutes, as GitHub's feed can take that long to show a new release
+const OFFERED = offered.platforms?.find(p => p.version)?.version;
+const RECHECK = 5 * 60e3;
 
 async function downloads() {
   // the releases Atom feed isn't subject to the API's per-IP rate limit (shared by every Worker)
@@ -41,6 +47,8 @@ export async function refresh(env) {
 
 export async function status(request, env) {
   let s = await env.SITE.get('status', 'json');
-  if (!s || Date.now() - Date.parse(s.checked) > STALE) s = await refresh(env);
+  const age = s ? Date.now() - Date.parse(s.checked) : Infinity;
+  const behind = OFFERED && s?.release?.tag !== OFFERED && age > RECHECK;
+  if (!s || age > STALE || behind) s = await refresh(env);
   return Response.json(s, { headers: { 'Cache-Control': 'public, max-age=300' } });
 }
