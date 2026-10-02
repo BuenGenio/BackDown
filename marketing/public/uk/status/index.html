@@ -48,7 +48,7 @@
 <meta name="twitter:image:alt" content="Що відбувається в BackDown.">
 <meta name="analytics" content="matomo" data-url="https://matomo.matumi.anthill.hk/" data-site="14">
 <link rel="dns-prefetch" href="https://matomo.matumi.anthill.hk/">
-<script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Organization","@id":"https://backdown.io/#org","name":"BackDown","url":"https://backdown.io/","logo":"https://backdown.io/icon-512.png?v=bd6fc6de2a"},{"@type":"WebSite","@id":"https://backdown.io/#website","url":"https://backdown.io/","name":"BackDown","publisher":{"@id":"https://backdown.io/#org"},"inLanguage":["en","es","pt-BR","de","pl","cs","sk","uk"]},{"@type":"WebPage","@id":"https://backdown.io/uk/status/#webpage","url":"https://backdown.io/uk/status/","name":"Статус і дорожня карта · BackDown","description":"Над чим ми працюємо зараз, що буде далі і що вже вийшло, а також перевірка роботи сайту, завантажень і реєстрацій у реальному часі.","inLanguage":"uk","isPartOf":{"@id":"https://backdown.io/#website"},"about":{"@id":"https://backdown.io/#app"},"primaryImageOfPage":"https://backdown.io/og/uk-status.png?v=bd6fc6de2a","breadcrumb":{"@id":"https://backdown.io/uk/status/#breadcrumb"},"dateModified":"2026-10-01"},{"@type":"BreadcrumbList","@id":"https://backdown.io/uk/status/#breadcrumb","itemListElement":[{"@type":"ListItem","position":1,"name":"BackDown","item":"https://backdown.io/uk/"},{"@type":"ListItem","position":2,"name":"Статус","item":"https://backdown.io/uk/status/"}]}]}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Organization","@id":"https://backdown.io/#org","name":"BackDown","url":"https://backdown.io/","logo":"https://backdown.io/icon-512.png?v=bd6fc6de2a"},{"@type":"WebSite","@id":"https://backdown.io/#website","url":"https://backdown.io/","name":"BackDown","publisher":{"@id":"https://backdown.io/#org"},"inLanguage":["en","es","pt-BR","de","pl","cs","sk","uk"]},{"@type":"WebPage","@id":"https://backdown.io/uk/status/#webpage","url":"https://backdown.io/uk/status/","name":"Статус і дорожня карта · BackDown","description":"Над чим ми працюємо зараз, що буде далі і що вже вийшло, а також перевірка роботи сайту, завантажень і реєстрацій у реальному часі.","inLanguage":"uk","isPartOf":{"@id":"https://backdown.io/#website"},"about":{"@id":"https://backdown.io/#app"},"primaryImageOfPage":"https://backdown.io/og/uk-status.png?v=bd6fc6de2a","breadcrumb":{"@id":"https://backdown.io/uk/status/#breadcrumb"},"dateModified":"2026-10-03"},{"@type":"BreadcrumbList","@id":"https://backdown.io/uk/status/#breadcrumb","itemListElement":[{"@type":"ListItem","position":1,"name":"BackDown","item":"https://backdown.io/uk/"},{"@type":"ListItem","position":2,"name":"Статус","item":"https://backdown.io/uk/status/"}]}]}</script>
 <link rel="preload" href="/fonts/bricolage-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/site.css?v=295bdf5324">
 <script src="/site.js?v=295bdf5324" defer></script>
@@ -81,14 +81,14 @@
  <section id="live" class="first">
   <div class="wrap">
    <div class="livebox card" data-api="/api/status" data-ago="Перевірено {ago}" data-states="{&quot;up&quot;: &quot;Працює&quot;, &quot;degraded&quot;: &quot;Працює з перебоями&quot;, &quot;down&quot;: &quot;Не працює&quot;, &quot;open&quot;: &quot;Відкрито&quot;, &quot;closed&quot;: &quot;Ще не відкрито&quot;, &quot;unknown&quot;: &quot;Перевіряємо…&quot;}">
-    <div class="live-head"><h2 class="h3">Зараз</h2><span class="checked">Оновлено <time datetime="2026-10-01">1 жовтня 2026</time></span></div>
+    <div class="live-head"><h2 class="h3">Зараз</h2><span class="checked">Оновлено <time datetime="2026-10-03">3 жовтня 2026</time></span></div>
     <ul class="svc">
      <li data-svc="site"><span class="sdot up"></span><span class="nm">Сайт</span><span class="st">Працює</span></li>
      <li data-svc="downloads"><span class="sdot"></span><span class="nm">Завантаження</span><span class="st">Перевіряємо…</span></li>
      <li data-svc="waitlist"><span class="sdot"></span><span class="nm">Реєстрація на ранній доступ</span><span class="st">Перевіряємо…</span></li>
      <li data-svc="checkout"><span class="sdot"></span><span class="nm">Передзамовлення Pro</span><span class="st">Перевіряємо…</span></li>
     </ul>
-    <p class="rel">Останній реліз: <a data-rel href="https://github.com/BuenGenio/backdown-releases/releases">v1.0.0-beta.2</a> · <time data-rel-date datetime="2026-10-01">1 жовтня 2026</time></p>
+    <p class="rel">Останній реліз: <a data-rel href="https://github.com/BuenGenio/backdown-releases/releases">v1.0.0-beta.3</a> · <time data-rel-date datetime="2026-10-03">3 жовтня 2026</time></p>
    </div>
   </div>
  </section>
@@ -147,6 +147,7 @@
   <div class="wrap">
    <div class="head"><span class="eyebrow">Журнал змін</span><h2>Що вже вийшло.</h2></div>
    <ol class="log">
+    <li><time datetime="2026-10-03">3 жовтня 2026</time><span class="mono">v1.0.0-beta.3</span><p>Теки відкриваються за частку секунди навіть на дуже великих індексах (на 17 мільйонах файлів це тривало до п’яти хвилин) завдяки індексу, який служба створює один раз після оновлення. Усе, що триває довше за мить, тепер показує смужку вгорі вікна.</p></li>
     <li><time datetime="2026-10-01">1 жовтня 2026</time><span class="mono">v1.0.0-beta.2</span><p>Швидше на дуже великих індексах: звіт про дублікати за лічені секунди на 17 мільйонах файлів, а перший екран застосунку більше не чекає на підсумки. <code>--host</code> відповідає на ім’я комп’ютера в Tailscale; <code>backdown token</code> показує посилання для інших ваших пристроїв; доповнення клавішею Tab через <code>backdown completions</code>. Пакет для Linux тепер називається <code>backdown-io</code> («backdown» з Ubuntu — інша програма).</p></li>
     <li><time datetime="2026-09-29">29 вересня 2026</time><span class="mono">v1.0.0-beta.1</span><p>Перша бета-версія 1.0: настільний застосунок з інсталяторами для всіх трьох систем, стан дисків, повторне сканування за секунди, звільнення дисків, порятунок даних, перегляд пошти, SQL-дампів і образів дисків, походження даних кілька комп’ютерів через SSH і перегляд усього з інших ваших пристроїв через Tailscale (<code>--host</code>; через мережу BackDown лише показує, нічого не змінюючи). Функції Pro безкоштовні під час бети.</p></li>
     <li><time datetime="2026-09-28">28 вересня 2026</time><span class="mono">v0.2.0-alpha.4</span><p>Виправлення у файловому браузері: подвійне клацання відкриває теки й файли, панель відомостей показує попередній перегляд зображень, PDF, тексту й баз даних, а теки в старіших індексах відображаються правильно.</p></li>

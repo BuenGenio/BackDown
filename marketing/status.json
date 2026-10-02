@@ -1,6 +1,6 @@
 {
   "_comment": "The /status/ page's roadmap and changelog. Text fields are {lang: text}; a missing language falls back to English (marked lang=en), so English can be updated first. Keep it public-safe: no real paths, hosts or drive names.",
-  "updated": "2026-10-01",
+  "updated": "2026-10-03",
   "now": [
     {
       "state": "done",
@@ -371,6 +371,20 @@
     }
   ],
   "shipped": [
+    {
+      "date": "2026-10-03",
+      "version": "v1.0.0-beta.3",
+      "text": {
+        "en": "Folders open in a fraction of a second on very large indexes (on 17 million files they took up to five minutes), from an index the service builds once after the upgrade. Anything that takes more than a moment now shows a bar along the top of the window.",
+        "es": "Las carpetas se abren en una fracción de segundo en índices muy grandes (con 17 millones de archivos tardaban hasta cinco minutos), gracias a un índice que el servicio crea una sola vez tras la actualización. Todo lo que tarda más de un momento muestra ahora una barra en la parte superior de la ventana.",
+        "pt-br": "As pastas abrem em uma fração de segundo em índices muito grandes (com 17 milhões de arquivos levavam até cinco minutos), graças a um índice que o serviço cria uma única vez após a atualização. Tudo o que leva mais que um instante agora mostra uma barra no topo da janela.",
+        "de": "Ordner öffnen sich bei sehr großen Indizes in Sekundenbruchteilen (bei 17 Millionen Dateien dauerte es bis zu fünf Minuten), dank eines Index, den der Dienst nach dem Update einmalig anlegt. Alles, was länger als einen Moment dauert, zeigt jetzt einen Balken am oberen Fensterrand.",
+        "pl": "Foldery otwierają się w ułamku sekundy nawet przy bardzo dużych indeksach (przy 17 milionach plików trwało to do pięciu minut) dzięki indeksowi, który usługa tworzy jednorazowo po aktualizacji. Wszystko, co trwa dłużej niż chwilę, pokazuje teraz pasek u góry okna.",
+        "cs": "Složky se i u velmi velkých indexů otevřou ve zlomku sekundy (u 17 milionů souborů to trvalo až pět minut) díky indexu, který služba po aktualizaci jednou vytvoří. Všechno, co trvá déle než chvilku, teď ukazuje pruh u horního okraje okna.",
+        "sk": "Priečinky sa aj pri veľmi veľkých indexoch otvoria za zlomok sekundy (pri 17 miliónoch súborov to trvalo až päť minút) vďaka indexu, ktorý služba po aktualizácii raz vytvorí. Všetko, čo trvá dlhšie ako chvíľku, teraz ukazuje pruh pri hornom okraji okna.",
+        "uk": "Теки відкриваються за частку секунди навіть на дуже великих індексах (на 17 мільйонах файлів це тривало до п’яти хвилин) завдяки індексу, який служба створює один раз після оновлення. Усе, що триває довше за мить, тепер показує смужку вгорі вікна."
+      }
+    },
     {
       "date": "2026-10-01",
       "version": "v1.0.0-beta.2",
