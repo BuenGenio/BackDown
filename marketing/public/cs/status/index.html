@@ -48,7 +48,7 @@
 <meta name="twitter:image:alt" content="Co je nového ve vývoji BackDown.">
 <meta name="analytics" content="matomo" data-url="https://matomo.matumi.anthill.hk/" data-site="14">
 <link rel="dns-prefetch" href="https://matomo.matumi.anthill.hk/">
-<script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Organization","@id":"https://backdown.io/#org","name":"BackDown","url":"https://backdown.io/","logo":"https://backdown.io/icon-512.png?v=bd6fc6de2a"},{"@type":"WebSite","@id":"https://backdown.io/#website","url":"https://backdown.io/","name":"BackDown","publisher":{"@id":"https://backdown.io/#org"},"inLanguage":["en","es","pt-BR","de","pl","cs","sk","uk"]},{"@type":"WebPage","@id":"https://backdown.io/cs/status/#webpage","url":"https://backdown.io/cs/status/","name":"Stav a plán vývoje · BackDown","description":"Na čem se právě pracuje, co přijde dál a vše, co už vyšlo, včetně živé kontroly webu, stahování a registrací.","inLanguage":"cs","isPartOf":{"@id":"https://backdown.io/#website"},"about":{"@id":"https://backdown.io/#app"},"primaryImageOfPage":"https://backdown.io/og/cs-status.png?v=bd6fc6de2a","breadcrumb":{"@id":"https://backdown.io/cs/status/#breadcrumb"},"dateModified":"2026-10-01"},{"@type":"BreadcrumbList","@id":"https://backdown.io/cs/status/#breadcrumb","itemListElement":[{"@type":"ListItem","position":1,"name":"BackDown","item":"https://backdown.io/cs/"},{"@type":"ListItem","position":2,"name":"Stav vývoje","item":"https://backdown.io/cs/status/"}]}]}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Organization","@id":"https://backdown.io/#org","name":"BackDown","url":"https://backdown.io/","logo":"https://backdown.io/icon-512.png?v=bd6fc6de2a"},{"@type":"WebSite","@id":"https://backdown.io/#website","url":"https://backdown.io/","name":"BackDown","publisher":{"@id":"https://backdown.io/#org"},"inLanguage":["en","es","pt-BR","de","pl","cs","sk","uk"]},{"@type":"WebPage","@id":"https://backdown.io/cs/status/#webpage","url":"https://backdown.io/cs/status/","name":"Stav a plán vývoje · BackDown","description":"Na čem se právě pracuje, co přijde dál a vše, co už vyšlo, včetně živé kontroly webu, stahování a registrací.","inLanguage":"cs","isPartOf":{"@id":"https://backdown.io/#website"},"about":{"@id":"https://backdown.io/#app"},"primaryImageOfPage":"https://backdown.io/og/cs-status.png?v=bd6fc6de2a","breadcrumb":{"@id":"https://backdown.io/cs/status/#breadcrumb"},"dateModified":"2026-10-03"},{"@type":"BreadcrumbList","@id":"https://backdown.io/cs/status/#breadcrumb","itemListElement":[{"@type":"ListItem","position":1,"name":"BackDown","item":"https://backdown.io/cs/"},{"@type":"ListItem","position":2,"name":"Stav vývoje","item":"https://backdown.io/cs/status/"}]}]}</script>
 <link rel="preload" href="/fonts/bricolage-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/site.css?v=295bdf5324">
 <script src="/site.js?v=295bdf5324" defer></script>
@@ -81,14 +81,14 @@
  <section id="live" class="first">
   <div class="wrap">
    <div class="livebox card" data-api="/api/status" data-ago="Zkontrolováno {ago}" data-states="{&quot;up&quot;: &quot;Funguje&quot;, &quot;degraded&quot;: &quot;Omezený provoz&quot;, &quot;down&quot;: &quot;Mimo provoz&quot;, &quot;open&quot;: &quot;Otevřeno&quot;, &quot;closed&quot;: &quot;Zatím neotevřeno&quot;, &quot;unknown&quot;: &quot;Kontrolujeme…&quot;}">
-    <div class="live-head"><h2 class="h3">Právě teď</h2><span class="checked">Naposledy aktualizováno <time datetime="2026-10-01">1. října 2026</time></span></div>
+    <div class="live-head"><h2 class="h3">Právě teď</h2><span class="checked">Naposledy aktualizováno <time datetime="2026-10-03">3. října 2026</time></span></div>
     <ul class="svc">
      <li data-svc="site"><span class="sdot up"></span><span class="nm">Web</span><span class="st">Funguje</span></li>
      <li data-svc="downloads"><span class="sdot"></span><span class="nm">Stahování</span><span class="st">Kontrolujeme…</span></li>
      <li data-svc="waitlist"><span class="sdot"></span><span class="nm">Registrace k předběžnému přístupu</span><span class="st">Kontrolujeme…</span></li>
      <li data-svc="checkout"><span class="sdot"></span><span class="nm">Předobjednávky Pro</span><span class="st">Kontrolujeme…</span></li>
     </ul>
-    <p class="rel">Poslední vydání: <a data-rel href="https://github.com/BuenGenio/backdown-releases/releases">v1.0.0-beta.2</a> · <time data-rel-date datetime="2026-10-01">1. října 2026</time></p>
+    <p class="rel">Poslední vydání: <a data-rel href="https://github.com/BuenGenio/backdown-releases/releases">v1.0.0-beta.3</a> · <time data-rel-date datetime="2026-10-03">3. října 2026</time></p>
    </div>
   </div>
  </section>
@@ -147,6 +147,7 @@
   <div class="wrap">
    <div class="head"><span class="eyebrow">Historie změn</span><h2>Co už vyšlo.</h2></div>
    <ol class="log">
+    <li><time datetime="2026-10-03">3. října 2026</time><span class="mono">v1.0.0-beta.3</span><p>Složky se i u velmi velkých indexů otevřou ve zlomku sekundy (u 17 milionů souborů to trvalo až pět minut) díky indexu, který služba po aktualizaci jednou vytvoří. Všechno, co trvá déle než chvilku, teď ukazuje pruh u horního okraje okna.</p></li>
     <li><time datetime="2026-10-01">1. října 2026</time><span class="mono">v1.0.0-beta.2</span><p>Rychlejší u velmi velkých indexů: přehled duplicit během pár sekund i u 17 milionů souborů a první obrazovka aplikace už nečeká na souhrny. <code>--host</code> odpovídá na jméno počítače v Tailscale; <code>backdown token</code> vypíše odkaz pro vaše další zařízení; doplňování klávesou Tab přes <code>backdown completions</code>. Balíček pro Linux se teď jmenuje <code>backdown-io</code> („backdown“ z Ubuntu je jiný program).</p></li>
     <li><time datetime="2026-09-29">29. září 2026</time><span class="mono">v1.0.0-beta.1</span><p>První beta verze 1.0: desktopová aplikace s instalátory pro všechny tři systémy, zdraví disků, opakovaný sken během pár sekund, uvolňování disků, záchrana dat, procházení pošty, výpisů SQL a obrazů disků, odkud co pochází, více počítačů přes SSH a prohlížení všeho z vašich dalších zařízení přes Tailscale (<code>--host</code>; přes síť BackDown jen ukazuje, nikdy nic nemění). Funkce Pro jsou během bety zdarma.</p></li>
     <li><time datetime="2026-09-28">28. září 2026</time><span class="mono">v0.2.0-alpha.4</span><p>Opravy prohlížeče souborů: dvojklik otevírá složky i soubory, panel podrobností zobrazuje náhledy obrázků, PDF, textů a databází a složky ve starších indexech se vypisují správně.</p></li>
