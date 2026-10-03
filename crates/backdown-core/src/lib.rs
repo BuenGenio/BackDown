@@ -35,6 +35,7 @@ pub mod recognise;
 pub mod remote;
 pub mod report;
 pub mod rescue;
+pub mod signing;
 pub mod streams;
 pub mod summary;
 pub mod timemachine;
