@@ -48,6 +48,8 @@ pub fn default_db() -> PathBuf {
 }
 
 pub const SOCKET: &str = "daemon.sock";
+/// This installation's key for signing manifests (backdown_core::signing), in the state folder
+pub const SIGNING_KEY: &str = "signing.key";
 pub const UI_FILE: &str = "ui.json";
 
 /// Sockets a client should try, most specific first: this user's daemon, then the system one.

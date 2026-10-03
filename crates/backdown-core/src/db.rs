@@ -403,6 +403,8 @@ impl Db {
         // journals, added without a schema bump (older versions ignore them)
         conn.execute_batch(crate::dedup::SCHEMA)?;
         conn.execute_batch(crate::mailmerge::SCHEMA)?;
+        // signed manifests of drives (manifest.rs), the same way
+        conn.execute_batch(crate::manifest::SCHEMA)?;
         add_column(&conn, "journal", "note", "TEXT")?;
         // names for search: added in place, without a schema bump, since older versions just
         // leave them empty on rows they write (and the next open here fills those in)
