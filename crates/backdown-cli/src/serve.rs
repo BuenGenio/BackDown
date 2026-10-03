@@ -26,9 +26,11 @@
 //! /api/plan-merge changes a saved plan that hasn't started, so it merges two snapshots of a
 //! mailbox instead of copying both. Both need the same header.
 //! GET /api/health reads drive health the same unprivileged way as `backdown health` (in the daemon,
-//! its latest round); the POSTs beside it (read now, mark notifications read, notification
-//! settings, a test notification) need the same header, change nothing but BackDown's own records
-//! and settings file, and a notification's text never goes through a shell.
+//! its latest round), and GET /api/health-machines the other machines' drives as their last syncs
+//! fetched them, from the index (nothing is reached for it); the POSTs beside it (read now, mark
+//! notifications read, notification settings, a test notification) need the same header, change
+//! nothing but BackDown's own records and settings file, and a notification's text never goes
+//! through a shell.
 //! Other machines (remote/): GET /api/machines and the cache of what they hold are read from the
 //! index; browsing one live, and the POSTs (add, remove, test, sync, settings; the same header)
 //! run the system's `ssh` as the person using this browser, with arguments as a vector and a host

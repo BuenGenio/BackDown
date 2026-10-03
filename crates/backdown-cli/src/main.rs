@@ -136,6 +136,11 @@ enum Cmd {
     Health {
         #[arg(long)]
         json: bool,
+        /// The other machines' drives instead (Team), as each one's own BackDown last read them,
+        /// fetched with its last sync: nothing is reached or read now. Exits 2 when a drive there
+        /// is failing
+        #[arg(long)]
+        machines: bool,
     },
     /// Mount a partition read-only (one `backdown volumes` calls mountable), or attach a disk
     /// image read-only and mount what's on it; never read-write, and as you: udisks on Linux,
@@ -652,7 +657,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
         }
         Cmd::Volumes { json } => return run_volumes(cli.db, json),
         // through the daemon when it runs (it keeps the readings), else here
-        Cmd::Health { json } => return health::command(cli.db, cli.local, json),
+        Cmd::Health { json, machines } => {
+            return health::command(cli.db, cli.local, json, machines);
+        }
         // as the person at the screen, through the system's own mounter; never opens the index
         Cmd::Mount { target } => return run_mount(target),
         Cmd::Unmount { target } => {

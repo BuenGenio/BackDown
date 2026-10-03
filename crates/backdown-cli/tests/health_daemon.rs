@@ -225,3 +225,168 @@ fn a_drive_getting_worse_is_kept_told_and_shown() {
     std::thread::sleep(Duration::from_millis(500));
     assert_eq!(std::fs::read_to_string(&shown).unwrap().lines().count(), 1);
 }
+
+/// A stand-in for OpenSSH: skip the options and the host, then be the other machine's shell.
+const FAKE_SSH: &str = r#"#!/bin/sh
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o|-p|-l) shift 2 ;;
+    --) shift; break ;;
+    *) shift ;;
+  esac
+done
+shift
+exec sh -c "$1"
+"#;
+
+#[test]
+fn a_drive_on_another_machine_getting_worse_is_told_by_the_service() {
+    use std::os::unix::fs::PermissionsExt;
+    let base = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
+    let dir = tempfile::Builder::new()
+        .prefix("health-machines")
+        .tempdir_in(&base)
+        .unwrap();
+    let d = dir.path();
+    for sub in ["data", "home", "bin"] {
+        std::fs::create_dir_all(d.join(sub)).unwrap();
+    }
+    let run = tempfile::tempdir().unwrap();
+    let shown = d.join("shown.txt");
+    let fake = d.join("bin/notify-send");
+    std::fs::write(
+        &fake,
+        format!(
+            "#!/bin/sh\nfor a in \"$@\"; do printf '%s\\t' \"$a\"; done >> '{}'\necho >> '{}'\n",
+            shown.display(),
+            shown.display()
+        ),
+    )
+    .unwrap();
+    std::fs::write(d.join("bin/ssh"), FAKE_SSH).unwrap();
+    for f in ["notify-send", "ssh"] {
+        std::fs::set_permissions(
+            d.join("bin").join(f),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+    }
+    std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_backdown"), d.join("bin/backdown")).unwrap();
+    let path = format!(
+        "{}:{}",
+        d.join("bin").display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let backdown = |db: &Path, args: &[&str], readings: Option<&Path>| {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_backdown"));
+        c.arg("--db")
+            .arg(db)
+            .args(args)
+            .env("XDG_RUNTIME_DIR", run.path())
+            .env("XDG_DATA_HOME", d.join("data"))
+            .env("HOME", d.join("home"))
+            .env("PATH", &path)
+            .env_remove("BACKDOWN_PRETEND_RELEASE");
+        if let Some(r) = readings {
+            c.env("BACKDOWN_FAKE_HEALTH", r);
+        }
+        c.output().unwrap()
+    };
+    // this machine's own drives are fine; the NAS's are read into its own index
+    let here = d.join("here.json");
+    readings(&here, 0, 0);
+    let there = d.join("there.json");
+    let nas_db = d.join("nas.db");
+    readings(&there, 0, 0);
+    assert!(
+        backdown(&nas_db, &["--local", "health"], Some(&there))
+            .status
+            .success()
+    );
+
+    let db = d.join("index.db");
+    let child = Command::new(env!("CARGO_BIN_EXE_backdown"))
+        .args(["--db"])
+        .arg(&db)
+        .args(["daemon", "--port", "0", "--rescan-every", "never"])
+        .env("XDG_RUNTIME_DIR", run.path())
+        .env("XDG_DATA_HOME", d.join("data"))
+        .env("HOME", d.join("home"))
+        .env("PATH", &path)
+        .env("BACKDOWN_FAKE_HEALTH", &here)
+        .env_remove("BACKDOWN_PRETEND_RELEASE")
+        .env_remove("NOTIFY_SOCKET")
+        .env_remove("DBUS_SESSION_BUS_ADDRESS")
+        .env_remove("DISPLAY")
+        .env_remove("WAYLAND_DISPLAY")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let _daemon = Daemon(child);
+    let sock = run.path().join("backdown/daemon.sock");
+    let ui = d.join("data/backdown/ui.json");
+    wait_for("the daemon", || sock.exists() && ui.exists());
+
+    let nas = nas_db.to_str().unwrap();
+    let o = backdown(
+        &db,
+        &[
+            "remote",
+            "add",
+            "nas",
+            "ssh://nas.example.org",
+            "--remote-db",
+            nas,
+        ],
+        None,
+    );
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    // synced by the service: the first sight of its drives tells nothing
+    let o = backdown(&db, &["remote", "sync", "nas"], None);
+    let out = String::from_utf8_lossy(&o.stdout).into_owned();
+    assert!(
+        o.status.success() && out.contains("drive health of 2 drives"),
+        "{out}"
+    );
+    // a drive there fails; the next sync tells, on the desktop too
+    readings(&there, 150, 0);
+    backdown(&nas_db, &["--local", "health"], Some(&there));
+    let o = backdown(&db, &["remote", "sync", "nas"], None);
+    let out = String::from_utf8_lossy(&o.stdout).into_owned();
+    assert!(out.contains("1 worse since the last sync"), "{out}");
+    wait_for("the notification", || {
+        std::fs::read_to_string(&shown).is_ok_and(|s| s.contains("A drive on nas is failing"))
+    });
+    let s = std::fs::read_to_string(&shown).unwrap();
+    assert!(
+        s.contains("FAKEDISK HD4000 (S/N FAKE-0001): 150 more sectors"),
+        "{s}"
+    );
+    assert_eq!(s.lines().count(), 1, "{s}");
+
+    // the browser: the machine's drives, and the notification linked to its drive there
+    let ui: Value = serde_json::from_slice(&std::fs::read(&ui).unwrap()).unwrap();
+    let (port, token) = (ui["port"].as_u64().unwrap(), ui["token"].as_str().unwrap());
+    let hm = http(port, token, "GET", "/api/health-machines");
+    assert_eq!(hm["worst"], "failing", "{hm}");
+    let m = &hm["machines"][0];
+    assert_eq!(m["name"], "nas");
+    assert!(m["last_sync"].is_i64());
+    assert_eq!(m["drives"][0]["verdict"], "failing");
+    assert_eq!(m["drives"][0]["id"], "sn:FAKE0001");
+    assert_eq!(m["drives"][1]["verdict"], "ok");
+    let n = http(port, token, "GET", "/api/notifications");
+    assert_eq!(n["notes"][0]["title"], "A drive on nas is failing");
+    assert_eq!(n["notes"][0]["drive"], "@nas:sn:FAKE0001");
+    assert_eq!(n["notes"][0]["shown"], true);
+    assert_eq!(
+        http(port, token, "GET", "/api/daemon")["health"]["unread"],
+        1
+    );
+    // and a sync with nothing new tells nothing more
+    backdown(&db, &["remote", "sync", "nas"], None);
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(std::fs::read_to_string(&shown).unwrap().lines().count(), 1);
+    assert_eq!(http(port, token, "GET", "/api/notifications")["unread"], 1);
+}

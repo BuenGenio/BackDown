@@ -3,6 +3,8 @@
 // drive is failing (Rescue one click away), mirrors on a drive that's dying, and the list of
 // notifications. Everything comes from /api/health and /api/notifications (health.rs); nothing
 // here touches a drive. The daemon's snapshot says when either changed, so they're fetched then.
+// The other machines' drives (Team) come from /api/health-machines: as each machine's own BackDown
+// last read them, fetched with its last sync; nothing here reaches a machine either.
 import { api, when } from './app.js';
 import { toast } from './extras.js';
 
@@ -12,7 +14,7 @@ const num = n => Number(n || 0).toLocaleString();
 const load = k => { try { return sessionStorage.getItem(k); } catch { return null; } };
 const store = (k, v) => { try { sessionStorage.setItem(k, v); } catch {} };
 
-export const H = { data: null, notes: null, settings: null, change: undefined, onRescue: null, onChange: null };
+export const H = { data: null, notes: null, settings: null, machines: null, change: undefined, onRescue: null, onChange: null };
 const WORD = { ok: 'healthy', warning: 'warning', failing: 'failing', unknown: 'no health data' };
 const RANK = { failing: 3, warning: 2, ok: 1, unknown: 0 };
 
@@ -54,7 +56,21 @@ async function loadSettings() {
   H.onChange?.();
 }
 
-// The daemon's snapshot changed: fetch again only if health or notifications did.
+// the other machines' drives; locked (Team), it's said only to someone who has added machines
+async function loadMachines() {
+  try { H.machines = await api('health-machines'); }
+  catch (e) {
+    let n = 0;
+    if (e.refusal) { try { n = (await api('machines')).machines?.length || 0; } catch {} }
+    H.machines = { machines: [], refusal: n ? e.refusal : null, error: e.refusal ? null : e.message };
+  }
+  H.onChange?.();
+  const open = $('.hp-wrap');
+  if (open && open.dataset.id?.startsWith('@')) showDetails(open.dataset.id, false);
+}
+
+// The daemon's snapshot changed: fetch again only if health or notifications did (a sync of
+// another machine counts: what's known of its drives changed).
 export function daemonChanged(d) {
   const c = d?.health?.change;
   if (c === H.change) return;
@@ -62,6 +78,7 @@ export function daemonChanged(d) {
   H.change = c;
   if (!first || !H.data) loadHealth();
   loadNotes();
+  if (!first || !H.machines) loadMachines();
   if (!H.settings) loadSettings();
 }
 
@@ -70,11 +87,15 @@ export function mountHealth({ onRescue, onChange }) {
   document.addEventListener('click', onClick);
   loadHealth();
   loadNotes();
+  loadMachines();
 }
 
 // ---------- which drive is which
 
 const drives = () => H.data?.drives || [];
+// a drive on another machine goes by "@machine:its id" (a notification about it says the same)
+const remoteDrives = () => (H.machines?.machines || []).flatMap(m => (m.drives || []).map(s => ({ ...s, key: `@${m.name}:${s.id}` })));
+const findDrive = id => drives().find(x => x.id === id || x.health.device === id) || remoteDrives().find(x => x.key === id) || null;
 
 // a disk from the volume probe: by serial (however each platform spells it), else by device
 export function healthOfDisk(dk) {
@@ -109,7 +130,7 @@ function title(s) {
 
 export function pill(s, { small = false } = {}) {
   if (!s) return '';
-  return `<button class="hpill v-${esc(s.verdict)}${small ? ' sm' : ''}" type="button" data-health="${esc(s.id || s.health.device)}" title="${esc(title(s))}"><i></i>${esc(WORD[s.verdict] || s.verdict)}</button>`;
+  return `<button class="hpill v-${esc(s.verdict)}${small ? ' sm' : ''}" type="button" data-health="${esc(s.key || s.id || s.health.device)}" title="${esc(title(s))}"><i></i>${esc(WORD[s.verdict] || s.verdict)}</button>`;
 }
 
 // the sidebar: a dot, and a word only when something's wrong
@@ -206,7 +227,7 @@ const COUNTERS = [
 ];
 
 export function showDetails(id, focus = true) {
-  const s = drives().find(x => x.id === id || x.health.device === id);
+  const s = findDrive(id);
   if (!s) return;
   const h = s.health;
   let d = $('.hp-wrap');
@@ -220,7 +241,7 @@ export function showDetails(id, focus = true) {
     document.addEventListener('keydown', onKey, true);
     d.addEventListener('click', e => { if (e.target === d || e.target.closest('[data-hp-close]')) close(); });
   }
-  d.dataset.id = s.id || h.device;
+  d.dataset.id = s.key || s.id || h.device;
   const kv = COUNTERS.filter(([k]) => h[k] != null).map(([k, name, f]) => `<dt>${esc(name)}</dt><dd>${esc(f(h[k], h))}</dd>`).join('');
   const pts = s.series || [];
   const trends = [
@@ -229,9 +250,10 @@ export function showDetails(id, focus = true) {
   const failing = s.verdict === 'failing';
   d.innerHTML = `<div class="help hpanel v-${esc(s.verdict)}" role="dialog" aria-modal="true" aria-labelledby="hp-t">
     <header><h2 id="hp-t">${esc(label(s))}</h2><button class="hb-btn" type="button" data-hp-close aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
-    <p class="hp-sub">${pill(s)} <span class="muted">${[s.present ? h.device : 'not connected', h.transport, h.serial ? `S/N ${h.serial}` : '', h.protocol ? h.protocol.toUpperCase() : ''].filter(Boolean).map(esc).join(' · ')}</span></p>
+    <p class="hp-sub">${pill(s)} <span class="muted">${[s.machine ? `on ${s.machine}${h.device ? ` (${h.device})` : ''}` : s.present ? h.device : 'not connected', h.transport, h.serial ? `S/N ${h.serial}` : '', h.protocol ? h.protocol.toUpperCase() : ''].filter(Boolean).map(esc).join(' · ')}</span></p>
     ${failing ? `<div class="hp-callout"><p><b>Copy what matters off this drive now.</b> A failing drive can stop reading at any moment, and every read wears it further: BackDown's Rescue copies it once, good areas first, and never writes to it.</p>
-      ${s.present ? `<button class="btn primary" type="button" data-health-rescue="${esc(s.id)}">Copy it now</button>` : '<p class="muted">Connect it, then copy it from Rescue.</p>'}</div>` : ''}
+      ${s.machine ? `<p class="muted">It’s on ${esc(s.machine)}: copy it there, with BackDown’s Rescue on that machine.</p>`
+        : s.present ? `<button class="btn primary" type="button" data-health-rescue="${esc(s.id)}">Copy it now</button>` : '<p class="muted">Connect it, then copy it from Rescue.</p>'}</div>` : ''}
     ${(s.findings || []).length ? `<ul class="hp-find">${s.findings.map(f => `<li class="v-${esc(f.level)}"><i></i>${esc(f.text)}</li>`).join('')}</ul>`
       : s.verdict === 'ok' ? '<p class="hp-ok">Nothing in its health data points to trouble.</p>' : ''}
     ${h.note ? `<p class="hp-note">${esc(h.note)}</p>` : ''}
@@ -239,10 +261,47 @@ export function showDetails(id, focus = true) {
     ${trends ? `<h3>Since ${esc(when(s.first_at))}</h3><div class="hp-trends">${trends}</div>` : ''}
     ${(s.trend || []).length ? `<p class="muted">Since the first reading: ${esc(s.trend.join(', '))}.</p>` : s.readings > 1 ? '<p class="muted">No change since the first reading.</p>' : ''}
     ${(s.changes || []).length ? `<h3>What changed</h3><ol class="hp-changes">${[...s.changes].reverse().map(c => `<li class="v-${esc(c.level)}"><span>${esc(c.text)}</span><small class="muted" title="${esc(when(c.at))}">${ago(c.at)}</small></li>`).join('')}</ol>` : ''}
-    <p class="hp-foot muted">Read ${ago(h.read_at)} from ${esc(h.source || 'nothing')}${s.readings ? ` · ${num(s.readings)} reading${s.readings === 1 ? '' : 's'} kept` : ''}
+    <p class="hp-foot muted">Read ${s.machine ? `on ${esc(s.machine)} ` : ''}${ago(h.read_at)} from ${esc(h.source || 'nothing')}${s.readings ? ` · ${num(s.readings)} reading${s.readings === 1 ? '' : 's'} kept${s.machine ? ' there' : ''}` : ''}${s.machine ? ` · fetched ${ago(s.fetched_at)}, with its last sync` : ''}
       ${H.data?.daemon && s.present ? `<button class="btn sm" type="button" data-health-check${H.data.running ? ' disabled' : ''}>Check now</button>` : ''}</p>
   </div>`;
   if (focus) d.querySelector('[data-hp-close]').focus();
+}
+
+// ---------- the other machines' drives, in Activity (Team)
+
+const cap = s => s ? s[0].toUpperCase() + s.slice(1) : '';
+
+function machineDrives(m) {
+  const rows = (m.drives || []).map(s => {
+    const k = { ...s, key: `@${m.name}:${s.id}` };
+    const h = s.health || {};
+    const where = [h.serial ? `S/N ${h.serial}` : '', (h.mounts || []).slice(0, 2).join(', ')].filter(Boolean).join(' · ');
+    const why = RANK[s.verdict] > 1 ? (s.findings || []).find(f => f.level === s.verdict)?.text : '';
+    return `<tr${s.current ? '' : ' class="hm-stale"'}><td><b>${esc(label(k))}</b><small class="muted">${esc(where)}</small></td>
+      <td>${pill(k)}${why ? `<small class="muted">${esc(why)}</small>` : ''}</td>
+      <td class="muted" title="${esc(when(h.read_at))}">read there ${ago(h.read_at)}${s.current ? '' : '<small>not read there lately: taken out, or its BackDown isn’t running</small>'}</td></tr>`;
+  }).join('');
+  const told = (m.notes || []).slice(0, 3).map(n => `<li class="v-${esc(n.level)}"><i></i>${esc(n.title)} <span class="muted" title="${esc(when(n.at))}">${ago(n.at)}</span></li>`).join('');
+  return `<div class="vol-disk"><div class="vol-head"><b>${esc(m.name)}</b>${RANK[m.worst] > 1 ? `<b class="hword v-${esc(m.worst)}">${esc(WORD[m.worst])}</b>` : ''}
+      <span class="muted">${esc(m.url)} · ${m.last_sync ? `synced ${ago(m.last_sync)}` : 'not synced yet'}</span></div>
+    ${rows ? `<table class="list act-drives hm-drives"><tbody>${rows}</tbody></table>` : ''}
+    ${m.health?.note ? `<p class="muted pad">${esc(cap(m.health.note))}.</p>` : ''}
+    ${told ? `<ul class="hm-told"><li class="muted">Its own latest notifications:</li>${told}</ul>` : ''}</div>`;
+}
+
+// each machine's drives with their verdict and how old the reading is, a word for a machine that
+// can't say (an older BackDown there), and when it was synced
+export function machinesSection() {
+  const o = H.machines;
+  if (!o) return '';
+  const head = '<h3>Other machines’ drives <span class="muted hhead">as each machine’s own BackDown read them, fetched when it’s synced</span></h3>';
+  if (o.refusal) {
+    return `<section class="hmach">${head}<p class="muted pad">${esc(o.refusal.error)} ${esc(o.refusal.unlocks)}
+      <button class="btn sm" type="button" data-set-go="licence">Add a licence key</button></p></section>`;
+  }
+  const ms = o.machines || [];
+  if (!ms.length) return '';
+  return `<section class="hmach">${head}${o.why_not ? `<p class="muted pad">${esc(cap(o.why_not))}.</p>` : ''}${ms.map(machineDrives).join('')}</section>`;
 }
 
 // ---------- notifications, in Activity
@@ -264,7 +323,7 @@ export function notesSection() {
     <li class="hn v-${esc(x.level)}${x.read ? '' : ' unread'}" data-note="${x.id}">
       <span class="ji"><i class="hn-dot"></i></span>
       <span class="jn">${esc(x.title)}<small>${esc(x.body)}</small></span>
-      <span class="hn-act">${x.drive && drives().some(s => s.id === x.drive) ? `<button class="btn sm" type="button" data-health="${esc(x.drive)}">Details</button>` : ''}
+      <span class="hn-act">${x.drive && findDrive(x.drive) ? `<button class="btn sm" type="button" data-health="${esc(x.drive)}">Details</button>` : ''}
         ${x.read ? '' : `<button class="act-x" type="button" data-note-read="${x.id}" title="Mark as read" aria-label="Mark as read">✓</button>`}</span>
       <span class="muted" title="${esc(when(x.at))}">${ago(x.at)}${x.shown ? '' : ' · <span title="Not shown on the desktop (turned off, or too many at once)">listed only</span>'}</span></li>`).join('')}</ol>${more}</section>`;
 }

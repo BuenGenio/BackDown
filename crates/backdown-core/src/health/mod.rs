@@ -77,7 +77,8 @@ impl Verdict {
         }
     }
 
-    fn parse(s: &str) -> Verdict {
+    /// From its name (`as_str`); anything else is unknown.
+    pub fn parse(s: &str) -> Verdict {
         match s {
             "ok" => Verdict::Ok,
             "warning" => Verdict::Warning,

@@ -20,8 +20,15 @@
 //! Sizes and samples of the files there count as possible copies when hashing here (hash.rs), and
 //! the files there whose size matches a file here are sampled, then hashed, by that machine on
 //! request (without writing to its index), so a file whose only copy is on the NAS gets proved.
+//!
+//! Each sync also fetches that machine's drive health as its own index has it (`fetch_health`):
+//! its drives' latest readings and verdicts, and its own latest drive-health notifications. A
+//! drive there whose verdict got worse since the last sync becomes a notification here; the
+//! first sight of a machine's drives never does. A BackDown there from before the `health`
+//! request is noted ("update BackDown on nas to see its drive health"), and its sync goes on.
 
 use std::collections::HashMap;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -32,6 +39,8 @@ use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use crate::alerts::{self, Limits, Note};
+use crate::health::{self, Change, Health, Verdict};
 use crate::{Db, browse, fmt, paths};
 
 pub mod serve;
@@ -433,6 +442,10 @@ pub fn remove(db: &Db, id: i64) -> Result<()> {
             .execute("DELETE FROM remote_files WHERE remote_id = ?1", [id])?;
         db.conn
             .execute("DELETE FROM remote_roots WHERE remote_id = ?1", [id])?;
+        db.conn
+            .execute("DELETE FROM remote_health WHERE remote_id = ?1", [id])?;
+        db.conn
+            .execute("DELETE FROM remote_health_state WHERE remote_id = ?1", [id])?;
         if db.conn.execute("DELETE FROM remotes WHERE id = ?1", [id])? == 0 {
             bail!("there's no machine {id}");
         }
@@ -1007,6 +1020,13 @@ pub struct SyncStats {
     pub left: u64,
     /// the sizes or hashes cached changed: hashing here may find more copies now
     pub changed: bool,
+    /// its drive health: "ok", "unsupported" (a BackDown there from before the request), "error",
+    /// or "" when it wasn't asked
+    pub health: &'static str,
+    /// drives it reported
+    pub health_drives: u64,
+    /// notifications recorded here about drives there getting worse
+    pub health_notes: u64,
 }
 
 pub struct SyncOptions<'a> {
@@ -1015,6 +1035,11 @@ pub struct SyncOptions<'a> {
     /// how long to spend having files there sampled and hashed
     pub hash_budget: Duration,
     pub stop: Option<&'a AtomicBool>,
+    /// fetch its drive health too, and tell here when a drive there gets worse
+    pub health: bool,
+    /// such a notification may go to the desktop: the ones to show now are put here, as they're
+    /// recorded (so even when the sync fails afterwards). None: they're only listed, in Activity
+    pub show: Option<&'a Mutex<Vec<Note>>>,
 }
 
 impl Default for SyncOptions<'_> {
@@ -1023,6 +1048,8 @@ impl Default for SyncOptions<'_> {
             page: 5000,
             hash_budget: Duration::from_secs(20 * 60),
             stop: None,
+            health: true,
+            show: None,
         }
     }
 }
@@ -1086,6 +1113,10 @@ pub fn sync(
             .execute("DELETE FROM remote_roots WHERE remote_id = ?1", [m.id])?;
     }
     let mut st = SyncStats::default();
+    // first, as it's quick: a drive there going bad is news even when the files take a while
+    if opts.health {
+        fetch_health(db, m, peer, skew, opts.show, &mut st)?;
+    }
     let roots: Vec<RootInfo> =
         serde_json::from_value(peer.call("roots", json!({}), ASK)?["roots"].clone())
             .context("its list of drives")?;
@@ -1414,6 +1445,432 @@ fn hash_there(
     }
     st.left = left_to_hash(db, m)?;
     Ok(())
+}
+
+// ---------- drive health there
+
+/// A drive there whose latest reading was this many days older than the sync that fetched it
+/// isn't being read there any more (taken out, or that machine's BackDown isn't running): it's
+/// listed, but not as current.
+pub const HEALTH_STALE_DAYS: i64 = 7;
+/// The most kept of one drive there (its summary, as JSON): past it, its changes, trend, note and
+/// mount points are left out, and past that, the drive.
+const MAX_DRIVE_JSON: usize = 16 * 1024;
+
+/// The drive-health tables are there (an index this version has opened for writing at least once).
+fn has_health_tables(db: &Db) -> bool {
+    db.conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'remote_health_state')",
+            [],
+            |r| r.get::<_, bool>(0),
+        )
+        .unwrap_or(false)
+}
+
+/// The other end doesn't know request `op`: a BackDown from before it was added. Those say "bad
+/// request: unknown variant `op`"; from this version on, "unknown request \"op\"".
+pub fn unknown_request(e: &anyhow::Error, op: &str) -> bool {
+    let s = format!("{e:#}");
+    s.contains(&format!("unknown request {op:?}")) || s.contains(&format!("unknown variant `{op}`"))
+}
+
+fn clip(s: &str, n: usize) -> String {
+    if s.len() <= n {
+        return s.to_string();
+    }
+    let mut i = n;
+    while !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    format!("{}…", &s[..i])
+}
+
+/// One drive as a `health` answer gives it, in this machine's clock, with its verdict and findings
+/// as this BackDown's own rules see its reading; None when it isn't one.
+fn drive_from(d: &Value, skew: i64) -> Option<(Health, Value)> {
+    let mut h: Health = serde_json::from_value(d.get("health")?.clone()).ok()?;
+    let id = d["id"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .map_or_else(|| h.id.clone(), str::to_string);
+    if id.is_empty() || id.len() > 200 {
+        return None;
+    }
+    h.id = id.clone();
+    if h.read_at > 0 {
+        h.read_at -= skew;
+    }
+    let mut changes: Vec<Change> = d["changes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|c| serde_json::from_value(c.clone()).ok())
+        .collect();
+    changes.drain(..changes.len().saturating_sub(serve::MAX_HEALTH_CHANGES));
+    for c in &mut changes {
+        c.at -= skew;
+    }
+    let trend: Vec<&str> = d["trend"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .take(20)
+        .collect();
+    let a = health::assess(&h);
+    let mut s = json!({
+        "id": id, "health": h, "verdict": a.verdict, "findings": a.findings, "changes": changes,
+        "trend": trend, "first_at": d["first_at"].as_i64().map(|t| t - skew),
+        "readings": d["readings"].as_u64().unwrap_or(0),
+    });
+    if s.to_string().len() > MAX_DRIVE_JSON {
+        s["changes"] = json!([]);
+        s["trend"] = json!([]);
+        s["health"]["note"] = Value::Null;
+        s["health"]["mounts"] = json!([]);
+        if s.to_string().len() > MAX_DRIVE_JSON {
+            return None;
+        }
+    }
+    Some((h, s))
+}
+
+/// One of the other machine's own notifications, in this machine's clock.
+fn told_from(v: &Value, skew: i64) -> Option<Value> {
+    let text = |k: &str, n: usize| v[k].as_str().map(|s| clip(s, n));
+    Some(json!({
+        "at": v["at"].as_i64()? - skew, "level": text("level", 16)?, "title": text("title", 200)?,
+        "body": text("body", 1000).unwrap_or_default(), "drive": text("drive", 200),
+    }))
+}
+
+/// Ask machine `m` for its drive health (what its own index holds: nothing is read from a drive
+/// there for this), and keep it in place of what was kept. A drive whose verdict got worse since
+/// the last time becomes a notification here, but never on the first sight of that machine's
+/// drives. A BackDown there that doesn't know the request (an older one), or an error there, is
+/// noted, and the sync goes on. With `show`, a notification may go to the desktop (see
+/// `SyncOptions::show`).
+fn fetch_health(
+    db: &Db,
+    m: &Machine,
+    peer: &mut dyn Peer,
+    skew: i64,
+    show: Option<&Mutex<Vec<Note>>>,
+    st: &mut SyncStats,
+) -> Result<()> {
+    let at = now();
+    let ans = match peer.call("health", json!({}), ASK) {
+        Ok(a) => a,
+        Err(e) => {
+            let older = unknown_request(&e, "health");
+            if older {
+                // what it said before (if it ever did) isn't current; once it's updated, its
+                // drives are a first sight again
+                db.conn
+                    .execute("DELETE FROM remote_health WHERE remote_id = ?1", [m.id])?;
+            }
+            db.conn.execute(
+                "INSERT INTO remote_health_state(remote_id, asked_at, ok_at, state, error, notes)
+                 VALUES (?1, ?2, NULL, ?3, ?4, NULL)
+                 ON CONFLICT(remote_id) DO UPDATE SET asked_at = excluded.asked_at,
+                   state = excluded.state, error = excluded.error,
+                   ok_at = CASE WHEN excluded.state = 'unsupported' THEN NULL ELSE ok_at END,
+                   notes = CASE WHEN excluded.state = 'unsupported' THEN NULL ELSE notes END",
+                params![
+                    m.id,
+                    at,
+                    if older { "unsupported" } else { "error" },
+                    (!older).then(|| clip(&format!("{e:#}"), 500))
+                ],
+            )?;
+            st.health = if older { "unsupported" } else { "error" };
+            return Ok(());
+        }
+    };
+    // whether its drives were seen before, and how each was then: its verdict, and the changes
+    // already known (by their keys, which name the event whatever either clock says)
+    let seen: bool = db.conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM remote_health_state WHERE remote_id = ?1 AND ok_at IS NOT NULL)",
+        [m.id],
+        |r| r.get(0),
+    )?;
+    let before: HashMap<String, (Verdict, Vec<String>)> = {
+        let mut stmt = db
+            .conn
+            .prepare("SELECT drive, verdict, summary FROM remote_health WHERE remote_id = ?1")?;
+        let rows = stmt.query_map([m.id], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })?;
+        let mut out = HashMap::new();
+        for row in rows {
+            let (drive, verdict, summary) = row?;
+            let s: Value = serde_json::from_str(&summary).unwrap_or(Value::Null);
+            let keys = s["changes"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|c| c["key"].as_str().map(str::to_string))
+                .collect();
+            out.insert(drive, (Verdict::parse(&verdict), keys));
+        }
+        out
+    };
+    let mut drives: Vec<(Health, Value)> = Vec::new();
+    for d in ans["drives"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .take(serve::MAX_HEALTH_DRIVES)
+    {
+        if let Some((h, s)) = drive_from(d, skew)
+            && !drives.iter().any(|(x, _)| x.id == h.id)
+        {
+            drives.push((h, s));
+        }
+    }
+    let told: Vec<Value> = ans["notes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .take(serve::MAX_HEALTH_NOTES)
+        .filter_map(|n| told_from(n, skew))
+        .collect();
+    db.conn.execute_batch("BEGIN")?;
+    let r = (|| -> Result<()> {
+        db.conn
+            .execute("DELETE FROM remote_health WHERE remote_id = ?1", [m.id])?;
+        let mut put = db.conn.prepare_cached(
+            "INSERT INTO remote_health(remote_id, drive, model, serial, verdict, summary, read_at, fetched_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        )?;
+        for (h, s) in &drives {
+            put.execute(params![
+                m.id,
+                h.id,
+                h.model.as_deref().map(|x| clip(x, 200)),
+                h.serial.as_deref().map(|x| clip(x, 200)),
+                s["verdict"].as_str().unwrap_or("unknown"),
+                s.to_string(),
+                (h.read_at > 0).then_some(h.read_at),
+                at
+            ])?;
+        }
+        db.conn.execute(
+            "INSERT INTO remote_health_state(remote_id, asked_at, ok_at, state, error, notes)
+             VALUES (?1, ?2, ?2, 'ok', NULL, ?3)
+             ON CONFLICT(remote_id) DO UPDATE SET asked_at = excluded.asked_at, ok_at = excluded.ok_at,
+               state = 'ok', error = NULL, notes = excluded.notes",
+            params![m.id, at, json!(told).to_string()],
+        )?;
+        Ok(())
+    })();
+    db.conn
+        .execute_batch(if r.is_ok() { "COMMIT" } else { "ROLLBACK" })?;
+    r?;
+    st.health = "ok";
+    st.health_drives = drives.len() as u64;
+    if !seen {
+        return Ok(()); // the first sight of its drives: nothing to compare with, so nothing to tell
+    }
+    for (h, s) in &drives {
+        let now_v = Verdict::parse(s["verdict"].as_str().unwrap_or(""));
+        let (was, known) = match before.get(&h.id) {
+            Some((v, k)) => (Some(*v), k.as_slice()),
+            None => (None, &[][..]),
+        };
+        if now_v.rank() <= was.map_or(0, Verdict::rank) {
+            continue;
+        }
+        let changes: Vec<Change> = serde_json::from_value(s["changes"].clone()).unwrap_or_default();
+        let new: Vec<&Change> = changes.iter().filter(|c| !known.contains(&c.key)).collect();
+        let note = worse_note(m, h, &new, was, now_v);
+        let added = alerts::add(db, &note, show.is_some(), at, &Limits::default())?;
+        if let Some((_, now)) = added {
+            st.health_notes += 1;
+            if let (true, Some(s)) = (now, show) {
+                s.lock().unwrap_or_else(|e| e.into_inner()).push(note);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The notification for drive `h` on machine `m` getting worse: what its readings say changed since
+/// the last sync (`new`: its changes not known then), else why it's at its verdict now; and what
+/// to do.
+fn worse_note(
+    m: &Machine,
+    h: &Health,
+    new: &[&Change],
+    was: Option<Verdict>,
+    now_v: Verdict,
+) -> Note {
+    let mut what: Vec<String> = new
+        .iter()
+        .filter(|c| c.level.rank() > 0 && c.code != "verdict")
+        .map(|c| c.text.clone())
+        .collect();
+    if what.is_empty() {
+        what = health::assess(h)
+            .findings
+            .into_iter()
+            .filter(|f| f.level == now_v)
+            .map(|f| f.text)
+            .collect();
+    }
+    if what.is_empty() {
+        what.push(format!("it's {} now", now_v.as_str()));
+    }
+    let drive = match &h.serial {
+        Some(sn) => format!("{} (S/N {sn})", h.label()),
+        None => h.label(),
+    };
+    let failing = now_v == Verdict::Failing;
+    let mut body = format!("{drive}: {}.", what.join("; "));
+    match was {
+        Some(w) if w != Verdict::Unknown => {
+            body.push_str(&format!(" It was {} at the last sync.", w.as_str()))
+        }
+        Some(_) => {}
+        None => body.push_str(" It wasn't there at the last sync."),
+    }
+    body.push_str(if failing {
+        " Copy what matters off it now: BackDown's Rescue, on that machine, can copy the whole drive."
+    } else {
+        " Make sure what's on it has another copy."
+    });
+    Note {
+        kind: "health",
+        key: format!("health@{}:{}:verdict:{}", m.name, h.id, now_v.as_str()),
+        level: now_v.as_str(),
+        title: format!(
+            "A drive on {} {}",
+            m.name,
+            if failing {
+                "is failing"
+            } else {
+                "needs watching"
+            }
+        ),
+        body,
+        drive: Some(format!("@{}:{}", m.name, h.id)),
+        quiet_for: 7 * 86_400,
+    }
+}
+
+/// A word for a machine whose drives can't be shown, or not as they are now.
+fn health_note(
+    m: &Machine,
+    state: Option<&str>,
+    error: Option<&str>,
+    drives: usize,
+) -> Option<String> {
+    match state {
+        None if m.last_sync.is_none() => Some(format!(
+            "{} hasn't been synced yet: its drive health comes with its first sync",
+            m.name
+        )),
+        None => Some(format!(
+            "{}'s drive health comes with its next sync",
+            m.name
+        )),
+        Some("unsupported") => Some(format!(
+            "update BackDown on {} to see its drive health",
+            m.name
+        )),
+        Some("error") => Some(format!(
+            "{}'s drive health couldn't be fetched at the last sync: {}",
+            m.name,
+            error.unwrap_or("it didn't say why")
+        )),
+        Some(_) if drives == 0 => Some(format!(
+            "no drive health on {} yet: its BackDown reads it when its service runs, or with `backdown health` there",
+            m.name
+        )),
+        Some(_) => None,
+    }
+}
+
+/// Every machine's drives as last fetched (the worst first), how asking went, a word for a machine
+/// that can't say, and its own latest notifications: the browser's "Other machines" and `backdown
+/// health --machines`.
+pub fn health_overview(db: &Db) -> Result<Value> {
+    type StateRow = (i64, Option<i64>, String, Option<String>, Option<String>);
+    let has = has_health_tables(db);
+    let rank = |v: &Value| Verdict::parse(v["verdict"].as_str().unwrap_or("")).rank();
+    let mut out = Vec::new();
+    let mut worst = Verdict::Unknown;
+    for m in list(db)? {
+        let state: Option<StateRow> = if has {
+            db.conn
+                .query_row(
+                    "SELECT asked_at, ok_at, state, error, notes FROM remote_health_state WHERE remote_id = ?1",
+                    [m.id],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+                )
+                .optional()?
+        } else {
+            None
+        };
+        let mut drives: Vec<Value> = Vec::new();
+        if has {
+            let mut stmt = db.conn.prepare_cached(
+                "SELECT summary, fetched_at FROM remote_health WHERE remote_id = ?1",
+            )?;
+            let rows = stmt.query_map([m.id], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+            })?;
+            for row in rows {
+                let (s, fetched) = row?;
+                let Ok(mut v) = serde_json::from_str::<Value>(&s) else {
+                    continue;
+                };
+                let read = v["health"]["read_at"].as_i64().unwrap_or(0);
+                v["fetched_at"] = json!(fetched);
+                v["current"] = json!(read >= fetched - HEALTH_STALE_DAYS * 86_400);
+                v["machine"] = json!(m.name);
+                drives.push(v);
+            }
+        }
+        drives.sort_by_key(|v| {
+            (
+                std::cmp::Reverse(rank(v)),
+                v["current"] != true,
+                std::cmp::Reverse(v["health"]["read_at"].as_i64().unwrap_or(0)),
+            )
+        });
+        let mine = drives
+            .iter()
+            .filter(|v| v["current"] == true)
+            .map(|v| Verdict::parse(v["verdict"].as_str().unwrap_or("")))
+            .max_by_key(|v| v.rank())
+            .unwrap_or(Verdict::Unknown);
+        if mine.rank() > worst.rank() || (worst == Verdict::Unknown && mine == Verdict::Ok) {
+            worst = mine;
+        }
+        let (asked_at, ok_at, st, error, notes) = match &state {
+            Some((a, o, s, e, n)) => (Some(*a), *o, Some(s.as_str()), e.as_deref(), n.as_deref()),
+            None => (None, None, None, None, None),
+        };
+        let notes: Value = notes
+            .and_then(|n| serde_json::from_str(n).ok())
+            .unwrap_or(json!([]));
+        out.push(json!({
+            "id": m.id, "name": m.name, "url": m.url, "last_sync": m.last_sync, "last_try": m.last_try,
+            "last_error": m.last_error, "version": m.info["version"],
+            "health": {
+                "state": st.unwrap_or("never"), "asked_at": asked_at, "ok_at": ok_at, "error": error,
+                "note": health_note(&m, st, error, drives.len()),
+            },
+            "worst": mine, "drives": drives, "notes": notes,
+        }));
+    }
+    Ok(json!({ "machines": out, "worst": worst, "stale_days": HEALTH_STALE_DAYS }))
 }
 
 // ---------- proof for a wipe

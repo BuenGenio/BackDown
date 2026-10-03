@@ -864,6 +864,13 @@ b.v-warning{color:var(--warn)}
 .hn-act{display:flex;gap:4px;align-items:center}
 @media(max-width:760px){.act-list li.hn{grid-template-columns:22px minmax(0,1fr)}.hn .hn-act,.hn>.muted{grid-column:2}.hp-trend{grid-template-columns:1fr}.hp-kv{grid-template-columns:1fr}}
 .hn-more{margin:8px 0 0}
+/* the other machines' drives (health.js): a reading no longer taken there is greyed */
+.hm-drives tr.hm-stale td>*:not(small){opacity:.6}
+.hm-drives td small{max-width:48ch}
+.hm-told{list-style:none;margin:4px 2px 0;padding:0;font-size:.82rem;display:flex;flex-wrap:wrap;gap:2px 14px}
+.hm-told li{display:inline-flex;align-items:center;gap:6px}
+.hm-told li i{width:7px;height:7px;border-radius:50%;background:var(--info);flex:none}
+.hm-told li.v-warning i{background:var(--warn)}.hm-told li.v-failing i{background:var(--crit)}
 
 /* other machines (machines.js): the sidebar's Machines, a machine's page, its folders read-only */
 .place.sub{padding-left:26px}

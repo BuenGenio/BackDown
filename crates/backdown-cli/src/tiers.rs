@@ -282,14 +282,17 @@ pub const FEATURES: &[Feature] = &[
         ready: false,
     },
     Feature {
+        // the other machines' drives, fetched with each sync over the person's own ssh
+        // (remote/): `backdown health --machines`, the browser's "Other machines' drives", and
+        // notifications about them. `backdown health` and /api/health, this machine's own, stay free
         key: "health-alerts",
         name: "Drive health alerts",
-        unlocks: "Every machine's drive-health warnings gathered in one place. Each machine's own health readings, warnings and notifications are free.",
+        unlocks: "Every machine's drive-health warnings gathered here, from the machines you've added. Each machine's own health readings, warnings and notifications are free.",
         tier: Team,
         commands: &[],
-        endpoints: &[],
+        endpoints: &["/api/health-machines"],
         views: &[],
-        ready: false,
+        ready: true,
     },
     Feature {
         key: "attestations",
@@ -678,6 +681,10 @@ mod tests {
         );
         assert!(team.allows(feature("filing").unwrap()) && team.allows(feature("fleet").unwrap()));
         assert!(!team.allows(feature("custody").unwrap()));
+        // gathering other machines' drive health is Team: Pro reaches machines, but not that
+        assert!(!pro.allows(feature("health-alerts").unwrap()));
+        assert!(pro.allows(feature("multi-machine").unwrap()));
+        assert!(team.allows(feature("health-alerts").unwrap()));
     }
 
     #[test]
@@ -751,6 +758,13 @@ mod tests {
         }
         assert_eq!(endpoint_feature("/api/plan").unwrap().key, "filing");
         assert!(endpoint_feature("/api/dupes").is_none());
+        // other machines' drive health is Team; this machine's own stays free
+        assert_eq!(
+            endpoint_feature("/api/health-machines").unwrap().key,
+            "health-alerts"
+        );
+        assert!(endpoint_feature("/api/health").is_none());
+        assert!(endpoint_feature("/api/notifications").is_none());
     }
 
     fn features_state(a: &Access) -> Vec<bool> {
