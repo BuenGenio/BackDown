@@ -96,7 +96,11 @@ backdown update
 backdown update --rollback
 ```
 
-Installing downloads this computer's archive and the release's `SHA256SUMS.txt` over HTTPS, and refuses unless the archive's SHA-256 matches. It unpacks the new program beside the one you have, checks that it runs and says the expected version, keeps a copy of the old one in your data folder (`previous/`), swaps them, and restarts the background service. If the new one doesn't start, the old one is put back. `--rollback` puts back the version the last update replaced. The sums come from the same release as the download, so they prove the file arrived whole and is the one published there; they aren't a signature.
+Installing downloads this computer's archive, the release's `SHA256SUMS.txt` and its signature, `SHA256SUMS.txt.sig`, over HTTPS. The signature is made with BackDown's release key, whose public half is built into BackDown, so it shows the sums are the ones BackDown published and weren't changed since; the sums then show the archive is the one they list. A signature that doesn't match stops the update, and so does an archive whose SHA-256 doesn't match. Releases before v1.0.0-beta.4 weren't signed: those are installed on their checksums alone, and BackDown says "this release isn't signed (releases before v1.0.0-beta.4 weren't)". A later release without its signature isn't installed.
+
+Then it unpacks the new program beside the one you have, checks that it runs and says the expected version, keeps a copy of the old one in your data folder (`previous/`), swaps them, and restarts the background service. If the new one doesn't start, the old one is put back. `--rollback` puts back the version the last update replaced.
+
+On a computer without a network, `backdown update --from FOLDER` does the same from files you carry over: the archive, `SHA256SUMS.txt` and `SHA256SUMS.txt.sig`. `--from FOLDER --check` only checks them. [Air-gapped machines](/docs/guides/air-gapped/) has the details.
 
 Some copies of BackDown are updated another way, and `backdown update` (or **How to update** in the browser) says so instead of installing:
 
@@ -191,7 +195,7 @@ The table marks these as **Pro**:
 | Data viewers | Databases, spreadsheets, presentations, mailboxes and SQL dumps in the browser |
 | Several machines | [Other machines](/docs/guides/several-machines/) over ssh: adding, syncing and browsing them (listing and forgetting them stay free) |
 
-Everything else is free: indexing, hashing, duplicates, `check`, browsing with the time slider and the other viewers, recognising what things are, the report, mirrors, Rescue, drive health and notifications, mounting drives read-only, and the `dedup` and `mail` commands. The table also lists what's planned for Pro, Team and Forensic and isn't built yet, marked "coming".
+Everything else is free: indexing, hashing, duplicates, `check`, browsing with the time slider and the other viewers, recognising what things are, the report, mirrors, Rescue, drive health and notifications, mounting drives read-only, and the `dedup` and `mail` commands. Updating over the network, with its signature checked, is free too. Installing updates from a folder carried to a machine without a network (`backdown update --from`, for [air-gapped machines](/docs/guides/air-gapped/)) is part of **Forensic**; checking such a folder (`--from … --check`) is free. The table also lists what's planned for Pro, Team and Forensic and isn't built yet, marked "coming".
 
 [Signed manifests](/docs/guides/manifests-and-attestations/) are marked Forensic (`manifest create` and `manifest export`) and scheduled attestations Team (Settings > Attestations, `manifest list`, and the manifests in a drive's details). Checking a manifest, `backdown manifest verify`, and showing your key, `backdown manifest key`, are free, so anyone can check one.
 

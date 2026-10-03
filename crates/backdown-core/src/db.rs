@@ -219,6 +219,28 @@ CREATE TABLE IF NOT EXISTS remote_settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+-- drive health on other machines (remote/): each machine's drives as its own index last had them
+-- (latest reading, verdict, latest changes), replaced at each sync; and how asking it went, with
+-- its own latest drive-health notifications. Added without a schema bump
+CREATE TABLE IF NOT EXISTS remote_health (
+    remote_id  INTEGER NOT NULL,
+    drive      TEXT NOT NULL,             -- its health id: sn:<serial> | wwn:<wwn>
+    model      TEXT,
+    serial     TEXT,
+    verdict    TEXT NOT NULL,             -- ok | warning | failing | unknown
+    summary    TEXT NOT NULL,             -- JSON: the reading, findings, latest changes, trend
+    read_at    INTEGER,                   -- when it was read there (this machine's clock)
+    fetched_at INTEGER NOT NULL,
+    PRIMARY KEY (remote_id, drive)
+);
+CREATE TABLE IF NOT EXISTS remote_health_state (
+    remote_id INTEGER PRIMARY KEY,
+    asked_at  INTEGER NOT NULL,           -- the last sync that asked
+    ok_at     INTEGER,                    -- the last one it answered (NULL: its drives not seen yet)
+    state     TEXT NOT NULL,              -- ok | unsupported (a BackDown there from before) | error
+    error     TEXT,
+    notes     TEXT                        -- JSON: its own latest drive-health notifications
+);
 -- NTFS alternate data streams (streams.rs): per file version, only for files that have some; and
 -- the roots whose every file has been looked at once. Added in 1.0 without a schema bump
 CREATE TABLE IF NOT EXISTS streams (
