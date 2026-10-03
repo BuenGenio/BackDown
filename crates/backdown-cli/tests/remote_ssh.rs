@@ -2,13 +2,17 @@
 //! checks the arguments it's given the way OpenSSH would read them, then runs the remote command
 //! through `sh -c` exactly as the other machine's shell would, which starts this very binary as
 //! `backdown serve-stdio` against a second index. So the quoting is proved by a real shell, and
-//! everything from `remote add` to a wipe proved by a copy "on the NAS" runs for real.
+//! everything from `remote add` to a wipe proved by a copy "on the NAS" runs for real. The host
+//! old.example.org stands for a BackDown from before the `health` request: it refuses that one
+//! the way those did, and passes everything else on.
 #![cfg(unix)]
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+
+use serde_json::{Value, json};
 
 const FAKE_SSH: &str = r#"#!/bin/sh
 # a stand-in for OpenSSH: log the arguments, check them, then be the other machine's shell
@@ -33,6 +37,16 @@ case "$host" in
   -*) echo "fake ssh: an option as a host" >&2; exit 255 ;;
   unreachable.example.org) echo "ssh: connect to host $host port 22: No route to host" >&2; exit 255 ;;
   nokeys.example.org) echo "alice@$host: Permission denied (publickey)." >&2; exit 255 ;;
+  old.example.org)
+    { while IFS= read -r line; do
+        case "$line" in
+          *'"op":"health"'*)
+            id=${line#*\"id\":}; id=${id%%[!0-9]*}
+            printf '{"id":%s,"ok":false,"error":"bad request: unknown variant `health`, expected one of `hello`, `roots`"}\n' "$id" >&3 ;;
+          *) printf '%s\n' "$line" ;;
+        esac
+      done | sh -c "$1"; } 3>&1
+    exit ;;
 esac
 exec sh -c "$1"
 "#;
@@ -67,6 +81,10 @@ impl Env {
 
     /// `release`: behave like a release build without a licence (BACKDOWN_PRETEND_RELEASE)
     fn run_as(&self, db: &Path, args: &[&str], release: bool) -> Output {
+        self.command(db, args, release).output().unwrap()
+    }
+
+    fn command(&self, db: &Path, args: &[&str], release: bool) -> Command {
         let home = self.root.join("home");
         fs::create_dir_all(&home).unwrap();
         let path = format!(
@@ -89,7 +107,7 @@ impl Env {
         if release {
             c.env("BACKDOWN_PRETEND_RELEASE", "1");
         }
-        c.output().unwrap()
+        c
     }
 
     fn ok(&self, db: &Path, args: &[&str]) -> String {
@@ -297,5 +315,145 @@ fn a_nas_over_ssh_end_to_end() {
         e.run_as(&e.local_db, &["remote", "remove", "locked"], true)
             .status
             .success()
+    );
+}
+
+fn stdout(o: &Output) -> String {
+    String::from_utf8_lossy(&o.stdout).into_owned()
+}
+
+#[test]
+fn other_machines_drive_health_over_ssh() {
+    let base = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
+    fs::create_dir_all(&base).unwrap();
+    let tmp = tempfile::tempdir_in(fs::canonicalize(&base).unwrap()).unwrap();
+    let e = Env::new(tmp.path());
+    // the NAS reads its own drives (fake readings) into its own index, as its BackDown does
+    let nas_db = e.root.join("nas.db");
+    let readings = e.root.join("readings.json");
+    let read_there = |reallocated: u64| {
+        let v = json!({ "drives": [
+            { "device": "/dev/sdx", "name": "sdx", "model": "FAKEDISK HD4000", "serial": "FAKE-0001",
+              "rotational": true, "protocol": "ata", "reported": "ok", "temperature": 36,
+              "reallocated": reallocated, "pending": 0 },
+            { "device": "/dev/nvme9n1", "name": "nvme9n1", "model": "FAKEDISK NV970",
+              "serial": "S0FAKE0NV970123", "rotational": false, "protocol": "nvme",
+              "critical_warning": 0, "available_spare": 100, "spare_threshold": 10,
+              "percentage_used": 3, "media_errors": 0 }
+        ] });
+        fs::write(&readings, serde_json::to_vec(&v).unwrap()).unwrap();
+        e.command(&nas_db, &["health"], false)
+            .env("BACKDOWN_FAKE_HEALTH", &readings)
+            .output()
+            .unwrap()
+    };
+    let told = || -> Vec<String> {
+        let c = rusqlite::Connection::open(&e.local_db).unwrap();
+        let mut s = c
+            .prepare("SELECT title FROM notifications WHERE kind = 'health' ORDER BY id")
+            .unwrap();
+        s.query_map([], |r| r.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    };
+    assert!(read_there(0).status.success());
+    let nas = nas_db.to_str().unwrap();
+    e.ok(
+        &e.local_db,
+        &[
+            "remote",
+            "add",
+            "nas",
+            "ssh://nas.example.org",
+            "--remote-db",
+            nas,
+        ],
+    );
+
+    // a sync fetches them; the first sight of its drives tells nothing
+    let out = e.ok(&e.local_db, &["remote", "sync", "nas"]);
+    assert!(out.contains("drive health of 2 drives"), "{out}");
+    assert!(told().is_empty());
+    let out = e.ok(&e.local_db, &["health", "--machines"]);
+    assert!(
+        out.contains("nas (ssh://nas.example.org) · synced just now"),
+        "{out}"
+    );
+    assert!(out.contains("  ok       FAKEDISK HD4000"), "{out}");
+    assert!(out.contains("  ok       FAKEDISK NV970"), "{out}");
+
+    // a drive there fails: told here once, and `health --machines` says so (and exits 2)
+    assert_eq!(read_there(150).status.code(), Some(2), "failing there");
+    let out = e.ok(&e.local_db, &["remote", "sync", "nas"]);
+    assert!(out.contains("1 worse since the last sync"), "{out}");
+    assert_eq!(told(), ["A drive on nas is failing"]);
+    let o = e.run(&e.local_db, &["health", "--machines"]);
+    assert_eq!(o.status.code(), Some(2));
+    let out = stdout(&o);
+    assert!(out.contains("  failing  FAKEDISK HD4000"), "{out}");
+    assert!(
+        out.contains("  FAKEDISK HD4000: 150 sectors had gone bad"),
+        "{out}"
+    );
+    // …with the NAS's own notification about it
+    assert!(
+        out.contains("  notified on nas just now: FAKEDISK HD4000 is failing"),
+        "{out}"
+    );
+    // a repeat tells nothing
+    e.ok(&e.local_db, &["remote", "sync", "nas"]);
+    assert_eq!(told().len(), 1);
+    let o = e.run(&e.local_db, &["health", "--machines", "--json"]);
+    let j: Value = serde_json::from_str(&stdout(&o)).unwrap();
+    assert_eq!(j["worst"], "failing");
+    assert_eq!(j["machines"][0]["drives"][0]["verdict"], "failing");
+    assert_eq!(
+        j["machines"][0]["drives"][0]["health"]["serial"],
+        "FAKE-0001"
+    );
+
+    // an older BackDown there: its files sync as ever, and it says what would show its drives
+    e.ok(
+        &e.local_db,
+        &[
+            "remote",
+            "add",
+            "old",
+            "ssh://old.example.org",
+            "--remote-db",
+            nas,
+        ],
+    );
+    let out = e.ok(&e.local_db, &["remote", "sync", "old"]);
+    assert!(
+        out.contains("update BackDown on old to see its drive health"),
+        "{out}"
+    );
+    let out = stdout(&e.run(&e.local_db, &["health", "--machines"]));
+    assert!(
+        out.contains(
+            "old (ssh://old.example.org) · synced just now\n  update BackDown on old to see its drive health\n"
+        ),
+        "{out}"
+    );
+
+    // forgetting a machine forgets its drives
+    e.ok(&e.local_db, &["remote", "remove", "nas"]);
+    let c = rusqlite::Connection::open(&e.local_db).unwrap();
+    let rows: i64 = c
+        .query_row("SELECT COUNT(*) FROM remote_health", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(rows, 0);
+    let out = e.ok(&e.local_db, &["health", "--machines"]);
+    assert!(!out.contains("nas"), "{out}");
+
+    // Team: a release without a licence doesn't gather them, and says why
+    let o = e.run_as(&e.local_db, &["health", "--machines"], true);
+    assert!(!o.status.success());
+    assert!(
+        String::from_utf8_lossy(&o.stderr).contains("BackDown Team"),
+        "{}",
+        String::from_utf8_lossy(&o.stderr)
     );
 }

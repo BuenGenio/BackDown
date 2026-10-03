@@ -626,3 +626,412 @@ fn a_wipe_trusts_a_copy_there_only_once_it_is_re_read() {
     let st = wipe::wipe(&mut db, id, false, None, &mut |_, _| {}).unwrap();
     assert_eq!(st.deleted, 0);
 }
+
+// ---------- drive health there
+
+fn reading(serial: &str, model: &str, reallocated: u64, at: i64) -> Health {
+    Health {
+        id: health::identity(Some(serial), None),
+        device: "/dev/sdb".into(),
+        name: "sdb".into(),
+        model: Some(model.into()),
+        serial: Some(serial.into()),
+        rotational: Some(true),
+        reported: Some(Verdict::Ok),
+        reallocated: Some(reallocated),
+        pending: Some(0),
+        source: "test readings".into(),
+        mounts: vec!["/volume1".into()],
+        read_at: at,
+        ..Health::default()
+    }
+}
+
+fn note(kind: &'static str, key: &str, title: &str) -> Note {
+    Note {
+        kind,
+        key: key.into(),
+        level: "warning",
+        title: title.into(),
+        body: "2 more sectors have gone bad".into(),
+        drive: None,
+        quiet_for: 0,
+    }
+}
+
+fn ask(db: &Db, line: &str) -> Value {
+    let here = Here {
+        db_path: "nas.db".into(),
+        host: "nas".into(),
+    };
+    serde_json::from_str(&serve::answer_line(
+        db,
+        &here,
+        line,
+        Instant::now() + Duration::from_secs(30),
+    ))
+    .unwrap()
+}
+
+#[test]
+fn the_health_request_answers_within_its_bounds() {
+    let tmp = scratch();
+    let nas_db = tmp.path().join("nas.db");
+    let there = Db::open(&nas_db).unwrap();
+    let t = now() - 10 * 86_400;
+    // more drives than one answer carries, each with a history; one of them going bad
+    for i in 0..serve::MAX_HEALTH_DRIVES + 20 {
+        let sn = format!("FAKE{i:04}");
+        for k in 0..8u64 {
+            let realloc = if i == 7 { k * 20 } else { 0 };
+            health::record(
+                &there,
+                &reading(&sn, "FAKEDISK HD4000", realloc, t + k as i64 * 86_400),
+            )
+            .unwrap();
+        }
+    }
+    // its notifications: about its own drives, one it gathered from another machine, a job's
+    let l = Limits::default();
+    for i in 0..serve::MAX_HEALTH_NOTES as i64 + 5 {
+        let n = note("health", &format!("health:sn:FAKE{i:04}:worse"), "its own");
+        alerts::add(&there, &n, false, now() - 1000 + i, &l).unwrap();
+    }
+    let gathered = note(
+        "health",
+        "health@office-pc:sn:X1:verdict:warning",
+        "gathered",
+    );
+    alerts::add(&there, &gathered, false, now(), &l).unwrap();
+    alerts::add(
+        &there,
+        &note("job", "job:index:/x", "a job"),
+        false,
+        now(),
+        &l,
+    )
+    .unwrap();
+    drop(there);
+
+    let db = Db::open_read_only(&nas_db).unwrap();
+    let a = ask(&db, r#"{"id":1,"op":"health"}"#);
+    assert_eq!(a["ok"], true, "{a}");
+    let d = &a["data"];
+    assert_eq!(d["available"], true);
+    let drives = d["drives"].as_array().unwrap();
+    assert_eq!(drives.len(), serve::MAX_HEALTH_DRIVES);
+    assert_eq!(d["truncated"], true);
+    assert_eq!(drives[0]["verdict"], "failing", "the worst first");
+    assert_eq!(drives[0]["health"]["serial"], "FAKE0007");
+    assert_eq!(drives[0]["health"]["reallocated"], 140);
+    assert_eq!(drives[0]["readings"], 8);
+    assert_eq!(
+        drives[0]["changes"].as_array().unwrap().len(),
+        serve::MAX_HEALTH_CHANGES,
+        "its latest changes only"
+    );
+    assert!(drives.iter().all(|x| {
+        x["changes"].as_array().unwrap().len() <= serve::MAX_HEALTH_CHANGES
+            && x.get("series").is_none()
+            && x.get("present").is_none()
+            && x["health"]["read_at"].is_i64()
+    }));
+    let notes = d["notes"].as_array().unwrap();
+    assert_eq!(notes.len(), serve::MAX_HEALTH_NOTES);
+    assert!(
+        notes.iter().all(|n| n["title"] == "its own"),
+        "only about its own drives: {notes:?}"
+    );
+    assert!(
+        notes[0]["at"].as_i64() > notes[1]["at"].as_i64(),
+        "newest first"
+    );
+    assert!(a.to_string().len() < 1 << 20, "a small answer");
+    // strictly parsed, like the others
+    assert!(
+        serve::parse(r#"{"id":2,"op":"health","limit":5}"#)
+            .1
+            .is_err()
+    );
+    assert!(serve::parse(r#"{"v":1,"id":2,"op":"health"}"#).1.is_ok());
+
+    // an index from before drive health: nothing to say, which isn't an error
+    let old = tmp.path().join("old.db");
+    rusqlite::Connection::open(&old)
+        .unwrap()
+        .execute_batch("CREATE TABLE scans (id INTEGER PRIMARY KEY, started_at INTEGER)")
+        .unwrap();
+    let a = ask(
+        &Db::open_read_only(&old).unwrap(),
+        r#"{"id":3,"op":"health"}"#,
+    );
+    assert_eq!(a["ok"], true, "{a}");
+    assert_eq!(a["data"]["available"], false);
+    assert_eq!(a["data"]["drives"], json!([]));
+
+    // a request this end doesn't know says so, so a newer asker can do without it
+    let a = ask(&db, r#"{"id":4,"op":"frobnicate"}"#);
+    let e = anyhow::anyhow!("nas: {}", a["error"].as_str().unwrap());
+    assert!(unknown_request(&e, "frobnicate"), "{e}");
+    assert!(!unknown_request(&e, "health"));
+    // a mistake in a known one is still a bad request
+    let a = ask(&db, r#"{"id":5,"op":"hash","ids":[1],"mode":"everything"}"#);
+    let e = anyhow::anyhow!("{}", a["error"].as_str().unwrap());
+    assert!(!unknown_request(&e, "hash") && e.to_string().contains("bad request"));
+}
+
+#[test]
+fn a_sync_keeps_each_machines_drive_health_and_tells_when_a_drive_gets_worse() {
+    let tmp = scratch();
+    let nas_db = tmp.path().join("nas.db");
+    let there = Db::open(&nas_db).unwrap();
+    let t = now() - 5 * 86_400;
+    health::record(&there, &reading("FAKE0001", "FAKEDISK HD4000", 0, t)).unwrap();
+    health::record(&there, &reading("FAKE0002", "FAKEDISK HD2000", 0, t)).unwrap();
+    // the NAS's own notifications come along; one it gathered from elsewhere doesn't
+    let l = Limits::default();
+    let own = note(
+        "health",
+        "health:sn:FAKE0002:cable",
+        "Transfer errors on FAKEDISK HD2000",
+    );
+    alerts::add(&there, &own, false, now() - 60, &l).unwrap();
+    let gathered = note(
+        "health",
+        "health@office-pc:sn:X1:verdict:warning",
+        "gathered",
+    );
+    alerts::add(&there, &gathered, false, now() - 30, &l).unwrap();
+
+    let db = Db::open(&tmp.path().join("local.db")).unwrap();
+    let m = add(&db, "nas", "ssh://alice@nas.example.org", None, None).unwrap();
+    let mut peer = Local {
+        db: nas_db.clone(),
+        calls: Vec::new(),
+    };
+    let told = |db: &Db| count(db, "SELECT COUNT(*) FROM notifications");
+    // a sync, and the notes it would show on the desktop (when it may: `desktop`)
+    let go = |peer: &mut Local, desktop: bool| {
+        let show = Mutex::new(Vec::new());
+        let opts = SyncOptions {
+            show: desktop.then_some(&show),
+            ..SyncOptions::default()
+        };
+        let st = sync(&db, &m, peer, &opts, &mut |_| {}).unwrap();
+        (st, show.into_inner().unwrap())
+    };
+
+    // the first sight of its drives: kept, and nothing told
+    let (st, shown) = go(&mut peer, true);
+    assert_eq!((st.health, st.health_drives, st.health_notes), ("ok", 2, 0));
+    assert!(shown.is_empty());
+    assert_eq!(count(&db, "SELECT COUNT(*) FROM remote_health"), 2);
+    assert_eq!(told(&db), 0);
+    let o = health_overview(&db).unwrap();
+    let nas = &o["machines"][0];
+    assert_eq!(nas["name"], "nas");
+    assert!(nas["last_sync"].is_i64());
+    assert_eq!(nas["health"]["state"], "ok");
+    assert!(nas["health"]["note"].is_null(), "{nas}");
+    assert_eq!(nas["drives"].as_array().unwrap().len(), 2);
+    assert_eq!(nas["drives"][0]["verdict"], "ok");
+    assert_eq!(nas["drives"][0]["current"], true);
+    assert_eq!(nas["drives"][0]["machine"], "nas");
+    let notes = nas["notes"].as_array().unwrap();
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert_eq!(notes[0]["title"], "Transfer errors on FAKEDISK HD2000");
+    assert_eq!(o["worst"], "ok");
+
+    // a drive there gets worse: told once, in Activity only unless the desktop is allowed
+    health::record(
+        &there,
+        &reading("FAKE0001", "FAKEDISK HD4000", 5, t + 86_400),
+    )
+    .unwrap();
+    let (st, shown) = go(&mut peer, false);
+    assert_eq!(st.health_notes, 1);
+    assert!(shown.is_empty());
+    let n = alerts::list(&db, 10).unwrap().remove(0);
+    assert_eq!((n.kind.as_str(), n.level.as_str()), ("health", "warning"));
+    assert_eq!(n.title, "A drive on nas needs watching");
+    assert_eq!(n.key, "health@nas:sn:FAKE0001:verdict:warning");
+    assert_eq!(n.drive.as_deref(), Some("@nas:sn:FAKE0001"));
+    assert!(
+        n.body.starts_with(
+            "FAKEDISK HD4000 (S/N FAKE0001): 5 more sectors have gone bad and been replaced by spares (now 5)."
+        ),
+        "{}",
+        n.body
+    );
+    assert!(n.body.contains("It was ok at the last sync."), "{}", n.body);
+    // the same again: nothing new to tell
+    let (st, shown) = go(&mut peer, true);
+    assert_eq!((st.health_notes, shown.len()), (0, 0));
+    assert_eq!(told(&db), 1);
+
+    // worse still: failing, and a failing drive reaches the desktop when it may
+    health::record(
+        &there,
+        &reading("FAKE0001", "FAKEDISK HD4000", 150, t + 2 * 86_400),
+    )
+    .unwrap();
+    let (st, shown) = go(&mut peer, true);
+    assert_eq!(st.health_notes, 1);
+    assert_eq!(shown.len(), 1);
+    assert_eq!(shown[0].title, "A drive on nas is failing");
+    assert_eq!(shown[0].level, "failing");
+    assert!(
+        shown[0].body.contains("145 more sectors"),
+        "{}",
+        shown[0].body
+    );
+    assert!(shown[0].body.contains("Copy what matters off it now"));
+    let o = health_overview(&db).unwrap();
+    assert_eq!(o["worst"], "failing");
+    assert_eq!(o["machines"][0]["worst"], "failing");
+    assert_eq!(
+        o["machines"][0]["drives"][0]["health"]["serial"], "FAKE0001",
+        "the worst first"
+    );
+    assert_eq!(told(&db), 2);
+
+    // better for a while, then failing again within the week: not told twice
+    health::record(
+        &there,
+        &reading("FAKE0001", "FAKEDISK HD4000", 0, t + 3 * 86_400),
+    )
+    .unwrap();
+    assert_eq!(go(&mut peer, true).0.health_notes, 0);
+    health::record(
+        &there,
+        &reading("FAKE0001", "FAKEDISK HD4000", 150, t + 4 * 86_400),
+    )
+    .unwrap();
+    let (st, shown) = go(&mut peer, true);
+    assert_eq!((st.health_notes, shown.len()), (0, 0));
+    assert_eq!(told(&db), 2);
+
+    // a drive new there since the last sync that's already going bad is news
+    health::record(
+        &there,
+        &reading("FAKE0003", "FAKEDISK HD8000", 3, now() - 60),
+    )
+    .unwrap();
+    let (st, _) = go(&mut peer, false);
+    assert_eq!((st.health_drives, st.health_notes), (3, 1));
+    let n = alerts::list(&db, 1).unwrap().remove(0);
+    assert_eq!(n.key, "health@nas:sn:FAKE0003:verdict:warning");
+    assert!(
+        n.body.contains("It wasn't there at the last sync."),
+        "{}",
+        n.body
+    );
+
+    // without the feature, its drive health isn't asked for at all
+    peer.calls.clear();
+    let opts = SyncOptions {
+        health: false,
+        ..SyncOptions::default()
+    };
+    let st = sync(&db, &m, &mut peer, &opts, &mut |_| {}).unwrap();
+    assert_eq!(st.health, "");
+    assert!(!peer.calls.iter().any(|c| c == "health"));
+
+    // forgetting the machine forgets its drives; what was told stays in Activity
+    remove(&db, m.id).unwrap();
+    assert_eq!(count(&db, "SELECT COUNT(*) FROM remote_health"), 0);
+    assert_eq!(count(&db, "SELECT COUNT(*) FROM remote_health_state"), 0);
+    assert_eq!(told(&db), 3);
+    assert_eq!(health_overview(&db).unwrap()["machines"], json!([]));
+}
+
+/// A machine running a BackDown from before the `health` request: it refuses it the way those do.
+struct Older(Local);
+
+impl Peer for Older {
+    fn call(&mut self, op: &str, args: Value, t: Duration) -> Result<Value> {
+        if op == "health" {
+            bail!(
+                "nas: bad request: unknown variant `health`, expected one of `hello`, `status`, `roots`, `ls`, `file`, `find`, `search`, `dupes`, `entities`, `changes`, `gone`, `hash`, `stat`"
+            );
+        }
+        self.0.call(op, args, t)
+    }
+}
+
+/// A machine whose index won't say how its drives are just now.
+struct Broken(Local);
+
+impl Peer for Broken {
+    fn call(&mut self, op: &str, args: Value, t: Duration) -> Result<Value> {
+        if op == "health" {
+            bail!("nas: database is locked");
+        }
+        self.0.call(op, args, t)
+    }
+}
+
+#[test]
+fn an_older_backdown_there_syncs_fine_without_its_drive_health() {
+    let tmp = scratch();
+    let vol = tmp.path().join("nas/volume1");
+    write(&vol.join("backup/a.bin"), &blob(1, 5000));
+    let nas_db = tmp.path().join("nas.db");
+    let mut there = Db::open(&nas_db).unwrap();
+    scan(&mut there, &vol);
+    health::record(
+        &there,
+        &reading("FAKE0001", "FAKEDISK HD4000", 7, now() - 60),
+    )
+    .unwrap();
+    let db = Db::open(&tmp.path().join("local.db")).unwrap();
+    let m = add(&db, "nas", "ssh://nas.example.org", None, None).unwrap();
+    let local = || Local {
+        db: nas_db.clone(),
+        calls: Vec::new(),
+    };
+    let opts = SyncOptions::default();
+
+    // its files sync as ever; its drives can't be shown, and it says what would show them
+    let mut older = Older(local());
+    let st = sync(&db, &m, &mut older, &opts, &mut |_| {}).unwrap();
+    assert_eq!(st.health, "unsupported");
+    assert_eq!((st.drives, st.added), (1, 1));
+    assert!(older.0.calls.contains(&"changes".to_string()));
+    let o = health_overview(&db).unwrap();
+    let nas = &o["machines"][0];
+    assert_eq!(nas["health"]["state"], "unsupported");
+    assert_eq!(
+        nas["health"]["note"],
+        "update BackDown on nas to see its drive health"
+    );
+    assert_eq!(nas["drives"], json!([]));
+    assert!(get(&db, m.id).unwrap().last_error.is_none());
+
+    // updated there: its drives are a first sight, so nothing is told about them
+    let st = sync(&db, &m, &mut local(), &opts, &mut |_| {}).unwrap();
+    assert_eq!((st.health, st.health_drives, st.health_notes), ("ok", 1, 0));
+    assert_eq!(
+        health_overview(&db).unwrap()["machines"][0]["drives"][0]["verdict"],
+        "warning"
+    );
+
+    // an error there is noted, keeps what was known, and doesn't fail the sync either
+    let st = sync(&db, &m, &mut Broken(local()), &opts, &mut |_| {}).unwrap();
+    assert_eq!(st.health, "error");
+    let o = health_overview(&db).unwrap();
+    let nas = &o["machines"][0];
+    assert_eq!(nas["health"]["state"], "error");
+    assert!(
+        nas["health"]["note"]
+            .as_str()
+            .unwrap()
+            .contains("database is locked"),
+        "{nas}"
+    );
+    assert_eq!(nas["drives"].as_array().unwrap().len(), 1);
+    // an older one again: what it said before isn't current any more
+    sync(&db, &m, &mut Older(local()), &opts, &mut |_| {}).unwrap();
+    assert_eq!(count(&db, "SELECT COUNT(*) FROM remote_health"), 0);
+    assert_eq!(count(&db, "SELECT COUNT(*) FROM notifications"), 0);
+}
