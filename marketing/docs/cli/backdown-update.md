@@ -1,7 +1,7 @@
 ---
 title: backdown update
 nav: update
-description: Is there a newer BackDown? Install it (verified against the release's SHA-256 sums).
+description: Is there a newer BackDown? Install it (verified against the release's signature and SHA-256 sums), from the network or from a folder carried over.
 order: 20
 ---
 
@@ -15,7 +15,7 @@ backdown update [OPTIONS]
 ## Options
 
 `--check`
-: Only say whether there is one (exits 10 when there is).
+: Only say whether there is one (exits 10 when there is); with --from, only verify the folder and change nothing.
 
 `--refresh`
 : Ask GitHub now instead of using today's answer.
@@ -28,6 +28,15 @@ backdown update [OPTIONS]
 
 `--json`
 : Print it as JSON, for scripts.
+
+`--from <FOLDER>`
+: Install from FOLDER, without a network: it holds this system's release archive, SHA256SUMS.txt and SHA256SUMS.txt.sig, carried over from the release.
+
+`--allow-unsigned` {preview}
+: With --from: go ahead without SHA256SUMS.txt.sig. The checksums then show only that the files arrived whole, not that they're BackDown's.
+
+`--allow-older` {preview}
+: With --from: install it even if it isn't newer than this version.
 
 Also takes the [global options](/docs/cli/#global-options) `--db` and `--local`.
 

@@ -2048,19 +2048,37 @@ fn uri_path(p: &Path) -> String {
 
 /// A repository in an indexed folder, read with git itself: log, or one commit with its patch.
 /// Read-only by construction: only `log`/`show`, no optional locks, revisions validated.
+/// `git` for a repository found on a drive, which BackDown didn't make and mustn't trust: nothing
+/// from the network (in a partial clone, git would fetch what's missing from its remote), and no
+/// program the repository's own config or attributes name (diff drivers and text conversions, which
+/// callers also turn off with --no-ext-diff and --no-textconv, a file-system monitor, hooks).
+fn git_command(dir: &Path) -> Command {
+    let mut c = Command::new("git");
+    c.arg("-C").arg(dir).args([
+        "--no-pager",
+        "-c",
+        "core.quotepath=off",
+        "-c",
+        "protocol.allow=never",
+        "-c",
+        "core.fsmonitor=false",
+        "-c",
+        "core.hooksPath=/dev/null",
+    ]);
+    c.env("GIT_OPTIONAL_LOCKS", "0")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_NO_LAZY_FETCH", "1");
+    c
+}
+
 fn git(db: &Db, dir: &Path, rev: Option<&str>) -> Result<Value> {
     browse::list(db, dir, None).context("not an indexed folder")?;
     if !dir.join(".git").exists() {
         bail!("{} isn't a git repository", dir.display());
     }
     let run = |args: &[&str]| -> Result<String> {
-        let out = Command::new("git")
-            .arg("-C")
-            .arg(dir)
-            .args(["--no-pager", "-c", "core.quotepath=off"])
+        let out = git_command(dir)
             .args(args)
-            .env("GIT_OPTIONAL_LOCKS", "0")
-            .env("GIT_TERMINAL_PROMPT", "0")
             .output()
             .context("git isn't installed")?;
         if !out.status.success() {
@@ -2081,6 +2099,8 @@ fn git(db: &Db, dir: &Path, rev: Option<&str>) -> Result<Value> {
             let show = run(&[
                 "show",
                 "--no-color",
+                "--no-ext-diff",
+                "--no-textconv",
                 "--stat",
                 "--patch",
                 "--format=%H%x1f%an%x1f%ae%x1f%at%x1f%B%x1e",
@@ -2155,6 +2175,65 @@ mod tests {
 
     fn ip(s: &str) -> Option<IpAddr> {
         Some(s.parse().unwrap())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn git_runs_nothing_a_repository_names() {
+        let ok = |c: &mut Command| c.output().is_ok_and(|o| o.status.success());
+        if !ok(Command::new("git").arg("--version")) {
+            return; // no git here
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("found-on-a-drive");
+        let marker = tmp.path().join("ran");
+        std::fs::create_dir(&repo).unwrap();
+        let git = |args: &[&str]| {
+            assert!(
+                ok(Command::new("git").arg("-C").arg(&repo).args(args)),
+                "git {args:?}"
+            )
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "a@example.org"]);
+        git(&["config", "user.name", "A"]);
+        // the repository asks for programs of its own when a diff is shown
+        let touch = format!("sh -c 'touch {}; cat \"$1\"' -", marker.display());
+        git(&["config", "diff.evil.textconv", &touch]);
+        git(&["config", "diff.evil.command", &touch]);
+        std::fs::write(repo.join(".gitattributes"), "*.txt diff=evil\n").unwrap();
+        for text in ["one\n", "two\n"] {
+            std::fs::write(repo.join("a.txt"), text).unwrap();
+            git(&["add", "-A"]);
+            git(&["commit", "-q", "-m", "change"]);
+        }
+        // plain git does run them: the test means something
+        assert!(ok(Command::new("git").arg("-C").arg(&repo).args([
+            "--no-pager",
+            "show",
+            "HEAD"
+        ])));
+        assert!(marker.exists(), "this git doesn't run diff drivers at all");
+        std::fs::remove_file(&marker).unwrap();
+        // BackDown's git doesn't
+        let out = git_command(&repo)
+            .args([
+                "show",
+                "--no-color",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--patch",
+                "HEAD",
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(String::from_utf8_lossy(&out.stdout).contains("+two"));
+        assert!(!marker.exists(), "a program the repository named was run");
     }
 
     #[test]

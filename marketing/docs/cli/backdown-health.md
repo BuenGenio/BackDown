@@ -17,6 +17,9 @@ backdown health [OPTIONS]
 `--json`
 : Print it as JSON, for scripts.
 
+`--machines`
+: The other machines' drives instead (Team), as each one's own BackDown last read them, fetched with its last sync: nothing is reached or read now. Exits 2 when a drive there is failing.
+
 Also takes the [global options](/docs/cli/#global-options) `--db` and `--local`.
 
 ## Good to know
