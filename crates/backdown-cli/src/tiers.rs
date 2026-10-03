@@ -313,14 +313,16 @@ pub const FEATURES: &[Feature] = &[
         ready: false,
     },
     Feature {
+        // the log itself is kept in every edition, from the day BackDown is installed: what's
+        // Forensic is exporting, verifying and checking it
         key: "custody",
         name: "Chain-of-custody export",
-        unlocks: "Every read and copy, exported for evidence handling.",
+        unlocks: "Every copy, move, deletion, link and merge BackDown made, in a hash-chained, signed log: exported for evidence handling, and verifiable by anyone.",
         tier: Forensic,
-        commands: &[],
-        endpoints: &[],
+        commands: &["custody"],
+        endpoints: &["/api/custody"],
         views: &[],
-        ready: false,
+        ready: true,
     },
     Feature {
         key: "airgap",
@@ -678,6 +680,16 @@ mod tests {
         );
         assert!(team.allows(feature("filing").unwrap()) && team.allows(feature("fleet").unwrap()));
         assert!(!team.allows(feature("custody").unwrap()));
+        // the chain of custody: Forensic, by command and by endpoint
+        let forensic = Access::new(
+            "1.0.0",
+            Ok(Some(licence("forensic", None))),
+            "2026-10-01",
+            false,
+        );
+        assert!(check_command(&forensic, "custody").is_ok());
+        assert!(check_command(&team, "custody").is_err());
+        assert_eq!(endpoint_feature("/api/custody").unwrap().key, "custody");
     }
 
     #[test]

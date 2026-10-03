@@ -6,7 +6,8 @@
 //! into `.backdown-versions/` rather than overwritten, so a corrupted or encrypted source can't
 //! silently destroy the good copy; files only on the mirror are reported, not removed.
 //! A verify re-reads a sample of the mirror (or all of it) and compares hashes with the source,
-//! which is how a dying mirror drive gets noticed before it's needed.
+//! which is how a dying mirror drive gets noticed before it's needed. Each copy, and each old copy
+//! set aside, is an event in the chain of custody (custody.rs).
 //!
 //! Names that the mirror's drive takes for one ("Photo.jpg" and "photo.jpg" on a case-insensitive
 //! drive) are kept apart the way `apply` keeps them (`names::Renamer`: the second gets a numbered
@@ -24,6 +25,7 @@ use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
 use crate::apply::{Outcome, copy_verified, free_space, hash_file, mtime};
+use crate::custody::{self, Action, Event};
 use crate::names::{self, Renamer};
 use crate::{Db, extras, fmt, paths};
 
@@ -228,6 +230,7 @@ pub fn sync(db: &Db, id: i64, progress: &mut dyn FnMut(u64, u64)) -> Result<Sync
             if let Some(p) = old.parent() {
                 fs::create_dir_all(p)?;
             }
+            let old_size = fs::metadata(&dest).map_or(0, |m| m.len());
             if let Err(e) = fs::rename(&dest, &old) {
                 st.failed += 1;
                 push(
@@ -237,6 +240,15 @@ pub fn sync(db: &Db, id: i64, progress: &mut dyn FnMut(u64, u64)) -> Result<Sync
                 continue;
             }
             st.updated += 1;
+            // the chain of custody: the old copy moved aside (renamed, not read)
+            let ev = Event::new(
+                Action::Move,
+                ("mirror", id),
+                &paths::to_bytes(&dest),
+                None,
+                old_size,
+            );
+            custody::append(&db.conn, &ev.to(&paths::to_bytes(&old), None))?;
         }
         if !renamed.is_empty() {
             st.renamed += 1;
@@ -250,9 +262,18 @@ pub fn sync(db: &Db, id: i64, progress: &mut dyn FnMut(u64, u64)) -> Result<Sync
             );
         }
         match copy_verified(entry.path(), &dest, &meta) {
-            Ok(Outcome::Copied(_)) => {
+            Ok(Outcome::Copied(h)) => {
                 st.copied += 1;
                 st.copied_bytes += meta.len();
+                let (src_b, dest_b) = (paths::to_bytes(entry.path()), paths::to_bytes(&dest));
+                let ev = Event::new(
+                    Action::Copy,
+                    ("mirror", id),
+                    &src_b,
+                    Some(&h[..]),
+                    meta.len(),
+                );
+                custody::append(&db.conn, &ev.to(&dest_b, Some(&h[..])))?;
                 let carried = extras::carry(entry.path(), &dest, &meta);
                 if carried.lost_any() {
                     st.extras_not_kept += 1;

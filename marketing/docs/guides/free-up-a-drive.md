@@ -65,7 +65,7 @@ For every file, in turn:
 2. It's read again and hashed. If it no longer matches its hash, it's left alone.
 3. A copy outside the selection is found in the index and read again too. Only if it's there and identical is the file deleted. On Windows, the copy must also have the same alternate data streams. A copy that's only on [another machine](/docs/guides/several-machines/) is used when there's none here: that machine reads it again, in full, just before the deletion.
 4. With no copy: with `--move-to`, it's moved (copied, verified, deleted); without, it's left.
-5. The deletion is written to BackDown's journal with its proof: which copy, its hash, and how it was checked.
+5. The deletion is written to BackDown's journal with its proof: which copy, its hash, and how it was checked. It's also an event in the [chain of custody](/docs/guides/chain-of-custody/), the signed log you can export and hand to someone who needs proof of what was deleted and where its copy is.
 
 Folders the wipe leaves empty are removed; the drive's own top folder stays. Files that couldn't be read at the last scan are left in place, and so are online-only cloud files on Windows, which would have to be downloaded to be read.
 
@@ -104,4 +104,4 @@ The **Free up** view does the same, with the background service doing the work:
 4. Under "Before deleting", "Trust the index" is the same as `--trust-index`.
 5. Type the drive names to confirm, and press **Wipe**.
 
-The wipe shows in Activity, and the view lists past wipes with what existed only there and what happened to it. When some copies are only on another machine, "What would happen" says how much, and when that machine last confirmed them. The browser opened with `backdown serve` shows what would happen but can't wipe: that needs the background service.
+The wipe shows in Activity, and the view lists past wipes with what existed only there and what happened to it. Its **Chain of custody** button downloads the [signed log](/docs/guides/chain-of-custody/) of every deletion and move. When some copies are only on another machine, "What would happen" says how much, and when that machine last confirmed them. The browser opened with `backdown serve` shows what would happen but can't wipe: that needs the background service.

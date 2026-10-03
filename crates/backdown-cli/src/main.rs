@@ -12,6 +12,7 @@ use serde_json::json;
 mod app;
 mod client;
 mod completions;
+mod custody;
 mod daemon;
 mod desktop;
 mod drives;
@@ -390,6 +391,13 @@ enum Cmd {
         #[command(subcommand)]
         action: MailCmd,
     },
+    /// The chain of custody: every copy, move, deletion, link and merge BackDown made, in a
+    /// hash-chained log sealed with this installation's key. Export it as a signed bundle, verify
+    /// one, or check the log in the index
+    Custody {
+        #[command(subcommand)]
+        action: custody::CustodyCmd,
+    },
 }
 
 #[derive(Subcommand)]
@@ -669,6 +677,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
         // the other end of `backdown remote`, run there by ssh: reads only, never through a daemon
         Cmd::ServeStdio => return remote::stdio::run(cli.db),
         Cmd::Remote { action } => return remote::command(cli.db, cli.local, action),
+        // reads the index (an export also seals it), or only the file given
+        Cmd::Custody { action } => return custody::command(cli.db, action),
         _ => {}
     }
     // a running daemon owns the index: hand the work to it (unless told not to)
@@ -721,7 +731,10 @@ fn run(cli: Cli) -> Result<ExitCode> {
             p
         }
     };
-    local(&db_path, cli.cmd, !cli.local)
+    let r = local(&db_path, cli.cmd, !cli.local);
+    // what a command here added to the chain of custody is sealed now (the daemon seals its own)
+    custody::seal_after(&db_path);
+    r
 }
 
 fn local(db_path: &Path, cmd: Cmd, use_daemon: bool) -> Result<ExitCode> {
@@ -953,7 +966,8 @@ fn local(db_path: &Path, cmd: Cmd, use_daemon: bool) -> Result<ExitCode> {
         | Cmd::Remote { .. }
         | Cmd::ServeStdio
         | Cmd::Mount { .. }
-        | Cmd::Unmount { .. } => {
+        | Cmd::Unmount { .. }
+        | Cmd::Custody { .. } => {
             unreachable!("handled in run")
         }
     }
@@ -1103,7 +1117,8 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
         | Cmd::Remote { .. }
         | Cmd::ServeStdio
         | Cmd::Mount { .. }
-        | Cmd::Unmount { .. } => {
+        | Cmd::Unmount { .. }
+        | Cmd::Custody { .. } => {
             unreachable!("handled in run")
         }
     }

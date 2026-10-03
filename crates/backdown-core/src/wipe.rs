@@ -12,7 +12,8 @@
 //!    back), and only then deleted: a move.
 //! 4. Anything else is left where it is: changed or new since the last scan, unreadable, or with
 //!    no copy and no place to move it to.
-//! 5. Every deletion is journaled with its proof: which copy, its hash, how it was verified.
+//! 5. Every deletion is journaled with its proof: which copy, its hash, how it was verified; and
+//!    recorded in the chain of custody (custody.rs) in the same transaction.
 //! 6. Folders emptied by the wipe are removed (a drive's own top folder stays).
 //!
 //! `--trust-index` skips the re-reads and relies on the index's hashes (much faster; right after a
@@ -30,6 +31,7 @@ use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
 use crate::apply::{Outcome, copy_verified, hash_file, mtime};
+use crate::custody::{self, Action};
 use crate::{Db, extras, fmt, names, paths, streams};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -802,7 +804,11 @@ fn run(
                     if how.starts_with("remote") {
                         st.remote += 1;
                     }
-                    journal.execute(params![id, fb, size as i64, actual, proof, how, now()])?;
+                    // and in the chain of custody, in the same transaction
+                    let ev = custody_event(id, &fb, &actual, &proof, how, size);
+                    custody::journaled(&db.conn, &ev, || {
+                        journal.execute(params![id, fb, size as i64, actual, proof, how, now()])
+                    })?;
                 }
                 Err(e) => {
                     st.failed += 1;
@@ -869,6 +875,36 @@ fn run(
         params![id, state, summary],
     )?;
     Ok(st)
+}
+
+/// A deletion as the chain of custody has it: a move when this wipe made the copy, else a
+/// deletion with the copy that was kept, and that copy's hash when it was read just then (here,
+/// or by the other machine); not with `--trust-index`, which relies on the index for it.
+fn custody_event(
+    wipe: i64,
+    path: &[u8],
+    sha: &[u8],
+    proof: &[u8],
+    how: &str,
+    size: u64,
+) -> custody::Event {
+    let action = if how == "moved" {
+        Action::Move
+    } else {
+        Action::Delete
+    };
+    let ev = custody::Event::new(action, ("wipe", wipe), path, Some(sha), size);
+    if proof.is_empty() {
+        return ev; // an empty file needs no copy
+    }
+    // a copy on another machine is its address (ssh://…), as text
+    let kept = if how.starts_with("remote") {
+        paths::to_bytes(Path::new(&*String::from_utf8_lossy(proof)))
+    } else {
+        proof.to_vec()
+    };
+    let read = matches!(how, "re-read" | "moved" | "remote re-read");
+    ev.to(&kept, read.then_some(sha))
 }
 
 /// path, dev, ino, mtime, id of a possible copy

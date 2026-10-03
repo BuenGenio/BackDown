@@ -190,6 +190,12 @@ The table marks these as **Pro**:
 | Data viewers | Databases, spreadsheets, presentations, mailboxes and SQL dumps in the browser |
 | Several machines | [Other machines](/docs/guides/several-machines/) over ssh: adding, syncing and browsing them (listing and forgetting them stay free) |
 
+And as **Forensic**:
+
+| Feature | What it covers |
+|---|---|
+| Chain-of-custody export | [Exporting, verifying and checking](/docs/guides/chain-of-custody/) the signed log of every copy, move, deletion, link and merge: `backdown custody` and the browser's Chain of custody download. The log itself is kept in every edition |
+
 Everything else is free: indexing, hashing, duplicates, `check`, browsing with the time slider and the other viewers, recognising what things are, the report, mirrors, Rescue, drive health and notifications, mounting drives read-only, and the `dedup` and `mail` commands. The table also lists what's planned for Pro, Team and Forensic and isn't built yet, marked "coming".
 
 In a release without a licence, a Pro command says what it needs (`backdown wipe` … "is part of BackDown Pro"), and the browser marks Pro views with a badge and offers **Add a licence key** and **See pricing**. [Pricing](/pricing/) has the planned prices, which may change before release.

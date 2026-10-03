@@ -1,6 +1,6 @@
 ---
 title: Guides
-description: Step by step, in the app and in the terminal: free up a drive, file old drives into one archive, merge mailboxes, keep mirrors, use several machines, watch drive health, rescue a failing drive, recover deleted files, browse without restoring.
+description: Step by step, in the app and in the terminal: free up a drive, file old drives into one archive, merge mailboxes, keep mirrors, use several machines, watch drive health, rescue a failing drive, recover deleted files, browse without restoring, export a chain of custody.
 order: 0
 ---
 

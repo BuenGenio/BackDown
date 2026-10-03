@@ -487,7 +487,7 @@ a.btn{color:inherit;text-decoration:none}
 .pl-why{font-size:.82rem;color:var(--ink-3)}
 .vol-disk{margin-bottom:10px}.vol-head{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;margin:6px 2px}
 .act-drives td small.muted{display:block}
-.activity h3 .btn{margin-left:8px;vertical-align:middle;text-transform:none;letter-spacing:0}
+.activity h3 .btn,.plan h3 .btn{margin-left:8px;vertical-align:middle;text-transform:none;letter-spacing:0}
 
 /* Free up: pick what to wipe, see what has a copy elsewhere, confirm */
 .wipe .pl-head p{max-width:72ch}
