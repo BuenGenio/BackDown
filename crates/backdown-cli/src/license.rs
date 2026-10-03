@@ -36,7 +36,8 @@ pub struct Licence {
     pub expires: Option<String>,
 }
 
-const fn hex32(s: &str) -> [u8; 32] {
+/// 64 lowercase hex digits as 32 bytes, at compile time (the built-in public keys).
+pub(crate) const fn hex32(s: &str) -> [u8; 32] {
     let b = s.as_bytes();
     let mut out = [0u8; 32];
     let mut i = 0;

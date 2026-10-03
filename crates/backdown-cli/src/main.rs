@@ -229,22 +229,35 @@ enum Cmd {
         #[command(subcommand)]
         action: desktop::DesktopCmd,
     },
-    /// Is there a newer BackDown? Install it (verified against the release's SHA-256 sums)
+    /// Is there a newer BackDown? Install it (verified against the release's signature and SHA-256
+    /// sums), from the network or from a folder carried over
     Update {
-        /// Only say whether there is one (exits 10 when there is)
+        /// Only say whether there is one (exits 10 when there is); with --from, only verify the
+        /// folder and change nothing
         #[arg(long)]
         check: bool,
         /// Ask GitHub now instead of using today's answer
-        #[arg(long)]
+        #[arg(long, conflicts_with = "from")]
         refresh: bool,
         /// Put back the version the last update replaced
-        #[arg(long)]
+        #[arg(long, conflicts_with = "from")]
         rollback: bool,
         /// stable or preview (default: as in Settings; previews while this is a preview)
-        #[arg(long)]
+        #[arg(long, conflicts_with = "from")]
         channel: Option<String>,
-        #[arg(long)]
+        #[arg(long, conflicts_with = "from")]
         json: bool,
+        /// Install from FOLDER, without a network: it holds this system's release archive,
+        /// SHA256SUMS.txt and SHA256SUMS.txt.sig, carried over from the release
+        #[arg(long, value_name = "FOLDER")]
+        from: Option<PathBuf>,
+        /// With --from: go ahead without SHA256SUMS.txt.sig. The checksums then show only that
+        /// the files arrived whole, not that they're BackDown's
+        #[arg(long, requires = "from")]
+        allow_unsigned: bool,
+        /// With --from: install it even if it isn't newer than this version
+        #[arg(long, requires = "from")]
+        allow_older: bool,
     },
     /// Run the daemon as a service (systemd on Linux, a login item on macOS, a task at logon on
     /// Windows): install, uninstall or check it
@@ -618,6 +631,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
             rollback,
             channel,
             json,
+            from,
+            allow_unsigned,
+            allow_older,
         } => {
             return update::run(update::Args {
                 check,
@@ -625,6 +641,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 rollback,
                 channel,
                 json,
+                from,
+                allow_unsigned,
+                allow_older,
             });
         }
         Cmd::Service { action } => {
