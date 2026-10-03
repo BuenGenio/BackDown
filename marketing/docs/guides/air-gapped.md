@@ -7,7 +7,7 @@ order: 11
 
 BackDown does its work without a network: indexing, hashing, duplicates, checks, browsing, freeing up drives, rescue and drive health all happen on the computer it runs on. That makes it suitable for a machine that's kept off every network, such as an evidence workstation or a lab computer. A licence is checked on the computer itself, and updates can come on a drive you carry over, checked against BackDown's signature before anything is installed.
 
-Installing updates from a folder (`backdown update --from`) is part of **BackDown Forensic** ("Air-gapped deployment"); in this beta everything is unlocked ([Free and Pro](/docs/guides/settings-and-licences/#free-and-pro)). The rest of this page works in every edition.
+Installing updates from a folder (`backdown update --from`) is part of **BackDown Forensic** ("Air-gapped deployment"); in this beta everything is unlocked ([Free and Pro](/docs/guides/settings-and-licences/#free-and-pro)). Checking a carried folder (`--from … --check`) and the rest of this page work in every edition.
 
 ## The checklist
 

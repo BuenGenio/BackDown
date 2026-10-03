@@ -1525,7 +1525,11 @@ fn bundle_tag(listed: &[(String, String)]) -> Result<Option<String>> {
 /// `backdown update --from FOLDER [--check]`: install (or only verify) a release carried over in a
 /// folder. No network request is made.
 fn run_from(a: &Args, folder: &Path, exe: &Path) -> Result<ExitCode> {
-    crate::tiers::gate_feature("airgap", "backdown update --from")?;
+    // checking a carried bundle is free, like checking any download; installing from one is the
+    // air-gapped feature
+    if !a.check {
+        crate::tiers::gate_feature("airgap", "backdown update --from")?;
+    }
     let mut say = |m: &str| eprintln!("  {m}");
     let b = Bundle::open(folder, a.allow_unsigned, &mut say)?;
     if a.check {
