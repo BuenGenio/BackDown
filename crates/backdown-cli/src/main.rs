@@ -23,6 +23,7 @@ mod insight;
 mod license;
 mod locations;
 mod mailbox;
+mod manifesting;
 mod mounting;
 mod notifier;
 mod peek;
@@ -137,6 +138,11 @@ enum Cmd {
     Health {
         #[arg(long)]
         json: bool,
+        /// The other machines' drives instead (Team), as each one's own BackDown last read them,
+        /// fetched with its last sync: nothing is reached or read now. Exits 2 when a drive there
+        /// is failing
+        #[arg(long)]
+        machines: bool,
     },
     /// Mount a partition read-only (one `backdown volumes` calls mountable), or attach a disk
     /// image read-only and mount what's on it; never read-write, and as you: udisks on Linux,
@@ -230,22 +236,35 @@ enum Cmd {
         #[command(subcommand)]
         action: desktop::DesktopCmd,
     },
-    /// Is there a newer BackDown? Install it (verified against the release's SHA-256 sums)
+    /// Is there a newer BackDown? Install it (verified against the release's signature and SHA-256
+    /// sums), from the network or from a folder carried over
     Update {
-        /// Only say whether there is one (exits 10 when there is)
+        /// Only say whether there is one (exits 10 when there is); with --from, only verify the
+        /// folder and change nothing
         #[arg(long)]
         check: bool,
         /// Ask GitHub now instead of using today's answer
-        #[arg(long)]
+        #[arg(long, conflicts_with = "from")]
         refresh: bool,
         /// Put back the version the last update replaced
-        #[arg(long)]
+        #[arg(long, conflicts_with = "from")]
         rollback: bool,
         /// stable or preview (default: as in Settings; previews while this is a preview)
-        #[arg(long)]
+        #[arg(long, conflicts_with = "from")]
         channel: Option<String>,
-        #[arg(long)]
+        #[arg(long, conflicts_with = "from")]
         json: bool,
+        /// Install from FOLDER, without a network: it holds this system's release archive,
+        /// SHA256SUMS.txt and SHA256SUMS.txt.sig, carried over from the release
+        #[arg(long, value_name = "FOLDER")]
+        from: Option<PathBuf>,
+        /// With --from: go ahead without SHA256SUMS.txt.sig. The checksums then show only that
+        /// the files arrived whole, not that they're BackDown's
+        #[arg(long, requires = "from")]
+        allow_unsigned: bool,
+        /// With --from: install it even if it isn't newer than this version
+        #[arg(long, requires = "from")]
+        allow_older: bool,
     },
     /// Run the daemon as a service (systemd on Linux, a login item on macOS, a task at logon on
     /// Windows): install, uninstall or check it
@@ -397,6 +416,12 @@ enum Cmd {
     Custody {
         #[command(subcommand)]
         action: custody::CustodyCmd,
+    },
+    /// Signed, tamper-evident manifests of what a drive held at a scan: sign one, check one
+    /// (anyone can, here or on another computer), list the ones kept, show your signing key
+    Manifest {
+        #[command(subcommand)]
+        action: manifesting::ManifestCmd,
     },
 }
 
@@ -557,9 +582,13 @@ fn main() -> ExitCode {
         Ok(c) => c,
         Err(e) => e.exit(),
     };
-    // Pro features, as tiers.rs's table says (everything is unlocked in previews)
-    if let Some(sub) = matches.subcommand_name()
-        && let Err(e) = tiers::gate_command(sub)
+    // Pro features, as tiers.rs's table says (everything is unlocked in previews); a command
+    // with subcommands of its own is gated subcommand by subcommand ("manifest create")
+    if let Some((sub, m)) = matches.subcommand()
+        && let Err(e) = tiers::gate_command(&match m.subcommand_name() {
+            Some(inner) => format!("{sub} {inner}"),
+            None => sub.to_string(),
+        })
     {
         eprintln!("backdown: {e:#}");
         return ExitCode::FAILURE;
@@ -626,6 +655,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
             rollback,
             channel,
             json,
+            from,
+            allow_unsigned,
+            allow_older,
         } => {
             return update::run(update::Args {
                 check,
@@ -633,6 +665,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 rollback,
                 channel,
                 json,
+                from,
+                allow_unsigned,
+                allow_older,
             });
         }
         Cmd::Service { action } => {
@@ -660,7 +695,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
         }
         Cmd::Volumes { json } => return run_volumes(cli.db, json),
         // through the daemon when it runs (it keeps the readings), else here
-        Cmd::Health { json } => return health::command(cli.db, cli.local, json),
+        Cmd::Health { json, machines } => {
+            return health::command(cli.db, cli.local, json, machines);
+        }
         // as the person at the screen, through the system's own mounter; never opens the index
         Cmd::Mount { target } => return run_mount(target),
         Cmd::Unmount { target } => {
@@ -679,6 +716,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Remote { action } => return remote::command(cli.db, cli.local, action),
         // reads the index (an export also seals it), or only the file given
         Cmd::Custody { action } => return custody::command(cli.db, action),
+        // the index directly, like `entities` (a manifest adds one row); checking needs none
+        Cmd::Manifest { action } => return manifesting::run(cli.db, cli.local, action),
         _ => {}
     }
     // a running daemon owns the index: hand the work to it (unless told not to)
@@ -964,6 +1003,7 @@ fn local(db_path: &Path, cmd: Cmd, use_daemon: bool) -> Result<ExitCode> {
         | Cmd::Volumes { .. }
         | Cmd::Health { .. }
         | Cmd::Remote { .. }
+        | Cmd::Manifest { .. }
         | Cmd::ServeStdio
         | Cmd::Mount { .. }
         | Cmd::Unmount { .. }
@@ -1115,6 +1155,7 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
         | Cmd::Volumes { .. }
         | Cmd::Health { .. }
         | Cmd::Remote { .. }
+        | Cmd::Manifest { .. }
         | Cmd::ServeStdio
         | Cmd::Mount { .. }
         | Cmd::Unmount { .. }

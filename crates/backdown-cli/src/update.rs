@@ -9,15 +9,26 @@
 //!
 //! Installing downloads this platform's archive and the release's SHA256SUMS.txt over HTTPS with
 //! curl (it comes with macOS, Windows 10 and later, and most Linux systems; https only, certificates
-//! checked, no ~/.curlrc), refuses unless the archive's SHA-256 matches, unpacks the binary beside
+//! checked, no ~/.curlrc), checks SHA256SUMS.txt's signature (SHA256SUMS.txt.sig, made with the
+//! release key, RELEASE_KEY), refuses unless the archive's SHA-256 matches, unpacks the binary beside
 //! the running one, checks it runs and reports the expected version, keeps a copy of the old one
 //! in the data folder, and swaps them with a rename (Windows can't overwrite a running .exe, but it
 //! can rename it out of the way). If the installed binary then fails `--version`, the old one is put
 //! back. Last, the per-user daemon is restarted so it runs the new version. `--rollback` puts the
 //! kept copy back later. Nothing here ever runs as a different user.
 //!
+//! A signature that doesn't check is always refused. Releases before v1.0.0-beta.4 weren't signed,
+//! and are installed on their checksums alone; from then on, a release without its signature isn't.
+//!
+//! `--from FOLDER` does the same for a machine without a network, from a folder carried over (the
+//! archive, SHA256SUMS.txt and SHA256SUMS.txt.sig): the signature is required (or --allow-unsigned),
+//! then the checksum, then a newer version (or --allow-older), then the same install. It makes no
+//! network request at all. With `--check` it only verifies the folder, on any system.
+//!
 //! BACKDOWN_UPDATE_URL points it at another API root (the tests' local fake server; plain http is
-//! allowed for 127.0.0.1 and localhost only).
+//! allowed for 127.0.0.1 and localhost only). In debug builds (the tests'),
+//! BACKDOWN_TEST_RELEASE_PUBKEY replaces the release key with a throwaway one; release builds trust
+//! only their own.
 
 use std::cmp::Ordering;
 use std::io::Read;
@@ -28,6 +39,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use backdown_core::fmt;
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use ed25519_dalek::{Signature, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -39,6 +53,17 @@ const DAY: i64 = 86_400;
 /// after a failed check (offline, GitHub down), don't ask again for this long
 const RETRY_AFTER_FAILURE: i64 = 6 * 3600;
 const SUMS: &str = "SHA256SUMS.txt";
+const SIG: &str = "SHA256SUMS.txt.sig";
+
+/// BackDown's release-signing public key. scripts/sign-release.mjs signs each release's
+/// SHA256SUMS.txt with its private half (which stays with whoever publishes releases) into
+/// SHA256SUMS.txt.sig, a base64url Ed25519 signature over the file's exact bytes.
+pub const RELEASE_KEY: [u8; 32] =
+    crate::license::hex32("b88db195d0c4084e5ae25f07fbf2f046939021deca58dce2d4e2591875d9e2a8");
+/// The first release published with SHA256SUMS.txt.sig: earlier ones are installed on their
+/// checksums alone, this one and later ones never without a signature that checks.
+const FIRST_SIGNED: &str = "1.0.0-beta.4";
+const UNSIGNED: &str = "this release isn't signed (releases before v1.0.0-beta.4 weren't)";
 
 fn now() -> i64 {
     SystemTime::now()
@@ -227,13 +252,24 @@ pub fn platform() -> Option<&'static str> {
     }
 }
 
-pub fn archive_name(tag: &str, platform: &str) -> String {
-    let ext = if platform.starts_with("windows") {
+/// Every platform releases have an archive for.
+const PLATFORMS: [&str; 4] = [
+    "linux-x86_64",
+    "linux-arm64",
+    "macos-universal",
+    "windows-x86_64",
+];
+
+fn archive_ext(platform: &str) -> &'static str {
+    if platform.starts_with("windows") {
         "zip"
     } else {
         "tar.gz"
-    };
-    format!("backdown-{tag}-{platform}.{ext}")
+    }
+}
+
+pub fn archive_name(tag: &str, platform: &str) -> String {
+    format!("backdown-{tag}-{platform}.{}", archive_ext(platform))
 }
 
 /// The newest release on `channel` with an archive for `platform` and checksums.
@@ -253,14 +289,75 @@ pub fn pick<'a>(
         .max_by(|a, b| a.0.cmp(&b.0))
 }
 
-/// The hash SHA256SUMS.txt gives for `name` (sha256sum's format: "<hex>  <name>", or " *<name>").
+/// The files SHA256SUMS.txt lists, with their hashes (sha256sum's format: "<hex>  <name>", or
+/// " *<name>"). Only plain file names: nothing in another folder.
+fn listed(sums: &str) -> Vec<(String, String)> {
+    sums.lines()
+        .filter_map(|l| {
+            let (hash, file) = l.trim().split_once(char::is_whitespace)?;
+            let file = file.trim_start().trim_start_matches('*');
+            let plain = !file.is_empty() && !file.contains(['/', '\\']) && file != "..";
+            (plain && hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit()))
+                .then(|| (file.to_string(), hash.to_ascii_lowercase()))
+        })
+        .collect()
+}
+
+/// The hash SHA256SUMS.txt gives for `name`.
 pub fn expected_sum(sums: &str, name: &str) -> Option<String> {
-    sums.lines().find_map(|l| {
-        let (hash, file) = l.trim().split_once(char::is_whitespace)?;
-        let file = file.trim_start().trim_start_matches('*');
-        (file == name && hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit()))
-            .then(|| hash.to_ascii_lowercase())
-    })
+    listed(sums)
+        .into_iter()
+        .find_map(|(file, hash)| (file == name).then_some(hash))
+}
+
+// ---------- signatures
+
+/// The key releases are checked against, and what to call it. Debug builds (the tests') take a
+/// throwaway one from BACKDOWN_TEST_RELEASE_PUBKEY (64 hex digits) if it's set; release builds
+/// trust RELEASE_KEY alone, whatever the environment says.
+fn release_key() -> ([u8; 32], &'static str) {
+    #[cfg(debug_assertions)]
+    if let Ok(h) = std::env::var("BACKDOWN_TEST_RELEASE_PUBKEY") {
+        let h = h.trim();
+        let mut k = [0u8; 32];
+        if h.len() == 64 && h.bytes().all(|c| c.is_ascii_hexdigit()) {
+            for (i, b) in k.iter_mut().enumerate() {
+                *b = u8::from_str_radix(&h[2 * i..2 * i + 2], 16).unwrap_or_default();
+            }
+            return (k, "the test key in BACKDOWN_TEST_RELEASE_PUBKEY");
+        }
+    }
+    (RELEASE_KEY, "BackDown's release key")
+}
+
+/// Check SHA256SUMS.txt.sig (`sig`: a base64url Ed25519 signature, padding and surrounding
+/// whitespace allowed) over the exact bytes of SHA256SUMS.txt (`sums`), against `key`.
+pub fn verify_sums(sums: &[u8], sig: &str, key: &[u8; 32]) -> Result<()> {
+    let sig = URL_SAFE_NO_PAD
+        .decode(sig.trim().trim_end_matches('='))
+        .ok()
+        .and_then(|b| Signature::from_slice(&b).ok())
+        .with_context(|| format!("{SIG} is damaged (it isn't a base64url Ed25519 signature)"))?;
+    let vk = VerifyingKey::from_bytes(key).context("the release key isn't an Ed25519 key")?;
+    vk.verify_strict(sums, &sig)
+        .map_err(|_| anyhow::anyhow!("{SIG} doesn't match {SUMS}"))
+}
+
+/// SHA256SUMS.txt's signature, checked against the release key: who signed it, or why it doesn't
+/// count.
+fn check_signature(sums: &[u8], sig: &[u8]) -> Result<&'static str> {
+    let (key, who) = release_key();
+    match verify_sums(sums, &String::from_utf8_lossy(sig), &key) {
+        Ok(()) => Ok(who),
+        Err(e) => bail!(
+            "{e}: these files weren't signed with {who}, or they were changed after they were signed"
+        ),
+    }
+}
+
+/// Whether a release must come with SHA256SUMS.txt.sig: every one since the first signed one.
+fn needs_signature(v: &Version) -> bool {
+    *v >= Version::parse(FIRST_SIGNED).expect("FIRST_SIGNED is semver")
 }
 
 // ---------- asking, and remembering the answer
@@ -318,6 +415,8 @@ pub struct Found {
     pub published_at: Option<String>,
     pub archive: String,
     pub size: u64,
+    /// the release has SHA256SUMS.txt.sig (checked when it's installed)
+    pub signed: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -437,6 +536,7 @@ fn status_of(c: &Cache, channel: Channel) -> Status {
                     .find(|a| a.name == name)
                     .map_or(0, |a| a.size),
                 archive: name,
+                signed: r.assets.iter().any(|a| a.name == SIG),
             }
         });
     let newer = latest
@@ -632,49 +732,176 @@ fn locations_dir() -> Result<()> {
 
 // ---------- installing
 
-/// Why this binary can't replace itself, if it can't.
-pub fn not_replaceable(exe: &Path) -> Option<String> {
+/// How a copy of BackDown that can't replace itself is updated instead.
+#[derive(Debug, PartialEq)]
+enum Managed {
+    AppImage,
+    /// in /usr/bin and the like: a .deb, or another of the system's packages
+    System(&'static str),
+    /// Nix, snap
+    Other(&'static str),
+    Homebrew,
+    /// inside BackDown.app
+    App,
+    Msi,
+}
+
+fn managed(exe: &Path) -> Option<Managed> {
     if std::env::var_os("APPIMAGE").is_some() {
-        return Some("this BackDown runs from an AppImage, which can't change itself: download the new AppImage from https://backdown.io/download".into());
+        return Some(Managed::AppImage);
     }
     let s = exe.to_string_lossy();
-    let managed = [
+    let system = [
         (
             "/usr/bin/",
             "your package manager (it came in a .deb or another package)",
         ),
         ("/bin/", "your package manager"),
         ("/usr/sbin/", "your package manager"),
-        ("/nix/store/", "Nix"),
-        ("/snap/", "snap"),
     ];
-    for (prefix, who) in managed {
+    for (prefix, who) in system {
         if s.starts_with(prefix) {
-            return Some(format!(
-                "{} is managed by {who}: update it that way (the new package is at https://backdown.io/download)",
-                exe.display()
-            ));
+            return Some(Managed::System(who));
+        }
+    }
+    for (prefix, who) in [("/nix/store/", "Nix"), ("/snap/", "snap")] {
+        if s.starts_with(prefix) {
+            return Some(Managed::Other(who));
         }
     }
     if s.contains("/Cellar/") {
-        return Some(format!(
-            "{} is managed by Homebrew: brew upgrade backdown",
-            exe.display()
-        ));
+        return Some(Managed::Homebrew);
     }
     // a new binary inside the bundle would break its signature, and macOS then won't start it
     if s.contains(".app/Contents/MacOS/") {
-        return Some(
-            "this BackDown is inside BackDown.app, which can't change itself: download the new .dmg from https://backdown.io/download".into(),
-        );
+        return Some(Managed::App);
     }
     // Windows Installer keeps track of the files it installed: the new .msi upgrades this one
     if cfg!(windows) && s.contains(r"\Programs\BackDown\") && installed_by_msi() {
-        return Some(
-            "BackDown was installed from an .msi: install the new .msi from https://backdown.io/download, which upgrades this one".into(),
-        );
+        return Some(Managed::Msi);
     }
     None
+}
+
+/// Why this binary can't replace itself, if it can't.
+pub fn not_replaceable(exe: &Path) -> Option<String> {
+    Some(match managed(exe)? {
+        Managed::AppImage => "this BackDown runs from an AppImage, which can't change itself: download the new AppImage from https://backdown.io/download".into(),
+        Managed::System(who) | Managed::Other(who) => format!(
+            "{} is managed by {who}: update it that way (the new package is at https://backdown.io/download)",
+            exe.display()
+        ),
+        Managed::Homebrew => format!(
+            "{} is managed by Homebrew: brew upgrade backdown",
+            exe.display()
+        ),
+        Managed::App => "this BackDown is inside BackDown.app, which can't change itself: download the new .dmg from https://backdown.io/download".into(),
+        Managed::Msi => "BackDown was installed from an .msi: install the new .msi from https://backdown.io/download, which upgrades this one".into(),
+    })
+}
+
+/// The same for `update --from FOLDER`, saying what to do with the carried files instead (`files`:
+/// the names of those in the folder), with the one to use if it's there.
+fn not_replaceable_offline(
+    exe: &Path,
+    folder: &Path,
+    files: &[String],
+) -> Option<(String, Option<String>)> {
+    let find = |prefix: &str, suffix: &str| {
+        files
+            .iter()
+            .filter(|n| n.starts_with(prefix) && n.ends_with(suffix))
+            .max()
+            .cloned()
+    };
+    let at = |name: &str| folder.join(name).display().to_string();
+    let arch = std::env::consts::ARCH;
+    let m = managed(exe)?;
+    let (why, file) = match m {
+        Managed::AppImage => {
+            let f = find("BackDown-", &format!("-{arch}.AppImage"));
+            let how = match &f {
+                Some(n) => format!("use {} in its place", at(n)),
+                None => format!(
+                    "carry over the new AppImage (BackDown-…-{arch}.AppImage) and use it in its place"
+                ),
+            };
+            (
+                format!("this BackDown runs from an AppImage, which can't change itself: {how}"),
+                f,
+            )
+        }
+        Managed::System(who) => {
+            let deb_arch = match arch {
+                "x86_64" => "amd64",
+                "aarch64" => "arm64",
+                a => a,
+            };
+            let f = find("backdown-io_", &format!("_{deb_arch}.deb"));
+            let how = match &f {
+                Some(n) => format!(
+                    "install the new package from the carried files instead: sudo apt install {}",
+                    deb_path(&folder.join(n))
+                ),
+                None => format!(
+                    "install the new package instead (for the .deb, carry it over too, then sudo apt install ./backdown-io_…_{deb_arch}.deb)"
+                ),
+            };
+            (format!("{} is managed by {who}: {how}", exe.display()), f)
+        }
+        Managed::Other(who) => (
+            format!("{} is managed by {who}: update it that way", exe.display()),
+            None,
+        ),
+        Managed::Homebrew => {
+            let f = platform().and_then(|p| find("backdown-", &format!("-{p}.tar.gz")));
+            let what = f.as_deref().map_or("this system's archive".into(), at);
+            (
+                format!(
+                    "{} is managed by Homebrew, which needs a network: unpack {what} somewhere you own (like ~/.local/bin) and use that BackDown instead",
+                    exe.display()
+                ),
+                f,
+            )
+        }
+        Managed::App => {
+            let f = find("BackDown-", ".dmg");
+            let what = f.as_deref().map_or("the new .dmg".into(), at);
+            (
+                format!(
+                    "this BackDown is inside BackDown.app, which can't change itself: open {what} and drag BackDown to Applications"
+                ),
+                f,
+            )
+        }
+        Managed::Msi => {
+            let f = find("BackDown-", "-x64.msi");
+            let what = f.as_deref().map_or("the new .msi".into(), at);
+            (
+                format!("BackDown was installed from an .msi: run {what}, which upgrades this one"),
+                f,
+            )
+        }
+    };
+    Some((why, file))
+}
+
+/// A .deb's path as apt takes it: "./" before a relative one (else apt looks for a package of that
+/// name), and quoted for the shell if need be.
+fn deb_path(p: &Path) -> String {
+    let s = p.display().to_string();
+    let s = if p.is_relative() && !s.starts_with('.') {
+        format!("./{s}")
+    } else {
+        s
+    };
+    if s.bytes()
+        .all(|c| c.is_ascii_alphanumeric() || b"._-+/:=@,%".contains(&c))
+    {
+        s
+    } else {
+        format!("'{}'", s.replace('\'', r"'\''"))
+    }
 }
 
 /// Whether the .msi installed BackDown for this user (it records `HKCU\Software\BackDown`
@@ -921,6 +1148,29 @@ pub struct Installed {
     pub to: String,
 }
 
+/// An empty folder beside `exe` to unpack a new version in: on the same file system, so the swap
+/// is one rename.
+fn stage_beside(exe: &Path) -> Result<PathBuf> {
+    let dir = exe.parent().context("where is backdown?")?;
+    let stage = dir.join(".backdown-update");
+    let _ = std::fs::remove_dir_all(&stage);
+    if let Err(e) = std::fs::create_dir(&stage) {
+        if e.kind() == std::io::ErrorKind::PermissionDenied {
+            bail!(
+                "can't write to {} ({e}){}",
+                dir.display(),
+                if cfg!(unix) {
+                    ": run `sudo backdown update`, or move backdown somewhere you own (like ~/.local/bin)"
+                } else {
+                    ""
+                }
+            );
+        }
+        return Err(e).with_context(|| format!("can't create {}", stage.display()));
+    }
+    Ok(stage)
+}
+
 /// Download, verify, check and install `found` over `exe`. Any failure before the swap leaves
 /// everything as it was; a new binary that fails `--version` once installed is replaced by the old.
 pub fn install(found: &Found, exe: &Path, say: &mut dyn FnMut(&str)) -> Result<Installed> {
@@ -945,23 +1195,15 @@ pub fn install(found: &Found, exe: &Path, say: &mut dyn FnMut(&str)) -> Result<I
         .iter()
         .find(|a| a.name == SUMS)
         .context("that release has no SHA256SUMS.txt, so it can't be verified")?;
-    let dir = exe.parent().context("where is backdown?")?;
-    let stage = dir.join(".backdown-update");
-    let _ = std::fs::remove_dir_all(&stage);
-    if let Err(e) = std::fs::create_dir(&stage) {
-        if e.kind() == std::io::ErrorKind::PermissionDenied {
-            bail!(
-                "can't write to {} ({e}){}",
-                dir.display(),
-                if cfg!(unix) {
-                    ": run `sudo backdown update`, or move backdown somewhere you own (like ~/.local/bin)"
-                } else {
-                    ""
-                }
-            );
-        }
-        return Err(e).with_context(|| format!("can't create {}", stage.display()));
+    let sig = release.assets.iter().find(|a| a.name == SIG);
+    let version = Version::parse(&found.version).context("that release's version isn't semver")?;
+    if sig.is_none() && needs_signature(&version) {
+        bail!(
+            "{} has no {SIG}, but every release since v{FIRST_SIGNED} is signed: it wasn't installed, and nothing was changed",
+            release.tag
+        );
     }
+    let stage = stage_beside(exe)?;
     let result = (|| -> Result<Installed> {
         say(&format!("downloading {SUMS} for {}", release.tag));
         let sums_path = stage.join(SUMS);
@@ -969,7 +1211,27 @@ pub fn install(found: &Found, exe: &Path, say: &mut dyn FnMut(&str)) -> Result<I
         if r.status != 200 {
             bail!("couldn't download {SUMS} (HTTP {})", r.status);
         }
-        let expect = expected_sum(&std::fs::read_to_string(&sums_path)?, &archive.name)
+        let sums_bytes = std::fs::read(&sums_path)?;
+        match sig {
+            Some(sig) => {
+                say(&format!("downloading {SIG}"));
+                let sig_path = stage.join(SIG);
+                let r = http(&sig.url, &[], Some(&sig_path), 120)?;
+                if r.status != 200 {
+                    bail!("couldn't download {SIG} (HTTP {})", r.status);
+                }
+                let who =
+                    check_signature(&sums_bytes, &std::fs::read(&sig_path)?).map_err(|e| {
+                        anyhow::anyhow!(
+                            "{e:#}. {} wasn't installed, and nothing was changed",
+                            release.tag
+                        )
+                    })?;
+                say(&format!("{SUMS} is signed with {who}"));
+            }
+            None => say(&format!("{UNSIGNED}: it's checked against {SUMS} alone")),
+        }
+        let expect = expected_sum(&String::from_utf8_lossy(&sums_bytes), &archive.name)
             .with_context(|| {
                 format!(
                     "{SUMS} doesn't list {}, so it can't be verified",
@@ -999,50 +1261,61 @@ pub fn install(found: &Found, exe: &Path, say: &mut dyn FnMut(&str)) -> Result<I
             );
         }
         say("SHA-256 matches SHA256SUMS.txt");
-        let new = stage.join(bin_name());
-        unpack(&arch_path, bin_name(), &new)?;
-        make_executable(&new)?;
-        let want = format!("backdown {}", found.version);
-        match version_of(&new) {
-            Ok(v) if v == want => {}
-            Ok(v) => bail!("the downloaded program says {v:?}, not {want:?}: nothing was changed"),
-            Err(e) => bail!("the downloaded program doesn't run here ({e:#}): nothing was changed"),
-        }
-        let copy = keep_copy(exe)?;
-        let aside = swap_in(&new, exe)?;
-        // the installed binary must run; if it doesn't, the previous one goes back
-        if let Err(why) = version_of(exe).and_then(|v| {
-            if v == want {
-                Ok(())
-            } else {
-                Err(anyhow::anyhow!("it says {v:?}"))
-            }
-        }) {
-            match &aside {
-                Some(old) => {
-                    let _ = std::fs::remove_file(exe);
-                    std::fs::rename(old, exe)?;
-                }
-                None => restore(&copy, exe)?,
-            }
-            bail!(
-                "BackDown {} didn't start once installed ({why:#}), so {} is back in place (rolled back)",
-                found.version,
-                env!("CARGO_PKG_VERSION")
-            );
-        }
-        say(&format!(
-            "installed BackDown {} in {}",
-            found.version,
-            exe.display()
-        ));
-        Ok(Installed {
-            from: env!("CARGO_PKG_VERSION").into(),
-            to: found.version.clone(),
-        })
+        install_verified(&arch_path, &stage, &found.version, exe, say)
     })();
     let _ = std::fs::remove_dir_all(&stage);
     result
+}
+
+/// From an archive whose SHA-256 checked out (in `stage`, beside `exe`): unpack the program, check
+/// it runs and says `version`, keep a copy of the old one, swap the new one in, and put the old one
+/// back if the new one doesn't run once it's there.
+fn install_verified(
+    archive: &Path,
+    stage: &Path,
+    version: &str,
+    exe: &Path,
+    say: &mut dyn FnMut(&str),
+) -> Result<Installed> {
+    let new = stage.join(bin_name());
+    unpack(archive, bin_name(), &new)?;
+    make_executable(&new)?;
+    let want = format!("backdown {version}");
+    match version_of(&new) {
+        Ok(v) if v == want => {}
+        Ok(v) => bail!("the new program says {v:?}, not {want:?}: nothing was changed"),
+        Err(e) => bail!("the new program doesn't run here ({e:#}): nothing was changed"),
+    }
+    let copy = keep_copy(exe)?;
+    let aside = swap_in(&new, exe)?;
+    // the installed binary must run; if it doesn't, the previous one goes back
+    if let Err(why) = version_of(exe).and_then(|v| {
+        if v == want {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("it says {v:?}"))
+        }
+    }) {
+        match &aside {
+            Some(old) => {
+                let _ = std::fs::remove_file(exe);
+                std::fs::rename(old, exe)?;
+            }
+            None => restore(&copy, exe)?,
+        }
+        bail!(
+            "BackDown {version} didn't start once installed ({why:#}), so {} is back in place (rolled back)",
+            env!("CARGO_PKG_VERSION")
+        );
+    }
+    say(&format!(
+        "installed BackDown {version} in {}",
+        exe.display()
+    ));
+    Ok(Installed {
+        from: env!("CARGO_PKG_VERSION").into(),
+        to: version.to_string(),
+    })
 }
 
 /// `backdown update --rollback`: the copy kept by the last update goes back in place.
@@ -1115,18 +1388,300 @@ pub fn tidy() {
     }
 }
 
+// ---------- from a folder, without a network
+
+/// A release's files carried over in a folder, its SHA256SUMS.txt signature checked.
+struct Bundle {
+    /// the folder, as given
+    folder: PathBuf,
+    /// what SHA256SUMS.txt lists: (name, SHA-256)
+    listed: Vec<(String, String)>,
+    /// the names of the files in the folder
+    present: Vec<String>,
+    /// who signed SHA256SUMS.txt; None when it isn't signed (allowed with --allow-unsigned)
+    signer: Option<&'static str>,
+    /// the release, from the names of the archives SHA256SUMS.txt lists
+    tag: Option<String>,
+}
+
+impl Bundle {
+    /// Read FOLDER's SHA256SUMS.txt and check its signature. Reads only this folder.
+    fn open(folder: &Path, allow_unsigned: bool, say: &mut dyn FnMut(&str)) -> Result<Bundle> {
+        let meta = std::fs::metadata(folder)
+            .with_context(|| format!("can't open {}", folder.display()))?;
+        if !meta.is_dir() {
+            bail!(
+                "{} isn't a folder: give the folder that holds the release's files",
+                folder.display()
+            );
+        }
+        let sums = match std::fs::read(folder.join(SUMS)) {
+            Ok(b) => b,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => bail!(
+                "{} has no {SUMS}: carry it over with the release's archive and {SIG}",
+                folder.display()
+            ),
+            Err(e) => return Err(e).with_context(|| format!("can't read {SUMS}")),
+        };
+        let text = String::from_utf8_lossy(&sums).into_owned();
+        let listed = listed(&text);
+        let tag = bundle_tag(&listed)?;
+        let signer = match std::fs::read(folder.join(SIG)) {
+            Ok(sig) => {
+                let who = check_signature(&sums, &sig)
+                    .map_err(|e| anyhow::anyhow!("{e:#}. Nothing was installed"))?;
+                say(&format!("{SUMS} is signed with {who}"));
+                Some(who)
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound && allow_unsigned => {
+                let old = tag
+                    .as_deref()
+                    .and_then(Version::parse)
+                    .is_some_and(|v| !needs_signature(&v));
+                say(&format!(
+                    "warning: there's no {SIG}{}, so nothing shows these files are BackDown's. With --allow-unsigned they're checked against {SUMS} alone, which shows only that they arrived whole: whoever could change them could change it too",
+                    if old {
+                        format!(" ({UNSIGNED})")
+                    } else {
+                        String::new()
+                    }
+                ));
+                None
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => bail!(
+                "{} has no {SIG}, so nothing shows these files are BackDown's: carry it over from the same release (every release since v{FIRST_SIGNED} has one). --allow-unsigned goes ahead on {SUMS} alone, which shows only that the files arrived whole",
+                folder.display()
+            ),
+            Err(e) => return Err(e).with_context(|| format!("can't read {SIG}")),
+        };
+        let mut present: Vec<String> = std::fs::read_dir(folder)
+            .with_context(|| format!("can't list {}", folder.display()))?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+            .filter_map(|e| e.file_name().into_string().ok())
+            .collect();
+        present.sort();
+        Ok(Bundle {
+            folder: folder.to_path_buf(),
+            listed,
+            present,
+            signer,
+            tag,
+        })
+    }
+
+    fn has(&self, name: &str) -> bool {
+        self.present.iter().any(|n| n == name)
+    }
+
+    /// Check `file` (the bundle's `name`, or a copy of it) against SHA256SUMS.txt.
+    fn verify(&self, file: &Path, name: &str) -> Result<()> {
+        let expect = self
+            .listed
+            .iter()
+            .find_map(|(n, h)| (n == name).then_some(h))
+            .with_context(|| format!("{SUMS} doesn't list {name}, so it can't be verified"))?;
+        let got = sha256_file(file)?;
+        if &got != expect {
+            bail!(
+                "{name} doesn't match {SUMS} (SHA-256 {got}, expected {expect}): it's damaged, or it was changed. Nothing was installed"
+            );
+        }
+        Ok(())
+    }
+
+    fn checked(&self) -> String {
+        match self.signer {
+            Some(who) => format!("{SUMS}, which is signed with {who}"),
+            None => format!("{SUMS}, which isn't signed"),
+        }
+    }
+}
+
+/// The release SHA256SUMS.txt is for, from the names of the archives it lists.
+fn bundle_tag(listed: &[(String, String)]) -> Result<Option<String>> {
+    let mut tags: Vec<String> = listed
+        .iter()
+        .filter_map(|(n, _)| {
+            let rest = n.strip_prefix("backdown-")?;
+            PLATFORMS.iter().find_map(|p| {
+                rest.strip_suffix(&format!("-{p}.{}", archive_ext(p)))
+                    .filter(|t| t.starts_with('v') && Version::parse(t).is_some())
+                    .map(String::from)
+            })
+        })
+        .collect();
+    tags.sort();
+    tags.dedup();
+    if tags.len() > 1 {
+        bail!(
+            "{SUMS} lists archives of more than one release ({}): carry one release's files",
+            tags.join(", ")
+        );
+    }
+    Ok(tags.pop())
+}
+
+/// `backdown update --from FOLDER [--check]`: install (or only verify) a release carried over in a
+/// folder. No network request is made.
+fn run_from(a: &Args, folder: &Path, exe: &Path) -> Result<ExitCode> {
+    // checking a carried bundle is free, like checking any download; installing from one is the
+    // air-gapped feature
+    if !a.check {
+        crate::tiers::gate_feature("airgap", "backdown update --from")?;
+    }
+    let mut say = |m: &str| eprintln!("  {m}");
+    let b = Bundle::open(folder, a.allow_unsigned, &mut say)?;
+    if a.check {
+        return check_bundle(&b, exe);
+    }
+    // a copy that's updated another way: say what to do with the carried files
+    if let Some((why, file)) = not_replaceable_offline(exe, folder, &b.present) {
+        let note = match file {
+            Some(f) if b.listed.iter().any(|(n, _)| *n == f) => {
+                b.verify(&folder.join(&f), &f)?;
+                format!(" ({f} matches {})", b.checked())
+            }
+            Some(f) => format!(" ({SUMS} doesn't list {f}, so it isn't verified)"),
+            None => String::new(),
+        };
+        bail!("{why}{note}");
+    }
+    let plat = platform().context("there are no BackDown builds for this platform")?;
+    let tag = b.tag.as_deref().with_context(|| {
+        format!("{SUMS} lists no BackDown archive: is it from a BackDown release?")
+    })?;
+    let name = archive_name(tag, plat);
+    if !b.has(&name) {
+        bail!(
+            "{} has no {name}, this computer's archive of {tag}: carry it over with {SUMS} and {SIG}",
+            folder.display()
+        );
+    }
+    let version = tag.trim_start_matches('v');
+    let stage = stage_beside(exe)?;
+    let result = (|| -> Result<Installed> {
+        // copied first, and the copy checked and unpacked, so what's installed is what was checked
+        let copy = stage.join(&name);
+        std::fs::copy(folder.join(&name), &copy)
+            .with_context(|| format!("can't copy {name} from {}", folder.display()))?;
+        b.verify(&copy, &name)?;
+        say(&format!("SHA-256 of {name} matches {SUMS}"));
+        let v = Version::parse(version).context("the release's version isn't semver")?;
+        let cur = current();
+        if v <= cur && !a.allow_older {
+            bail!(
+                "BackDown {version} isn't newer than this one ({}): nothing was changed. --allow-older installs it anyway",
+                env!("CARGO_PKG_VERSION")
+            );
+        }
+        install_verified(&copy, &stage, version, exe, &mut say)
+    })();
+    let _ = std::fs::remove_dir_all(&stage);
+    let done = result?;
+    println!(
+        "Updated BackDown {} → {} (from {}).",
+        done.from,
+        done.to,
+        folder.display()
+    );
+    if let Some(r) = restart_daemon() {
+        println!("{r}");
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `--from FOLDER --check`: verify every file in the folder that SHA256SUMS.txt lists, say what it
+/// would do here, and change nothing.
+fn check_bundle(b: &Bundle, exe: &Path) -> Result<ExitCode> {
+    let mut ok = 0;
+    for (name, _) in &b.listed {
+        if b.has(name) {
+            b.verify(&b.folder.join(name), name)?;
+            println!("  ok  {name}");
+            ok += 1;
+        }
+    }
+    if ok == 0 {
+        bail!(
+            "none of the files {SUMS} lists are in {}",
+            b.folder.display()
+        );
+    }
+    let unlisted: Vec<&str> = b
+        .present
+        .iter()
+        .filter(|n| *n != SUMS && *n != SIG && !b.listed.iter().any(|(l, _)| l == *n))
+        .map(String::as_str)
+        .collect();
+    if !unlisted.is_empty() {
+        println!("  not in {SUMS}, so not checked: {}", unlisted.join(", "));
+    }
+    println!(
+        "{ok} file{} in {} {} {}.",
+        if ok == 1 { "" } else { "s" },
+        b.folder.display(),
+        if ok == 1 { "matches" } else { "match" },
+        b.checked()
+    );
+    let tag = b.tag.as_deref().unwrap_or_default();
+    let here = match platform() {
+        None => "There are no BackDown builds for this system, so it can't be updated from here."
+            .to_string(),
+        Some(_) if tag.is_empty() => format!("{SUMS} lists no BackDown archive."),
+        Some(plat) => {
+            let name = archive_name(tag, plat);
+            let version = tag.trim_start_matches('v');
+            let newer = Version::parse(version).is_some_and(|v| v > current());
+            if let Some((why, _)) = not_replaceable_offline(exe, &b.folder, &b.present) {
+                format!("Here: {why}.")
+            } else if !b.has(&name) {
+                format!(
+                    "Here ({plat}): there's no {name} in the folder, so it can't update this computer (it can still update others)."
+                )
+            } else if newer {
+                format!(
+                    "Here: BackDown {version} is newer than this one ({}); `backdown update --from {}{}` installs it.",
+                    env!("CARGO_PKG_VERSION"),
+                    b.folder.display(),
+                    if b.signer.is_none() {
+                        " --allow-unsigned"
+                    } else {
+                        ""
+                    }
+                )
+            } else {
+                format!(
+                    "Here: BackDown {version} isn't newer than this one ({}); --allow-older would install it anyway.",
+                    env!("CARGO_PKG_VERSION")
+                )
+            }
+        }
+    };
+    println!("{here}");
+    println!("Nothing was changed.");
+    Ok(ExitCode::SUCCESS)
+}
+
 pub struct Args {
     pub check: bool,
     pub refresh: bool,
     pub rollback: bool,
     pub channel: Option<String>,
     pub json: bool,
+    /// install (or with --check, verify) from this folder instead of the network
+    pub from: Option<PathBuf>,
+    pub allow_unsigned: bool,
+    pub allow_older: bool,
 }
 
-/// `backdown update [--check] [--rollback]`
+/// `backdown update [--check] [--rollback] [--from FOLDER]`
 pub fn run(a: Args) -> Result<ExitCode> {
     tidy();
     let exe = dunce::canonicalize(std::env::current_exe()?)?;
+    if let Some(folder) = &a.from {
+        return run_from(&a, folder, &exe);
+    }
     if a.rollback {
         let v = rollback(&exe)?;
         println!("put back {v} in {}", exe.display());
@@ -1490,6 +2045,158 @@ mod tests {
             ))
             .unwrap()
             .contains(".dmg")
+        );
+    }
+
+    // ---- signatures, with throwaway keys made here (never the release key)
+
+    use ed25519_dalek::{Signer as _, SigningKey};
+
+    fn sign(k: &SigningKey, data: &[u8]) -> String {
+        URL_SAFE_NO_PAD.encode(k.sign(data).to_bytes())
+    }
+
+    const SUMS_TEXT: &[u8] = b"c6418ceda15c13829e11d70ad3ed8d8c7cd5c7a5d7d564b6af737d5a1b12144b  backdown-v1.0.0-linux-x86_64.tar.gz\n";
+
+    #[test]
+    fn a_signature_over_the_exact_sums_passes() {
+        let k = SigningKey::from_bytes(&[7; 32]);
+        let pk = k.verifying_key().to_bytes();
+        let sig = sign(&k, SUMS_TEXT);
+        verify_sums(SUMS_TEXT, &sig, &pk).unwrap();
+        // as sign-release.mjs writes it (a newline after), or with base64 padding
+        verify_sums(SUMS_TEXT, &format!("{sig}\n"), &pk).unwrap();
+        verify_sums(SUMS_TEXT, &format!("{sig}=="), &pk).unwrap();
+    }
+
+    #[test]
+    fn changed_sums_or_a_changed_signature_fail() {
+        let k = SigningKey::from_bytes(&[7; 32]);
+        let pk = k.verifying_key().to_bytes();
+        let sig = sign(&k, SUMS_TEXT);
+        // one hex digit of a hash changed
+        let mut changed = SUMS_TEXT.to_vec();
+        changed[0] = b'd';
+        let e = verify_sums(&changed, &sig, &pk).unwrap_err().to_string();
+        assert!(e.contains("doesn't match SHA256SUMS.txt"), "{e}");
+        // a line added
+        let mut longer = SUMS_TEXT.to_vec();
+        longer.extend_from_slice(b"00  extra\n");
+        assert!(verify_sums(&longer, &sig, &pk).is_err());
+        // the signature changed: a flipped bit, cut short, or not base64 at all
+        let mut raw = URL_SAFE_NO_PAD.decode(&sig).unwrap();
+        raw[10] ^= 1;
+        assert!(verify_sums(SUMS_TEXT, &URL_SAFE_NO_PAD.encode(&raw), &pk).is_err());
+        let e = verify_sums(SUMS_TEXT, &sig[..40], &pk)
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("damaged"), "{e}");
+        assert!(verify_sums(SUMS_TEXT, "not a signature!", &pk).is_err());
+        assert!(verify_sums(SUMS_TEXT, "", &pk).is_err());
+    }
+
+    #[test]
+    fn a_signature_by_another_key_fails() {
+        let k = SigningKey::from_bytes(&[7; 32]);
+        let other = SigningKey::from_bytes(&[8; 32]);
+        let sig = sign(&other, SUMS_TEXT);
+        assert!(verify_sums(SUMS_TEXT, &sig, &k.verifying_key().to_bytes()).is_err());
+        // and nothing a test key signs passes as a release
+        assert!(verify_sums(SUMS_TEXT, &sign(&k, SUMS_TEXT), &RELEASE_KEY).is_err());
+        assert!(VerifyingKey::from_bytes(&RELEASE_KEY).is_ok());
+    }
+
+    #[test]
+    fn releases_need_a_signature_from_beta_4_on() {
+        for old in [
+            "0.2.0-alpha.4",
+            "1.0.0-beta.1",
+            "1.0.0-beta.3",
+            "1.0.0-beta.3.1",
+        ] {
+            assert!(!needs_signature(&v(old)), "{old}");
+        }
+        for new in ["1.0.0-beta.4", "1.0.0-rc.1", "1.0.0", "1.2.0", "9.9.9"] {
+            assert!(needs_signature(&v(new)), "{new}");
+        }
+        assert!(UNSIGNED.contains(&format!("v{FIRST_SIGNED}")));
+    }
+
+    #[test]
+    fn a_bundle_lists_plain_names_of_one_release() {
+        let sums = format!(
+            "{h}  backdown-v1.0.0-linux-arm64.tar.gz\n{h}  backdown-v1.0.0-windows-x86_64.zip\n{h}  backdown-io_1.0.0_arm64.deb\n{h}  ../escape.tar.gz\n{h}  sub/dir.tar.gz\n",
+            h = "ab".repeat(32)
+        );
+        let l = listed(&sums);
+        assert_eq!(
+            l.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(),
+            [
+                "backdown-v1.0.0-linux-arm64.tar.gz",
+                "backdown-v1.0.0-windows-x86_64.zip",
+                "backdown-io_1.0.0_arm64.deb"
+            ]
+        );
+        assert_eq!(bundle_tag(&l).unwrap().as_deref(), Some("v1.0.0"));
+        let two = listed(&format!(
+            "{sums}{}  backdown-v1.0.1-linux-arm64.tar.gz\n",
+            "cd".repeat(32)
+        ));
+        assert!(
+            bundle_tag(&two)
+                .unwrap_err()
+                .to_string()
+                .contains("more than one release")
+        );
+        assert_eq!(bundle_tag(&listed("")).unwrap(), None);
+    }
+
+    #[test]
+    fn package_managed_copies_are_told_what_to_do_with_the_carried_files() {
+        if std::env::var_os("APPIMAGE").is_some() {
+            return;
+        }
+        let deb_arch = match std::env::consts::ARCH {
+            "x86_64" => "amd64",
+            "aarch64" => "arm64",
+            a => a,
+        };
+        let deb = format!("backdown-io_1.0.0_{deb_arch}.deb");
+        let files = vec![SUMS.to_string(), deb.clone()];
+        let (why, file) =
+            not_replaceable_offline(Path::new("/usr/bin/backdown"), Path::new("."), &files)
+                .unwrap();
+        assert!(why.contains(&format!("sudo apt install ./{deb}")), "{why}");
+        assert!(why.contains("package manager"), "{why}");
+        assert_eq!(file.as_deref(), Some(deb.as_str()));
+        // an absolute folder, with a space in it, and no .deb there
+        let (why, file) = not_replaceable_offline(
+            Path::new("/usr/bin/backdown"),
+            Path::new("/media/USB STICK"),
+            &[SUMS.to_string()],
+        )
+        .unwrap();
+        assert!(why.contains("carry it over too"), "{why}");
+        assert_eq!(file, None);
+        assert_eq!(
+            deb_path(Path::new("/media/USB STICK/x.deb")),
+            "'/media/USB STICK/x.deb'"
+        );
+        assert_eq!(deb_path(Path::new("usb/x.deb")), "./usb/x.deb");
+        let (why, _) = not_replaceable_offline(
+            Path::new("/Applications/BackDown.app/Contents/MacOS/backdown"),
+            Path::new("/Volumes/USB"),
+            &["BackDown-1.0.0.dmg".to_string()],
+        )
+        .unwrap();
+        assert!(why.contains("/Volumes/USB/BackDown-1.0.0.dmg"), "{why}");
+        assert!(
+            not_replaceable_offline(
+                Path::new("/home/someone/.local/bin/backdown"),
+                Path::new("."),
+                &files
+            )
+            .is_none()
         );
     }
 

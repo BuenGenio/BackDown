@@ -2,13 +2,16 @@
 # Publish a tagged CLI build to the public BuenGenio/backdown-releases repo and point the site's download
 # cards at it. The `release` workflow for the tag must have finished (or, with --local, scripts/build-local.sh
 # must have built the tag on this machine); either builds and checksums everything, so this only moves
-# verified files. Deploying the site is a separate step (marketing/README.md).
+# verified files. It signs the release's SHA256SUMS.txt (SHA256SUMS.txt.sig, with scripts/sign-release.mjs)
+# before anything goes up: no signature, no release. Deploying the site is a separate step
+# (marketing/README.md).
 #
 #   scripts/publish-release.sh v0.2.0-alpha.1
 #   scripts/publish-release.sh v0.2.0-alpha.5 --local   # publish what scripts/build-local.sh built instead
 #   scripts/publish-release.sh v1.0.0-beta.1 --local --with-packages   # plus scripts/package-local.sh's installers
 #
-# Needs gh (logged in with access to both repos) and python3.
+# Needs gh (logged in with access to both repos), python3, and node with the release-signing key
+# (BACKDOWN_RELEASE_KEY names its file, by default ~/.config/backdown/release-signing-key.pem).
 set -euo pipefail
 tag=${1:?usage: scripts/publish-release.sh vX.Y.Z [--local] [--with-packages]}
 local_build= with_packages=
@@ -18,6 +21,12 @@ done
 src=BuenGenio/BackDown
 dst=BuenGenio/backdown-releases
 root=$(cd "$(dirname "$0")/.." && pwd)
+
+# every release is signed with the release key: refuse a test key, and check the key before anything is
+# downloaded, staged or uploaded
+[ -z "${BACKDOWN_TEST_RELEASE_PUBKEY:-}" ] ||
+  { echo "BACKDOWN_TEST_RELEASE_PUBKEY is set, which is for tests only: unset it to publish" >&2; exit 1; }
+node "$root/scripts/sign-release.mjs" --check
 
 dist="$root/target/dist/$tag"
 if [ -n "$local_build" ]; then
@@ -53,28 +62,33 @@ else
   fi
 fi
 
-# with --with-packages: scripts/package-local.sh's installers go up beside the archives, under one
+# what goes up, staged in a folder of its own (hard links) so the signature never lands in $dist: the
+# archives, and with --with-packages scripts/package-local.sh's installers beside them under one
 # SHA256SUMS.txt that covers everything (`backdown update` picks archives by exact name, so extra files
 # can't confuse it)
-upload=$dist
+upload="$root/target/release-upload/$tag"
+rm -rf "$upload" && mkdir -p "$upload"
 if [ -n "$with_packages" ]; then
   pkgs="$root/target/packages/$tag"
   [ -f "$pkgs/SHA256SUMS.txt" ] || { echo "no installers in $pkgs: run scripts/package-local.sh $tag" >&2; exit 1; }
   (cd "$pkgs" && sha256sum --quiet -c SHA256SUMS.txt) || { echo "checksum mismatch in $pkgs" >&2; exit 1; }
-  upload="$root/target/release-upload/$tag"
-  rm -rf "$upload" && mkdir -p "$upload"
   for f in "$dist"/* "$pkgs"/*; do [ "$(basename "$f")" = SHA256SUMS.txt ] || ln "$f" "$upload/" 2>/dev/null || cp "$f" "$upload/"; done
   cat "$dist/SHA256SUMS.txt" "$pkgs/SHA256SUMS.txt" > "$upload/SHA256SUMS.txt"
-  (cd "$upload" && sha256sum --quiet -c SHA256SUMS.txt) || { echo "combined checksums don't match" >&2; exit 1; }
+else
+  for f in "$dist"/*; do ln "$f" "$upload/" 2>/dev/null || cp "$f" "$upload/"; done
 fi
+(cd "$upload" && sha256sum --quiet -c SHA256SUMS.txt) || { echo "the checksums in $upload don't match" >&2; exit 1; }
+notes="$root/scripts/release-notes/$tag.md"
+[ -f "$notes" ] || { echo "write the release notes first: $notes" >&2; exit 1; }
+# sign the SHA256SUMS.txt that goes up (`backdown update` checks it): if signing fails, nothing is uploaded
+node "$root/scripts/sign-release.mjs" "$upload/SHA256SUMS.txt"
+[ -s "$upload/SHA256SUMS.txt.sig" ] || { echo "signing left no $upload/SHA256SUMS.txt.sig: not publishing" >&2; exit 1; }
 # GitHub rewrites other characters in asset names ("~" becomes "."), which would break the site's
 # links and SHA256SUMS.txt: refuse such a name rather than publish it
 for f in "$upload"/*; do
   n=$(basename "$f")
   [[ $n =~ ^[A-Za-z0-9._-]+$ ]] || { echo "$n: GitHub would rename it (only letters, digits, . _ - survive); rename it first" >&2; exit 1; }
 done
-notes="$root/scripts/release-notes/$tag.md"
-[ -f "$notes" ] || { echo "write the release notes first: $notes" >&2; exit 1; }
 
 pre=(); [[ $tag == *-* ]] && pre=(--prerelease)
 gh release create "$tag" "$upload"/* --repo "$dst" --title "BackDown $tag" "${pre[@]}" --notes-file "$notes"

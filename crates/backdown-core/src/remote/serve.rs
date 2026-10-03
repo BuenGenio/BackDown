@@ -7,7 +7,12 @@
 //!
 //! Everything here reads: the index through a read-only connection (the caller opens it so), and
 //! files only by their index id, only while they're current and still as scanned (`hash` and
-//! `stat`), the way `backdown hash` would. No file's bytes are ever sent, only hashes.
+//! `stat`), the way `backdown hash` would. No file's bytes are ever sent, only hashes. Drive
+//! health (`health`) is what the index holds: no drive is read for it.
+//!
+//! A request this end doesn't know (one a newer BackDown added) is refused as an "unknown
+//! request", so the asker can tell it apart from a mistake and do without it; versions before
+//! that said "bad request: unknown variant".
 
 use std::fs;
 use std::io::Read;
@@ -20,7 +25,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::{PROTO, SAMPLE};
-use crate::{Db, browse, find, fmt, paths, recognise, report};
+use crate::{Db, browse, find, fmt, health, paths, recognise, report};
 
 /// The longest request line accepted.
 pub const MAX_LINE: usize = 64 * 1024;
@@ -33,6 +38,11 @@ pub const MAX_STAT_IDS: usize = 5000;
 pub const MAX_BUDGET: u64 = 3600;
 /// Entries of one folder listing sent, at most.
 pub const MAX_ENTRIES: usize = 10_000;
+/// Drives in a `health` answer, at most (the worst first), its latest changes for each, and its
+/// latest notifications about its own drives.
+pub const MAX_HEALTH_DRIVES: usize = 100;
+pub const MAX_HEALTH_CHANGES: usize = 5;
+pub const MAX_HEALTH_NOTES: usize = 20;
 
 /// What this end says about itself.
 pub struct Here {
@@ -104,6 +114,9 @@ pub enum Request {
     Stat {
         ids: Vec<i64>,
     },
+    /// Its drives' health as its index has it (no drive is read for this), and its own latest
+    /// drive-health notifications.
+    Health {},
 }
 
 #[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -150,7 +163,18 @@ pub fn parse(line: &str) -> (Value, Result<Request>) {
     {
         return (id, Err(anyhow::anyhow!("unknown request format {ver}")));
     }
-    let req = serde_json::from_value::<Request>(v).map_err(|e| anyhow::anyhow!("bad request: {e}"));
+    let op = obj.get("op").and_then(Value::as_str).map(str::to_string);
+    let req = serde_json::from_value::<Request>(v).map_err(|e| {
+        let e = e.to_string();
+        match op {
+            // a request a newer BackDown added: the asker can tell, and do without it
+            Some(op) if e.starts_with(&format!("unknown variant `{op}`")) => anyhow::anyhow!(
+                "unknown request {op:?}: BackDown {} here doesn't know it",
+                env!("CARGO_PKG_VERSION")
+            ),
+            _ => anyhow::anyhow!("bad request: {e}"),
+        }
+    });
     (id, req)
 }
 
@@ -331,7 +355,49 @@ pub fn answer(db: &Db, here: &Here, req: &Request, deadline: Instant) -> Result<
             }
             json!({ "results": out })
         }
+        Request::Health {} => drive_health(db)?,
     })
+}
+
+/// Each drive's latest verdict, readings and changes, as `backdown health --json` has them from
+/// the index (nothing is read from a drive for this), the worst first; and this machine's latest
+/// notifications about its own drives (not the ones it gathered from others: those stay there).
+fn drive_health(db: &Db) -> Result<Value> {
+    if !health::available(db) {
+        // an index this version never opened for writing: no readings yet
+        return Ok(json!({ "available": false, "drives": [], "notes": [], "truncated": false }));
+    }
+    let all = health::overview(Some(db), &[])?;
+    let truncated = all.len() > MAX_HEALTH_DRIVES;
+    let drives: Vec<Value> = all
+        .into_iter()
+        .take(MAX_HEALTH_DRIVES)
+        .map(|mut s| {
+            let n = s.changes.len();
+            s.changes.drain(..n.saturating_sub(MAX_HEALTH_CHANGES));
+            let mut v = json!(s);
+            if let Some(o) = v.as_object_mut() {
+                // "connected now" means nothing here (none was read), and the sparkline stays there
+                o.remove("present");
+                o.remove("series");
+            }
+            v
+        })
+        .collect();
+    let mut stmt = db.conn.prepare(
+        "SELECT at, level, title, body, drive FROM notifications
+         WHERE kind = 'health' AND substr(key, 1, 7) = 'health:' ORDER BY id DESC LIMIT ?1",
+    )?;
+    let notes: Vec<Value> = stmt
+        .query_map([MAX_HEALTH_NOTES as i64], |r| {
+            Ok(json!({
+                "at": r.get::<_, i64>(0)?, "level": r.get::<_, String>(1)?,
+                "title": r.get::<_, String>(2)?, "body": r.get::<_, String>(3)?,
+                "drive": r.get::<_, Option<String>>(4)?,
+            }))
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(json!({ "available": true, "drives": drives, "notes": notes, "truncated": truncated }))
 }
 
 /// What's recognised on each drive, in brief: the biggest things, without their contents.

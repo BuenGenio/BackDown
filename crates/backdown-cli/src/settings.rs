@@ -41,6 +41,8 @@ pub struct Settings {
     pub update_channel: Option<String>,
     /// more folder names to count as regenerable (caches and the like), besides the built-in rules
     pub junk_names: Vec<String>,
+    /// sign a manifest of each drive (manifesting.rs): "off", "after-scan", "daily" or "weekly"
+    pub attest: String,
 }
 
 impl Default for Settings {
@@ -52,6 +54,7 @@ impl Default for Settings {
             update_check: false,
             update_channel: None,
             junk_names: Vec::new(),
+            attest: "off".into(),
         }
     }
 }
@@ -313,6 +316,8 @@ fn settings_json(env: &Env) -> Value {
             "licence": crate::license::path().display().to_string(),
             "log": dir().join("daemon.log").display().to_string(),
         },
+        // the key manifests are signed with here (Settings > Attestations)
+        "signing_key": crate::manifesting::key_info(&dir()),
         "about": {
             "version": env!("CARGO_PKG_VERSION"),
             "os": std::env::consts::OS,
@@ -353,6 +358,13 @@ fn change(env: &Env, params: &[(String, String)]) -> Result<()> {
             }
             "hash_retry_errors" => s.hash_retry_errors = v == "1" || v == "true",
             "update_check" => s.update_check = v == "1" || v == "true",
+            "attest" => {
+                let m = crate::manifesting::Attest::parse(v)?;
+                if m != crate::manifesting::Attest::Off {
+                    crate::tiers::require("attestations")?;
+                }
+                s.attest = m.name().into();
+            }
             "update_channel" => {
                 s.update_channel = match v {
                     "" | "auto" => None,
@@ -573,6 +585,7 @@ mod tests {
         assert_eq!(s.hash_jobs, 3);
         assert_eq!(s.rescan_every, "24h");
         assert!(!s.update_check, "no network requests unless asked for");
+        assert_eq!(s.attest, "off", "nothing is signed unless asked for");
         let back: Settings = serde_json::from_value(serde_json::to_value(&s).unwrap()).unwrap();
         assert_eq!(back, s);
     }

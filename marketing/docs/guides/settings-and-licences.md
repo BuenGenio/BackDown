@@ -15,6 +15,7 @@ Most of what you can change is in the **Settings** view, at the bottom of the si
 | Updates | Whether and how BackDown looks for a newer version ([below](#updates)) |
 | Scanning | How often each drive is rescanned, and [fast rescans](/docs/concepts/#fast-rescans) |
 | Hashing | Readers per drive, and whether to retry files that couldn't be read |
+| Attestations | Whether the service signs a manifest of each drive after each scan, daily or weekly, and the key it signs with ([manifests and attestations](/docs/guides/manifests-and-attestations/#have-the-service-sign-them)) |
 | Junk rules | The folder names counted as caches and the like, and your own |
 | Filing schema | Where a [filing plan](/docs/guides/file-into-an-archive/#your-own-schema) puts each kind of thing, checked as you type |
 | Notifications | What pops up on your desktop ([below](#notifications)) |
@@ -95,7 +96,11 @@ backdown update
 backdown update --rollback
 ```
 
-Installing downloads this computer's archive and the release's `SHA256SUMS.txt` over HTTPS, and refuses unless the archive's SHA-256 matches. It unpacks the new program beside the one you have, checks that it runs and says the expected version, keeps a copy of the old one in your data folder (`previous/`), swaps them, and restarts the background service. If the new one doesn't start, the old one is put back. `--rollback` puts back the version the last update replaced. The sums come from the same release as the download, so they prove the file arrived whole and is the one published there; they aren't a signature.
+Installing downloads this computer's archive, the release's `SHA256SUMS.txt` and its signature, `SHA256SUMS.txt.sig`, over HTTPS. The signature is made with BackDown's release key, whose public half is built into BackDown, so it shows the sums are the ones BackDown published and weren't changed since; the sums then show the archive is the one they list. A signature that doesn't match stops the update, and so does an archive whose SHA-256 doesn't match. Releases before v1.0.0-beta.4 weren't signed: those are installed on their checksums alone, and BackDown says "this release isn't signed (releases before v1.0.0-beta.4 weren't)". A later release without its signature isn't installed.
+
+Then it unpacks the new program beside the one you have, checks that it runs and says the expected version, keeps a copy of the old one in your data folder (`previous/`), swaps them, and restarts the background service. If the new one doesn't start, the old one is put back. `--rollback` puts back the version the last update replaced.
+
+On a computer without a network, `backdown update --from FOLDER` does the same from files you carry over: the archive, `SHA256SUMS.txt` and `SHA256SUMS.txt.sig`. `--from FOLDER --check` only checks them. [Air-gapped machines](/docs/guides/air-gapped/) has the details.
 
 Some copies of BackDown are updated another way, and `backdown update` (or **How to update** in the browser) says so instead of installing:
 
@@ -190,12 +195,16 @@ The table marks these as **Pro**:
 | Data viewers | Databases, spreadsheets, presentations, mailboxes and SQL dumps in the browser |
 | Several machines | [Other machines](/docs/guides/several-machines/) over ssh: adding, syncing and browsing them (listing and forgetting them stay free) |
 
-And as **Forensic**:
+And as **Team** and **Forensic**:
 
-| Feature | What it covers |
-|---|---|
-| Chain-of-custody export | [Exporting, verifying and checking](/docs/guides/chain-of-custody/) the signed log of every copy, move, deletion, link and merge: `backdown custody` and the browser's Chain of custody download. The log itself is kept in every edition |
+| Feature | Edition | What it covers |
+|---|---|---|
+| Drive health alerts | Team | [Other machines' drives](/docs/guides/drive-health/), gathered with each sync: `backdown health --machines` and the browser's "Other machines' drives" |
+| Scheduled attestations | Team | [Signed manifests made on a schedule](/docs/guides/manifests-and-attestations/) (Settings > Attestations), `manifest list` and the manifests in a drive's details |
+| Signed, tamper-evident manifests | Forensic | [Signing a manifest](/docs/guides/manifests-and-attestations/) of what a drive held: `manifest create` and `manifest export` |
+| Chain-of-custody export | Forensic | [Exporting, verifying and checking](/docs/guides/chain-of-custody/) the signed log of every copy, move, deletion, link and merge: `backdown custody` and the browser's Chain of custody download. The log itself is kept in every edition |
+| Air-gapped deployment | Forensic | [Installing updates from a carried folder](/docs/guides/air-gapped/): `backdown update --from` |
 
-Everything else is free: indexing, hashing, duplicates, `check`, browsing with the time slider and the other viewers, recognising what things are, the report, mirrors, Rescue, drive health and notifications, mounting drives read-only, and the `dedup` and `mail` commands. The table also lists what's planned for Pro, Team and Forensic and isn't built yet, marked "coming".
+Everything else is free: indexing, hashing, duplicates, `check`, browsing with the time slider and the other viewers, recognising what things are, the report, mirrors, Rescue, drive health and notifications, mounting drives read-only, and the `dedup` and `mail` commands. Updating over the network, with its signature checked, is free too. So is checking: a manifest (`backdown manifest verify`, and showing your key with `backdown manifest key`) and a carried update folder (`backdown update --from … --check`) can be checked by anyone. The table also lists what's planned for Pro, Team and Forensic and isn't built yet, marked "coming".
 
 In a release without a licence, a Pro command says what it needs (`backdown wipe` … "is part of BackDown Pro"), and the browser marks Pro views with a badge and offers **Add a licence key** and **See pricing**. [Pricing](/pricing/) has the planned prices, which may change before release.

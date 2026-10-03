@@ -64,7 +64,8 @@ pub struct Feature {
     /// what it does for you, in a sentence (shown where it's locked)
     pub unlocks: &'static str,
     pub tier: Tier,
-    /// CLI subcommands it covers
+    /// CLI subcommands it covers: a command ("plan"), or one of a command's own subcommands
+    /// ("manifest create"), the rest of that command staying free
     pub commands: &'static [&'static str],
     /// web API paths it covers (the browser views that use them show the explanation)
     pub endpoints: &'static [&'static str],
@@ -282,35 +283,42 @@ pub const FEATURES: &[Feature] = &[
         ready: false,
     },
     Feature {
+        // the other machines' drives, fetched with each sync over the person's own ssh
+        // (remote/): `backdown health --machines`, the browser's "Other machines' drives", and
+        // notifications about them. `backdown health` and /api/health, this machine's own, stay free
         key: "health-alerts",
         name: "Drive health alerts",
-        unlocks: "Every machine's drive-health warnings gathered in one place. Each machine's own health readings, warnings and notifications are free.",
+        unlocks: "Every machine's drive-health warnings gathered here, from the machines you've added. Each machine's own health readings, warnings and notifications are free.",
         tier: Team,
         commands: &[],
-        endpoints: &[],
+        endpoints: &["/api/health-machines"],
         views: &[],
-        ready: false,
+        ready: true,
     },
     Feature {
+        // the daemon signs a manifest of each drive on a schedule (the `attest` setting); seeing
+        // and downloading the manifests kept goes with it
         key: "attestations",
         name: "Scheduled attestations",
         unlocks: "Regular signed statements of what each drive holds.",
         tier: Team,
-        commands: &[],
-        endpoints: &[],
+        commands: &["manifest list"],
+        endpoints: &["/api/manifests", "/api/manifest"],
         views: &[],
-        ready: false,
+        ready: true,
     },
     // ---- Forensic
     Feature {
+        // making manifests on demand, with their listings; checking one (`manifest verify`) and
+        // showing the key (`manifest key`) stay free, so anyone can verify
         key: "manifests",
         name: "Signed, tamper-evident manifests",
         unlocks: "Manifests anyone can verify were not changed.",
         tier: Forensic,
-        commands: &[],
+        commands: &["manifest create", "manifest export"],
         endpoints: &[],
         views: &[],
-        ready: false,
+        ready: true,
     },
     Feature {
         // the log itself is kept in every edition, from the day BackDown is installed: what's
@@ -325,14 +333,16 @@ pub const FEATURES: &[Feature] = &[
         ready: true,
     },
     Feature {
+        // `backdown update --from FOLDER` (update.rs gates it with gate_feature: `update` itself is
+        // free); licences are checked offline for everyone
         key: "airgap",
         name: "Air-gapped deployment",
-        unlocks: "Licensing and updates without any network.",
+        unlocks: "Licensing and updates without any network: install a signed release from a folder carried over, with `backdown update --from`.",
         tier: Forensic,
         commands: &[],
         endpoints: &[],
         views: &[],
-        ready: false,
+        ready: true,
     },
 ];
 
@@ -489,23 +499,43 @@ pub fn gate_endpoint(path: &str) -> Option<Value> {
     (!a.allows(f)).then(|| a.refusal(f))
 }
 
-/// Before the CLI runs a subcommand: an error that explains what's needed, if it's locked.
+/// Before the CLI runs a subcommand (`plan`, or `manifest create` for one with subcommands of its
+/// own): an error that explains what's needed, if it's locked.
 pub fn gate_command(name: &str) -> Result<()> {
     check_command(&access(), name)
+}
+
+/// Whether a command the table lists covers `name`: the same, or `name` is one of its subcommands.
+fn covers(listed: &str, name: &str) -> bool {
+    name.strip_prefix(listed)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
 }
 
 fn check_command(a: &Access, name: &str) -> Result<()> {
     let Some(f) = FEATURES
         .iter()
-        .find(|f| f.tier > Community && f.commands.contains(&name))
+        .find(|f| f.tier > Community && f.commands.iter().any(|c| covers(c, name)))
     else {
         return Ok(());
     };
+    check(a, f, &format!("backdown {name}"))
+}
+
+/// Before the CLI does something that's part of feature `key` without being a subcommand of its
+/// own (like `update --from`): the same explanation if it's locked. `what` is how it was asked for.
+pub fn gate_feature(key: &str, what: &str) -> Result<()> {
+    match feature(key) {
+        Some(f) => check(&access(), f, what),
+        None => Ok(()),
+    }
+}
+
+fn check(a: &Access, f: &Feature, what: &str) -> Result<()> {
     if a.allows(f) {
         return Ok(());
     }
     bail!(
-        "`backdown {name}` ({}) is part of BackDown {}: {}\n\
+        "`{what}` ({}) is part of BackDown {}: {}\n\
          Add a licence key with `backdown license add <key>` (see {PRICING_URL}).{}",
         f.name,
         f.tier.name(),
@@ -515,6 +545,21 @@ fn check_command(a: &Access, name: &str) -> Result<()> {
             .map(|p| format!("\nThe licence here doesn't count: {p}."))
             .unwrap_or_default()
     )
+}
+
+/// An error that explains what's needed, if feature `key` is locked (for what the table can't
+/// gate by itself, like a setting).
+pub fn require(key: &str) -> Result<()> {
+    let a = access();
+    match feature(key) {
+        Some(f) if !a.allows(f) => bail!(
+            "{} is part of BackDown {}: {} Add a licence key in Settings, or with `backdown license add <key>` (see {PRICING_URL}).",
+            f.name,
+            f.tier.name(),
+            f.unlocks
+        ),
+        _ => Ok(()),
+    }
 }
 
 /// Strip what `provenance` covers from recognised things, if it's locked: where each came from.
@@ -690,6 +735,10 @@ mod tests {
         assert!(check_command(&forensic, "custody").is_ok());
         assert!(check_command(&team, "custody").is_err());
         assert_eq!(endpoint_feature("/api/custody").unwrap().key, "custody");
+        // gathering other machines' drive health is Team: Pro reaches machines, but not that
+        assert!(!pro.allows(feature("health-alerts").unwrap()));
+        assert!(pro.allows(feature("multi-machine").unwrap()));
+        assert!(team.allows(feature("health-alerts").unwrap()));
     }
 
     #[test]
@@ -763,6 +812,93 @@ mod tests {
         }
         assert_eq!(endpoint_feature("/api/plan").unwrap().key, "filing");
         assert!(endpoint_feature("/api/dupes").is_none());
+        assert_eq!(
+            endpoint_feature("/api/manifests").unwrap().key,
+            "attestations"
+        );
+        // other machines' drive health is Team; this machine's own stays free
+        assert_eq!(
+            endpoint_feature("/api/health-machines").unwrap().key,
+            "health-alerts"
+        );
+        assert!(endpoint_feature("/api/health").is_none());
+        assert!(endpoint_feature("/api/notifications").is_none());
+    }
+
+    #[test]
+    fn subcommands_are_gated_one_by_one() {
+        let a = Access::new("1.0.0", Ok(None), "2026-10-01", false);
+        // making manifests is Forensic, seeing the kept ones Team; checking one is free
+        for c in ["manifest create", "manifest export", "manifest list"] {
+            assert!(check_command(&a, c).is_err(), "{c}");
+        }
+        for c in [
+            "manifest verify",
+            "manifest key",
+            "manifests",
+            "remote sync",
+        ] {
+            assert!(check_command(&a, c).is_ok(), "{c}");
+        }
+        let e = check_command(&a, "manifest create")
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("Forensic"), "{e}");
+        // a command listed whole covers its subcommands
+        assert!(check_command(&a, "plan").is_err());
+        assert!(covers("plan", "plan"));
+        assert!(covers("manifest", "manifest create"));
+        assert!(!covers("manifest create", "manifest"));
+        assert!(!covers("plan", "plans"));
+        let team = Access::new(
+            "1.0.0",
+            Ok(Some(licence("team", None))),
+            "2026-10-01",
+            false,
+        );
+        assert!(check_command(&team, "manifest list").is_ok());
+        assert!(check_command(&team, "manifest create").is_err());
+        let forensic = Access::new(
+            "1.0.0",
+            Ok(Some(licence("forensic", None))),
+            "2026-10-01",
+            false,
+        );
+        assert!(check_command(&forensic, "manifest create").is_ok());
+    }
+
+    #[test]
+    fn updating_from_a_folder_is_forensic() {
+        let f = feature("airgap").unwrap();
+        assert!(f.ready && f.tier == Forensic);
+        let what = "backdown update --from";
+        let none = Access::new("1.0.0", Ok(None), "2026-10-01", false);
+        let err = check(&none, f, what).unwrap_err().to_string();
+        assert!(
+            err.contains(
+                "`backdown update --from` (Air-gapped deployment) is part of BackDown Forensic"
+            ),
+            "{err}"
+        );
+        assert!(err.contains("backdown license add"), "{err}");
+        let team = Access::new(
+            "1.0.0",
+            Ok(Some(licence("team", None))),
+            "2026-10-01",
+            false,
+        );
+        assert!(check(&team, f, what).is_err());
+        let forensic = Access::new(
+            "1.0.0",
+            Ok(Some(licence("forensic", None))),
+            "2026-10-01",
+            false,
+        );
+        assert!(check(&forensic, f, what).is_ok());
+        let preview = Access::new("1.0.0-beta.4", Ok(None), "2026-10-01", false);
+        assert!(check(&preview, f, what).is_ok());
+        // `update` itself stays free
+        assert!(check_command(&none, "update").is_ok());
     }
 
     fn features_state(a: &Access) -> Vec<bool> {

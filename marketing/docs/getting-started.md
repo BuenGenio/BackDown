@@ -11,7 +11,7 @@ BackDown only reads the drives you index. The one file it writes is its index, i
 
 ## Install
 
-Download what suits your computer from the [download page](/download/), and `SHA256SUMS.txt` from the same release. Checking the file against it tells you it's the one we published: BackDown's builds aren't signed with an Apple or Microsoft certificate yet, so that check is the one you have.
+Download what suits your computer from the [download page](/download/), and `SHA256SUMS.txt` from the same release. Checking the file against it tells you it arrived whole and is the one in that release. From v1.0.0-beta.4, each release also has `SHA256SUMS.txt.sig`, a signature of `SHA256SUMS.txt` made with BackDown's release key: [checking it](/docs/guides/air-gapped/#check-a-signature-without-backdown) tells you the sums are the ones we published. BackDown's builds aren't signed with an Apple or Microsoft certificate yet.
 
 ```sh
 # Linux

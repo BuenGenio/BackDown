@@ -117,7 +117,7 @@ function paintUpdateBanner() {
 async function installUpdate() {
   if (UPD.installing) return;
   const s = UPD.data?.status;
-  if (!confirm(`Install BackDown ${s?.latest?.version}?\n\nIt's downloaded from GitHub, checked against the release's SHA-256 sums, and BackDown's background service restarts with it. The version you have now is kept, so it can be put back.`)) return;
+  if (!confirm(`Install BackDown ${s?.latest?.version}?\n\nIt's downloaded from GitHub, checked against the release's signature and SHA-256 sums, and BackDown's background service restarts with it. The version you have now is kept, so it can be put back.`)) return;
   UPD.installing = true;
   try { await post('update-install'); } catch (e) { UPD.installing = false; return toast(e.message); }
   const from = s?.current;
@@ -176,6 +176,7 @@ function render() {
     ['updates', 'Updates', updatesSection()],
     ['scanning', 'Scanning', scanningSection()],
     ['hashing', 'Hashing', hashingSection()],
+    ['attest', 'Attestations', attestSection()],
     ['junk', 'Junk rules', junkSection()],
     ['schema', 'Filing schema', schemaSection()],
     SET.notify ? ['notify', 'Notifications', notifySection()] : null,
@@ -259,7 +260,7 @@ function updatesSection() {
         <option value="stable"${cfg.update_channel === 'stable' ? ' selected' : ''}>Releases only</option>
         <option value="preview"${cfg.update_channel === 'preview' ? ' selected' : ''}>Previews too</option></select></label>
     <label class="chk set-chk"><input type="checkbox" id="set-upd-auto"${cfg.update_check ? ' checked' : ''}> Look for updates once a day</label>
-    <p class="note">Off unless you turn it on: BackDown makes no network requests by default. When it looks (or when you press Check now), it asks GitHub's public list of BackDown releases; nothing about you, your drives or your files is sent. Downloads are checked against the release's SHA-256 sums before they're installed.</p>`;
+    <p class="note">Off unless you turn it on: BackDown makes no network requests by default. When it looks (or when you press Check now), it asks GitHub's public list of BackDown releases; nothing about you, your drives or your files is sent. Downloads are checked against the release's signature and SHA-256 sums before they're installed.</p>`;
 }
 
 function scanningSection() {
@@ -291,6 +292,24 @@ function hashingSection() {
     <p class="note">1 suits spinning disks, which slow down when made to read two places at once. SSDs read faster with 2 to 4.</p>
     <label class="chk set-chk"><input type="checkbox" id="set-hash-retry"${cfg.hash_retry_errors ? ' checked' : ''}> After each scan, try again files that couldn't be read before</label>
     <p class="note">These apply to the hashing that follows each scan.</p>`;
+}
+
+// the service signs a manifest of each drive (manifesting.rs): Team, as tiers.rs says
+const ATTEST = [['off', 'Off'], ['after-scan', 'After each scan'], ['daily', 'Once a day'], ['weekly', 'Once a week']];
+function attestSection() {
+  const st = SET.st;
+  if (st.error) return failed(st);
+  const cur = st.settings.attest || 'off';
+  const f = SET.feat?.features?.find(x => x.key === 'attestations');
+  const locked = f && !f.allowed && cur === 'off';
+  const k = st.signing_key || {};
+  return `
+    <label class="set-field"><span>Sign a manifest of each drive</span>
+      <select id="set-attest"${locked ? ' disabled' : ''}>${ATTEST.map(([v, l]) => `<option value="${v}"${v === cur ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
+    <p class="note">A manifest is a signed statement of exactly what a drive held at a scan, every path, size and hash, that anyone can check was not changed since; one is made only when the drive has a scan no manifest covers yet.</p>
+    ${locked ? `<p class="muted">${esc(f.name)} are part of BackDown ${esc(f.tier_name)}. <button class="btn sm" type="button" data-set-go="licence">Add a licence key</button></p>` : ''}
+    <p class="muted">${k.fingerprint ? `Signed with this BackDown’s own key, <code>${esc(k.fingerprint)}</code>, kept in <code>${esc(k.file)}</code>${st.shared ? ' (the machine-wide service’s, not yours)' : ''}.` : 'The key is made with the first manifest.'}
+      <code>backdown manifest list</code> shows them, and a drive’s details offer each one to download.</p>`;
 }
 
 function junkSection() {
@@ -426,6 +445,7 @@ function wire() {
   $('#set-rescan')?.addEventListener('change', e => saveSetting({ rescan_every: e.target.value }, 'Rescan interval'));
   $('#set-hash-jobs')?.addEventListener('change', async e => { if (!await saveSetting({ hash_jobs: e.target.value }, 'Readers per drive')) render(); });
   $('#set-hash-retry')?.addEventListener('change', e => saveSetting({ hash_retry_errors: e.target.checked ? 1 : 0 }, 'Retrying'));
+  $('#set-attest')?.addEventListener('change', async e => { if (!await saveSetting({ attest: e.target.value }, 'Attestations')) render(); });
   $('#set-junk-save')?.addEventListener('click', async () => { if (await saveSetting({ junk_names: $("#set-junk-names").value }, 'Junk rules')) render(); });
   const sch = $("#set-schema-text");
   sch?.addEventListener('input', () => {

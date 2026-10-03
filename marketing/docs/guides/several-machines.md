@@ -1,10 +1,10 @@
 ---
 title: Several machines
-description: Let copies on a NAS or another computer count, reached over ssh with your own keys: add a machine, sync it, browse it, and free up drives here against copies there.
+description: Let copies on a NAS or another computer count, reached over ssh with your own keys: add a machine, sync it, browse it, gather its drive-health warnings here, and free up drives here against copies there.
 order: 5
 ---
 
-Your archive may be on a NAS, and old drives plugged into a different computer. BackDown on this computer can read another machine's BackDown index over ssh, so files there count as copies: for duplicates, for overlaps, for `check`, and for freeing up drives here. Nothing on the other machine is ever changed, and no file's contents are sent: only its index entries and, when asked, SHA-256 hashes.
+Your archive may be on a NAS, and old drives plugged into a different computer. BackDown on this computer can read another machine's BackDown index over ssh, so files there count as copies: for duplicates, for overlaps, for `check`, and for freeing up drives here; and its drives' health is gathered here too, so a warning on the NAS reaches you. Nothing on the other machine is ever changed, and no file's contents are sent: only its index entries, its drives' health as it last read them, and, when asked, SHA-256 hashes.
 
 Several machines is marked **Pro**; in this beta everything is unlocked ([Free and Pro](/docs/guides/settings-and-licences/#free-and-pro)).
 
@@ -41,12 +41,18 @@ backdown remote sync
 ```
 
 ```text
-nas: 2 drives, 412.8 K files (412.8 K new or changed, 0 gone); 1.2 K sampled and 310 hashed there for comparison
+nas: 2 drives, 412.8 K files (412.8 K new or changed, 0 gone); 1.2 K sampled and 310 hashed there for comparison; drive health of 3 drives
 ```
 
 A sync fetches what changed in the other machine's index since the last one, by that machine's scans. Then, so that copies can be proved, files there whose size matches a file here are sampled there, and those whose samples match are hashed there in full; after the sync, BackDown hashes files here against what's there. The other machine reads only what it has to, and each sync spends at most 20 minutes hashing there; what's left waits for the next one.
 
 With the background service running, you don't need to: it syncs each machine every 6 hours (`backdown remote settings --sync-hours 12` changes that), one at a time, beside its other work, and hashes here afterwards. A scheduled sync that fails becomes a notification. Syncing runs in your own BackDown: the machine-wide service has no ssh keys of yours.
+
+## Its drives' health
+
+Each sync also fetches the other machine's drive health, as its own BackDown last read it from its drives: each drive's verdict, its readings and latest changes, and that machine's own latest drive-health notifications. It's read from its index (no drive there is read again for it) over the same ssh connection, so it's as fresh as the last sync. Activity's **Other machines' drives** and `backdown health --machines` show it, and a drive there that's worse than at the last sync becomes a notification here: "A drive on nas is failing". [Drive health](/docs/guides/drive-health/#other-machines-drives) has the details. It's part of BackDown Team (unlocked in this beta).
+
+A BackDown on the other machine from before this feature can't send it: its sync goes on as ever, and it says "update BackDown on nas to see its drive health".
 
 ```sh
 backdown remote list
@@ -93,7 +99,7 @@ To forget a machine: `backdown remote remove nas` (or **Remove…**). Nothing on
 
 - BackDown runs your system's own `ssh`, as you, with your keys, agent, `known_hosts` and `~/.ssh/config`. It adds `BatchMode=yes`, so ssh never asks for a password, and turns off agent and X11 forwarding. Host keys are checked as your ssh configuration says.
 - Nothing listens on the network, here or there. On the other machine, ssh starts `backdown serve-stdio`, which answers questions about its index over the ssh connection and exits when it closes. It opens the index read-only, never creates or changes one, and reads a file only to hash it when asked, and only if it's still as indexed.
-- What travels is index entries (paths, sizes, dates, hashes) and hashes, never files' contents.
+- What travels is index entries (paths, sizes, dates, hashes), hashes, and what that machine's BackDown last read of its drives' health (their SMART readings, verdicts and its drive-health notifications), never files' contents.
 
 ## When it can't connect
 
@@ -104,8 +110,9 @@ To forget a machine: `backdown remote remove nas` (or **Remove…**). Nothing on
 | "backdown isn't installed on nas, or isn't on the PATH ssh sessions get there" | Add the machine with `--backdown /full/path/to/backdown` |
 | "there's no BackDown index at … on nas" | Index something there first, or give its index with `--remote-db` |
 | "the BackDown on nas is too old to be reached this way", or a protocol mismatch | Update the older one |
+| "update BackDown on nas to see its drive health" | Its BackDown is from before drive health was gathered: update it there. Everything else works meanwhile |
 | "nas didn't answer" | Is it on, and on this network? |
 
 ## Not yet
 
-Windows computers can't be the other end yet (they can be this end). Files on another machine can't be opened or previewed here, and drive health isn't shared between machines.
+Windows computers can't be the other end yet (they can be this end). Files on another machine can't be opened or previewed here.

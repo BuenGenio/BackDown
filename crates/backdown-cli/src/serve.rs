@@ -26,9 +26,11 @@
 //! /api/plan-merge changes a saved plan that hasn't started, so it merges two snapshots of a
 //! mailbox instead of copying both. Both need the same header.
 //! GET /api/health reads drive health the same unprivileged way as `backdown health` (in the daemon,
-//! its latest round); the POSTs beside it (read now, mark notifications read, notification
-//! settings, a test notification) need the same header, change nothing but BackDown's own records
-//! and settings file, and a notification's text never goes through a shell.
+//! its latest round), and GET /api/health-machines the other machines' drives as their last syncs
+//! fetched them, from the index (nothing is reached for it); the POSTs beside it (read now, mark
+//! notifications read, notification settings, a test notification) need the same header, change
+//! nothing but BackDown's own records and settings file, and a notification's text never goes
+//! through a shell.
 //! Other machines (remote/): GET /api/machines and the cache of what they hold are read from the
 //! index; browsing one live, and the POSTs (add, remove, test, sync, settings; the same header)
 //! run the system's `ssh` as the person using this browser, with arguments as a vector and a host
@@ -699,6 +701,19 @@ fn handle(ctx: &Ctx, req: Request) {
     if path == "/api/entry" || path == "/api/attachment" {
         return inner(ctx, req, path, &params);
     }
+    // a kept manifest, signed, as a file to download (manifesting.rs)
+    if path == "/api/manifest" {
+        let resp = match ro_db(ctx).and_then(|db| crate::manifesting::document(&db, param("id"))) {
+            Ok((name, body)) => Response::from_data(body)
+                .with_header(header("Content-Type", "application/json"))
+                .with_header(header("Content-Disposition", &disposition(&name)))
+                .with_header(header("X-Content-Type-Options", "nosniff"))
+                .with_header(header("Cache-Control", "no-store")),
+            Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
+        };
+        let _ = req.respond(resp);
+        return;
+    }
     let result = api(ctx, path, &params);
     let resp = match result {
         Ok(v) => json_resp(&v),
@@ -1362,6 +1377,8 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
             dedup_assess(ctx, &db, param("folder"), param("link"), param("min"))?
         }
         "/api/dedups" => json!(dedup::history(&db)?),
+        // signed manifests of the drives, newest first (manifesting.rs)
+        "/api/manifests" => crate::manifesting::list_json(&db, param("root"))?,
         "/api/mail-merges" => json!(backdown_core::mailmerge::history(&db)?),
         "/api/plan-dry" => {
             let mut db = db;
