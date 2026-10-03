@@ -403,6 +403,9 @@ impl Db {
         // journals, added without a schema bump (older versions ignore them)
         conn.execute_batch(crate::dedup::SCHEMA)?;
         conn.execute_batch(crate::mailmerge::SCHEMA)?;
+        // the chain of custody (custody.rs): every copy, move, deletion, link and merge, chained
+        // and sealed; added the same way
+        conn.execute_batch(crate::custody::SCHEMA)?;
         // signed manifests of drives (manifest.rs), the same way
         conn.execute_batch(crate::manifest::SCHEMA)?;
         add_column(&conn, "journal", "note", "TEXT")?;

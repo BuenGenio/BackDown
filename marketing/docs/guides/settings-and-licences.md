@@ -195,8 +195,16 @@ The table marks these as **Pro**:
 | Data viewers | Databases, spreadsheets, presentations, mailboxes and SQL dumps in the browser |
 | Several machines | [Other machines](/docs/guides/several-machines/) over ssh: adding, syncing and browsing them (listing and forgetting them stay free) |
 
-Everything else is free: indexing, hashing, duplicates, `check`, browsing with the time slider and the other viewers, recognising what things are, the report, mirrors, Rescue, drive health and notifications, mounting drives read-only, and the `dedup` and `mail` commands. Updating over the network, with its signature checked, is free too. Installing updates from a folder carried to a machine without a network (`backdown update --from`, for [air-gapped machines](/docs/guides/air-gapped/)) is part of **Forensic**; checking such a folder (`--from … --check`) is free. The table also lists what's planned for Pro, Team and Forensic and isn't built yet, marked "coming".
+And as **Team** and **Forensic**:
 
-[Signed manifests](/docs/guides/manifests-and-attestations/) are marked Forensic (`manifest create` and `manifest export`) and scheduled attestations Team (Settings > Attestations, `manifest list`, and the manifests in a drive's details). Checking a manifest, `backdown manifest verify`, and showing your key, `backdown manifest key`, are free, so anyone can check one.
+| Feature | Edition | What it covers |
+|---|---|---|
+| Drive health alerts | Team | [Other machines' drives](/docs/guides/drive-health/), gathered with each sync: `backdown health --machines` and the browser's "Other machines' drives" |
+| Scheduled attestations | Team | [Signed manifests made on a schedule](/docs/guides/manifests-and-attestations/) (Settings > Attestations), `manifest list` and the manifests in a drive's details |
+| Signed, tamper-evident manifests | Forensic | [Signing a manifest](/docs/guides/manifests-and-attestations/) of what a drive held: `manifest create` and `manifest export` |
+| Chain-of-custody export | Forensic | [Exporting, verifying and checking](/docs/guides/chain-of-custody/) the signed log of every copy, move, deletion, link and merge: `backdown custody` and the browser's Chain of custody download. The log itself is kept in every edition |
+| Air-gapped deployment | Forensic | [Installing updates from a carried folder](/docs/guides/air-gapped/): `backdown update --from` |
+
+Everything else is free: indexing, hashing, duplicates, `check`, browsing with the time slider and the other viewers, recognising what things are, the report, mirrors, Rescue, drive health and notifications, mounting drives read-only, and the `dedup` and `mail` commands. Updating over the network, with its signature checked, is free too. So is checking: a manifest (`backdown manifest verify`, and showing your key with `backdown manifest key`) and a carried update folder (`backdown update --from … --check`) can be checked by anyone. The table also lists what's planned for Pro, Team and Forensic and isn't built yet, marked "coming".
 
 In a release without a licence, a Pro command says what it needs (`backdown wipe` … "is part of BackDown Pro"), and the browser marks Pro views with a badge and offers **Add a licence key** and **See pricing**. [Pricing](/pricing/) has the planned prices, which may change before release.

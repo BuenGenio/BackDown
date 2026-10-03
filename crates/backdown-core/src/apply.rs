@@ -15,6 +15,7 @@
 //! another's name gets a numbered one instead (`names::Renamer`); a different file already there
 //! under another spelling is copied beside it. Streams and extended attributes go along where the
 //! system has them (`extras`). Each rename, and whatever wasn't kept, is in the journal's `note`.
+//! Each file copied is also an event in the chain of custody (custody.rs), in the same transaction.
 
 use std::collections::HashSet;
 use std::fs::{self, FileTimes};
@@ -28,6 +29,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
+use crate::custody::{self, Action};
 use crate::names::{self, Folding, Renamer};
 use crate::plan::{self, Item};
 use crate::{Db, extras, fastcopy, fmt, mailmerge, paths};
@@ -528,10 +530,22 @@ pub fn apply(
             {
                 st.notes.push(format!("{}: {n}", paths::show(src)));
             }
+            let dest_b = paths::to_bytes(&dest);
             tx.execute(
                 "INSERT INTO journal(plan_id, item, src, dest, size, mtime, sha256, state, error, at, note) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-                params![plan_id, *idx as i64, src_b, paths::to_bytes(&dest), size as i64, mt, sha, state, error, now(), note],
+                params![plan_id, *idx as i64, src_b, dest_b, size as i64, mt, sha, state, error, now(), note],
             )?;
+            // the chain of custody, in the same transaction: only what was copied now
+            if state == "copied" {
+                let ev = custody::Event::new(
+                    Action::Copy,
+                    ("plan", plan_id),
+                    &src_b,
+                    sha.as_deref(),
+                    size,
+                );
+                custody::append(&tx, &ev.to(&dest_b, sha.as_deref()))?;
+            }
             batch += 1;
             if batch >= 500 {
                 // keep what's done even if the next file hangs on a dying disk

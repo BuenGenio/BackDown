@@ -440,6 +440,67 @@ fn copied_out_of_a_disk_with_a_wiped_table() {
     assert_eq!(std::fs::read_dir(&out3).unwrap().count(), 0);
 }
 
+/// Copied out as Rescue's job does it: every file is in the chain of custody, from the image, the
+/// filesystem's place in it and the path inside, to where it went, with its hash.
+#[test]
+fn copied_out_files_are_in_the_chain_of_custody() {
+    use crate::rescue::files::{Options, copy_out_recorded};
+    use sha2::{Digest, Sha256};
+    use std::sync::atomic::AtomicBool;
+    let fx = fat_with_deletes(format_fat(16, 24 << 20, 4));
+    let mut disk = vec![0u8; 1 << 20];
+    disk.extend(&fx.img);
+    let dir = tempfile::tempdir().unwrap();
+    let img = dir.path().join("card.img");
+    std::fs::write(&img, &disk).unwrap();
+    let db = crate::Db::open(&dir.path().join("i.db")).unwrap();
+    let opts = Options {
+        start: 1 << 20,
+        len: Some(fx.img.len() as u64),
+        items: vec!["keep.txt".into(), "LATER".into()],
+        with_deleted: false,
+        resume: false,
+    };
+    let out = dir.path().join("out");
+    let never = AtomicBool::new(false);
+    let s = copy_out_recorded(&img, &opts, &out, (&db, 7), &mut |_| {}, &never).unwrap();
+    let mut stmt = db
+        .conn
+        .prepare("SELECT action, src, src_sha256, dest, dest_sha256, size, ref FROM custody ORDER BY seq")
+        .unwrap();
+    type Row = (String, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, i64, String);
+    let rows: Vec<Row> = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+                r.get(6)?,
+            ))
+        })
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(rows.len() as u64, s.files, "{rows:?}");
+    assert!(
+        rows.iter()
+            .all(|r| r.0 == "rescue-copy" && r.6 == "rescue:7" && r.2 == r.4)
+    );
+    let keep = rows
+        .iter()
+        .find(|r| r.1.ends_with(b"/keep.txt"))
+        .expect("keep.txt");
+    let from = format!("{}@{}:/keep.txt", img.display(), 1 << 20);
+    assert_eq!(keep.1, crate::paths::to_bytes(std::path::Path::new(&from)));
+    assert_eq!(keep.3, crate::paths::to_bytes(&out.join("keep.txt")));
+    assert_eq!(keep.2, Sha256::digest(b"kept\n").to_vec());
+    assert_eq!(keep.5, 5);
+    assert!(crate::custody::check(&db.conn).unwrap().ok);
+}
+
 /// Not a test by itself: writes the disk images the browser check uses into $BD_FIXTURES (a card
 /// image with an MBR and the FAT16 volume above 1 MiB in, the same with its table wiped, and the
 /// deleted files' contents to compare with). `cargo test -- --ignored browser_fixtures`.

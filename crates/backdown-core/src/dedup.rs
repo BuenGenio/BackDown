@@ -22,9 +22,10 @@
 //!    changed since the last scan is left alone. A hardlink replaces the duplicate atomically (a new
 //!    name made first, then renamed over it), so the name never points at nothing; a clone is made
 //!    by the kernel, which compares the bytes again under lock.
-//! 4. Every link is journaled (which file now shares which, its size and hash). A run that stops is
-//!    carried on by running it again: files already sharing their keeper's storage are counted,
-//!    not linked twice.
+//! 4. Every link is journaled (which file now shares which, its size and hash), and recorded in
+//!    the chain of custody (custody.rs) in the same transaction. A run that stops is carried on
+//!    by running it again: files already sharing their keeper's storage are counted, not linked
+//!    twice.
 //! 5. A dry run (the default) reads only the index and the files' metadata, writing nothing.
 //!
 //! There's no undo for a hardlink, and none is needed: to make one name a separate file again,
@@ -44,6 +45,7 @@ use serde::{Deserialize, Serialize};
 use crate::apply::hash_file;
 #[cfg(unix)]
 use crate::apply::mtime;
+use crate::custody::{self, Action, Event};
 use crate::{Db, fastcopy, fmt, paths};
 
 /// The tables (made by `Db::open`): each run, and each file it linked.
@@ -846,20 +848,30 @@ fn run_inner(
                         if frees && !kept_alive.contains(&dup.ino) {
                             r.saved_bytes += size;
                         }
-                        journal.execute(params![
-                            id,
+                        // and in the chain of custody, in the same transaction
+                        let (dup_b, keeper_b) = (
                             paths::to_bytes(&dup.path),
                             paths::to_bytes(&set.keeper.path),
-                            size as i64,
-                            dup.mtime,
-                            sha,
-                            if link == Link::Hard {
-                                "hardlink"
-                            } else {
-                                "clone"
-                            },
-                            now()
-                        ])?;
+                        );
+                        let ev =
+                            Event::new(Action::Link, ("dedup", id), &dup_b, Some(&sha[..]), size)
+                                .to(&keeper_b, Some(&sha[..]));
+                        custody::journaled(&db.conn, &ev, || {
+                            journal.execute(params![
+                                id,
+                                dup_b,
+                                keeper_b,
+                                size as i64,
+                                dup.mtime,
+                                sha,
+                                if link == Link::Hard {
+                                    "hardlink"
+                                } else {
+                                    "clone"
+                                },
+                                now()
+                            ])
+                        })?;
                     }
                     Ok(false) => {
                         r.changed += 1;

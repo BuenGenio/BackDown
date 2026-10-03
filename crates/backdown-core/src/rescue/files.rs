@@ -9,7 +9,8 @@
 //! outside the destination folder. Nothing is overwritten: a name that's taken gets " (2)". Each
 //! copy is read back and checked against what was read from the source (SHA-256); a deleted file
 //! whose space other files have taken since comes back with those parts empty, and says so. It
-//! stops between pieces when asked, and never leaves a half-written file behind.
+//! stops between pieces when asked, and never leaves a half-written file behind. Run as a rescue
+//! job (`copy_out_recorded`), each file copied is an event in the chain of custody (custody.rs).
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
@@ -21,7 +22,9 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::custody::{self, Action, Event};
 use crate::fsread::{Entry, MAX_LIST, Volume};
+use crate::{Db, paths};
 
 /// Folders deeper than this aren't followed (a damaged filesystem can loop).
 const MAX_DEPTH: usize = 64;
@@ -92,6 +95,78 @@ pub fn copy_out(
     progress: &mut dyn FnMut(&Progress),
     stop: &AtomicBool,
 ) -> Result<Summary> {
+    copy_out_with(src, opts, dest, progress, stop, &mut |_, _, _, _| {})
+}
+
+/// `copy_out`, as rescue `rescue` in the index runs it: each file copied is recorded in the chain
+/// of custody (custody.rs) as a `rescue-copy` from `<src>@<opts.start>:/<its path inside>`. The
+/// index may be busy with another job's long transaction meanwhile: what can't be recorded at
+/// once waits, and is recorded with the next file or at the end, which waits its turn.
+pub fn copy_out_recorded(
+    src: &Path,
+    opts: &Options,
+    dest: &Path,
+    (db, rescue): (&Db, i64),
+    progress: &mut dyn FnMut(&Progress),
+    stop: &AtomicBool,
+) -> Result<Summary> {
+    let origin = format!("{}@{}:", src.display(), opts.start);
+    let mut pending: Vec<Event> = Vec::new();
+    let mut copied = |inside: &str, to: &Path, size: u64, sha: &[u8]| {
+        let from = paths::to_bytes(Path::new(&format!("{origin}/{inside}")));
+        let ev = Event::new(
+            Action::RescueCopy,
+            ("rescue", rescue),
+            &from,
+            Some(sha),
+            size,
+        );
+        pending.push(ev.to(&paths::to_bytes(to), Some(sha)));
+        let _ = record(db, &mut pending, false);
+    };
+    let r = copy_out_with(src, opts, dest, progress, stop, &mut copied);
+    let kept = record(db, &mut pending, true);
+    let sum = r?;
+    kept.context(
+        "the files were copied, but not all of them could be recorded in the chain of custody",
+    )?;
+    Ok(sum)
+}
+
+/// Record what's waiting: quickly while copying (the index may be another job's for a while),
+/// and at the end waiting as long as any write does.
+fn record(db: &Db, pending: &mut Vec<Event>, wait: bool) -> Result<()> {
+    if pending.is_empty() {
+        return Ok(());
+    }
+    let _ = db.conn.busy_timeout(if wait {
+        Duration::from_secs(30)
+    } else {
+        Duration::from_millis(20)
+    });
+    let r = custody::append_all(&db.conn, pending);
+    let _ = db.conn.busy_timeout(Duration::from_secs(30)); // as Db::open sets it
+    match r {
+        Ok(()) => {
+            pending.clear();
+            Ok(())
+        }
+        Err(_) if !wait => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+/// Told of each file copied and checked: its path inside, where it went, its size and SHA-256.
+type Copied<'a> = dyn FnMut(&str, &Path, u64, &[u8]) + 'a;
+
+fn copy_out_with(
+    src: &Path,
+    opts: &Options,
+    dest: &Path,
+    progress: &mut dyn FnMut(&Progress),
+    stop: &AtomicBool,
+    copied: &mut Copied<'_>,
+) -> Result<Summary> {
     if super::access(src).device && super::carve::same_device(src, dest) {
         bail!(
             "{} is on the drive being read: saving there could overwrite what's being recovered. Choose a folder on another drive",
@@ -147,6 +222,7 @@ pub fn copy_out(
             p: &mut p,
             sum: &mut sum,
             progress: &mut *progress,
+            copied: &mut *copied,
             last: &mut last,
             stop,
         };
@@ -221,6 +297,7 @@ struct Copy<'a, R> {
     p: &'a mut Progress,
     sum: &'a mut Summary,
     progress: &'a mut dyn FnMut(&Progress),
+    copied: &'a mut Copied<'a>,
     last: &'a mut Instant,
     stop: &'a AtomicBool,
 }
@@ -303,7 +380,7 @@ impl<R: Read + std::io::Seek> Copy<'_, R> {
             self.p.bytes += e.size;
             return Ok(());
         }
-        match self.file(e, into, &name) {
+        match self.file(path, e, into, &name) {
             Ok(true) => {
                 self.sum.files += 1;
                 self.sum.bytes += e.size;
@@ -329,14 +406,15 @@ impl<R: Read + std::io::Seek> Copy<'_, R> {
         Ok(())
     }
 
-    /// One file: written under a free name, read back and checked. False when stopped (nothing
-    /// left behind).
-    fn file(&mut self, e: &Entry, into: &Path, name: &str) -> Result<bool> {
+    /// One file (`inside` the filesystem): written under a free name, read back and checked.
+    /// False when stopped (nothing left behind).
+    fn file(&mut self, inside: &str, e: &Entry, into: &Path, name: &str) -> Result<bool> {
         let Copy {
             v,
             p,
             sum,
             progress,
+            copied,
             last,
             stop,
             ..
@@ -405,6 +483,7 @@ impl<R: Read + std::io::Seek> Copy<'_, R> {
             sum.renamed += 1;
         }
         p.files += 1;
+        copied(&shown(inside), &path, e.size, &want[..]);
         Ok(true)
     }
 }

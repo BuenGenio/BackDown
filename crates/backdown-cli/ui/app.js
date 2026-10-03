@@ -1463,7 +1463,7 @@ function renderWipeHist() {
   const live = new Map((S.daemon ? [S.daemon.current, ...S.daemon.queued] : []).filter(j => j?.kind === 'wipe').map(j => [j.path, j]));
   if (!WP.history.length) { el.innerHTML = ''; return; }
   const STATE = { done: 'ok', partial: 'warn', failed: 'warn' };
-  el.innerHTML = `<h3>Wipes</h3><table class="list wp-hist"><thead><tr><th>When</th><th>What</th><th>What existed only there</th><th>Result</th></tr></thead><tbody>
+  el.innerHTML = `<h3>Wipes <a class="btn sm" href="/api/custody" download title="Every deletion and move (and every copy, link and merge), as a signed, hash-chained export anyone can verify">Chain of custody</a></h3><table class="list wp-hist"><thead><tr><th>When</th><th>What</th><th>What existed only there</th><th>Result</th></tr></thead><tbody>
     ${WP.history.map(w => {
       const j = live.get(`wipe ${w.id}`);
       const state = j ? `<span class="pill busy">${j === S.daemon.current ? `wiping${j.progress ? ` · ${esc(j.progress)}` : ''}` : 'queued'}</span>`
@@ -2078,7 +2078,7 @@ function renderActivity() {
         <span class="jn">${esc(rootName(m.source))} → ${esc(m.target)}<small>${esc(m.last_verify_summary || 'not verified yet')}</small>${mirrorNote(m)}</span>
         <span class="pill ${m.connected ? 'ok' : 'off'}">${m.connected ? 'both drives here' : 'a drive isn’t connected'}</span>
         <span class="muted">synced ${rel(m.last_sync)} · verified ${rel(m.last_verify)}</span></li>`).join('')}</ol></section>` : ''}
-    <section><h3>Recent</h3>${recent}</section>
+    <section><h3>Recent <a class="btn sm" href="/api/custody" download title="Every copy, move, deletion, link and merge BackDown made, as a signed, hash-chained export anyone can verify">Chain of custody</a></h3>${recent}</section>
     <p class="act-foot muted">BackDown ${esc(d.version)} · running since ${rel(d.started_at)} · ${d.rescan_every_secs ? `rescans each drive every ${dur(d.rescan_every_secs)}` : 'rescans on request'} ·
       drives checked ${rel(d.checked_at)} · index <code>${esc(d.db)}</code>${scanWays()}</p>
   </div>`;

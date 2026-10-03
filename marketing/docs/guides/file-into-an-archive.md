@@ -114,7 +114,8 @@ Each file is copied under a temporary name beside its destination (`.<name>.back
 - on a Mac, extended attributes are copied too, and on Windows alternate data streams; what couldn't be kept is listed;
 - nothing is ever deleted from the old drives;
 - symbolic links aren't copied (the summary counts them);
-- every file is written to a journal, so an interrupted run carries on where it stopped when you run the same command again.
+- every file is written to a journal, so an interrupted run carries on where it stopped when you run the same command again;
+- every copy is also an event in the [chain of custody](/docs/guides/chain-of-custody/): a hash-chained log, signed by this installation, that you can export for an auditor or a court.
 
 It ends with a summary (how many were cloned or copied by the kernel, renamed, or kept without some attributes), and exits with 2 when there were conflicts or failures to look at. When the background service is running, `--go` is handed to it (you follow the progress in the terminal), and it indexes the archive afterwards.
 

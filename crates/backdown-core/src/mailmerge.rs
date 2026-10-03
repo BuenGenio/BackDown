@@ -21,7 +21,8 @@
 //! without its "From " line and with its ">From " quoting undone), into `cur/` of the right folder
 //! under a name made from its delivery time and content hash, so running again finds what's
 //! there. Each is written to `tmp/`, flushed, renamed into place, read back and compared, and
-//! journaled. Nothing is ever written to a source, and nothing at the destination is overwritten.
+//! journaled (and recorded in the chain of custody, custody.rs). Nothing is ever written to a
+//! source, and nothing at the destination is overwritten.
 //!
 //! Mail stores (a server's folder of domains and users) merge mailbox by mailbox: each mailbox is
 //! matched with the same one (the same path inside the store) in the other snapshots.
@@ -38,6 +39,7 @@ use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::custody::{self, Action, Event};
 use crate::{Db, fastcopy, fmt, paths};
 
 /// The tables (made by `Db::open`): each merge (or export), and each message it wrote.
@@ -1595,7 +1597,8 @@ fn execute(
                 } else {
                     r.resumed += 1;
                 }
-                if let (Some((_, id)), Some(log), Some(logged)) = (journal, &mut log, &mut logged) {
+                if let (Some((db, id)), Some(log), Some(logged)) = (journal, &mut log, &mut logged)
+                {
                     let key = paths::to_bytes(&path);
                     if logged
                         .query_row(params![id, key], |_| Ok(()))
@@ -1603,21 +1606,32 @@ fn execute(
                         .is_none()
                     {
                         let (src, offset) = source_of(&m.cat, occ);
-                        log.execute(params![
-                            id,
-                            key,
-                            if p.key.is_empty() {
-                                folder.clone()
-                            } else {
-                                format!("{}: {folder}", p.key)
-                            },
-                            src,
-                            offset,
-                            occ.size as i64,
-                            occ.sha.to_vec(),
-                            letters(p.flags),
-                            now()
-                        ])?;
+                        // and in the chain of custody, in the same transaction
+                        let ev = Event::new(
+                            Action::Merge,
+                            ("merge", id),
+                            &src,
+                            Some(&occ.sha[..]),
+                            occ.size,
+                        )
+                        .to(&key, Some(&occ.sha[..]));
+                        custody::journaled(&db.conn, &ev, || {
+                            log.execute(params![
+                                id,
+                                key,
+                                if p.key.is_empty() {
+                                    folder.clone()
+                                } else {
+                                    format!("{}: {folder}", p.key)
+                                },
+                                src,
+                                offset,
+                                occ.size as i64,
+                                occ.sha.to_vec(),
+                                letters(p.flags),
+                                now()
+                            ])
+                        })?;
                     }
                 }
             }

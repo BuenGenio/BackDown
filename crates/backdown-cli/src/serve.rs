@@ -45,6 +45,8 @@
 //! `files`) at the place its record gives, on the drive or image the record names: the browser
 //! never names a device or a path, and picks files through the filesystem's own listings (deleted
 //! ones by the segment their listing gave them).
+//! GET /api/custody downloads the chain of custody as a signed export (custody.rs): read from the
+//! index read-only, like everything else here, so it's allowed over the network too.
 
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -669,6 +671,21 @@ fn handle(ctx: &Ctx, req: Request) {
             }
             Err(e) => plain(500, &format!("{e:#}")),
         };
+        let _ = req.respond(resp);
+        return;
+    }
+    if path == "/api/custody" {
+        // the chain of custody as a signed export, to download: read-only (when the head isn't
+        // sealed yet, the export carries a seal made for it, which isn't kept)
+        let resp =
+            match crate::custody::download(&ctx.db, param("since"), param("ref"), param("path")) {
+                Ok((name, body)) => Response::from_data(body)
+                    .with_header(header("Content-Type", "application/json"))
+                    .with_header(header("Content-Disposition", &disposition(&name)))
+                    .with_header(header("X-Content-Type-Options", "nosniff"))
+                    .with_header(header("Cache-Control", "no-store")),
+                Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
+            };
         let _ = req.respond(resp);
         return;
     }

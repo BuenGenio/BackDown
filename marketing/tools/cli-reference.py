@@ -296,6 +296,7 @@ SEE_ALSO = {
     'remote': [('Several machines', '/docs/guides/several-machines/')],
     'dedup': [('Tidy the archive', '/docs/guides/file-into-an-archive/#tidy-the-archive')],
     'mail': [('Merge mailboxes', '/docs/guides/merge-mailboxes/')],
+    'custody': [('Chain of custody', '/docs/guides/chain-of-custody/')],
 }
 
 EXIT_CODES = '''| Code | Meaning |

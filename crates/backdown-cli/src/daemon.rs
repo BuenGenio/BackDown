@@ -9,7 +9,9 @@
 //! talks to it over a Unix socket (line-delimited JSON), the browser over the same local web UI as
 //! `backdown serve`. Under systemd it reports readiness, liveness and status.
 //!
-//! Being killed is safe: every job commits in batches and resumes where it stopped.
+//! Being killed is safe: every job commits in batches and resumes where it stopped. A job that
+//! added to the chain of custody (copies, moves, deletions, links, merges) seals it when it ends,
+//! with this installation's key (custody.rs).
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -643,10 +645,15 @@ fn side_worker(d: &Daemon) {
             j.started_at = Some(now());
         });
         // its own connection: the rescue record's short writes wait their turn behind the worker's
-        let result = Db::open(&d.db).and_then(|db| match job.kind {
-            "rescue" => run_rescue(d, &db, &job, &stop),
-            "remote-sync" => run_remote_sync(d, &db, &job, &stop),
-            k => bail!("{k} doesn't run in the side lane"),
+        let result = Db::open(&d.db).and_then(|db| {
+            let r = match job.kind {
+                "rescue" => run_rescue(d, &db, &job, &stop),
+                "remote-sync" => run_remote_sync(d, &db, &job, &stop),
+                k => bail!("{k} doesn't run in the side lane"),
+            };
+            // what it added to the chain of custody is sealed now
+            crate::custody::seal_new(&db);
+            r
         });
         d.state.lock().unwrap().stops.remove(&id);
         let stopped = stop.load(Ordering::Relaxed);
@@ -730,6 +737,8 @@ fn worker(d: &Daemon) {
             "attest" => crate::manifesting::run_attest(d, &db, &job),
             _ => run_hash(d, &mut db, &job),
         };
+        // what the job added to the chain of custody is sealed now
+        crate::custody::seal_new(&db);
         d.state.lock().unwrap().stops.remove(&id);
         serve::forget_index_status();
         let stopped = stop.load(Ordering::Relaxed);
@@ -1168,10 +1177,11 @@ fn rescue_files(
     use backdown_core::rescue::files;
     let dest = PathBuf::from(r.dest.as_deref().context("files with nowhere to go")?);
     let opts: files::Options = serde_json::from_value(r.options.clone())?;
-    let sum = files::copy_out(
+    let sum = files::copy_out_recorded(
         Path::new(&r.source),
         &opts,
         &dest,
+        (db, r.id),
         &mut |p| {
             d.progress(
                 job.id,
