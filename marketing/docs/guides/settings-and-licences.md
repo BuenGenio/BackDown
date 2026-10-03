@@ -15,6 +15,7 @@ Most of what you can change is in the **Settings** view, at the bottom of the si
 | Updates | Whether and how BackDown looks for a newer version ([below](#updates)) |
 | Scanning | How often each drive is rescanned, and [fast rescans](/docs/concepts/#fast-rescans) |
 | Hashing | Readers per drive, and whether to retry files that couldn't be read |
+| Attestations | Whether the service signs a manifest of each drive after each scan, daily or weekly, and the key it signs with ([manifests and attestations](/docs/guides/manifests-and-attestations/#have-the-service-sign-them)) |
 | Junk rules | The folder names counted as caches and the like, and your own |
 | Filing schema | Where a [filing plan](/docs/guides/file-into-an-archive/#your-own-schema) puts each kind of thing, checked as you type |
 | Notifications | What pops up on your desktop ([below](#notifications)) |
@@ -191,5 +192,7 @@ The table marks these as **Pro**:
 | Several machines | [Other machines](/docs/guides/several-machines/) over ssh: adding, syncing and browsing them (listing and forgetting them stay free) |
 
 Everything else is free: indexing, hashing, duplicates, `check`, browsing with the time slider and the other viewers, recognising what things are, the report, mirrors, Rescue, drive health and notifications, mounting drives read-only, and the `dedup` and `mail` commands. The table also lists what's planned for Pro, Team and Forensic and isn't built yet, marked "coming".
+
+[Signed manifests](/docs/guides/manifests-and-attestations/) are marked Forensic (`manifest create` and `manifest export`) and scheduled attestations Team (Settings > Attestations, `manifest list`, and the manifests in a drive's details). Checking a manifest, `backdown manifest verify`, and showing your key, `backdown manifest key`, are free, so anyone can check one.
 
 In a release without a licence, a Pro command says what it needs (`backdown wipe` … "is part of BackDown Pro"), and the browser marks Pro views with a badge and offers **Add a licence key** and **See pricing**. [Pricing](/pricing/) has the planned prices, which may change before release.

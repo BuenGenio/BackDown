@@ -418,6 +418,8 @@ async function renderInfo() {
       <dl class="kv"><dt>Contains</dt><dd>${count(L.files)} files</dd><dt>Size</dt><dd>${bytes(L.bytes)}</dd>
       <dt>Scanned</dt><dd>${when(L.scanned_at)}</dd><dt>Location</dt><dd>${esc(L.path)}</dd></dl>
       ${chosen.length > 1 ? `<p class="note">${chosen.length} items selected</p>` : '<p class="note">Select a file to see its versions and every other place its content lives.</p>'}` : '';
+    // at the top of a drive: its signed manifests, if it has any
+    if (L && L.crumbs.length === 1) manifestsInto(pane, L.root_id, seq);
     return;
   }
   const e = chosen[0];
@@ -474,6 +476,20 @@ async function renderInfo() {
   pane.querySelectorAll('[data-open-ver]').forEach(b => b.onclick = () => openViewer({ id: +b.dataset.openVer, name: f.name, size: f.versions.find(v => v.id === +b.dataset.openVer).size }, []));
   const cur = f.versions.find(x => x.current);
   pane.querySelectorAll('[data-cmp-ver]').forEach(b => b.onclick = () => openDiff(+b.dataset.cmpVer, cur.id));
+}
+
+// A drive's signed manifests (`backdown manifest`, or the service's attestations), newest first,
+// each one the signed document to download; nothing when it has none, or they're locked.
+async function manifestsInto(pane, root, seq) {
+  let r;
+  try { r = await api('manifests', { root }); } catch { return; }
+  const list = r.manifests || [];
+  if (seq !== infoSeq || !list.length) return;
+  pane.insertAdjacentHTML('beforeend', `<h4>Signed manifests (${list.length})</h4>
+    ${list.slice(0, 5).map(m => `<div class="ver"><span class="when">${when(m.created_at)}</span>
+      <span class="meta">scan ${m.scan_id} · ${count(m.files)} files · key ${esc(m.fingerprint)}</span>
+      <span class="acts"><a class="btn sm" href="/api/manifest?id=${m.id}" download title="The signed document: backdown manifest verify checks it">Download</a></span></div>`).join('')}
+    ${list.length > 5 ? `<p class="note">And ${list.length - 5} older: <code>backdown manifest list</code> shows them all.</p>` : ''}`);
 }
 
 // ---------- opening things
@@ -1806,7 +1822,8 @@ const jobName = j => j.kind === 'index' ? `Scan ${rootName(j.path)}` : j.kind ==
   : j.kind === 'mirror-verify' ? `Verify ${j.path || 'a mirror'}` : j.kind === 'wipe' ? `Free up (${j.path || 'a wipe'})` : j.kind === 'rescue' ? rescueJobName(j)
   : j.kind === 'remote-sync' ? `Sync the machine ${j.path || ''}`
   : j.kind === 'dedup' ? `Tidy the archive (${j.path || 'dedup'})` : j.kind === 'mail-merge' ? `Merge mailboxes (${j.path || 'merge'})`
-  : j.kind === 'indexes' || j.kind === 'dupes-index' ? 'Prepare the index for speed (once)' : 'Hash new and changed files';
+  : j.kind === 'indexes' || j.kind === 'dupes-index' ? 'Prepare the index for speed (once)'
+  : j.kind === 'attest' ? `Sign a manifest of ${rootName(j.path)}` : 'Hash new and changed files';
 function rescueJobName(j) {
   const r = RS.list.find(x => `rescue ${x.id}` === j.path);
   return r ? `${RS_TITLE[r.mode] || 'Rescue'}: ${baseName(r.source)}` : 'Rescue';
@@ -1922,6 +1939,7 @@ const JOB_ICON = {
   'mirror-verify': '<svg viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"/><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/></svg>',
   wipe: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
   rescue: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="m5.6 5.6 3.6 3.6M14.8 14.8l3.6 3.6M14.8 9.2l3.6-3.6M5.6 18.4l3.6-3.6"/></svg>',
+  attest: '<svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4"/><path d="M14 3v5h5M19 8l-5-5"/><circle cx="17" cy="16" r="3"/><path d="m15.5 18.6-.5 3.4 2-1 2 1-.5-3.4"/></svg>',
 };
 
 let activityClock;

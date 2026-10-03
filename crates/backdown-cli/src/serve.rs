@@ -682,6 +682,19 @@ fn handle(ctx: &Ctx, req: Request) {
     if path == "/api/entry" || path == "/api/attachment" {
         return inner(ctx, req, path, &params);
     }
+    // a kept manifest, signed, as a file to download (manifesting.rs)
+    if path == "/api/manifest" {
+        let resp = match ro_db(ctx).and_then(|db| crate::manifesting::document(&db, param("id"))) {
+            Ok((name, body)) => Response::from_data(body)
+                .with_header(header("Content-Type", "application/json"))
+                .with_header(header("Content-Disposition", &disposition(&name)))
+                .with_header(header("X-Content-Type-Options", "nosniff"))
+                .with_header(header("Cache-Control", "no-store")),
+            Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
+        };
+        let _ = req.respond(resp);
+        return;
+    }
     let result = api(ctx, path, &params);
     let resp = match result {
         Ok(v) => json_resp(&v),
@@ -1345,6 +1358,8 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
             dedup_assess(ctx, &db, param("folder"), param("link"), param("min"))?
         }
         "/api/dedups" => json!(dedup::history(&db)?),
+        // signed manifests of the drives, newest first (manifesting.rs)
+        "/api/manifests" => crate::manifesting::list_json(&db, param("root"))?,
         "/api/mail-merges" => json!(backdown_core::mailmerge::history(&db)?),
         "/api/plan-dry" => {
             let mut db = db;

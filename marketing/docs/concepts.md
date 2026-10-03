@@ -78,6 +78,10 @@ Hardlinks are one file: they're read once, and never count as each other's copy 
 
 `dupes`, `check` and the background service run `hash` for you. The hash is SHA-256 throughout.
 
+### Signed manifests {#signed-manifests}
+
+The same hashes let BackDown sign a statement of exactly what a drive held at a scan: a *manifest*, every file's path, size and hash sealed into one Merkle root and signed with your installation's own key, chained to the drive's previous manifest. Anyone can check one wasn't changed, on any computer, with `backdown manifest verify` or without BackDown at all. Files that weren't hashed are attested by their path and size only. The background service can sign one of each drive after every scan, or daily or weekly (*Settings > Attestations*). [Signed manifests and attestations](/docs/guides/manifests-and-attestations/) explains what they prove and the exact format.
+
 ## What "safe to wipe" means {#what-safe-to-wipe-means}
 
 `backdown check PATH` says a drive (or a folder) is **safe to wipe** when every file in it has an identical copy outside it:

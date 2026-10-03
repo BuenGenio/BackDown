@@ -40,7 +40,7 @@ pub struct Options {
 #[derive(Clone, Debug, Serialize)]
 pub struct Job {
     pub id: u64,
-    pub kind: &'static str, // "index" | "hash" | "entities"
+    pub kind: &'static str, // "index" | "hash" | "entities" | "attest" | …
     pub path: Option<String>,
     pub state: &'static str, // "queued" | "running" | "done" | "failed" | "stopped"
     /// it can be stopped while it runs (and resumed later where that makes sense)
@@ -106,6 +106,8 @@ pub struct JobOpts {
     /// dedup: which recorded dedup run (tidying an archive); mail-merge: which recorded merge
     pub dedup: Option<i64>,
     pub merge: Option<i64>,
+    /// attest: which drive to sign a manifest of (roots.id; manifesting.rs)
+    pub root: Option<i64>,
 }
 
 /// Jobs in the main lane that can be stopped at their next file (and carried on later).
@@ -142,6 +144,8 @@ pub struct Daemon {
     /// which only the Unix control socket calls so far)
     #[cfg_attr(not(unix), allow(dead_code))]
     pub shared: bool,
+    /// the key it signs manifests with (in its data folder: manifesting.rs)
+    pub signing_key: PathBuf,
     /// changeable while it runs (Settings)
     rescan_every: Mutex<Option<Duration>>,
     /// drive health, read in a thread of its own (health.rs), and notifications
@@ -371,6 +375,16 @@ impl Daemon {
         })
     }
 
+    /// A job of one of these kinds is waiting or running, whatever it's for.
+    pub fn busy_with(&self, kinds: &[&str]) -> bool {
+        self.state
+            .lock()
+            .unwrap()
+            .jobs
+            .iter()
+            .any(|j| kinds.contains(&j.kind) && (j.state == "queued" || j.state == "running"))
+    }
+
     fn pending_index(&self, path: &str) -> bool {
         self.state.lock().unwrap().jobs.iter().any(|j| {
             j.kind == "index"
@@ -471,6 +485,7 @@ pub fn run(opts: Options) -> Result<()> {
         db: db.clone(),
         started_at: now(),
         shared: opts.shared,
+        signing_key: opts.state_dir.join(locations::SIGNING_KEY),
         rescan_every: Mutex::new(opts.rescan_every),
         health: crate::health::Monitor::new(
             crate::health::source_from_env(),
@@ -712,6 +727,7 @@ fn worker(d: &Daemon) {
             "dedup" => crate::tidy::run_dedup_job(d, &db, &job, &stop),
             "mail-merge" => crate::tidy::run_merge_job(d, &db, &job, &stop),
             "indexes" => run_indexes(d, &db, &job),
+            "attest" => crate::manifesting::run_attest(d, &db, &job),
             _ => run_hash(d, &mut db, &job),
         };
         d.state.lock().unwrap().stops.remove(&id);
@@ -809,6 +825,8 @@ fn worker(d: &Daemon) {
             d.enqueue("index", Some(root), reason, JobOpts::default());
         }
         if ok && job.kind == "hash" {
+            // drives due a signed manifest are seen to soon (manifesting.rs)
+            d.state.lock().unwrap().recheck = true;
             // then say what the drives hold, now that duplicates are known
             d.enqueue("entities", None, "after-scan", JobOpts::default());
             // and have other machines hash what now matches a file here by sample (remote/)
@@ -1612,6 +1630,8 @@ fn check_roots(d: &Daemon, present: &mut HashMap<String, bool>) -> Result<()> {
     d.set_drives(drives);
     // other machines due a sync (remote/)
     crate::remote::schedule(d, &db);
+    // drives due a signed manifest (Settings > Attestations)
+    crate::manifesting::schedule(d, &db);
     for m in backdown_core::mirror::list(&db)? {
         if !Path::new(&m.source).is_dir() || !Path::new(&m.target).is_dir() {
             continue;
@@ -1754,6 +1774,7 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
                 method: req["method"].as_str().unwrap_or("auto").parse()?,
                 dedup: req["dedup"].as_i64(),
                 merge: req["merge"].as_i64(),
+                root: None,
             };
             json!({ "ok": true, "job": d.enqueue(kind, path, "requested", opts) })
         }

@@ -22,6 +22,7 @@ mod insight;
 mod license;
 mod locations;
 mod mailbox;
+mod manifesting;
 mod mounting;
 mod notifier;
 mod peek;
@@ -390,6 +391,12 @@ enum Cmd {
         #[command(subcommand)]
         action: MailCmd,
     },
+    /// Signed, tamper-evident manifests of what a drive held at a scan: sign one, check one
+    /// (anyone can, here or on another computer), list the ones kept, show your signing key
+    Manifest {
+        #[command(subcommand)]
+        action: manifesting::ManifestCmd,
+    },
 }
 
 #[derive(Subcommand)]
@@ -549,9 +556,13 @@ fn main() -> ExitCode {
         Ok(c) => c,
         Err(e) => e.exit(),
     };
-    // Pro features, as tiers.rs's table says (everything is unlocked in previews)
-    if let Some(sub) = matches.subcommand_name()
-        && let Err(e) = tiers::gate_command(sub)
+    // Pro features, as tiers.rs's table says (everything is unlocked in previews); a command
+    // with subcommands of its own is gated subcommand by subcommand ("manifest create")
+    if let Some((sub, m)) = matches.subcommand()
+        && let Err(e) = tiers::gate_command(&match m.subcommand_name() {
+            Some(inner) => format!("{sub} {inner}"),
+            None => sub.to_string(),
+        })
     {
         eprintln!("backdown: {e:#}");
         return ExitCode::FAILURE;
@@ -669,6 +680,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
         // the other end of `backdown remote`, run there by ssh: reads only, never through a daemon
         Cmd::ServeStdio => return remote::stdio::run(cli.db),
         Cmd::Remote { action } => return remote::command(cli.db, cli.local, action),
+        // the index directly, like `entities` (a manifest adds one row); checking needs none
+        Cmd::Manifest { action } => return manifesting::run(cli.db, cli.local, action),
         _ => {}
     }
     // a running daemon owns the index: hand the work to it (unless told not to)
@@ -951,6 +964,7 @@ fn local(db_path: &Path, cmd: Cmd, use_daemon: bool) -> Result<ExitCode> {
         | Cmd::Volumes { .. }
         | Cmd::Health { .. }
         | Cmd::Remote { .. }
+        | Cmd::Manifest { .. }
         | Cmd::ServeStdio
         | Cmd::Mount { .. }
         | Cmd::Unmount { .. } => {
@@ -1101,6 +1115,7 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
         | Cmd::Volumes { .. }
         | Cmd::Health { .. }
         | Cmd::Remote { .. }
+        | Cmd::Manifest { .. }
         | Cmd::ServeStdio
         | Cmd::Mount { .. }
         | Cmd::Unmount { .. } => {
