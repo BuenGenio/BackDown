@@ -933,10 +933,13 @@ fn run_mirror(d: &Daemon, db: &Db, job: &Job) -> Result<String> {
 }
 
 /// Sync another machine over ssh (remote/); then hash here if what's cached there changed, since
-/// files here may now match files there.
+/// files here may now match files there. A drive there that got worse is told like one here.
 fn run_remote_sync(d: &Daemon, db: &Db, job: &Job, stop: &AtomicBool) -> Result<String> {
     let id = job.opts.machine.context("a sync without a machine")?;
-    let (summary, changed) = crate::remote::sync_job(db, id, stop, &mut |msg| {
+    // notes about its drives may pop up if the settings say so; they're listed either way
+    let show = std::sync::Mutex::new(Vec::new());
+    let pop = crate::health::pops_up(d, "health").then_some(&show);
+    let r = crate::remote::sync_job(db, id, stop, pop, &mut |msg| {
         d.progress(
             job.id,
             msg.to_string(),
@@ -945,7 +948,9 @@ fn run_remote_sync(d: &Daemon, db: &Db, job: &Job, stop: &AtomicBool) -> Result<
                 ..Counts::default()
             },
         );
-    })?;
+    });
+    crate::health::after_remote_sync(d, db, &show.into_inner().unwrap_or_else(|e| e.into_inner()));
+    let (summary, changed) = r?;
     if changed && !stop.load(Ordering::Relaxed) {
         d.enqueue(
             "hash",

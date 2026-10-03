@@ -13,6 +13,11 @@
 //! Where readings come from is a [`Source`]: this machine's drives, or, with
 //! `BACKDOWN_FAKE_HEALTH=<file>`, a JSON file of readings read afresh each round (for tests and
 //! demos; it changes nothing else).
+//!
+//! The other machines' drives (Team: [`machines_allowed`]) come with each machine's sync
+//! (backdown_core::remote fetches them from that machine's own index, over the person's ssh, and
+//! tells when one got worse); here they're shown (`backdown health --machines`, GET
+//! /api/health-machines), and a sync's notes about them may pop up ([`after_remote_sync`]).
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -31,6 +36,13 @@ use crate::{client, locations};
 
 /// How often every connected drive is read.
 pub const EVERY: i64 = 6 * 3600;
+
+/// Gathering other machines' drive health here is the Team feature "health-alerts" (tiers.rs; a
+/// preview unlocks it): fetching it during a sync, the notifications about their drives,
+/// `backdown health --machines` and GET /api/health-machines. This machine's own stay free.
+pub fn machines_allowed() -> bool {
+    crate::tiers::feature("health-alerts").is_none_or(|f| crate::tiers::access().allows(f))
+}
 
 fn now() -> i64 {
     SystemTime::now()
@@ -457,6 +469,24 @@ pub fn notes_for(h: &Health, r: &Recorded, on: &[&mirror::Mirror]) -> Vec<Note> 
     }]
 }
 
+/// Notes of `kind` may pop up on this desktop now: the service runs as the person at the screen,
+/// and the settings say so.
+pub fn pops_up(d: &Daemon, kind: &str) -> bool {
+    let s = d.health.settings();
+    d.health.desktop && s.desktop && s.wants(kind)
+}
+
+/// After a sync of another machine: the unread count (notes about drives there are listed in
+/// Activity), the browser told to fetch again (what's known of its drives changed), and the notes
+/// that may pop up now shown.
+pub fn after_remote_sync(d: &Daemon, db: &Db, show_now: &[Note]) {
+    match alerts::unread(db) {
+        Ok(n) => d.health.set_unread(d, n),
+        Err(e) => eprintln!("notification: {e:#}"),
+    }
+    show(show_now);
+}
+
 /// A job ended: tell about a mirror that no longer matches its source, or a scheduled job that
 /// failed. Recording is quick; showing happens in the background.
 pub fn after_job(d: &Daemon, job: &Job, error: Option<&str>) {
@@ -525,6 +555,7 @@ pub fn handles(path: &str) -> bool {
         path,
         "/api/health"
             | "/api/health-check"
+            | "/api/health-machines"
             | "/api/notifications"
             | "/api/notify-settings"
             | "/api/notify-test"
@@ -554,7 +585,8 @@ fn settings_json(d: Option<&Daemon>) -> Value {
     v
 }
 
-/// GET /api/health, /api/notifications, /api/notify-settings.
+/// GET /api/health, /api/health-machines (the other machines' drives, as last synced: read from
+/// the index, nothing is reached), /api/notifications, /api/notify-settings.
 pub fn get(
     d: Option<&Daemon>,
     db_path: &Path,
@@ -582,6 +614,17 @@ pub fn get(
                         "checked_at": now(), "daemon": false, "every_secs": EVERY })
             }
         },
+        "/api/health-machines" => {
+            let db = Db::open_read_only(db_path)?;
+            let mut v = backdown_core::remote::health_overview(&db)?;
+            // the machine-wide service never syncs machines: it has no ssh keys of anyone's
+            if d.is_some_and(|d| d.shared) {
+                v["why_not"] = json!(
+                    "other machines are synced with your own ssh keys, by your own BackDown (backdown service install, without --system)"
+                );
+            }
+            v
+        }
         "/api/notifications" => {
             let db = Db::open_read_only(db_path)?;
             let limit = param("limit")
@@ -664,8 +707,16 @@ pub fn post(
 
 /// `backdown health`: read every drive now (through the daemon when it runs, so it's kept), show
 /// each with its counters and how it changed since the first reading. Exits 2 when a connected
-/// drive is failing.
-pub fn command(db: Option<PathBuf>, local: bool, as_json: bool) -> Result<ExitCode> {
+/// drive is failing. With `machines`, the other machines' drives instead ([`machines_command`]).
+pub fn command(
+    db: Option<PathBuf>,
+    local: bool,
+    as_json: bool,
+    machines: bool,
+) -> Result<ExitCode> {
+    if machines {
+        return machines_command(db, local, as_json);
+    }
     let overview = match (!local)
         .then(|| client::Client::connect(db.as_deref()))
         .flatten()
@@ -822,6 +873,160 @@ fn print(o: &Value) {
     }
 }
 
+// ---------- `backdown health --machines`
+
+/// `backdown health --machines`: the other machines' drives as each one's own BackDown last read
+/// them, fetched with its last sync (nothing is reached or read now). Exits 2 when a drive there
+/// is failing (one still being read there).
+fn machines_command(db: Option<PathBuf>, local: bool, as_json: bool) -> Result<ExitCode> {
+    if !machines_allowed() {
+        let f = crate::tiers::feature("health-alerts").context("no health-alerts feature")?;
+        bail!(
+            "other machines' drive health, gathered here, is part of BackDown Team: {}\n\
+             Add a licence key with `backdown license add <key>` (see {}).",
+            f.unlocks,
+            crate::tiers::PRICING_URL
+        );
+    }
+    let db_path = crate::remote::index_path(db, local);
+    let db = Db::open_read_only(&db_path).or_else(|_| crate::remote::open(&db_path))?;
+    let o = backdown_core::remote::health_overview(&db)?;
+    if as_json {
+        println!("{}", serde_json::to_string_pretty(&o)?);
+    } else {
+        print!("{}", machines_text(&o, now()));
+    }
+    Ok(if o["worst"] == "failing" {
+        ExitCode::from(2)
+    } else {
+        ExitCode::SUCCESS
+    })
+}
+
+/// "3 h ago", as of `now`.
+fn ago_at(t: Option<i64>, now: i64) -> String {
+    let Some(t) = t else { return "never".into() };
+    match now - t {
+        i64::MIN..60 => "just now".into(),
+        s @ 60..3600 => format!("{} min ago", s / 60),
+        s @ 3600..86_400 => format!("{} h ago", s / 3600),
+        s => format!("{} days ago", s / 86_400),
+    }
+}
+
+/// What `backdown health --machines` prints: each machine with its drives, what's wrong with
+/// them, a word when it can't say, and its own latest notifications.
+fn machines_text(o: &Value, now: i64) -> String {
+    use std::fmt::Write;
+    let mut s = String::new();
+    let machines = o["machines"].as_array().cloned().unwrap_or_default();
+    if machines.is_empty() {
+        s.push_str("No machines yet: backdown remote add nas ssh://nas.example.org\n");
+        return s;
+    }
+    let (mut stale, mut together) = (false, false);
+    for (i, m) in machines.iter().enumerate() {
+        if i > 0 {
+            s.push('\n');
+        }
+        let name = m["name"].as_str().unwrap_or("?");
+        let _ = writeln!(
+            s,
+            "{name} ({}) · synced {}",
+            m["url"].as_str().unwrap_or(""),
+            ago_at(m["last_sync"].as_i64(), now)
+        );
+        let drives = m["drives"].as_array().cloned().unwrap_or_default();
+        if !drives.is_empty() {
+            let _ = writeln!(
+                s,
+                "  {:<8} {:<24} {:<18} {:>5} {:>7} {:>7} {:>5} {:>5} {:>5} {:>5}  READ THERE",
+                "HEALTH",
+                "MODEL",
+                "SERIAL",
+                "TEMP",
+                "HOURS",
+                "REALLOC",
+                "PEND",
+                "UNC",
+                "CRC",
+                "WEAR"
+            );
+        }
+        for d in &drives {
+            let h = &d["health"];
+            let pending = if h["pending"].is_null() && !h["bad_sectors"].is_null() {
+                together = true;
+                format!("{}*", num(&h["bad_sectors"]))
+            } else {
+                num(&h["pending"])
+            };
+            let current = d["current"] == true;
+            stale |= !current;
+            let _ = writeln!(
+                s,
+                "  {:<8} {:<24} {:<18} {:>5} {:>7} {:>7} {:>5} {:>5} {:>5} {:>5}  {}{}",
+                d["verdict"].as_str().unwrap_or("?"),
+                clip(
+                    h["model"].as_str().or(h["device"].as_str()).unwrap_or("-"),
+                    24
+                ),
+                clip(h["serial"].as_str().unwrap_or("-"), 18),
+                h["temperature"]
+                    .as_i64()
+                    .map_or("-".into(), |t| format!("{t}°C")),
+                num(&h["power_on_hours"]),
+                num(&h["reallocated"]),
+                pending,
+                num(&h["uncorrectable"]),
+                num(&h["crc_errors"]),
+                h["percentage_used"]
+                    .as_u64()
+                    .map_or("-".into(), |w| format!("{w}%")),
+                ago_at(h["read_at"].as_i64(), now),
+                if current { "" } else { " †" }
+            );
+        }
+        for d in &drives {
+            let h = &d["health"];
+            let who = h["model"].as_str().or(h["device"].as_str()).unwrap_or("?");
+            for l in d["findings"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|f| f["text"].as_str())
+                .chain(h["note"].as_str())
+            {
+                let _ = writeln!(s, "  {who}: {l}");
+            }
+        }
+        if let Some(n) = m["health"]["note"].as_str() {
+            let _ = writeln!(s, "  {n}");
+        }
+        for n in m["notes"].as_array().into_iter().flatten().take(3) {
+            let _ = writeln!(
+                s,
+                "  notified on {name} {}: {}",
+                ago_at(n["at"].as_i64(), now),
+                n["title"].as_str().unwrap_or("")
+            );
+        }
+    }
+    if together {
+        s.push_str(
+            "* reallocated and pending sectors together (the attribute table wasn't available)\n",
+        );
+    }
+    if stale {
+        let _ = writeln!(
+            s,
+            "† not read there for over {} days before its sync: taken out, or its BackDown isn't running",
+            o["stale_days"].as_i64().unwrap_or(7)
+        );
+    }
+    s
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -974,5 +1179,67 @@ mod tests {
         assert!(r.show.is_empty());
         assert_eq!(r.unread, 2);
         assert_eq!(r.drives[0].health.reallocated, Some(9));
+    }
+
+    #[test]
+    fn other_machines_drives_in_the_terminal() {
+        let now = 1_790_000_000;
+        let o = json!({ "stale_days": 7, "worst": "failing", "machines": [
+            { "name": "nas", "url": "ssh://alice@nas.example.org", "last_sync": now - 7200,
+              "health": { "state": "ok", "note": null },
+              "drives": [
+                { "verdict": "failing", "current": true,
+                  "health": { "model": "FAKEDISK HD4000", "serial": "FAKE0001", "temperature": 41,
+                              "power_on_hours": 20000, "reallocated": 150, "pending": 0,
+                              "uncorrectable": 0, "crc_errors": 0, "read_at": now - 3 * 3600 },
+                  "findings": [{ "level": "failing", "code": "reallocated",
+                                 "text": "150 sectors had gone bad and have been replaced by spares (reallocated)" }] },
+                { "verdict": "ok", "current": false,
+                  "health": { "model": "FAKEDISK NV970", "serial": "FAKE0002", "percentage_used": 3,
+                              "read_at": now - 40 * 86_400 },
+                  "findings": [] }
+              ],
+              "notes": [{ "at": now - 2 * 86_400, "level": "failing", "title": "FAKEDISK HD4000 is failing",
+                          "body": "150 more sectors have gone bad" }] },
+            { "name": "old-pc", "url": "ssh://old-pc", "last_sync": now - 3 * 86_400,
+              "health": { "state": "unsupported", "note": "update BackDown on old-pc to see its drive health" },
+              "drives": [], "notes": [] }
+        ]});
+        let t = machines_text(&o, now);
+        let lines: Vec<&str> = t.lines().collect();
+        assert_eq!(
+            lines[0],
+            "nas (ssh://alice@nas.example.org) · synced 2 h ago"
+        );
+        assert!(lines[1].starts_with("  HEALTH   MODEL"), "{t}");
+        assert!(lines[2].starts_with("  failing  FAKEDISK HD4000"), "{t}");
+        assert!(
+            lines[2].contains(" 41°C ") && lines[2].contains(" 150 "),
+            "{t}"
+        );
+        assert!(lines[2].ends_with("3 h ago"), "{t}");
+        assert!(lines[3].starts_with("  ok       FAKEDISK NV970"), "{t}");
+        assert!(lines[3].ends_with("40 days ago †"), "{t}");
+        assert_eq!(
+            lines[4],
+            "  FAKEDISK HD4000: 150 sectors had gone bad and have been replaced by spares (reallocated)"
+        );
+        assert_eq!(
+            lines[5],
+            "  notified on nas 2 days ago: FAKEDISK HD4000 is failing"
+        );
+        assert!(
+            t.contains(
+                "\nold-pc (ssh://old-pc) · synced 3 days ago\n  update BackDown on old-pc to see its drive health\n"
+            ),
+            "{t}"
+        );
+        assert!(t.ends_with(
+            "† not read there for over 7 days before its sync: taken out, or its BackDown isn't running\n"
+        ));
+        assert_eq!(
+            machines_text(&json!({ "machines": [] }), now),
+            "No machines yet: backdown remote add nas ssh://nas.example.org\n"
+        );
     }
 }

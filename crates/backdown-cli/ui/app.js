@@ -5,7 +5,7 @@ import { squarify, compareListings, menu, closeMenu, menuOpen, toast } from './e
 import { mountFind, find, foundHtml, setScope, setEarlier, more as findMore } from './search.js';
 import { showSettings, proGate, loadFeatures, checkUpdates } from './settings.js';
 import { tidyCard, wireTidy, mergeButton, mergeSources } from './tidy.js';
-import { mountHealth, daemonChanged, healthOfDisk, healthOfPath, pill, dot, mirrorNote, healthHead, notesSection } from './health.js';
+import { mountHealth, daemonChanged, healthOfDisk, healthOfPath, pill, dot, mirrorNote, healthHead, notesSection, machinesSection } from './health.js';
 import { mountMachines, renderMachinesNav, machinesDaemon, machinePath, showMachine, remoteCopiesHtml, dupesRemoteHtml, acrossHtml, wipeRemoteLine } from './machines.js';
 import { mountCell, mountNotice, loadMounts, allowButton, browseFoundBtn, filesBody } from './drives.js';
 
@@ -2054,6 +2054,7 @@ function renderActivity() {
     <section><h3>Up next</h3>${queue}</section>
     <section><h3>Drives and schedule</h3>${drivesTable(d.drives, true)}</section>
     ${connectedDrives()}
+    ${machinesSection()}
     ${ACT.mirrors?.length ? `<section><h3>Mirrors</h3><ol class="act-list">${ACT.mirrors.map(m => `
       <li class="${m.last_verify_ok === false ? 'failed' : 'done'}"><span class="ji ${m.last_verify_ok === false ? 'failed' : 'done'}">${JOB_ICON['mirror-sync']}</span>
         <span class="jn">${esc(rootName(m.source))} → ${esc(m.target)}<small>${esc(m.last_verify_summary || 'not verified yet')}</small>${mirrorNote(m)}</span>

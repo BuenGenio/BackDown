@@ -15,6 +15,7 @@ use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
+use backdown_core::alerts::Note;
 use backdown_core::remote::{self as core, Machine, Peer, SyncOptions};
 use backdown_core::{Db, fmt};
 use clap::Subcommand;
@@ -88,7 +89,7 @@ pub enum RemoteCmd {
 }
 
 /// The index these commands work on: --db, or a running daemon's, or the default.
-fn index_path(db: Option<PathBuf>, local: bool) -> PathBuf {
+pub(crate) fn index_path(db: Option<PathBuf>, local: bool) -> PathBuf {
     db.or_else(|| {
         (!local)
             .then(|| client::Client::connect(None).map(|c| PathBuf::from(c.db)))
@@ -97,7 +98,7 @@ fn index_path(db: Option<PathBuf>, local: bool) -> PathBuf {
     .unwrap_or_else(locations::default_db)
 }
 
-fn open(db: &Path) -> Result<Db> {
+pub(crate) fn open(db: &Path) -> Result<Db> {
     if let Some(dir) = db.parent() {
         locations::ensure_private_dir(dir, false)
             .with_context(|| format!("can't create {}", dir.display()))?;
@@ -346,7 +347,33 @@ pub fn test(db: &Db, m: &Machine) -> Result<String> {
     r
 }
 
-/// Sync one machine over a fresh ssh connection: its drives, what changed there, hashes there.
+/// What a sync found of the machine's drive health, for its summary ("" when it wasn't asked).
+fn health_words(m: &Machine, st: &core::SyncStats) -> String {
+    match st.health {
+        "ok" => format!(
+            "; drive health of {} drive{}{}",
+            st.health_drives,
+            if st.health_drives == 1 { "" } else { "s" },
+            if st.health_notes > 0 {
+                format!(
+                    ", {} worse since the last sync (told in Activity)",
+                    st.health_notes
+                )
+            } else {
+                String::new()
+            }
+        ),
+        "unsupported" => format!("; update BackDown on {} to see its drive health", m.name),
+        "error" => {
+            "; its drive health couldn't be fetched (`backdown health --machines` says why)".into()
+        }
+        _ => String::new(),
+    }
+}
+
+/// Sync one machine over a fresh ssh connection: its drives, what changed there, hashes there,
+/// and its drive health (Team), whose notes are listed in Activity (not popped up: there's no
+/// service at hand to show them).
 pub fn sync_one(
     db: &Db,
     m: &Machine,
@@ -357,6 +384,7 @@ pub fn sync_one(
         let mut p = ssh::SshPeer::open(m)?;
         let opts = SyncOptions {
             stop,
+            health: crate::health::machines_allowed(),
             ..SyncOptions::default()
         };
         core::sync(db, m, &mut p, &opts, progress)
@@ -369,7 +397,7 @@ pub fn sync_one(
     }
     let st = r?;
     Ok(format!(
-        "{}: {} drive{}, {} files ({} new or changed, {} gone); {} sampled and {} hashed there for comparison{}",
+        "{}: {} drive{}, {} files ({} new or changed, {} gone); {} sampled and {} hashed there for comparison{}{}",
         m.name,
         st.drives,
         if st.drives == 1 { "" } else { "s" },
@@ -382,32 +410,34 @@ pub fn sync_one(
             format!("; {} still to do next time", fmt::count(st.left))
         } else {
             String::new()
-        }
+        },
+        health_words(m, &st)
     ))
 }
 
 // ---------- the daemon's side
 
-/// The side lane's sync job for machine `id`: returns its summary, and whether hashing here
-/// could now find more (so the daemon hashes next).
+/// The side lane's sync job for machine `id`: returns its summary, and whether hashing here could
+/// now find more (so the daemon hashes next). Notes about its drives getting worse that may pop up
+/// now go in `show`, if they may at all (even when the sync fails after its drive health).
 pub fn sync_job(
     db: &Db,
     id: i64,
     stop: &AtomicBool,
+    show: Option<&Mutex<Vec<Note>>>,
     progress: &mut dyn FnMut(&str),
 ) -> Result<(String, bool)> {
     gate()?;
     let m = core::get(db, id)?;
-    let mut changed = false;
     let r = (|| -> Result<core::SyncStats> {
         let mut p = ssh::SshPeer::open(&m)?;
         let opts = SyncOptions {
             stop: Some(stop),
+            health: crate::health::machines_allowed(),
+            show,
             ..SyncOptions::default()
         };
-        let st = core::sync(db, &m, &mut p, &opts, progress)?;
-        changed = st.changed;
-        Ok(st)
+        core::sync(db, &m, &mut p, &opts, progress)
     })();
     if let Err(e) = &r {
         let _ = core::record_try(db, m.id, Some(&format!("{e:#}")));
@@ -415,7 +445,7 @@ pub fn sync_job(
     let st = r?;
     Ok((
         format!(
-            "{}: {} files there ({} new or changed, {} gone); {} sampled, {} hashed there{}",
+            "{}: {} files there ({} new or changed, {} gone); {} sampled, {} hashed there{}{}",
             m.name,
             fmt::count(st.files),
             fmt::count(st.added),
@@ -426,9 +456,10 @@ pub fn sync_job(
                 format!(", {} left for next time", fmt::count(st.left))
             } else {
                 String::new()
-            }
+            },
+            health_words(&m, &st)
         ),
-        changed,
+        st.changed,
     ))
 }
 
