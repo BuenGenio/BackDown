@@ -163,27 +163,45 @@ if (live) {
   load();
 }
 
-// Pro pre-order: the box stays hidden unless /api/preorder reports a live Stripe price; the checkout form is a
-// plain POST (the server answers with a redirect to Stripe), so this only fills in the price and a busy state.
+// Pre-orders of Pro, Team and Forensic: the box, and each edition's button on its pricing card, stay hidden unless
+// /api/preorder reports a live Stripe price for that edition; the checkout form is a plain POST (the server answers
+// with a redirect to Stripe), so this only fills in the prices, picks the edition and shows a busy state.
 const po = document.getElementById('preorder');
 if (po) {
+  const form = po.querySelector('form.checkout'), msg = form.querySelector('.join-msg'), button = form.querySelector('button[type=submit]');
+  const option = edition => form.querySelector(`.po-ed[data-edition="${edition}"]`);
+  const pick = edition => {
+    const opt = option(edition);
+    if (!opt || opt.hidden) return;
+    opt.querySelector('input').checked = true;
+    button.textContent = opt.dataset.cta;
+  };
   fetch('/api/preorder').then(r => r.ok ? r.json() : null).then(d => {
-    if (!d?.open) return;
-    const price = new Intl.NumberFormat(lang, { style: 'currency', currency: d.currency.toUpperCase(), minimumFractionDigits: d.amount % 100 ? 2 : 0 }).format(d.amount / 100);
-    po.querySelectorAll('[data-price]').forEach(el => { el.textContent = price; });
+    // (an answer cached from before there were three editions describes Pro alone)
+    const editions = d?.editions || { pro: d || {} };
+    const open = Object.keys(editions).filter(e => editions[e].open && option(e));
+    if (!open.length) return;
+    for (const e of open) {
+      const { amount, currency } = editions[e], opt = option(e);
+      opt.querySelector('[data-price]').textContent = new Intl.NumberFormat(lang, { style: 'currency', currency: currency.toUpperCase(), minimumFractionDigits: amount % 100 ? 2 : 0 }).format(amount / 100);
+      opt.hidden = false;
+      document.querySelectorAll(`.po-link[data-edition="${e}"]`).forEach(a => { a.hidden = false; });
+    }
+    form.querySelector('.po-eds').classList.toggle('single', open.length === 1);
+    pick(open[0]);
     po.hidden = false;
-    document.querySelectorAll('.po-link').forEach(a => { a.hidden = false; });
     if (location.hash === '#preorder') po.scrollIntoView();
   }).catch(() => {});
-  const form = po.querySelector('form.checkout'), msg = form.querySelector('.join-msg');
+  document.querySelectorAll('.po-link[data-edition]').forEach(a => a.addEventListener('click', () => pick(a.dataset.edition)));
+  form.addEventListener('change', e => { if (e.target.name === 'edition') pick(e.target.value); });
   if (new URLSearchParams(location.search).get('checkout')) { msg.className = 'join-msg err'; msg.textContent = form.dataset.error; }
   form.addEventListener('submit', () => {
-    form.querySelector('button').disabled = true;
+    button.disabled = true;
     msg.className = 'join-msg'; msg.textContent = form.dataset.busy;
-    track('Pre-order', 'checkout');
+    track('Pre-order', 'checkout', form.elements.edition.value);
   });
-  // back from Stripe via the browser's back button: the page may come from the back/forward cache
-  addEventListener('pageshow', () => { form.querySelector('button').disabled = false; msg.textContent = ''; });
+  // back from Stripe via the browser's back button: the page comes from the back/forward cache as it was left
+  addEventListener('pageshow', e => { if (e.persisted) { button.disabled = false; msg.textContent = ''; } });
 }
 
 // Thanks page: look the order up by the session id Stripe put in the URL. While the payment is still clearing, ask
@@ -191,6 +209,12 @@ if (po) {
 const order = document.querySelector('.order[data-api]');
 if (order) {
   const states = JSON.parse(order.dataset.states), say = order.querySelector('.order-state'), box = order.querySelector('.key');
+  // which edition was bought: in the card's heading and the "when it ships" line (the names aren't translated)
+  const EDITIONS = { pro: 'Pro', team: 'Team', forensic: 'Forensic' };
+  const named = edition => order.querySelectorAll('[data-tpl]').forEach(el => {
+    el.textContent = el.dataset.tpl.replace('{edition}', EDITIONS[edition] || EDITIONS.pro);
+    el.hidden = false;
+  });
   const id = new URLSearchParams(location.search).get('session_id');
   const started = Date.now();
   let gap = 3e3, timer;
@@ -200,13 +224,14 @@ if (order) {
     if (document.hidden) return;
     let d;
     try { const r = await fetch(`${order.dataset.api}?session_id=${encodeURIComponent(id)}`); d = await r.json(); } catch { d = { status: 'error' }; }
+    if (d.edition) named(d.edition);
     if (d.status === 'paid') {
       say.textContent = (d.emailed ? states.paid : states.paid_noemail).replace('{email}', d.email || '');
       box.querySelector('textarea').value = d.licence;
       box.querySelector('[data-cmd]').textContent = `backdown license add ${d.licence}`;
       box.hidden = false;
       document.removeEventListener('visibilitychange', check);
-      if (!sessionStorage.getItem(`tracked:${id}`)) { track('Pre-order', 'paid'); try { sessionStorage.setItem(`tracked:${id}`, '1'); } catch {} }
+      if (!sessionStorage.getItem(`tracked:${id}`)) { track('Pre-order', 'paid', d.edition); try { sessionStorage.setItem(`tracked:${id}`, '1'); } catch {} }
       return;
     }
     say.textContent = states[d.status] || states.error;

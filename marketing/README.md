@@ -8,7 +8,7 @@ A Cloudflare Worker serves `public/` as static assets. `src/` runs only for `/ap
 |---|---|
 | `POST /api/waitlist` | early-access sign-ups → KV `WAITLIST` |
 | `GET /api/status` | the status page's live checks (website, downloads, sign-ups, pre-orders), refreshed hourly by the cron and cached in KV `SITE` |
-| `GET /api/preorder`, `POST /api/checkout`, `POST /api/stripe/webhook`, `GET /api/order` | Pro pre-orders: Stripe Checkout → signed licence key (KV `ORDERS`); see `src/store.js` |
+| `GET /api/preorder`, `POST /api/checkout`, `POST /api/stripe/webhook`, `GET /api/order` | pre-orders of Pro, Team and Forensic: Stripe Checkout → signed licence key for the edition bought (KV `ORDERS`); see `src/store.js` |
 
 `www.backdown.io` is a separate Worker (`www-redirect/`) that 301s to the apex.
 
@@ -69,13 +69,23 @@ Matomo at `matomo.matumi.anthill.hk`, cookieless, skipped entirely for Do Not Tr
 
 ### Pre-orders (Stripe)
 
-Off by default. To open them:
+Off by default. Each paid edition is sold as a pre-order of its first year, paid once with Stripe Checkout and fulfilled with an offline licence key whose `product` claim is that edition, so the app unlocks that tier:
 
-1. `STRIPE_SECRET_KEY=sk_test_… node ../scripts/stripe-setup.mjs --price <US cents>` (test mode first). It checks the account and Stripe Tax, creates the product, the price (lookup key `backdown_pro_preorder`) and the webhook, and stores the Worker's secrets (`STRIPE_SECRET_KEY` or the restricted `--worker-key`, `STRIPE_WEBHOOK_SECRET`, `LICENSE_SIGNING_KEY` from `~/.config/backdown/license-signing-key.pem`).
-2. In `site.json`, set `preorder.enabled` and every `seller` field (the terms page names who customers buy from); have the terms (`templates/terms.html`) reviewed.
-3. `python3 build.py && npx wrangler deploy`, buy with card 4242 4242 4242 4242, check the key on the thanks page with `backdown license add`, then repeat step 1 with the live key.
+| Edition | Stripe price lookup key | Sold per | Quantity |
+|---|---|---|---|
+| Pro | `backdown_pro_preorder` | machine | 1–50 |
+| Team | `backdown_team_preorder` | machine | 5–500 |
+| Forensic | `backdown_forensic_preorder` | site | 1–10 |
 
-The pricing page shows the pre-order box only while `/api/preorder` reports an active Stripe price, so deactivating the price in Stripe closes pre-orders within the hour without a deploy. Licence keys are emailed only with an `EMAIL` binding (Cloudflare Email Service, see `wrangler.jsonc`); otherwise the thanks page shows the key and Stripe's receipt is the only email.
+That table is `EDITIONS` in `src/store.js` (the setup script reads it too). Each edition's price is whatever active one-time Stripe price holds its lookup key; the amounts are set in Stripe, not here. To open them:
+
+1. Test mode first: `STRIPE_SECRET_KEY=sk_test_… node ../scripts/stripe-setup.mjs --price pro=<cents> --price team=<cents> --price forensic=<cents>`, in US cents per machine or site, tax exclusive; give only the editions you want to sell. It checks the account and Stripe Tax, creates or reuses each edition's product and price and the webhook, and stores the Worker's secrets (`STRIPE_SECRET_KEY` or the restricted `--worker-key`, `STRIPE_WEBHOOK_SECRET`, `LICENSE_SIGNING_KEY` from `~/.config/backdown/license-signing-key.pem`) without printing them. Running it again with the same prices changes nothing; a new amount moves that edition's lookup key to a new price and archives the old one; editions left out are left alone. `--dry-run` shows what it would do.
+2. In `site.json`, set `preorder.enabled` and every `seller` field (the terms page names who customers buy from); have the terms (`templates/terms.html`) reviewed, including what a Forensic "site" is and the one `preorder.ship_by` date that applies to every edition.
+3. `python3 build.py && npx wrangler deploy`, buy each edition with card 4242 4242 4242 4242, check each key on the thanks page with `backdown license add` and `backdown license show`, then repeat step 1 with the live key (`sk_live_…`, and an `rk_live_…` restricted key as `--worker-key`).
+
+Each pricing card shows its pre-order button, and the pre-order box offers that edition, only while `/api/preorder` reports an active Stripe price for it (`{open, amount, currency, editions: {pro, team, forensic}}`; the top-level fields are Pro's, as they were before), so archiving a price in Stripe closes that edition within the hour without a deploy. `POST /api/checkout` takes `edition` (Pro by default) and an optional `quantity` within the edition's limits; Checkout lets the buyer change the quantity within them too. Orders from before there were three editions have no edition in their metadata and are Pro. Licence keys are emailed only with an `EMAIL` binding (Cloudflare Email Service, see `wrangler.jsonc`); otherwise the thanks page shows the key and Stripe's receipt is the only email.
+
+`node --test tools/store.test.mjs ../scripts/stripe-setup.test.mjs` tests the store and the setup script against a fake Stripe (`tools/fake-stripe.mjs`) with throwaway keys; nothing in them reaches Stripe or Cloudflare.
 
 ## Commands
 
@@ -94,6 +104,7 @@ Run from this directory unless noted:
 | Press kit logo PNGs | `python3 build.py && cd screenshots && npm run press && cd .. && python3 build.py` |
 | Regenerate the CLI reference | `python3 tools/cli-reference.py` (after `cargo build -p backdown-cli`) |
 | Check links before deploying | `python3 tools/check-links.py` |
+| Test the store and the Stripe setup | `node --test tools/store.test.mjs ../scripts/stripe-setup.test.mjs` |
 
 ## Screenshots (`screenshots/`)
 

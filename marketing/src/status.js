@@ -1,7 +1,7 @@
 // /api/status: a few cheap checks, run hourly by the cron trigger and cached in KV, so a page view costs one KV read
 // and nothing polls anything in real time. The status page asks once on load and again only while it stays visible.
 
-import { preorderPrice } from './store.js';
+import { preorderPrices } from './store.js';
 import offered from '../downloads.json';
 
 const RELEASES = 'https://github.com/BuenGenio/backdown-releases';
@@ -33,9 +33,10 @@ async function waitlist(env) {
   try { await env.WAITLIST.get('probe'); return 'up'; } catch { return 'down'; }
 }
 
+// pre-orders are open while any edition (Pro, Team, Forensic) has a price on sale
 async function checkout(env) {
   if (!env.STRIPE_SECRET_KEY) return 'closed';
-  try { return (await preorderPrice(env, { fresh: true })) ? 'open' : 'closed'; } catch { return 'down'; }
+  try { return Object.values(await preorderPrices(env, { fresh: true }) || {}).some(Boolean) ? 'open' : 'closed'; } catch { return 'down'; }
 }
 
 export async function refresh(env) {

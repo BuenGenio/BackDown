@@ -279,7 +279,19 @@ section.first{padding-top:clamp(28px,4vw,44px)}
 .checks li{display:grid;grid-template-columns:16px minmax(0,1fr);gap:10px}
 .checks li::before{content:'';width:12px;height:7px;margin-top:7px;border-left:2px solid var(--good);border-bottom:2px solid var(--good);transform:rotate(-45deg)}
 .checkout{display:grid;gap:12px}
-.po-price{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}.po-price .amt{margin:0}
+.po-link[hidden]{display:none}
+.price ul{flex:1 0 auto}
+.po-eds{border:0;margin:0;padding:0;min-width:0;display:grid;gap:8px}
+.po-eds legend{padding:0;margin-bottom:8px;font-size:.84rem;font-weight:600;color:var(--ink-2)}
+.po-ed{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:2px 12px;padding:12px 16px;border:1px solid var(--line-2);border-radius:var(--radius-sm);background:var(--bg-elev);cursor:pointer}
+.po-ed[hidden]{display:none}
+.po-ed:has(input:checked){border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.po-ed input{margin:0;accent-color:var(--accent)}
+.po-ed .nm{font-weight:600}
+.po-ed .amt{margin:0;font-size:1.7rem;text-align:right}
+.po-ed .per{grid-column:2/-1;margin:0;min-height:0}
+.po-eds.single legend,.po-eds.single .po-ed input{display:none}
+.po-eds.single .po-ed{grid-template-columns:minmax(0,1fr) auto;cursor:default}.po-eds.single .po-ed .per{grid-column:1/-1}
 .po-note{font-size:.84rem;color:var(--ink-3)}.po-note a{color:var(--ink-2)}
 
 /* download: quick start */
@@ -350,6 +362,7 @@ pre.card{border-radius:var(--radius)}
 /* thanks: the licence key */
 .order{padding:24px;display:grid;gap:16px;max-width:46rem}
 .order-state{font-weight:500}
+.order-edition[hidden]{display:none}
 .key{display:grid;gap:12px}.key[hidden]{display:none}
 .key label{font-weight:600}
 .key textarea{width:100%;font-family:var(--font-mono);font-size:.82rem;line-height:1.5;padding:12px 14px;border-radius:var(--radius-sm);border:1px solid var(--line-2);background:var(--bg-elev);color:var(--ink);resize:vertical;word-break:break-all}

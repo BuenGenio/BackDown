@@ -116,6 +116,8 @@ JOIN = ''' <section id="join">
 FAQ = ['q1', 'q2', 'q3', 'q4', 'q5']
 FAQ_PREORDER = ['pq1', 'pq2']
 STATES = ['up', 'degraded', 'down', 'open', 'closed', 'unknown']
+# the paid editions sold as pre-orders (src/store.js EDITIONS); each pricing card gets a button for its own
+EDITIONS = ['pro', 'team', 'forensic']
 
 
 def url_path(lang, page):
@@ -273,7 +275,7 @@ def page_meta(lang, page, t):
         return dict(title=t['meta.title'], description=t['meta.description'], og_title=t['meta.og_title'],
                     og_description=t['meta.og_description'], og_alt=t['meta.og_image_alt'], og_image=og_image, crumb='BackDown')
     if pid == 'terms':
-        title, desc = 'Pre-order terms · BackDown', 'What you get when you pre-order BackDown Pro, how refunds work, and who you are buying from.'
+        title, desc = 'Pre-order terms · BackDown', 'What you get when you pre-order BackDown Pro, Team or Forensic, how refunds work, and who you are buying from.'
         return dict(title=title, description=desc, og_title=title, og_description=desc, og_alt=t['meta.og_image_alt'],
                     og_image=og_image, crumb='Pre-order terms')
     if pid == 'press':
@@ -433,7 +435,7 @@ def main():
              'download.cta_download', 'download.checksum', 'footer.privacy', 'footer.privacy_analytics', 'footer.privacy_link',
              'footer.terms_link', 'footer.releases', 'footer.press', 'nav.docs', 'policy.analytics_on', 'policy.analytics_off',
              'policy.operator', 'policy.orders_title', 'policy.orders_body', 'policy.contact', 'status.date', 'status.months',
-             'status.quarter', 'preorder.cta'}
+             'status.quarter'}
     used |= {f'nav.{p["id"]}' for p in PAGES if p['nav']}
     used |= {f'meta.{p["id"]}_{f}' for p in PAGES if p['id'] not in ('home', 'terms') and langs_of(p) != ['en'] for f in ('title', 'description')}
     used |= {f'status.w_{s}' for s in ('done', 'doing', 'next')} | {f'status.m_{s}' for s in ('done', 'now', 'next', 'later')}
@@ -486,8 +488,11 @@ def main():
                 computed['@downloads'] = downloads(t, platforms)
             if pid == 'pricing':
                 computed['@faq'] = faq(t, cfg)
-                computed['@preorder_link'] = (f'<a class="btn btn-primary po-link" href="#preorder" hidden>{t["preorder.cta"]}</a>'
-                                              if cfg['preorder']['enabled'] else '')
+                # hidden until /api/preorder says that edition's price is on sale (site.js); Pro's card is the pick
+                for e in EDITIONS:
+                    style = 'btn-primary' if e == 'pro' else 'btn-ghost'
+                    computed[f'@preorder_link.{e}'] = (f'<a class="btn {style} po-link" href="#preorder" data-edition="{e}" hidden>{t[f"preorder.cta_{e}"]}</a>'
+                                                       if cfg['preorder']['enabled'] else '')
             if pid == 'status':
                 computed.update({
                     '@status_now': status_now(lang, t, status), '@status_milestones': status_milestones(lang, t, status),

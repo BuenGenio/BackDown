@@ -7,12 +7,13 @@
  <section class="first">
   <div class="wrap">
    <div class="order card" data-api="/api/order" data-states="{{@thanks_states}}">
+    <h2 class="h3 order-edition" data-tpl="{{thanks.edition|attr}}" hidden></h2>
     <p class="order-state" role="status" aria-live="polite">{{thanks.loading}}</p>
     <div class="key" hidden>
      <label for="license">{{thanks.key_label}}</label>
      <textarea id="license" readonly rows="4" spellcheck="false"></textarea>
      <button class="btn btn-ghost sm" type="button" data-copy="#license" data-done="{{thanks.copied|attr}}">{{thanks.copy}}</button>
-     <p>{{thanks.use}}</p>
+     <p data-tpl="{{thanks.use|attr}}"></p>
      <pre><code data-cmd>backdown license add BD1.…</code></pre>
      <p class="fine">{{thanks.keep}}</p>
     </div>
