@@ -1,7 +1,7 @@
 // backdown.io: static assets from ./public; this code runs only for /api/* (and the hourly status check).
 //   /api/waitlist   early-access sign-ups (KV WAITLIST)
 //   /api/status     the status page's live checks (status.js)
-//   /api/preorder, /api/checkout, /api/stripe/webhook, /api/order   Pro pre-orders (store.js)
+//   /api/preorder, /api/checkout, /api/stripe/webhook, /api/order   pre-orders of Pro, Team and Forensic (store.js)
 import { refresh, status } from './status.js';
 import { checkout, order, preorder, webhook } from './store.js';
 

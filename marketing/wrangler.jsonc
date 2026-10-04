@@ -13,9 +13,9 @@
   "kv_namespaces": [
     // early-access sign-ups: email:<address> -> {at, lang}
     { "binding": "WAITLIST", "id": "c2434da953294d019f07c7ee63678f57" },
-    // Pro pre-orders: order:<checkout session>, licence:<id>, pi:<payment intent> (see src/store.js)
+    // pre-orders (Pro, Team, Forensic): order:<checkout session>, licence:<id>, pi:<payment intent> (see src/store.js)
     { "binding": "ORDERS", "id": "f318b3a8f0c44bd0b841d94b38a3b5eb" },
-    // small caches: the status page's last check, the pre-order price
+    // small caches: the status page's last check, the pre-order prices
     { "binding": "SITE", "id": "c9b478c9326b451ca4e67804eb811582" }
   ],
   // refresh /api/status once an hour (a page view never triggers a check while the cached one is fresh)

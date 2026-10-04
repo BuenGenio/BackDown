@@ -7,7 +7,7 @@
   },
   "contact_email": "",
   "preorder": {
-    "_comment": "Shows the Pro pre-order box on /pricing/ (still hidden until /api/preorder reports a live Stripe price), builds /terms/ and /thanks/. Needs every seller field.",
+    "_comment": "Shows the pre-order box and each paid edition's pre-order button on /pricing/ (each still hidden until /api/preorder reports a live Stripe price for that edition), builds /terms/ and /thanks/. Needs every seller field.",
     "enabled": false,
     "ship_by": "2027-06-30"
   },

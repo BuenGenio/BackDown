@@ -9,8 +9,13 @@
     </div>
     <form class="checkout" action="/api/checkout" method="post" data-error="{{preorder.error|attr}}" data-busy="{{preorder.busy|attr}}">
      <input type="hidden" name="lang" value="{{@page}}">
-     <div class="po-price"><span class="amt" data-price>…</span><span class="per">{{preorder.per}}</span></div>
-     <button class="btn btn-primary" type="submit">{{preorder.cta}}</button>
+     <fieldset class="po-eds">
+      <legend>{{preorder.choose}}</legend>
+      <label class="po-ed" data-edition="pro" data-cta="{{preorder.cta_pro|attr}}" hidden><input type="radio" name="edition" value="pro" required><span class="nm">Pro</span><span class="amt" data-price>…</span><span class="per">{{preorder.per_pro}}</span></label>
+      <label class="po-ed" data-edition="team" data-cta="{{preorder.cta_team|attr}}" hidden><input type="radio" name="edition" value="team" required><span class="nm">Team</span><span class="amt" data-price>…</span><span class="per">{{preorder.per_team}}</span></label>
+      <label class="po-ed" data-edition="forensic" data-cta="{{preorder.cta_forensic|attr}}" hidden><input type="radio" name="edition" value="forensic" required><span class="nm">Forensic</span><span class="amt" data-price>…</span><span class="per">{{preorder.per_forensic}}</span></label>
+     </fieldset>
+     <button class="btn btn-primary" type="submit">{{preorder.cta_pro}}</button>
      <p class="po-note">{{preorder.note}}</p>
      <p class="po-note">{{preorder.terms}}</p>
      <p class="join-msg" role="status" aria-live="polite"></p>
