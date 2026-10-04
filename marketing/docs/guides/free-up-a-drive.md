@@ -98,7 +98,7 @@ Other drives are fine wherever they're mounted: `/media`, `/mnt`, `/run/media`, 
 
 The **Free up** view does the same, with the background service doing the work:
 
-1. Tick drives, folders, files or recognised things under "What to wipe". Each drive shows how much of it exists elsewhere; right-click anything in the browser and choose "Free up" to start from there. Or start from **Duplicates**: tick the copies to let go ("Keep only this" on a copy ticks the others, and **Select** does it for every group, keeping the oldest, the newest or the shortest path), then press **Free up…**. One copy of each always stays.
+1. Tick drives, folders, files or recognised things under "What to wipe". Each drive shows how much of it exists elsewhere; right-click anything in the browser and choose "Free up" to start from there. Or start from **Duplicates**: open a group and press **Keep** on the copy to keep (its others are ticked), or tick copies yourself, or use **Select** to keep the oldest, the newest or the shortest path of every group; then press **Free up…**. One copy of each always stays. Grouped by **Folders**, a folder that holds copies of things kept elsewhere can be freed whole.
 2. "What would happen" shows, for each, how much has an identical copy and where, how much exists only there, and anything that can't be wiped, and why.
 3. Under "What exists only here", choose "Move it first, to" a folder, or "Leave it where it is". The view shows the free space there.
 4. Under "Before deleting", "Trust the index" is the same as `--trust-index`.
