@@ -165,7 +165,7 @@ The [CLI reference](/docs/cli/) has every option.
 
 ## Licences {#licences}
 
-A Pro licence is a key that starts with `BD1.`. It's checked on your computer, against a signature only backdown.io can make, so it needs no account and no network. Add it in Settings > Licence, or:
+A licence (Pro, Team or Forensic) is a key that starts with `BD1.`. It's checked on your computer, against a signature only backdown.io can make, so it needs no account and no network. Add it in Settings > Licence, or:
 
 ```sh
 backdown license add BD1.eyJ2Ijox…

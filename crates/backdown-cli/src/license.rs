@@ -121,10 +121,21 @@ pub fn store(key: &str) -> Result<Licence> {
     Ok(licence)
 }
 
+/// What a licence's seats count: sites for Forensic, machines otherwise.
+fn seats_text(l: &Licence) -> String {
+    let unit = if l.product == "forensic" {
+        "site"
+    } else {
+        "machine"
+    };
+    format!("{} {unit}{}", l.seats, if l.seats == 1 { "" } else { "s" })
+}
+
 fn describe(l: &Licence) {
-    println!("BackDown {} licence {}", titlecase(&l.product), l.id);
+    let edition = titlecase(&l.product);
+    println!("BackDown {edition} licence {}", l.id);
     println!(
-        "  for {}{} · {} machine{} · issued {}",
+        "  for {}{} · {} · issued {}",
         l.name
             .as_deref()
             .map(|n| format!("{n} "))
@@ -134,16 +145,15 @@ fn describe(l: &Licence) {
         } else {
             l.email.clone()
         },
-        l.seats,
-        if l.seats == 1 { "" } else { "s" },
+        seats_text(l),
         l.issued
     );
     if let Some(e) = &l.expires {
-        println!("  unlocks Pro features until {e}");
+        println!("  unlocks {edition} features until {e}");
     }
     if l.kind == "preorder" {
         println!(
-            "  pre-order: Pro features switch on in the release that ships them; your first year starts then"
+            "  pre-order: {edition} features switch on in the release that ships them; your first year starts then"
         );
     }
 }
@@ -195,6 +205,25 @@ pub fn show() -> Result<ExitCode> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn forensic_seats_are_sites() {
+        let l = |product: &str, seats| Licence {
+            v: 1,
+            id: "X".into(),
+            product: product.into(),
+            kind: "order".into(),
+            seats,
+            email: "alice@example.com".into(),
+            name: None,
+            issued: "2026-10-04".into(),
+            expires: None,
+        };
+        assert_eq!(seats_text(&l("pro", 1)), "1 machine");
+        assert_eq!(seats_text(&l("team", 5)), "5 machines");
+        assert_eq!(seats_text(&l("forensic", 1)), "1 site");
+        assert_eq!(seats_text(&l("forensic", 3)), "3 sites");
+    }
 
     // signed with the development key (not the production one), whose public half is:
     const DEV: [u8; 32] = hex32("6dbda5c47559c8708d44f1d00acc3d9aa5d705fa6894881e7f3337bfb979c387");

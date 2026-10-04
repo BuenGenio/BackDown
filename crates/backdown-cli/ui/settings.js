@@ -222,7 +222,7 @@ function licenceSection() {
     ${l ? `<dl class="set-dl">
       <dt>Licence</dt><dd><code>${esc(l.id)}</code> · ${esc(l.product[0].toUpperCase() + l.product.slice(1))}</dd>
       <dt>For</dt><dd>${esc(l.name ? `${l.name} <${l.email}>` : l.email)}</dd>
-      <dt>Machines</dt><dd>${esc(l.seats)}</dd>
+      <dt>${l.product === 'forensic' ? 'Sites' : 'Machines'}</dt><dd>${esc(l.seats)}</dd>
       <dt>Issued</dt><dd>${esc(l.issued)}</dd>
       <dt>Expires</dt><dd>${l.expires ? esc(l.expires) : l.kind === 'preorder' ? 'A pre-order: your first year starts with the release that ships Pro' : 'Doesn’t expire'}</dd>
     </dl>` : ''}
