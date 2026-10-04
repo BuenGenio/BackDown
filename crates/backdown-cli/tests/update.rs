@@ -907,15 +907,7 @@ fn update_from_is_part_of_forensic_in_a_release() {
     let fake = fake_github(NEW_PROGRAM, Script::default());
     let p = place();
     let usb = bundle(&p.root.join("usb"), NEW, NEW_PROGRAM, Sig::Good);
-    // checking a carried bundle is free, like checking any download
-    let o = p.run(
-        &fake,
-        &["update", "--from", usb.to_str().unwrap(), "--check"],
-        &[("BACKDOWN_PRETEND_RELEASE", "1")],
-    );
-    assert!(o.status.success(), "{}", text(&o));
-    p.unchanged();
-    // installing from it is the Forensic feature
+    // installing from it is the Forensic feature (refused before any signature is checked)
     let o = p.run(
         &fake,
         &["update", "--from", usb.to_str().unwrap()],
@@ -929,6 +921,15 @@ fn update_from_is_part_of_forensic_in_a_release() {
         ),
         "{out}"
     );
+    p.unchanged();
+    // checking a carried bundle is free, like checking any download
+    needs_test_key!();
+    let o = p.run(
+        &fake,
+        &["update", "--from", usb.to_str().unwrap(), "--check"],
+        &[("BACKDOWN_PRETEND_RELEASE", "1")],
+    );
+    assert!(o.status.success(), "{}", text(&o));
     p.unchanged();
 }
 
