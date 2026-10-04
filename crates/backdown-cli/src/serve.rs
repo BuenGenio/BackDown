@@ -1454,9 +1454,29 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
         }
         "/api/dupes" => {
             let min = fmt::parse_size(param("min").unwrap_or("1M"))?;
-            let mut d = json!(report::dupes(&db, min, 200)?);
+            // the filter bar (app.js dupesQuery): sizes, the extensions of a type, dates, hidden
+            let opt = |name: &str| -> Result<Option<i64>> {
+                param(name)
+                    .filter(|v| !v.is_empty())
+                    .map(|v| v.parse().with_context(|| format!("bad {name}")))
+                    .transpose()
+            };
+            let filter = report::DupesFilter {
+                size_from: num("from", 0)?,
+                size_below: opt("below")?.map(|b| b.max(0) as u64),
+                exts: param("ext")
+                    .filter(|v| !v.is_empty())
+                    .map(|v| v.split(',').map(|e| e.trim().to_lowercase()).collect()),
+                except: param("except") == Some("1"),
+                modified_from: opt("after")?,
+                modified_before: opt("before")?,
+                no_hidden: param("nohidden") == Some("1"),
+            };
+            // the groups that free the most first; "Show more" asks for more of them
+            let limit = num("limit", 200)?.clamp(1, 5000) as usize;
+            let mut d = json!(report::dupes_listed(&db, min, &filter, limit)?);
             // copies on other machines, and what's here once and there again (remote/)
-            backdown_core::remote::annotate_dupes(&db, &mut d, min, 200)?;
+            backdown_core::remote::annotate_dupes(&db, &mut d, min, &filter, 200)?;
             d
         }
         "/api/sqlite" => sqlite(

@@ -1,5 +1,5 @@
 // BackDown browser: folders as they were at any scan, with versions, copies and file viewers.
-import { fileIcon, folderIcon, driveIcon, kindOf } from './icons.js';
+import { fileIcon, folderIcon, driveIcon, kindOf, extsOf } from './icons.js';
 import { openViewer, openDiff, openGit, openMaildir, previewInto } from './viewers.js';
 import { squarify, compareListings, menu, closeMenu, menuOpen, toast } from './extras.js';
 import { mountFind, find, foundHtml, setScope, setEarlier, more as findMore } from './search.js';
@@ -199,6 +199,7 @@ function renderPath() {
   }
   if (S.mode === 'machine') { $('#pathbar').innerHTML = machinePath(); return; }
   if (S.mode !== 'browse') {
+    $('#f-count').textContent = ''; // the folder's; Duplicates writes its own
     $('#pathbar').innerHTML = `<span class="crumb" style="cursor:default">${{ dupes: 'Duplicates', activity: 'Activity', entities: 'What’s here', plan: 'Plan', wipe: 'Free up', rescue: 'Rescue', settings: 'Settings' }[S.mode] || 'Search'}</span>`;
     return;
   }
@@ -272,6 +273,8 @@ const TYPES = [['all', 'Any'], ['dir', 'Folders'], ['image', 'Images'], ['video'
   ['data', 'Data and databases'], ['archive', 'Archives'], ['disk', 'Disk images'], ['mail', 'Email'], ['other', 'Other files']];
 const SIZES = [['any', 'Any', 0, Infinity], ['s', 'Under 1 MB', 0, 1e6], ['m', '1 MB – 100 MB', 1e6, 1e8], ['l', '100 MB – 1 GB', 1e8, 1e9], ['xl', 'Over 1 GB', 1e9, Infinity]];
 const DATES = [['any', 'Any time'], ['7', 'In the past week'], ['30', 'In the past month'], ['365', 'In the past year'], ['old', 'More than a year ago']];
+// the kinds of file (icons.js kindOf) a type takes in, where it isn't just its own
+const TYPE_KINDS = { data: ['data', 'sql', 'db'], text: ['text', 'diff'] };
 const filtering = () => S.filter.type !== 'all' || S.filter.size !== 'any' || S.filter.date !== 'any';
 const isHidden = e => e.name.startsWith('.') || e.name.endsWith('~');
 
@@ -283,9 +286,7 @@ function shown(e) {
     else {
       if (e.kind === 'dir') return false;
       const k = kindOf(e.name);
-      const ok = f.type === 'data' ? ['data', 'sql', 'db'].includes(k) : f.type === 'text' ? ['text', 'diff'].includes(k)
-        : f.type === 'other' ? k === 'file' : k === f.type;
-      if (!ok) return false;
+      if (f.type === 'other' ? k !== 'file' : !(TYPE_KINDS[f.type] || [f.type]).includes(k)) return false;
     }
   }
   if (f.size !== 'any') {
@@ -303,7 +304,7 @@ function setupFilters() {
   const opts = list => list.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
   $('#f-type').innerHTML = opts(TYPES); $('#f-size').innerHTML = opts(SIZES); $('#f-date').innerHTML = opts(DATES);
   for (const [id, f] of [['#f-type', 'type'], ['#f-size', 'size'], ['#f-date', 'date']]) {
-    $(id).addEventListener('change', e => { S.filter = { ...S.filter, [f]: e.target.value }; renderView(); });
+    $(id).addEventListener('change', e => { S.filter = { ...S.filter, [f]: e.target.value }; filtersChanged(); });
   }
   $('#f-hidden').addEventListener('change', toggleHidden);
   $('#f-clear').onclick = clearFilters;
@@ -314,7 +315,9 @@ function syncFilterUI() {
   $('#f-hidden').checked = S.hidden;
   $('#filter-btn').classList.toggle('on', filtering());
 }
-function clearFilters() { S.filter = { type: 'all', size: 'any', date: 'any' }; syncFilterUI(); renderView(); }
+function clearFilters() { S.filter = { type: 'all', size: 'any', date: 'any' }; syncFilterUI(); filtersChanged(); }
+// the folder filters itself; Duplicates asks the server again (report.rs DupesFilter)
+function filtersChanged() { if (S.mode === 'dupes') showDupes(); else renderView(); }
 function toggleFilters(show = $('#filterbar').hidden) {
   $('#filterbar').hidden = !show;
   $('#filter-btn').setAttribute('aria-pressed', String(show));
@@ -324,12 +327,13 @@ function toggleHidden() {
   S.hidden = !S.hidden;
   localStorage.setItem('bd.hidden', S.hidden ? '1' : '0');
   syncFilterUI();
-  if (S.mode === 'browse') renderView();
+  if (S.mode === 'browse' || S.mode === 'dupes') filtersChanged();
   toast(S.hidden ? 'Showing hidden files' : 'Hiding hidden files');
 }
 
 function sortMenu() {
   const b = $('#sort-btn').getBoundingClientRect();
+  if (S.mode === 'dupes') return menu(b.right - 220, b.bottom + 4, dupesSortItems());
   const set = (key, asc) => { S.sort = { key, asc }; localStorage.setItem('bd.sort', JSON.stringify(S.sort)); if (S.mode === 'browse') renderView(); };
   menu(b.right - 200, b.bottom + 4, [
     ...[['name', 'Name'], ['size', 'Size'], ['mtime', 'Modified'], ['type', 'Type'], ['copies', 'Copies'], ['versions', 'Versions']].map(([k, l]) => ({
@@ -957,29 +961,314 @@ async function runSearch(q) {
 }
 const rerunSearch = () => { if (!$('#searchbox').hidden && $('#q').value.trim()) runSearch($('#q').value); };
 
-let dupesMin = '1M';
+// ---------- duplicates: every copy of what's stored more than once, grouped by content and laid
+// out like a folder (list or grid). Tick copies to free them up: the Free up view proves each one
+// still has a copy that stays before deleting it. The filter bar picks the copies listed
+// (report.rs DupesFilter); a group shows when one of its copies passes.
+
+const DP = { min: '1M', limit: 200, d: null, sel: new Map(), sort: { key: 'reclaimable', asc: false }, seq: 0 };
+const DP_MIN = [['1', 'any size'], ['100K', '100 KB and up'], ['1M', '1 MB and up'], ['100M', '100 MB and up']];
+const DP_SORT = [['reclaimable', 'Space to free'], ['size', 'Size of each'], ['copies', 'Copies'], ['name', 'Name'], ['mtime', 'Newest copy']];
+const num = n => Number(n || 0).toLocaleString();
+const leafOf = p => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop();
+const folderOf = p => p.slice(0, Math.max(1, p.replace(/[\\/]+$/, '').search(/[\\/][^\\/]*$/))) || p;
+// how many leading and trailing names a group's folders all share: the rest is where they differ
+function sharedParts(folders) {
+  const ps = folders.map(f => f.split(/[\\/]/)), min = Math.min(...ps.map(p => p.length));
+  let pre = 0, post = 0;
+  while (pre < min && ps.every(p => p[pre] === ps[0][pre])) pre++;
+  while (post < min - pre && ps.every(p => p.at(-1 - post) === ps[0].at(-1 - post))) post++;
+  return [pre, post];
+}
+// a folder in full, the names it shares with the group's other copies dimmed
+function folderParts(folder, [pre, post]) {
+  const sep = sepOf(folder), parts = folder.split(/[\\/]/), mid = parts.slice(pre, parts.length - post).join(sep);
+  return { mid, html: !mid ? esc(folder) : `${pre ? esc(parts.slice(0, pre).join(sep) + sep) : ''}<em>${esc(mid)}</em>${post ? esc(sep + parts.slice(-post).join(sep)) : ''}` };
+}
+
+// the filter bar as the server takes it: a type's extensions (icons.js), sizes, dates, hidden
+function dupesQuery() {
+  const f = S.filter, q = { min: DP.min, limit: DP.limit };
+  if (f.type === 'other') { q.ext = extsOf().join(','); q.except = 1; }
+  else if (f.type !== 'all') q.ext = extsOf(TYPE_KINDS[f.type] || [f.type]).join(',');
+  if (f.size !== 'any') { const [, , lo, hi] = SIZES.find(x => x[0] === f.size); q.from = lo; if (hi < Infinity) q.below = hi; }
+  if (f.date !== 'any') {
+    const now = Math.floor(Date.now() / 1000);
+    if (f.date === 'old') q.before = now - 365 * 86400; else q.after = now - +f.date * 86400;
+  }
+  if (!S.hidden) q.nohidden = 1;
+  return q;
+}
+
 async function showDupes() {
-  S.mode = 'dupes';
-  renderTabs(); renderPlaces(); renderPath(); $('#banner').hidden = true; $('#info').hidden = true; $('#timebar').hidden = true;
-  $('#view').innerHTML = '<div class="empty"><p>Loading duplicates…</p></div>';
+  const fresh = S.mode !== 'dupes';
+  enterView('dupes');
+  syncFilterUI();
+  // folders are never duplicates here: only files are compared
+  if (S.filter.type === 'dir') { DP.d = null; DP.seq++; return renderDupes(); }
+  if (fresh || !DP.d) $('#view').innerHTML = '<div class="empty"><p>Loading duplicates…</p></div>';
+  else $('#view').classList.add('stale');
+  const seq = ++DP.seq;
   let d;
-  try { d = await api('dupes', { min: dupesMin }); } catch (e) { return toastError(e); }
-  const sizes = [['1', 'any size'], ['100K', '100 KB and up'], ['1M', '1 MB and up'], ['100M', '100 MB and up']];
-  const picker = `<select id="dupes-min" aria-label="Smallest file to count">${sizes.map(([v, l]) => `<option value="${v}" ${v === dupesMin ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
-  $('#view').innerHTML = d.largest.length ? `
-    <div class="banner" style="margin:-14px -14px 14px">${bytes(d.reclaimable)} could be freed across ${count(d.groups)} groups of identical files (SHA-256 verified; hardlinks count once). ${picker}</div>
-    <table class="list"><thead><tr><th>Copies</th><th class="n">Each</th><th class="n">Reclaimable</th><th>Locations</th></tr></thead><tbody>${d.largest.map(g => `
-      <tr><td>${fileIcon(g.paths[0], 20)} ×${g.copies}</td><td class="n">${bytes(g.size)}</td><td class="n"><b>${bytes(g.reclaimable)}</b></td>
-      <td>${g.paths.map(p => `<button class="rowlink" type="button" data-dupe="${esc(p)}">${esc(p)}</button>`).join('')}${dupesRemoteHtml(g)}</td></tr>`).join('')}</tbody></table>${acrossHtml(d)}`
-    : d.across?.files ? `<div class="banner" style="margin:-14px -14px 14px">No duplicates on this computer ${dupesMin === '1' ? 'yet' : 'this size'}. ${picker}</div>${acrossHtml(d)}`
-    : `<div class="empty"><div><h2>No duplicates ${dupesMin === '1' ? 'found yet' : 'this size'}</h2><p>${picker}</p><p>Only hashed files count: <code>backdown hash</code> hashes everything that could be a duplicate.</p></div></div>`;
-  $('#dupes-min').onchange = e => { dupesMin = e.target.value; showDupes(); };
+  try { d = await api('dupes', dupesQuery()); }
+  catch (e) { if (seq === DP.seq) $('#view').classList.remove('stale'); return toastError(e); }
+  if (seq !== DP.seq) return; // a newer request
+  $('#view').classList.remove('stale');
+  if (S.mode !== 'dupes') return;
+  DP.d = d;
+  renderDupes();
+}
+
+// the listed groups in the chosen order, each with its listed copies
+function dupeGroups() {
+  const { key, asc } = DP.sort, dir = asc ? 1 : -1;
+  const val = g => key === 'size' ? g.size : key === 'copies' ? g.copies : key === 'mtime' ? Math.max(...g.shown.map(f => f.mtime)) : g.reclaimable;
+  const groups = (DP.d?.largest || []).map(g => ({ ...g, shown: g.files.filter(f => f.listed) })).filter(g => g.shown.length);
+  return key === 'name' ? groups.sort((a, b) => dir * collator.compare(leafOf(a.shown[0].path), leafOf(b.shown[0].path)))
+    : groups.sort((a, b) => dir * (val(a) - val(b)) || b.reclaimable - a.reclaimable);
+}
+
+function dupesSortItems() {
+  const set = (key, asc) => { DP.sort = { key, asc }; renderDupes(); };
+  return [
+    ...DP_SORT.map(([k, l]) => ({ label: l, checked: DP.sort.key === k, act: () => set(k, DP.sort.key === k ? DP.sort.asc : k === 'name') })),
+    { sep: 1 },
+    { label: 'Ascending', checked: DP.sort.asc, act: () => set(DP.sort.key, true) },
+    { label: 'Descending', checked: !DP.sort.asc, act: () => set(DP.sort.key, false) },
+  ];
+}
+
+// one path of every group always stays: a tick that would take the last one is refused
+const groupOf = key => DP.d?.largest.find(g => g.files.some(f => f.key === key));
+const canTick = (g, key) => g.files.some(f => f.key !== key && !DP.sel.has(f.key));
+function tick(g, f, on) {
+  if (on && !canTick(g, f.key)) return false;
+  if (on) DP.sel.set(f.key, { key: f.key, path: f.path, label: leafOf(f.path), size: g.size, sha: g.sha256, copy: f.copy });
+  else DP.sel.delete(f.key);
+  return true;
+}
+// keep `keep` (listed copies), tick the group's other listed copies
+function keepOnly(g, keep) {
+  for (const f of g.files) if (f.listed) tick(g, f, !keep.includes(f));
+}
+// a group's copy to keep when it's ticked as a whole: the oldest, then the shortest path
+const keeper = (g, by = 'oldest') => [...g.files.filter(f => f.listed)].sort((a, b) =>
+  (by === 'newest' ? b.mtime - a.mtime : by === 'shortest' ? 0 : a.mtime - b.mtime) || a.path.length - b.path.length || collator.compare(a.path, b.path))[0];
+
+// what ticking frees: a distinct copy (hardlinks of one inode are one) whose every path is ticked
+function dupesFreed() {
+  let n = 0;
+  for (const g of DP.d?.largest || []) {
+    const copies = new Map();
+    for (const f of g.files) copies.set(f.copy, (copies.get(f.copy) ?? true) && DP.sel.has(f.key));
+    for (const all of copies.values()) if (all) n += g.size;
+  }
+  return n;
+}
+
+function renderDupes() {
+  if (S.mode !== 'dupes') return;
+  const v = $('#view'), d = DP.d, keep = v.scrollTop;
+  const picker = `<label class="dp-min">Files of <select id="dupes-min" aria-label="Smallest file to count">${DP_MIN.map(([x, l]) => `<option value="${x}" ${x === DP.min ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`;
+  $('#filter-btn').classList.toggle('on', filtering());
+  if (S.filter.type === 'dir') {
+    $('#f-count').textContent = '';
+    v.innerHTML = `<div class="empty"><div><h2>Folders aren’t compared</h2><p>Duplicates are files with identical content. Pick another type to see them.</p>
+      <p><button class="btn" type="button" id="clear-filters">Clear filters</button></p></div></div>`;
+    return;
+  }
+  if (!d) return;
+  const all = d.unfiltered || d;
+  const narrowed = all.groups !== d.groups;
+  $('#f-count').textContent = narrowed ? `${num(d.groups)} of ${num(all.groups)} groups shown` : '';
+  // live entries only: a wipe or a new filter can take ticked copies away
+  const listed = new Set(d.largest.flatMap(g => g.files.filter(f => f.listed).map(f => f.key)));
+  for (const k of DP.sel.keys()) if (!listed.has(k)) DP.sel.delete(k);
+  const hiddenNote = d.only_hidden ? `${count(d.only_hidden)} more ${d.only_hidden === 1 ? 'is' : 'are'} only in hidden folders. <button class="btn sm" type="button" id="show-hidden">Show hidden files</button>` : '';
+  const clear = filtering() ? '<button class="btn sm" type="button" id="clear-filters">Clear filters</button>' : '';
+  const groups = dupeGroups();
+  if (!groups.length) {
+    v.innerHTML = all.groups || d.across?.files
+      ? `<div class="empty"><div><h2>No duplicates match</h2><p>${num(all.groups)} group${all.groups === 1 ? '' : 's'} of identical files ${narrowed ? 'are left out by the filters' : 'found'}. ${hiddenNote}</p><p>${clear} ${picker}</p></div></div>${acrossHtml(d)}`
+      : `<div class="empty"><div><h2>No duplicates ${DP.min === '1' ? 'found yet' : 'this size'}</h2><p>${picker}</p><p>Only hashed files count: <code>backdown hash</code> hashes everything that could be a duplicate.</p></div></div>`;
+    wireDupes();
+    return;
+  }
+  const head = `<div class="banner dp-sum">
+      <span><b>${bytes(d.reclaimable)}</b> could be freed across ${num(d.groups)} group${d.groups === 1 ? '' : 's'} of identical files${narrowed ? ` (of ${num(all.groups)}, ${bytes(all.reclaimable)} in all)` : ''}. SHA-256 verified; hardlinks count once.</span>
+      ${hiddenNote ? `<span>${hiddenNote}</span>` : ''}${clear}
+      <span class="dp-tools">${picker}<button class="btn sm" type="button" id="dp-select" aria-haspopup="menu">Select ▾</button></span>
+    </div>`;
+  const more = d.largest.length < d.groups
+    ? `<p class="dp-more muted">The ${count(d.largest.length)} groups that free the most are listed${DP.sort.key !== 'reclaimable' ? ', sorted here by ' + DP_SORT.find(x => x[0] === DP.sort.key)[1].toLowerCase() : ''}.
+        ${DP.limit < 5000 ? `<button class="btn sm" type="button" id="dp-more">Show ${count(Math.min(200, d.groups - d.largest.length))} more</button>` : ''}</p>` : '';
+  v.innerHTML = head + (S.view === 'grid' || S.view === 'gallery' ? dupesGridHtml(groups) : dupesListHtml(groups)) + more + acrossHtml(d) + dupesBarHtml();
+  for (const el of v.querySelectorAll('[data-dg-part]')) el.indeterminate = true;
+  v.scrollTop = keep;
+  wireDupes();
+}
+
+// a group's line: how many copies, how big, what freeing them gives, and where else it is
+function dupeGroupHead(g) {
+  const off = g.files.length - g.shown.length;
+  return `<span class="dp-g">${fileIcon(leafOf(g.shown[0].path), 18)}<b>${g.copies} identical copies</b>${g.files.length > g.copies ? ` <span class="dim">(${g.files.length} names: some are hardlinks)</span>` : ''}
+    · ${bytes(g.size)} each · <b>${bytes(g.reclaimable)}</b> to free${off ? ` · <span class="dim">${off} more not listed (filtered or hidden)</span>` : ''}</span>${dupesRemoteHtml(g)}`;
+}
+// the group's tick: on when some of it is ticked, partly when not all but one
+function groupTick(g) {
+  const n = g.shown.filter(f => DP.sel.has(f.key)).length;
+  return `<input type="checkbox" data-dg="${g.sha256}" ${n ? 'checked' : ''} ${n && n < g.shown.length - 1 ? 'data-dg-part' : ''}
+    aria-label="${n ? 'Untick this group' : 'Tick every copy of this group but one'}" title="${n ? 'Untick this group' : 'Tick every copy but the oldest'}">`;
+}
+function copyTick(g, f) {
+  const on = DP.sel.has(f.key), locked = !on && !canTick(g, f.key);
+  return `<input type="checkbox" data-dck="${f.key}" ${on ? 'checked' : ''} ${locked ? 'disabled title="One copy always stays"' : 'title="Free up this copy"'} aria-label="Free up ${esc(f.path)}">`;
+}
+// once a group has ticks, which copies stay and which go
+function keepMark(g, f) {
+  if (!g.shown.some(x => DP.sel.has(x.key))) return '';
+  return DP.sel.has(f.key) ? '<span class="bdg dp-frees">frees</span>' : '<span class="bdg dp-keeps">keeps</span>';
+}
+
+function dupesListHtml(groups) {
+  return `<table class="list dp-list"><thead><tr><th class="ck"></th><th>Name</th><th>Folder</th><th class="n c-size">Size</th><th>Modified</th><th class="c-keep">Keep</th></tr></thead>${groups.map(g => { const shared = sharedParts(g.shown.map(f => folderOf(f.path))); return `
+    <tbody data-dgrp="${g.sha256}">
+      <tr class="dp-head"><td class="ck">${groupTick(g)}</td><td colspan="5">${dupeGroupHead(g)}</td></tr>
+      ${g.shown.map(f => `<tr class="dp-row${DP.sel.has(f.key) ? ' sel' : ''}" data-dk="${f.key}">
+        <td class="ck">${copyTick(g, f)}</td>
+        <td><div class="nmc">${thumb({ id: f.id, name: leafOf(f.path), size: g.size }) || fileIcon(leafOf(f.path), 20)}<button class="dp-nm" type="button" data-dview="${f.key}" title="Open ${esc(leafOf(f.path))}">${esc(leafOf(f.path))}</button></div></td>
+        <td class="dp-fold"><button class="dp-dir" type="button" data-dopen="${f.key}" title="Show it in its folder">${folderParts(folderOf(f.path), shared).html}</button></td>
+        <td class="n c-size">${bytes(g.size)}</td>
+        <td>${when(f.mtime)}</td>
+        <td class="dp-keep c-keep">${keepMark(g, f)}<button class="btn sm dp-only" type="button" data-dkeep="${f.key}" title="Tick every other copy of this group">Keep only this</button></td>
+      </tr>`).join('')}
+    </tbody>`; }).join('')}</table>`;
+}
+
+function dupesGridHtml(groups) {
+  return groups.map(g => { const shared = sharedParts(g.shown.map(f => folderOf(f.path))); return `<section class="dp-sec" data-dgrp="${g.sha256}">
+    <div class="dp-sh">${groupTick(g)}${dupeGroupHead(g)}</div>
+    <div class="grid${S.view === 'gallery' ? ' dp-big' : ''}">${g.shown.map(f => `
+      <div class="tile dp-tile${DP.sel.has(f.key) ? ' sel' : ''}" data-dk="${f.key}" title="${esc(f.path)}">
+        ${copyTick(g, f)}
+        <div class="badges">${keepMark(g, f)}</div>
+        ${thumb({ id: f.id, name: leafOf(f.path), size: g.size }) || fileIcon(leafOf(f.path), 56)}
+        <div class="nm">${esc(leafOf(f.path))}</div>
+        <button class="sub dp-dir" type="button" data-dopen="${f.key}" title="Show it in its folder">in ${esc(folderParts(folderOf(f.path), shared).mid || leafOf(folderOf(f.path)))}</button>
+      </div>`).join('')}</div>
+  </section>`; }).join('');
+}
+
+function dupesBarHtml() {
+  const n = DP.sel.size, over = n > WIPE_MAX;
+  if (!n) return '';
+  return `<div class="dp-bar" role="status"><span><b>${num(n)} cop${n === 1 ? 'y' : 'ies'}</b> ticked · frees up to <b>${bytes(dupesFreed())}</b>
+      <span class="${over ? 'warn-t' : 'muted'}">${over ? `Free up takes ${WIPE_MAX} at a time: untick some, or free a whole folder (right-click a copy)` : 'once Free up has checked each still has a copy that stays'}</span></span>
+    <button class="btn sm" type="button" id="dp-clear">Untick all</button>
+    <button class="btn sm primary" type="button" id="dp-free"${over ? ' disabled' : ''}>Free up…</button></div>`;
+}
+
+// what's drawn anew each time: the picker, the buttons in the summary and the bar
+function wireDupes() {
+  const m = $('#dupes-min');
+  if (m) m.onchange = e => { DP.min = e.target.value; DP.limit = 200; showDupes(); };
   $('#view').querySelectorAll('[data-dupe]').forEach(b => b.onclick = async () => {
-    const hits = await api('search', { dir: S.roots.find(r => b.dataset.dupe.startsWith(r.path))?.key || S.roots[0].key, q: b.dataset.dupe.split(/[\\/]/).pop() });
+    const hits = await api('search', { dir: S.roots.find(r => b.dataset.dupe.startsWith(r.path))?.key || S.roots[0].key, q: leafOf(b.dataset.dupe) });
     const h = hits.find(x => x.path === b.dataset.dupe);
     if (h) { $('#timebar').hidden = S.timeline.length < 2; go(h.dir_key, { select: h.key, scan: null }); }
   });
 }
+
+function dupeFile(key) {
+  const g = groupOf(key);
+  return g && { g, f: g.files.find(f => f.key === key) };
+}
+function openDupeFolder({ f }) { $('#timebar').hidden = S.timeline.length < 2; go(f.dir, { select: f.key, scan: null }); }
+function viewDupe({ g, f }) { openViewer({ kind: 'file', id: f.id, key: f.key, name: leafOf(f.path), size: g.size, mtime: f.mtime, later: 'kept' }); }
+// every listed copy in `folder` (the folder itself, not below it)
+const inFolder = folder => (DP.d?.largest || []).flatMap(g => g.files.filter(f => f.listed && folderOf(f.path) === folder).map(f => ({ g, f })));
+
+function selectMenu(x, y) {
+  const each = by => () => { for (const g of dupeGroups()) { const k = keeper(g, by); keepOnly(g, k ? [k] : []); } renderDupes(); };
+  menu(x, y, [
+    { label: 'Keep the oldest copy of each', act: each('oldest') },
+    { label: 'Keep the newest copy of each', act: each('newest') },
+    { label: 'Keep the shortest path of each', act: each('shortest') },
+    { sep: 1 },
+    { label: 'Untick all', act: () => { DP.sel.clear(); renderDupes(); }, disabled: !DP.sel.size },
+  ]);
+}
+
+function dupeMenu(x, y, key) {
+  const it = dupeFile(key);
+  if (!it) return;
+  const { g, f } = it, folder = folderOf(f.path), here = inFolder(folder);
+  menu(x, y, [
+    { label: 'Open', act: () => viewDupe(it) },
+    { label: 'Show in its folder', act: () => openDupeFolder(it) },
+    { label: 'Show in file manager', act: () => openDesktop({ id: f.id, reveal: 1 }) },
+    { label: 'Copy path', act: () => copyText(f.path) },
+    { sep: 1 },
+    { label: 'Keep only this copy', act: () => { keepOnly(g, [f]); renderDupes(); } },
+    { label: `Tick every copy in ${leafOf(folder)} (${here.length})`, act: () => { for (const c of here) tick(c.g, c.f, true); renderDupes(); } },
+    { label: `Keep the copies in ${leafOf(folder)}, tick the others`, act: () => {
+      for (const c of here) keepOnly(c.g, c.g.files.filter(o => o.listed && folderOf(o.path) === folder));
+      renderDupes();
+    } },
+    { sep: 1 },
+    { label: `Free up ${leafOf(folder)}: wipe what has a copy…`, act: () => showWipe([{ key: f.dir, path: folder, label: leafOf(folder) }]) },
+  ]);
+}
+
+// one set of listeners for the view's lifetime: rows and tiles are redrawn, the view isn't
+$('#view').addEventListener('change', e => {
+  if (S.mode !== 'dupes') return;
+  const t = e.target;
+  if (t.dataset.dck) {
+    const it = dupeFile(t.dataset.dck);
+    if (it && !tick(it.g, it.f, t.checked)) toast('One copy always stays');
+    return renderDupes();
+  }
+  if (t.dataset.dg) {
+    const g = dupeGroups().find(x => x.sha256 === t.dataset.dg);
+    if (!g) return;
+    if (g.shown.some(f => DP.sel.has(f.key))) for (const f of g.shown) DP.sel.delete(f.key);
+    else keepOnly(g, [keeper(g)]);
+    renderDupes();
+  }
+});
+$('#view').addEventListener('click', e => {
+  if (S.mode !== 'dupes') return;
+  const t = e.target;
+  if (t.closest('#dp-select')) { const b = t.closest('#dp-select').getBoundingClientRect(); return selectMenu(b.left, b.bottom + 4); }
+  if (t.closest('#dp-clear')) { DP.sel.clear(); return renderDupes(); }
+  if (t.closest('#dp-free')) return showWipe([...DP.sel.values()].map(({ key, path, label }) => ({ key, path, label })));
+  if (t.closest('#dp-more')) { DP.limit = Math.min(5000, DP.limit + 200); return showDupes(); }
+  const open = t.closest('[data-dopen]');
+  if (open) { const it = dupeFile(open.dataset.dopen); return it && openDupeFolder(it); }
+  const nm = t.closest('[data-dview]');
+  if (nm) { const it = dupeFile(nm.dataset.dview); return it && viewDupe(it); }
+  const kp = t.closest('[data-dkeep]');
+  if (kp) { const it = dupeFile(kp.dataset.dkeep); if (it) keepOnly(it.g, [it.f]); return renderDupes(); }
+  // a click anywhere else on a row or tile ticks it, like its checkbox
+  const row = t.closest('[data-dk]');
+  if (row && !t.closest('input, button, a') && e.detail < 2) {
+    const it = dupeFile(row.dataset.dk);
+    if (it && !tick(it.g, it.f, !DP.sel.has(it.f.key))) toast('One copy always stays');
+    renderDupes();
+  }
+});
+$('#view').addEventListener('dblclick', e => {
+  const row = S.mode === 'dupes' && !e.target.closest('input, button') && e.target.closest('[data-dk]');
+  const it = row && dupeFile(row.dataset.dk);
+  if (it) { tick(it.g, it.f, !DP.sel.has(it.f.key)); renderDupes(); viewDupe(it); } // undo the first click's tick
+});
+$('#view').addEventListener('contextmenu', e => {
+  const row = S.mode === 'dupes' && e.target.closest('[data-dk]');
+  if (!row) return;
+  e.preventDefault();
+  dupeMenu(e.clientX, e.clientY, row.dataset.dk);
+});
 
 // ---------- What's here: recognised things on every drive, with where they came from
 
@@ -1349,7 +1638,7 @@ function renderWipeAssess() {
         ${it.only_files ? `<li><span class="dot o"></span>${bytes(it.only_bytes)} (${count(it.only_files)} files) exists only here</li>` : ''}
         ${it.unreadable_files ? `<li><span class="dot u"></span>${count(it.unreadable_files)} files couldn’t be read at the last scan: left in place</li>` : ''}
         ${wipeRemoteLine(it, a)}
-        ${it.connected ? '' : '<li class="warn-t">Its drive isn’t connected: connect it to wipe</li>'}
+        ${it.connected ? '' : '<li class="warn-t">It isn’t there now: its drive isn’t connected, or it was moved or deleted since the last scan</li>'}
       </ul>`}</div>`;
   }).join('') + '<p class="wp-total" id="wp-total"></p>';
   updateWipeGo();
@@ -1368,7 +1657,7 @@ function updateWipeGo() {
   if (!WP.sel.size) why = 'Tick what to wipe first.';
   else if (!a) why = WP.err ? '' : 'Checking…';
   else if (a.items.some(i => i.refused)) why = 'Some of the selection can’t be wiped: untick it.';
-  else if (a.items.some(i => !i.connected)) why = 'Connect the drive first: every file is read again before it’s deleted.';
+  else if (a.items.some(i => !i.connected)) why = 'Connect the drive, or untick what isn’t there any more: every file is read again before it’s deleted.';
   else if (WP.only === 'move' && a.only_bytes && !to) why = 'Choose a folder to move what exists only here to, or leave it where it is.';
   else if (move && !isFull(to)) why = 'The folder to move things to must be a full path.';
   else if (move && [...WP.sel.values()].some(s => to.replace(/[\\/]+$/, '') === s.path.replace(/[\\/]+$/, '') || under(to, s.path))) why = 'The folder to move things to is inside what’s being wiped.';
@@ -2175,6 +2464,7 @@ function setView(v) {
   localStorage.setItem('bd.view', S.view);
   setViewButtons();
   if (S.mode === 'browse') renderView();
+  if (S.mode === 'dupes') renderDupes();
 }
 function setViewButtons() { for (const x of VIEWS) $(`#view-${x}`).setAttribute('aria-pressed', String(S.view === x)); }
 

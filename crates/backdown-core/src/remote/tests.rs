@@ -500,13 +500,22 @@ fn sync_is_incremental_and_copies_there_count_conservatively() {
     assert!(ov.iter().all(|o| o.unit.level != "machine"));
 
     // duplicates across machines
-    let x = across(&db, 1, 10).unwrap();
+    let all = report::DupesFilter::default();
+    let x = across(&db, 1, &all, 10).unwrap();
     assert_eq!(x.files, 3);
     assert_eq!(x.proven_files, 3);
     assert_eq!(x.largest[0].size, 320_000);
     let mut d = serde_json::to_value(report::dupes(&db, 1, 10).unwrap()).unwrap();
-    annotate_dupes(&db, &mut d, 1, 10).unwrap();
+    annotate_dupes(&db, &mut d, 1, &all, 10).unwrap();
     assert_eq!(d["across"]["files"], 3);
+    // the Duplicates view's filter bar narrows them too
+    let smaller = report::DupesFilter {
+        size_below: Some(320_000),
+        ..Default::default()
+    };
+    let x = across(&db, 1, &smaller, 10).unwrap();
+    assert_eq!(x.files, 2);
+    assert!(x.largest.iter().all(|g| g.size < 320_000));
 
     // browsing the cache while the NAS is away
     let root = fs::canonicalize(&vol).unwrap();

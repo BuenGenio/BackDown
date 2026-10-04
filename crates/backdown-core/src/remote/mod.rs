@@ -41,7 +41,7 @@ use serde_json::{Value, json};
 
 use crate::alerts::{self, Limits, Note};
 use crate::health::{self, Change, Health, Verdict};
-use crate::{Db, browse, fmt, paths};
+use crate::{Db, browse, fmt, paths, report};
 
 pub mod serve;
 #[cfg(test)]
@@ -684,7 +684,13 @@ impl<'a> Prover<'a> {
 
 /// Add the copies on other machines to a duplicates report (`report::dupes` as JSON): `remote`
 /// for each group, and `across`, content here once whose copy is on another machine.
-pub fn annotate_dupes(db: &Db, dupes: &mut Value, min_size: u64, limit: usize) -> Result<()> {
+pub fn annotate_dupes(
+    db: &Db,
+    dupes: &mut Value,
+    min_size: u64,
+    filter: &report::DupesFilter,
+    limit: usize,
+) -> Result<()> {
     if !has_tables(db) || list(db)?.is_empty() {
         return Ok(());
     }
@@ -697,7 +703,7 @@ pub fn annotate_dupes(db: &Db, dupes: &mut Value, min_size: u64, limit: usize) -
             g["remote"] = json!(copies_of(db, &raw, size)?);
         }
     }
-    dupes["across"] = json!(across(db, min_size, limit)?);
+    dupes["across"] = json!(across(db, min_size, filter, limit)?);
     Ok(())
 }
 
@@ -720,15 +726,21 @@ pub struct Across {
     pub largest: Vec<AcrossGroup>,
 }
 
-/// Content that exists once here and again on another machine, largest first.
-pub fn across(db: &Db, min_size: u64, limit: usize) -> Result<Across> {
+/// Content that exists once here and again on another machine, largest first: what `filter`
+/// matches (report.rs), each file judged as the duplicates report judges a path.
+pub fn across(
+    db: &Db,
+    min_size: u64,
+    filter: &report::DupesFilter,
+    limit: usize,
+) -> Result<Across> {
     let mut a = Across::default();
     if !has_tables(db) {
         return Ok(a);
     }
     let cutoff = now() - settings(db).proof_days * 86_400;
     let mut stmt = db.conn.prepare(&format!(
-        "SELECT f.sha256, f.size, f.path, {} FROM files f
+        "SELECT f.sha256, f.size, f.path, {}, f.mtime, f.root_id FROM files f
          WHERE f.current = 1 AND f.error IS NULL AND f.size >= ?1 AND f.sha256 IS NOT NULL
            AND EXISTS (SELECT 1 FROM remote_files r WHERE r.sha256 = f.sha256 AND r.size = f.size AND r.error = 0)
            AND NOT EXISTS (SELECT 1 FROM files g WHERE g.current = 1 AND g.sha256 = f.sha256 AND g.id <> f.id
@@ -742,10 +754,18 @@ pub fn across(db: &Db, min_size: u64, limit: usize) -> Result<Across> {
             r.get::<_, i64>(1)? as u64,
             r.get::<_, Vec<u8>>(2)?,
             r.get::<_, bool>(3)?,
+            r.get::<_, i64>(4)?,
+            r.get::<_, i64>(5)?,
         ))
     })?;
+    let judge = report::Judge::new(db, filter)?;
     for row in rows {
-        let (sha, size, path, proven) = row?;
+        let (sha, size, path, proven, mtime, root_id) = row?;
+        if !filter.size_ok(size)
+            || (filter.per_path() && !judge.path(&paths::from_bytes(&path), mtime, root_id).1)
+        {
+            continue;
+        }
         a.files += 1;
         a.bytes += size;
         if proven {
