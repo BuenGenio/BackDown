@@ -110,7 +110,7 @@ It starts BackDown's background service if it isn't running (the one you install
 
 The first time, **Activity** welcomes you with the drives connected to this computer. Choose **Index this** on each drive you want to know about, or type a folder under "Or a folder" and press **Index it**. BackDown only reads them. Each drive appears on the left when its scan is done, and hashing follows by itself. Then:
 
-- **Duplicates** lists every copy of what's stored twice, grouped by content, the groups that free the most first; the filter bar narrows it by type, size, date and hidden files, and the copies you tick go to **Free up**;
+- **Duplicates** shows what's stored twice, the groups that free the most first: open one to see where each copy is, or group by **Folders** to see which folders hold copies of each other. The filter bar narrows it by type, size, date and hidden files, and the copies you tick go to **Free up**;
 - **What's here** shows what things are: mail stores, phone backups, photo libraries and more;
 - a drive's **Report** button gives the whole picture.
 

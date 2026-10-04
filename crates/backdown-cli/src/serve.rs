@@ -2177,6 +2177,7 @@ fn ui_asset(name: &str) -> Option<(&'static [u8], &'static str)> {
         "machines.js" => "text/javascript; charset=utf-8",
         "fsbrowse.js" => "text/javascript; charset=utf-8",
         "drives.js" => "text/javascript; charset=utf-8",
+        "dupes.js" => "text/javascript; charset=utf-8",
         "favicon.svg" => "image/svg+xml",
         "vendor/pdf.min.mjs" => "text/javascript; charset=utf-8",
         "vendor/pdf.worker.min.mjs" => "text/javascript; charset=utf-8",
