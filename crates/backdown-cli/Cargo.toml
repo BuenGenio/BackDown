@@ -9,7 +9,7 @@ publish.workspace = true
 
 [dependencies]
 anyhow = "1.0.104"
-backdown-core = { version = "1.0.0-beta.3", path = "../backdown-core" }
+backdown-core = { version = "1.0.0-beta.4", path = "../backdown-core" }
 base64 = "0.22"
 bzip2 = "0.6"
 calamine = "0.36"
