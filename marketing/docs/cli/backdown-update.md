@@ -32,10 +32,10 @@ backdown update [OPTIONS]
 `--from <FOLDER>`
 : Install from FOLDER, without a network: it holds this system's release archive, SHA256SUMS.txt and SHA256SUMS.txt.sig, carried over from the release.
 
-`--allow-unsigned` {preview}
+`--allow-unsigned`
 : With --from: go ahead without SHA256SUMS.txt.sig. The checksums then show only that the files arrived whole, not that they're BackDown's.
 
-`--allow-older` {preview}
+`--allow-older`
 : With --from: install it even if it isn't newer than this version.
 
 Also takes the [global options](/docs/cli/#global-options) `--db` and `--local`.
