@@ -302,3 +302,146 @@ fn an_unplugged_drive_waits_instead_of_turning_unreadable() {
     let st = hash_all(&mut db);
     assert_eq!((st.sampled, st.absent), (2, 0), "{st:?}");
 }
+
+#[test]
+fn the_duplicates_view_filters_by_size_type_date_and_hidden_names() {
+    use backdown_core::browse;
+    use report::DupesFilter;
+    use std::collections::HashSet;
+    use std::time::{Duration, SystemTime};
+
+    // the temp folder is itself named ".tmp…": only names below the drive's top make a path hidden
+    let tmp = tempfile::tempdir().unwrap();
+    let d = tmp.path().join("drive");
+    write(&d.join("photos/a.jpg"), &big(21, 300_000));
+    write(&d.join(".cache/thumbs/a.jpg"), &big(21, 300_000));
+    // only in hidden places
+    write(&d.join(".trash/v.mp4"), &big(22, 200_000));
+    write(&d.join("x/.old/v.mp4"), &big(22, 200_000));
+    // each path's own name counts: "report.pdf~" is hidden, and its extension is "pdf~"
+    write(&d.join("docs/report.pdf"), &big(23, 100_000));
+    write(&d.join("docs/report.pdf~"), &big(23, 100_000));
+    // a name without a dot is its own extension, as the browser's icons.js has it
+    write(&d.join("docs/README"), &big(24, 120_000));
+    write(&d.join("old/README"), &big(24, 120_000));
+    let long_ago = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_000);
+    fs::File::options()
+        .write(true)
+        .open(d.join("old/README"))
+        .unwrap()
+        .set_modified(long_ago)
+        .unwrap();
+    #[cfg(unix)]
+    {
+        // two names of one inode and a real copy: two copies, three paths
+        write(&d.join("links/one.bin"), &big(25, 150_000));
+        fs::hard_link(d.join("links/one.bin"), d.join("links/two.bin")).unwrap();
+        write(&d.join("links/three.bin"), &big(25, 150_000));
+    }
+    let mut db = Db::open(&tmp.path().join("idx.db")).unwrap();
+    scan(&mut db, &d);
+    hash_all(&mut db);
+    let groups = if cfg!(unix) { 5 } else { 4 };
+    let top = fs::canonicalize(&d).unwrap().to_string_lossy().into_owned();
+    let listed = |r: &report::Dupes| -> HashSet<String> {
+        r.largest
+            .iter()
+            .flat_map(|g| g.files.iter().filter(|f| f.listed))
+            .map(|f| f.path.strip_prefix(top.as_str()).unwrap().to_string())
+            .collect()
+    };
+    let run = |f: &DupesFilter| report::dupes_listed(&db, 1, f, 10).unwrap();
+
+    // no filter: every group and path, with no second set of totals
+    let all = run(&DupesFilter::default());
+    assert_eq!(all.groups, groups);
+    assert!(all.unfiltered.is_none());
+    assert!(all.largest.iter().all(|g| g.files.iter().all(|f| f.listed)));
+    let total = all.reclaimable;
+
+    // hidden names left out: a group shows when one path is visible, and lists only those
+    let r = run(&DupesFilter {
+        no_hidden: true,
+        ..Default::default()
+    });
+    assert_eq!(r.groups, groups - 1, "the video is only in hidden folders");
+    assert_eq!(r.only_hidden, 1);
+    let u = r.unfiltered.as_ref().unwrap();
+    assert_eq!((u.groups, u.reclaimable), (groups, total));
+    let shown = listed(&r);
+    assert!(shown.contains("/photos/a.jpg") && !shown.contains("/.cache/thumbs/a.jpg"));
+    assert!(shown.contains("/docs/report.pdf") && !shown.contains("/docs/report.pdf~"));
+    let photo = r.largest.iter().find(|g| g.size == 300_000).unwrap();
+    assert_eq!(
+        (photo.copies, photo.files.len()),
+        (2, 2),
+        "hidden copies still count"
+    );
+
+    // a type, as extensions
+    let exts = |list: &[&str], except: bool| DupesFilter {
+        exts: Some(list.iter().map(|e| e.to_string()).collect()),
+        except,
+        ..Default::default()
+    };
+    let r = run(&exts(&["jpg", "png"], false));
+    assert_eq!((r.groups, r.reclaimable), (1, 300_000));
+    let r = run(&exts(&["readme"], false));
+    assert_eq!(
+        listed(&r),
+        HashSet::from(["/docs/README".into(), "/old/README".into()])
+    );
+    // "other files": none of the known extensions
+    let r = run(&exts(&["jpg", "mp4", "pdf", "bin"], true));
+    assert_eq!(
+        listed(&r),
+        HashSet::from([
+            "/docs/README".into(),
+            "/old/README".into(),
+            "/docs/report.pdf~".into()
+        ])
+    );
+
+    // dates are each path's own
+    let r = run(&DupesFilter {
+        modified_before: Some(1_000_000_001),
+        ..Default::default()
+    });
+    assert_eq!(listed(&r), HashSet::from(["/old/README".into()]));
+    assert_eq!(
+        r.largest[0].files.len(),
+        2,
+        "the newer copy is there, not listed"
+    );
+
+    // sizes keep or drop a group whole
+    let r = run(&DupesFilter {
+        size_from: 150_001,
+        size_below: Some(300_000),
+        ..Default::default()
+    });
+    assert_eq!((r.groups, r.largest.len()), (1, 1));
+    assert_eq!(r.largest[0].size, 200_000);
+
+    // what the browser picks a path by: its key, its folder's, and which distinct copy it is
+    for f in all.largest.iter().flat_map(|g| &g.files) {
+        let p = browse::path_of(&f.key).unwrap();
+        assert_eq!(p.display().to_string(), f.path);
+        assert_eq!(browse::path_of(&f.dir).unwrap(), p.parent().unwrap());
+    }
+    #[cfg(unix)]
+    {
+        let links = all.largest.iter().find(|g| g.size == 150_000).unwrap();
+        let copy = |name: &str| {
+            links
+                .files
+                .iter()
+                .find(|f| f.path.ends_with(name))
+                .unwrap()
+                .copy
+        };
+        assert_eq!((links.copies, links.files.len()), (2, 3));
+        assert_eq!(copy("one.bin"), copy("two.bin"));
+        assert_ne!(copy("one.bin"), copy("three.bin"));
+    }
+}

@@ -21,6 +21,9 @@ const EXT = {
 const BY_EXT = {};
 for (const [kind, list] of Object.entries(EXT)) for (const e of list.split(' ')) BY_EXT[e] = kind;
 
+/** The extensions of some kinds, or every one known: the Duplicates view's filter sends them to the server. */
+export const extsOf = (kinds = Object.keys(EXT)) => kinds.flatMap(k => EXT[k]?.split(' ') || []);
+
 export function kindOf(name) {
   const lower = name.toLowerCase();
   const ext = lower.includes('.') ? lower.slice(lower.lastIndexOf('.') + 1) : lower;
