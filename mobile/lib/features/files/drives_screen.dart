@@ -262,13 +262,16 @@ class _Shortcuts extends StatelessWidget {
     ];
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: GridView.count(
-        crossAxisCount: 2,
+      child: GridView(
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
-        mainAxisSpacing: 10,
-        crossAxisSpacing: 10,
-        childAspectRatio: 2.8,
+        // two across on a phone, more on a wide screen, always one line tall
+        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+          maxCrossAxisExtent: 260,
+          mainAxisExtent: 60,
+          mainAxisSpacing: 10,
+          crossAxisSpacing: 10,
+        ),
         children: [
           for (final (icon, label, route) in items)
             Card(

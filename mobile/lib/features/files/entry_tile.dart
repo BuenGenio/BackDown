@@ -68,6 +68,7 @@ List<Widget> entryBadges(BuildContext context, Entry e) => [
 String entrySubtitle(Entry e) {
   if (e.isDir) {
     final n = e.files;
+    if ((n ?? 0) == 0 && e.size == 0) return 'Empty';
     return [if (n != null) plural(n, 'file'), bytes(e.size), if (e.mtime > 0) day(e.mtime)].join(' · ');
   }
   return '${bytes(e.size)} · ${day(e.mtime)}';
