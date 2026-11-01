@@ -46,13 +46,15 @@ use std::ffi::{OsStr, OsString};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use rusqlite::types::ValueRef;
 use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 
+use crate::clock::now;
+use crate::fmt::unhex32;
 use crate::{Db, find, hash, paths};
 
 const BATCH: u64 = 20_000;
@@ -566,12 +568,6 @@ fn volume(dir: &Path, name: &OsStr) -> Result<Volume> {
 fn mtime_of(p: &Path) -> Option<i64> {
     let t = fs::metadata(p).ok()?.modified().ok()?;
     Some(t.duration_since(UNIX_EPOCH).ok()?.as_secs() as i64)
-}
-
-fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
 }
 
 // ---------- paths
@@ -1289,7 +1285,7 @@ impl Matcher<'_> {
                 _ => None,
             };
             let sha = match r.get_ref(3)? {
-                ValueRef::Text(s) => unhex(s),
+                ValueRef::Text(s) => unhex32(s),
                 _ => None,
             };
             let (Some(mtime), Some(sha)) = (mtime, sha) else {
@@ -1372,18 +1368,6 @@ fn same_second(stored: i64, legacy: f64) -> bool {
     }
     let s = legacy.floor() as i64;
     stored == s || (stored == s - 1 && legacy - (s as f64) < 1e-6)
-}
-
-fn unhex(s: &[u8]) -> Option<[u8; 32]> {
-    if s.len() != 64 {
-        return None;
-    }
-    let digit = |c: u8| (c as char).to_digit(16).map(|d| d as u8);
-    let mut out = [0u8; 32];
-    for (i, pair) in s.chunks(2).enumerate() {
-        out[i] = (digit(pair[0])? << 4) | digit(pair[1])?;
-    }
-    Some(out)
 }
 
 #[cfg(test)]
@@ -1473,13 +1457,5 @@ mod tests {
         assert_eq!(map(b"/media/old/Other", &maps).unwrap(), b"/mnt/a/Other");
         assert_eq!(map(b"/media/old/Disk", &maps).unwrap(), b"/mnt/disk");
         assert_eq!(map(b"/media/older", &maps), None);
-    }
-
-    #[test]
-    fn decodes_hex() {
-        let h = unhex(&[b'a'; 64]).unwrap();
-        assert_eq!(h, [0xaa; 32]);
-        assert!(unhex(b"abc").is_none());
-        assert!(unhex(&[b'g'; 64]).is_none());
     }
 }

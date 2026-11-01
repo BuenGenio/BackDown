@@ -21,7 +21,7 @@ use std::collections::HashSet;
 use std::fs::{self, FileTimes};
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Instant, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use rusqlite::{OptionalExtension, params};
@@ -29,6 +29,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
+use crate::clock::now;
 use crate::custody::{self, Action};
 use crate::names::{self, Folding, Renamer};
 use crate::plan::{self, Item};
@@ -89,12 +90,6 @@ pub struct Progress {
     pub files: u64,
     pub bytes: u64,
     pub total_bytes: u64,
-}
-
-fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
 }
 
 pub(crate) fn mtime(m: &fs::Metadata) -> i64 {

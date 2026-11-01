@@ -30,7 +30,7 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use base64::Engine;
@@ -56,11 +56,7 @@ pub const PROOF_DAYS: i64 = 7;
 /// Each machine is synced this often, unless changed.
 pub const SYNC_HOURS: i64 = 6;
 
-pub fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
-}
+pub use crate::clock::now;
 
 // ---------- addresses and names
 
@@ -787,15 +783,7 @@ pub fn across(
     Ok(a)
 }
 
-pub fn unhex(s: &str) -> Option<Vec<u8>> {
-    if !s.len().is_multiple_of(2) || !s.is_ascii() {
-        return None;
-    }
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok())
-        .collect()
-}
+pub use crate::fmt::unhex;
 
 // ---------- what the browser shows
 
