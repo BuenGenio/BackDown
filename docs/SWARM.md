@@ -79,8 +79,8 @@ Rules on the receiving side, whoever asks: paths are relative, inside one of its
 
 | | What | State |
 |---|---|---|
-| A | Storage and free space per machine (`volumes` request, cached), the Swarm view and `backdown swarm`, where-is search across machines, the tier change | building (`feat/swarm-inventory`) |
-| B | Pool folders (`backdown pool`), the pool in the Swarm view, the placement planner and the wizard's first four steps | next |
+| A | Storage and free space per machine (`volumes` request, cached), the Swarm view and `backdown swarm`, where-is search across machines, the tier change | done (#40) |
+| B | Pool folders (`backdown pool add\|list\|set\|remove`), the pool in the Swarm view, the placement planner (`backdown pool plan`, kept plans) and the wizard's first four steps | building (`feat/swarm-pool`) |
 | C | `swarm-stdio`, copying into pool folders here and there, hash adoption after the rescan, the wizard's copy and free-up steps | after |
 | D | `swarm join`, running a copy on another machine from here, a second copy as an option (mirrors) | later |
 

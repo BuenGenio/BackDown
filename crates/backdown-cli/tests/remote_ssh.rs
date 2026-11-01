@@ -552,3 +552,66 @@ fn the_swarm_over_ssh() {
     assert_eq!(o["machines"][1]["state"], "error", "{}", o["machines"][1]);
     assert!(o["machines"][1]["ok_at"].is_i64());
 }
+
+/// The pool over ssh: a NAS's own pool folder (added there), seen here after a sync; a drive here
+/// planned into it, with what's in it already found by content and the rest given that folder.
+#[test]
+fn the_pool_over_ssh() {
+    let base = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
+    fs::create_dir_all(&base).unwrap();
+    let tmp = tempfile::tempdir_in(fs::canonicalize(&base).unwrap()).unwrap();
+    let e = Env::new(tmp.path());
+    let old = e.root.join("OLD-DRIVE");
+    let pool = e.root.join("nas/pool");
+    let photo = blob(7, 300_000);
+    write(&old.join("Stuff/beach.jpg"), &photo);
+    write(&old.join("Stuff/new.jpg"), &blob(8, 300_001));
+    write(&pool.join("Unsorted/elsewhere/beach-copy.jpg"), &photo);
+    let nas_db = e.root.join("nas.db");
+    // on the NAS: its pool folder, indexed and hashed there
+    let out = e.ok(
+        &nas_db,
+        &["pool", "add", pool.to_str().unwrap(), "--reserve", "1G"],
+    );
+    assert!(out.contains("Pool folder 1"), "{out}");
+    e.ok(&nas_db, &["index", pool.to_str().unwrap()]);
+    e.ok(&nas_db, &["hash"]);
+    // here: the old drive, and the NAS
+    e.ok(&e.local_db, &["index", old.to_str().unwrap()]);
+    e.ok(
+        &e.local_db,
+        &[
+            "remote",
+            "add",
+            "nas",
+            "ssh://nas.example.org",
+            "--remote-db",
+            nas_db.to_str().unwrap(),
+        ],
+    );
+    e.ok(&e.local_db, &["remote", "sync", "nas"]);
+    e.ok(&e.local_db, &["hash"]);
+    // the NAS hashes there what's the same size as a file here
+    e.ok(&e.local_db, &["remote", "sync", "nas"]);
+
+    let list = e.ok(&e.local_db, &["pool", "list"]);
+    assert!(list.contains("nas 1"), "{list}");
+    assert!(list.contains(pool.to_str().unwrap()), "{list}");
+    let p: Value = serde_json::from_str(&stdout(
+        &e.run(&e.local_db, &["pool", "plan", "OLD-DRIVE", "--json"]),
+    ))
+    .unwrap();
+    assert_eq!(p["in_pool_bytes"], 300_000, "{p:#}");
+    assert_eq!(p["copy_bytes"], 300_001);
+    let stuff = &p["things"][0];
+    assert_eq!(stuff["to"]["machine"], "nas", "{stuff:#}");
+    assert!(
+        stuff["in_pool_at"].as_str().unwrap().starts_with("nas: "),
+        "{stuff:#}"
+    );
+    // kept: listed, and shown again
+    let plans = e.ok(&e.local_db, &["pool", "plans"]);
+    assert!(plans.contains("OLD-DRIVE"), "{plans}");
+    let shown = e.ok(&e.local_db, &["pool", "plans", "1"]);
+    assert!(shown.contains("→ nas:"), "{shown}");
+}

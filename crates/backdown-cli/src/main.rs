@@ -27,6 +27,7 @@ mod manifesting;
 mod mounting;
 mod notifier;
 mod peek;
+mod pool;
 mod remote;
 mod rescuing;
 mod serve;
@@ -385,6 +386,12 @@ enum Cmd {
     /// line each, on stdin and stdout
     #[command(hide = true)]
     ServeStdio,
+    /// The pool: folders on the swarm's drives that drives are filed into, each file once. On the
+    /// machine whose drive it's on: `pool add FOLDER`; `pool list` shows every machine's
+    Pool {
+        #[command(subcommand)]
+        action: pool::PoolCmd,
+    },
     /// Every machine as one: each machine's drives, how full they are and what's indexed on them
     /// (this machine and the ones `backdown remote` reaches); `swarm where NAME` finds files on all
     Swarm {
@@ -733,6 +740,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
             cached,
             json,
         } => return swarm::command(cli.db, cli.local, action, cached, json),
+        // this machine's pool folders (a short write), and every machine's as kept
+        Cmd::Pool { action } => return pool::command(cli.db, cli.local, action),
         // reads the index (an export also seals it), or only the file given
         Cmd::Custody { action } => return custody::command(cli.db, action),
         // the index directly, like `entities` (a manifest adds one row); checking needs none
@@ -1024,6 +1033,7 @@ fn local(db_path: &Path, cmd: Cmd, use_daemon: bool) -> Result<ExitCode> {
         | Cmd::Health { .. }
         | Cmd::Remote { .. }
         | Cmd::Swarm { .. }
+        | Cmd::Pool { .. }
         | Cmd::Manifest { .. }
         | Cmd::ServeStdio
         | Cmd::Mount { .. }
@@ -1177,6 +1187,7 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
         | Cmd::Health { .. }
         | Cmd::Remote { .. }
         | Cmd::Swarm { .. }
+        | Cmd::Pool { .. }
         | Cmd::Manifest { .. }
         | Cmd::ServeStdio
         | Cmd::Mount { .. }

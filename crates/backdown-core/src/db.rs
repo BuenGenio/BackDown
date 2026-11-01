@@ -425,6 +425,9 @@ impl Db {
         conn.execute_batch(crate::custody::SCHEMA)?;
         // signed manifests of drives (manifest.rs), the same way
         conn.execute_batch(crate::manifest::SCHEMA)?;
+        // the swarm's pool folders on this machine (pool.rs), the same way
+        conn.execute_batch(crate::pool::SCHEMA)?;
+        conn.execute_batch(crate::pool::plan::SCHEMA)?;
         add_column(&conn, "journal", "note", "TEXT")?;
         // names for search: added in place, without a schema bump, since older versions just
         // leave them empty on rows they write (and the next open here fills those in)
