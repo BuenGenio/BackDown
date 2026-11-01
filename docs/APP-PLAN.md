@@ -47,6 +47,14 @@ Entity     a recognised *thing* spanning many files: type, root path, provenance
                   linux-home, windows-profile, linux-system, disk-image, git-repo,
                   photo-library, music-library, video-library, vhosts, sql-dump,
                   takeout (google/facebook/linkedin), app-installers, downloads-pile
+Subject    who or what entities are about, across drives: a Person (aliases: email,
+           login@host, name) or a Database (engine family + name); each with its
+           *mentions*: (entity, place, role, detail, size, dates). Kinds are a
+           registry of extractor functions (subjects.rs); merging is by shared alias.
+Document   what's inside an entity, for search (fts.rs): a message (subject, who, when),
+           a table (columns), a chunk of a table's text; the FTS index keeps no text,
+           only where each hit is. Sources: Dovecot's own index cache, message files,
+           dumps, SQLite files (FTS tables searched in place).
 Overlap    (entityA or dirA, entityB or dirB) → bytes-in-common, files-in-common,
            % of A contained in B, % of B contained in A, method (name+size|hash)
 Plan       ordered list of Ops: copy / verify / delete / wipe-volume / rename-tree
@@ -114,7 +122,13 @@ Performance targets (from tonight's data): 15M files indexed on a 5400rpm HDD in
 | Windows profile | `AppData/`, `NTUSER.DAT`, `Documents and Settings` | |
 | Disk image | `*.img *.dd *.dmg *.iso *.vdi *.qcow2`; sparse; magic bytes; `ddrescue` logs beside | `sdf.log` → source device |
 | vhosts / web root | `wp-config.php`, `.htaccess`, `composer.json`, `vhosts/<domain>` | |
-| SQL dump | `*.sql *.sql.gz` with `-- MySQL dump` header | database names |
+| SQL dump | `*.sql *.sql.gz` with `-- MySQL dump` header | database names, host, date; phpMyAdmin, pg_dump(all), SQLite .dump |
+| MongoDB dump | `dump/<db>/<coll>.bson` + `.metadata.json` | database and collection names |
+| SQLite file | `*.sqlite *.sqlite3 *.db3`, `*.db` by magic bytes | swallowed inside profiles, homes, phones |
+| MySQL / MariaDB data dir | `ibdata1` or `ib_logfile0` + `mysql/`; `aria_log_control` → MariaDB | databases from folders with `.frm/.ibd/.MYD` |
+| PostgreSQL data dir | `PG_VERSION` + `base/` + `global/` | version; databases counted from `base/<oid>` |
+| MongoDB data dir | `WiredTiger` + `storage.bson` | |
+| Website config | `wp-config.php`, `configuration.php`, `.env`, Nextcloud `config/config.php` | database, engine, host, address, contact |
 | Media libraries | ≥ 200 audio / video files with artist/album or season/episode patterns | |
 | Photo library | DCIM structure, `Photos Library.photoslibrary`, Shotwell/Immich dirs | camera EXIF makes |
 | Takeout / export | `Takeout/`, `facebook-<user>-<date>`, LinkedIn `Complete_LinkedInDataExport` | date in name |

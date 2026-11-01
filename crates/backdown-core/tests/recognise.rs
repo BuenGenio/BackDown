@@ -350,11 +350,11 @@ fn dovecot_index(n: u32) -> Vec<u8> {
 
 /// A dbox file of messages received at the given times.
 fn dbox_file(received: &[u32]) -> Vec<u8> {
-    let mut f = String::from("2 M15 C5c000000\n");
+    let mut f = String::from("2 M1e C5c000000\n");
     for (i, r) in received.iter().enumerate() {
         let body = format!("Subject: {i}\n\nhello {i}");
         f += &format!(
-            "\x01\x02N {:016x}\n{body}\n\x01\x03\nGguid{i}\nR{r:x}\n\n",
+            "\x01\x02N 00000000 {:016x}\n{body}\n\x01\x03\nGguid{i}\nR{r:x}\n\n",
             body.len()
         );
     }
@@ -684,4 +684,302 @@ fn overlaps_and_the_report() {
         html.contains("<h2>old-laptop</h2>") && !html.contains("<script"),
         "report is static HTML"
     );
+}
+
+// ---------- databases, and who and what things are about (subjects.rs)
+
+fn fopt<'a>(e: &'a Entity, k: &str) -> Option<&'a str> {
+    e.facts
+        .iter()
+        .find(|(key, _)| key == k)
+        .map(|(_, v)| v.as_str())
+}
+
+fn sqlite_file(d: &Path, size: usize) {
+    let mut b = b"SQLite format 3\0".to_vec();
+    b.resize(size, 0);
+    write(d, &b);
+}
+
+/// A drive with databases in every form, two sites, and a Nextcloud server with its data.
+fn data_drive(d: &Path) {
+    // three dumps in one folder: two nights of the shop (MariaDB), one of the wiki (pg_dumpall)
+    for day in ["2021-03-04", "2021-03-05"] {
+        write(
+            &d.join(format!("backups/db/shop_{day}.sql")),
+            format!(
+                "-- MariaDB dump 10.19  Distrib 10.5.9-MariaDB, for Linux (x86_64)\n--\n-- Host: db1.example.org    Database: shop\n\
+                 -- ------------------------------------------------------\n-- Server version\t10.5.9-MariaDB\n\n\
+                 CREATE TABLE `orders` (`id` int NOT NULL);\nINSERT INTO `orders` VALUES (1),(2),(3);\n{}\n-- Dump completed on {day} 03:00:12\n",
+                "-- filler\n".repeat(200)
+            )
+            .as_bytes(),
+        );
+    }
+    write(
+        &d.join("backups/db/wiki.sql"),
+        format!(
+            "--\n-- PostgreSQL database cluster dump\n--\n\n\\connect template1\n\n--\n-- Name: wiki; Type: DATABASE; Schema: -; Owner: wiki\n--\n\nCREATE DATABASE wiki;\n\\connect wiki\n{}",
+            "SELECT 1;\n".repeat(200)
+        )
+        .as_bytes(),
+    );
+    // one phpMyAdmin export on its own
+    write(
+        &d.join("old/site.sql"),
+        format!(
+            "-- phpMyAdmin SQL Dump\n-- version 5.1.0\n-- https://www.phpmyadmin.net/\n--\n-- Host: localhost:3306\n-- Generation Time: Mar 04, 2021 at 10:22 AM\n-- Server version: 10.5.9-MariaDB\n\n--\n-- Database: `wp_prod`\n--\n{}",
+            "-- filler\n".repeat(200)
+        )
+        .as_bytes(),
+    );
+    // mongodump: dump/<database>/<collection>.bson + .metadata.json
+    for (db, coll) in [("app", "users"), ("app", "orders"), ("logs", "events")] {
+        write(
+            &d.join(format!("backups/mongo/dump/{db}/{coll}.bson")),
+            &[7u8; 4096],
+        );
+        write(
+            &d.join(format!("backups/mongo/dump/{db}/{coll}.metadata.json")),
+            b"{\"indexes\":[]}",
+        );
+    }
+    // a SQLite file, and a .db that isn't one (a program's own file)
+    sqlite_file(&d.join("data/notes.sqlite"), 8192);
+    write(&d.join("data/cache.db"), &[1u8; 5000]);
+    // a MariaDB data directory: the system files, the mysql schema, and the shop
+    let my = d.join("servers/db1/var/lib/mysql");
+    write(&my.join("ibdata1"), &[0u8; 1024]);
+    write(&my.join("aria_log_control"), &[0u8; 52]);
+    write(&my.join("mysql/user.frm"), b"frm");
+    write(&my.join("mysql/user.MYD"), b"myd");
+    for t in ["orders", "customers"] {
+        write(&my.join(format!("shop/{t}.frm")), b"frm");
+        write(&my.join(format!("shop/{t}.ibd")), &[0u8; 2048]);
+    }
+    // a PostgreSQL data directory with two databases
+    let pg = d.join("servers/db1/var/lib/postgresql/13/main");
+    write(&pg.join("PG_VERSION"), b"13\n");
+    write(&pg.join("base/1/1259"), b"x");
+    write(&pg.join("base/13394/1259"), b"x");
+    write(&pg.join("global/pg_control"), b"x");
+    // a WordPress site using the shop database, and a Joomla site with a contact
+    let wp = d.join("sites/shop.example.org");
+    write(
+        &wp.join("wp-config.php"),
+        b"<?php\ndefine( 'DB_NAME', 'shop' );\ndefine( 'DB_USER', 'shop' );\ndefine( 'DB_PASSWORD', 'secret' );\ndefine( 'DB_HOST', 'db1.example.org' );\ndefine('WP_HOME','https://shop.example.org');\n$table_prefix = 'wp_';\n",
+    );
+    write(&wp.join("wp-content/index.php"), b"<?php");
+    write(&wp.join("wp-admin/index.php"), b"<?php");
+    let jo = d.join("sites/club");
+    write(
+        &jo.join("configuration.php"),
+        b"<?php\nclass JConfig {\n\tpublic $sitename = 'The Club';\n\tpublic $dbtype = 'mysqli';\n\tpublic $host = 'localhost';\n\tpublic $db = 'club';\n\tpublic $dbprefix = 'j_';\n\tpublic $mailfrom = 'alice@example.org';\n\tpublic $fromname = 'Alice Example';\n}\n",
+    );
+    write(&jo.join("administrator/index.php"), b"<?php");
+    // Nextcloud: the server's web root with its config, and the data directory with two users
+    let nc = d.join("cloud/nextcloud");
+    for sub in ["apps", "core"] {
+        write(&nc.join(sub).join("x.php"), b"<?php");
+    }
+    write(
+        &nc.join("config/config.php"),
+        b"<?php\n$CONFIG = array (\n  'instanceid' => 'oc1',\n  'trusted_domains' => \n  array (\n    0 => 'cloud.example.org',\n  ),\n  'datadirectory' => '/var/www/data',\n  'dbtype' => 'pgsql',\n  'version' => '27.1.0.0',\n  'dbname' => 'nextcloud',\n  'dbhost' => 'localhost',\n  'mail_domain' => 'example.org',\n);\n",
+    );
+    write(&d.join("cloud/data/.ocdata"), b"");
+    write(&d.join("cloud/data/alice/files/doc.txt"), b"hello");
+    write(&d.join("cloud/data/bob/files/notes.txt"), b"hi");
+    write(&d.join("cloud/data/appdata_oc1/preview/1.png"), b"png");
+}
+
+#[test]
+fn databases_and_who_things_are_about() {
+    use backdown_core::subjects;
+    let tmp = tempfile::tempdir().unwrap();
+    let d = tmp.path().join("drive");
+    drive(&d); // the mail store with alice, bob and carol, among the rest
+    data_drive(&d);
+    let mut db = Db::open(&tmp.path().join("i.db")).unwrap();
+    index::index(
+        &mut db,
+        &d,
+        &index::Options {
+            one_file_system: true,
+            allow_empty: false,
+        },
+        &mut |_| {},
+    )
+    .unwrap();
+    let root = recognise::root_ids(&db).unwrap()[0];
+    let r = recognise::recognise(&db, root, true, &mut |_| {}).unwrap();
+    let es = &r.entities;
+
+    // ---- the things
+    let dumps = find(es, "sql-dump", "backups/db");
+    assert!(!dumps.is_file);
+    assert_eq!(fopt(dumps, "Dumps"), Some("3"));
+    let site = find(es, "sql-dump", "old/site.sql");
+    assert_eq!(fopt(site, "Engine"), Some("MariaDB"), "{:?}", site.facts);
+    assert_eq!(fopt(site, "Database"), Some("wp_prod"));
+    assert_eq!(fopt(site, "Host"), Some("localhost"));
+    assert_eq!(site.title, "wp_prod (MariaDB)");
+    let mongo = find(es, "mongo-dump", "mongo/dump");
+    assert_eq!(fopt(mongo, "Databases"), Some("app, logs"));
+    assert_eq!(fopt(mongo, "Collections"), Some("3"));
+    assert!(
+        !es.iter()
+            .any(|e| e.kind == "mongo-dump" && e.path.ends_with("dump/app")),
+        "a database's folder isn't a thing of its own inside the dump"
+    );
+    let lite = find(es, "sqlite-db", "notes.sqlite");
+    assert!(lite.is_file && lite.confidence >= 0.9);
+    assert!(
+        !es.iter().any(|e| e.path.ends_with("cache.db")),
+        "a .db without SQLite's magic isn't one"
+    );
+    let my = find(es, "mysql-data", "lib/mysql");
+    assert_eq!(fopt(my, "Engine"), Some("MariaDB"));
+    assert_eq!(fopt(my, "Databases"), Some("shop"));
+    assert_eq!(fopt(my, "Tables"), Some("2"));
+    let pg = find(es, "postgres-data", "13/main");
+    assert_eq!(fopt(pg, "Databases"), Some("2"));
+    assert_eq!(fopt(pg, "Version"), Some("13"));
+    let wp = find(es, "website", "shop.example.org");
+    assert_eq!(fopt(wp, "Database"), Some("shop"), "{:?}", wp.facts);
+    assert_eq!(fopt(wp, "Database host"), Some("db1.example.org"));
+    assert_eq!(fopt(wp, "Address"), Some("shop.example.org"));
+    assert_eq!(wp.title, "WordPress site shop.example.org");
+    let jo = find(es, "website", "sites/club");
+    assert_eq!(fopt(jo, "Database"), Some("club"));
+    assert_eq!(fopt(jo, "Database engine"), Some("MySQL or MariaDB"));
+    assert_eq!(fopt(jo, "Contact"), Some("alice@example.org"));
+    assert_eq!(fopt(jo, "Contact name"), Some("Alice Example"));
+    assert_eq!(fopt(jo, "Site name"), Some("The Club"));
+    let ncs = find(es, "nextcloud-server", "cloud/nextcloud");
+    assert_eq!(
+        fopt(ncs, "Address"),
+        Some("cloud.example.org"),
+        "{:?}",
+        ncs.facts
+    );
+    assert_eq!(fopt(ncs, "Database engine"), Some("PostgreSQL"));
+    assert_eq!(fopt(ncs, "Database"), Some("nextcloud"));
+    assert_eq!(fopt(ncs, "Mail domain"), Some("example.org"));
+    assert_eq!(ncs.title, "Nextcloud at cloud.example.org");
+    assert_eq!(
+        fopt(find(es, "nextcloud", "cloud/data"), "Users"),
+        Some("alice, bob")
+    );
+
+    // ---- who and what they're about
+    let s = subjects::compute(&db, &r, true).unwrap();
+    let get = |kind: &str, name: &str| {
+        s.subjects
+            .iter()
+            .find(|x| x.kind == kind && x.name == name)
+            .unwrap_or_else(|| {
+                panic!(
+                    "no {kind} {name}; got {:#?}",
+                    s.subjects
+                        .iter()
+                        .map(|x| (&x.kind, &x.name, x.mentions.len()))
+                        .collect::<Vec<_>>()
+                )
+            })
+    };
+    fn roles(x: &subjects::Subject) -> Vec<&str> {
+        let mut r: Vec<&str> = x.mentions.iter().map(|m| m.role.as_str()).collect();
+        r.sort();
+        r
+    }
+    // Alice: a mailbox in the store, a Nextcloud account (whose address the server's mail domain
+    // gives), and the Joomla site's contact, which also names her
+    let alice = get("person", "Alice Example");
+    // (the drive's other Nextcloud data directory is another instance's, appdata_oc123 where the
+    // server here is oc1: its alice is a login nobody can place, and stays apart)
+    assert_eq!(
+        roles(alice),
+        ["Mailbox", "Nextcloud account", "Website contact"],
+        "{:#?}",
+        alice.mentions
+    );
+    assert!(
+        alice.aliases.iter().any(|a| a.kind == "login"
+            && a.value == "alice"
+            && a.scope.as_deref() == Some("cloud.example.org")),
+        "{:?}",
+        alice.aliases
+    );
+    let sfact = |x: &subjects::Subject, k: &str| {
+        x.facts
+            .iter()
+            .find(|(key, _)| key == k)
+            .map(|(_, v)| v.clone())
+    };
+    assert_eq!(
+        sfact(alice, "Email addresses").as_deref(),
+        Some("alice@example.org")
+    );
+    assert!(
+        sfact(alice, "Mailboxes").is_some_and(|v| v.starts_with("1, 4 messages")),
+        "{:?}",
+        alice.facts
+    );
+    let bob = get("person", "bob@example.org");
+    assert_eq!(roles(bob), ["Mailbox", "Nextcloud account"]);
+    // the other instance's accounts: a login with no known host never merges with anyone
+    let unplaced: Vec<&subjects::Subject> = s
+        .subjects
+        .iter()
+        .filter(|x| {
+            x.mentions
+                .iter()
+                .any(|m| m.role == "Nextcloud account" && m.path.contains("nextcloud-data"))
+        })
+        .collect();
+    assert_eq!(unplaced.len(), 2, "{unplaced:#?}");
+    assert!(unplaced.iter().all(|x| x.mentions.len() == 1));
+    assert_eq!(roles(get("person", "carol@example.net")), ["Mailbox"]);
+    // the shop: two dumps, its live data, and the site that uses it, all one database
+    let shop = get("database", "shop");
+    // (the shared fixture has an older MySQL dump of the shop as well: three dumps in all)
+    assert_eq!(
+        roles(shop),
+        ["Dump", "Dump", "Dump", "Live data", "Used by"],
+        "{:#?}",
+        shop.mentions
+    );
+    // MySQL and MariaDB both said it; "MySQL or MariaDB" (the site's config) says less and goes
+    assert_eq!(sfact(shop, "Engine").as_deref(), Some("MariaDB, MySQL"));
+    assert!(
+        sfact(shop, "Dumps").is_some_and(|v| v.starts_with("3, ")),
+        "{:?}",
+        shop.facts
+    );
+    assert!(sfact(shop, "Used by").is_some_and(|v| v.contains("shop.example.org")));
+    assert_eq!(roles(get("database", "wiki")), ["Dump"]);
+    assert_eq!(roles(get("database", "wp_prod")), ["Dump"]);
+    assert_eq!(roles(get("database", "club")), ["Used by"]);
+    assert_eq!(roles(get("database", "nextcloud")), ["Used by"]);
+    let app = get("database", "app");
+    assert_eq!(roles(app), ["Dump"]);
+    assert!(
+        app.mentions[0].detail.starts_with("MongoDB, 2 collections"),
+        "{}",
+        app.mentions[0].detail
+    );
+    // a SQLite file goes by its folder and name: every app's `db.sqlite3` isn't one database
+    assert_eq!(
+        roles(get("database", "data/notes.sqlite")),
+        ["Database file"]
+    );
+
+    // stored per root, read back merged
+    subjects::store(&db, &s).unwrap();
+    let (back, fresh) = subjects::load(&db, root).unwrap().unwrap();
+    assert!(fresh);
+    assert_eq!(back.subjects.len(), s.subjects.len());
+    let all = subjects::all(&db).unwrap();
+    assert!(all.stale.is_empty() && all.missing.is_empty());
+    assert_eq!(all.subjects.len(), s.subjects.len());
 }

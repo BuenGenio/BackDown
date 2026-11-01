@@ -9,6 +9,44 @@ use crate::{Db, fmt, names, paths};
 
 use super::*;
 
+/// The base of a dump's file name: "shop_2021-03-04.sql.gz" → "shop_2021-03-04".
+pub fn dump_stem(name: &str) -> &str {
+    let lower = name.to_ascii_lowercase();
+    let cut = [
+        ".sql.gz", ".sql.bz2", ".sql.xz", ".sql.zst", ".sql", ".dump", ".pgdump",
+    ]
+    .iter()
+    .find(|s| lower.ends_with(*s))
+    .map_or(0, |s| s.len());
+    &name[..name.len() - cut]
+}
+
+/// A SQLite file by its name: certain ones, and ".db", which many programs use for other things.
+fn sqlite_name(lower: &str) -> Option<bool> {
+    if lower.ends_with(".sqlite") || lower.ends_with(".sqlite3") || lower.ends_with(".db3") {
+        Some(true)
+    } else if lower.ends_with(".db")
+        && !matches!(
+            lower,
+            "thumbs.db" | "manifest.db" | "shared-mailboxes.db" | "desktop.db"
+        )
+    {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+/// A MySQL or MariaDB table file: .frm (the definition, up to MySQL 5.7 and in MariaDB) or the data
+/// (InnoDB .ibd, MyISAM .MYD, Aria .MAD).
+fn table_file(lower: &str) -> Option<usize> {
+    match ext(lower).as_str() {
+        "frm" => Some(0),
+        "ibd" | "myd" | "mad" => Some(1),
+        _ => None,
+    }
+}
+
 // ---------- what the passes collect
 
 #[derive(Default)]
@@ -32,6 +70,12 @@ pub(super) struct Markers {
     pub(super) mapfiles: Vec<Vec<u8>>,
     /// folder -> Dovecot dbox files directly in it: (mdbox "m.N", sdbox "u.N")
     pub(super) dbox: HashMap<Vec<u8>, (u64, u64)>,
+    /// folder -> mongodump output directly in it: (.bson files, their bytes, .metadata.json files)
+    pub(super) bson: HashMap<Vec<u8>, (u64, u64, u64)>,
+    /// SQLite files by name: (path, size, certain by its extension)
+    pub(super) sqlite: Vec<(Vec<u8>, u64, bool)>,
+    /// folder -> MySQL/MariaDB table files directly in it: (.frm, data files)
+    pub(super) tables: HashMap<Vec<u8>, (u64, u64)>,
 }
 
 /// "m.12" / "u.7": a Dovecot dbox storage file's name (0 for m, 1 for u).
@@ -56,12 +100,12 @@ impl Markers {
     }
 }
 
-pub(super) fn join(dir: &[u8], name: &str) -> Vec<u8> {
+pub(crate) fn join(dir: &[u8], name: &str) -> Vec<u8> {
     paths::to_bytes(&paths::from_bytes(dir).join(name))
 }
 
 /// Folder rows directly inside `dir` (current), by name.
-pub(super) fn children(db: &Db, dir: &[u8]) -> Result<Vec<String>> {
+pub(crate) fn children(db: &Db, dir: &[u8]) -> Result<Vec<String>> {
     let sep = sep();
     let mut stmt = db
         .conn
@@ -166,6 +210,27 @@ pub(super) fn collect(db: &Db, root_id: i64, progress: &mut dyn FnMut(&str)) -> 
         }
         if is_sql_dump(&lower) && size >= 1024 {
             m.sql_dumps.push((path.clone(), size));
+        }
+        if lower.ends_with(".bson") || lower.ends_with(".bson.gz") {
+            let b = m.bson.entry(dir.clone()).or_default();
+            b.0 += 1;
+            b.1 += size;
+        } else if lower.ends_with(".metadata.json") || lower.ends_with(".metadata.json.gz") {
+            m.bson.entry(dir.clone()).or_default().2 += 1;
+        }
+        if let Some(certain) = sqlite_name(&lower) {
+            // a .db needs some substance (or, with the drive here, its magic bytes) to count
+            if size >= 4096 && (certain || size >= 1 << 20) {
+                m.sqlite.push((path.clone(), size, certain));
+            }
+        }
+        if let Some(k) = table_file(&lower) {
+            let t = m.tables.entry(dir.clone()).or_default();
+            if k == 0 {
+                t.0 += 1;
+            } else {
+                t.1 += 1;
+            }
         }
         if (SCRIPT.contains(&e.as_str()) || lower == "crontab" || lower.starts_with("crontab"))
             && size <= 256 * 1024

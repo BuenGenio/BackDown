@@ -95,6 +95,7 @@ dependencies = [
  "flate2",
  "getrandom 0.4.3",
  "lzma-rust2",
+ "mail-parser",
  "qrcode",
  "quick-xml 0.41.0",
  "rusqlite",

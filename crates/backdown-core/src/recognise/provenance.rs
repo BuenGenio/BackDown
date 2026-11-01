@@ -326,13 +326,23 @@ pub(super) fn tail(p: &str, n: usize) -> Vec<String> {
     parts[parts.len().saturating_sub(n)..].to_vec()
 }
 
-pub(super) fn read_small(path: &Path, max: u64) -> Option<String> {
+pub fn read_small(path: &Path, max: u64) -> Option<String> {
     let meta = std::fs::metadata(path).ok()?;
     if !meta.is_file() || meta.len() > max {
         return None;
     }
     let bytes = std::fs::read(path).ok()?;
     Some(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// The first `n` bytes of a file of any size (fewer if it's shorter); `None` when it can't be opened.
+pub(super) fn first_bytes(path: &Path, n: usize) -> Option<Vec<u8>> {
+    use std::io::Read;
+    let mut f = paths::open_read(path).ok()?;
+    let mut b = vec![0u8; n];
+    let got = f.read(&mut b).ok()?;
+    b.truncate(got);
+    Some(b)
 }
 
 pub(super) fn read_small_bytes(path: &Path, max: u64) -> Option<Vec<u8>> {
@@ -345,6 +355,270 @@ pub(super) fn read_small_bytes(path: &Path, max: u64) -> Option<Vec<u8>> {
 
 /// When a dump was made, from its last lines: mysqldump and MariaDB end with
 /// "-- Dump completed on 2020-05-31 12:00:00", pg_dump (verbose) with "-- Completed on …".
+/// What the first few kilobytes of a dump say about it.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct DumpHead {
+    /// "MySQL", "MariaDB", "PostgreSQL", "PostgreSQL (custom format)", "SQLite"
+    pub engine: Option<&'static str>,
+    /// mysqldump, phpMyAdmin, pg_dump, pg_dumpall…
+    pub tool: Option<String>,
+    pub database: Option<String>,
+    pub host: Option<String>,
+    pub date: Option<i64>,
+}
+
+/// `name` with no quotes or backticks around it, trimmed.
+fn unquoted(s: &str) -> String {
+    s.trim()
+        .trim_end_matches(';')
+        .trim_matches(|c: char| c == '`' || c == '"' || c == '\'' || c.is_whitespace())
+        .to_string()
+}
+
+/// Read a dump's head (and tail, for the date) without decompressing anything: a compressed dump
+/// says nothing here, and that's fine. `None` when the file can't be opened.
+pub fn sniff_dump(path: &Path) -> Option<DumpHead> {
+    use std::io::Read;
+    let mut f = paths::open_read(path).ok()?;
+    let mut head = vec![0u8; 8192];
+    let n = f.read(&mut head).unwrap_or(0);
+    let head = &head[..n];
+    let mut h = DumpHead::default();
+    if head.starts_with(b"PGDMP") {
+        h.engine = Some("PostgreSQL (custom format)");
+        h.tool = Some("pg_dump".into());
+        return Some(h);
+    }
+    if head.starts_with(&[0x1f, 0x8b])
+        || head.starts_with(b"BZh")
+        || head.starts_with(&[0xfd, b'7', b'z', b'X', b'Z'])
+        || head.starts_with(&[0x28, 0xb5, 0x2f, 0xfd])
+    {
+        return Some(h); // compressed: nothing to read here
+    }
+    let t = String::from_utf8_lossy(head);
+    let server_line = t.lines().find(|l| l.contains("Server version"));
+    let mariadb = server_line.is_some_and(|l| l.contains("MariaDB"));
+    if t.contains("MariaDB dump") || (t.contains("MySQL dump") && mariadb) {
+        h.engine = Some("MariaDB");
+        h.tool = Some("mysqldump".into());
+    } else if t.contains("MySQL dump") {
+        h.engine = Some("MySQL");
+        h.tool = Some("mysqldump".into());
+    } else if t.contains("phpMyAdmin SQL Dump") {
+        h.engine = Some(if mariadb { "MariaDB" } else { "MySQL" });
+        h.tool = Some("phpMyAdmin".into());
+    } else if t.contains("PostgreSQL database cluster dump") {
+        h.engine = Some("PostgreSQL");
+        h.tool = Some("pg_dumpall".into());
+    } else if t.contains("PostgreSQL database dump") {
+        h.engine = Some("PostgreSQL");
+        h.tool = Some("pg_dump".into());
+    } else if t.contains("PRAGMA foreign_keys=OFF;") && t.contains("BEGIN TRANSACTION;") {
+        h.engine = Some("SQLite");
+        h.tool = Some("sqlite3 .dump".into());
+    } else if t.contains("-- Adminer ") {
+        h.tool = Some("Adminer".into());
+    } else if t.contains("HeidiSQL") {
+        h.tool = Some("HeidiSQL".into());
+        h.engine = Some(if mariadb { "MariaDB" } else { "MySQL" });
+    }
+    for l in t.lines() {
+        let l = l.trim();
+        // mysqldump: "-- Host: db1    Database: shop"; phpMyAdmin: "-- Host: localhost:3306"
+        if let Some(rest) = l.strip_prefix("--").map(str::trim) {
+            if let Some(r) = rest.strip_prefix("Host:") {
+                let (host, rest) = match r.split_once("Database:") {
+                    Some((a, b)) => (a, Some(b)),
+                    None => (r, None),
+                };
+                let host = host.trim();
+                let host = host
+                    .rsplit_once(':')
+                    .filter(|(_, p)| p.bytes().all(|b| b.is_ascii_digit()))
+                    .map_or(host, |(a, _)| a);
+                if !host.is_empty() && h.host.is_none() {
+                    h.host = Some(host.to_string());
+                }
+                if let Some(d) = rest.map(unquoted).filter(|d| !d.is_empty()) {
+                    h.database.get_or_insert(d);
+                }
+            } else if let Some(r) = rest.strip_prefix("Database:") {
+                let d = unquoted(r);
+                if !d.is_empty() {
+                    h.database.get_or_insert(d);
+                }
+            } else if let Some(r) = rest.strip_prefix("Current Database:") {
+                let d = unquoted(r);
+                if !d.is_empty() {
+                    h.database.get_or_insert(d);
+                }
+            } else if let Some(r) = rest
+                .strip_prefix("Name:")
+                .filter(|r| r.contains("Type: DATABASE"))
+            {
+                let d = unquoted(r.split(';').next().unwrap_or(""));
+                if !d.is_empty() {
+                    h.database.get_or_insert(d);
+                }
+            }
+        } else if let Some(r) = l
+            .strip_prefix("\\connect ")
+            .or_else(|| l.strip_prefix("\\c "))
+        {
+            let d = unquoted(r.split_whitespace().next().unwrap_or(""));
+            if !d.is_empty() && d != "postgres" && d != "template1" {
+                h.database.get_or_insert(d);
+            }
+        } else if let Some(r) = l.strip_prefix("USE ") {
+            let d = unquoted(r);
+            if !d.is_empty() {
+                h.database.get_or_insert(d);
+            }
+        } else if let Some(after) = l.strip_prefix("CREATE DATABASE") {
+            // CREATE DATABASE /*!32312 IF NOT EXISTS*/ `shop` /*!40100 DEFAULT CHARACTER SET utf8 */;
+            let after = after.to_string();
+            let after = match after.find("*/") {
+                Some(i) if after.trim_start().starts_with("/*") => after[i + 2..].to_string(),
+                _ => after,
+            };
+            let d = unquoted(
+                after
+                    .split(|c: char| c.is_whitespace() || c == '/' || c == ';')
+                    .find(|w| !w.is_empty() && !w.eq_ignore_ascii_case("IF"))
+                    .unwrap_or(""),
+            );
+            if !d.is_empty() {
+                h.database.get_or_insert(d);
+            }
+        }
+    }
+    if h.database
+        .as_deref()
+        .is_some_and(|d| d.eq_ignore_ascii_case("IF") || d.len() > 128)
+    {
+        h.database = None;
+    }
+    h.date = dump_date(&mut f);
+    Some(h)
+}
+
+/// A database engine's name for people, from how configuration files spell it.
+fn engine_name(d: &str) -> String {
+    match d.trim().to_ascii_lowercase().as_str() {
+        "mysql" | "mysqli" | "pdomysql" => "MySQL or MariaDB".into(),
+        "mariadb" => "MariaDB".into(),
+        "pgsql" | "postgres" | "postgresql" => "PostgreSQL".into(),
+        "sqlite" | "sqlite3" => "SQLite".into(),
+        "mongodb" | "mongo" => "MongoDB".into(),
+        "sqlsrv" | "mssql" => "SQL Server".into(),
+        "oci" | "oracle" => "Oracle".into(),
+        other => other.to_string(),
+    }
+}
+
+/// The host in a URL ("https://cloud.example.org/nc" → "cloud.example.org"), or the text itself
+/// when it's just a host.
+fn host_of(url: &str) -> Option<String> {
+    let s = url.trim();
+    let s = s.split_once("://").map_or(s, |(_, r)| r);
+    let s = s.split(['/', '?', '#']).next()?;
+    let s = s.rsplit_once('@').map_or(s, |(_, r)| r);
+    let s = s
+        .rsplit_once(':')
+        .filter(|(_, p)| p.bytes().all(|b| b.is_ascii_digit()))
+        .map_or(s, |(a, _)| a);
+    (!s.is_empty() && s != "localhost").then(|| s.to_string())
+}
+
+/// The first quoted PHP string in `s`.
+fn php_string(s: &str) -> Option<String> {
+    let start = s.find(['\'', '"'])?;
+    let q = s.as_bytes()[start];
+    let rest = &s[start + 1..];
+    let mut out = String::new();
+    let mut esc = false;
+    for c in rest.chars() {
+        if esc {
+            out.push(c);
+            esc = false;
+        } else if c == '\\' {
+            esc = true;
+        } else if c as u32 == q as u32 {
+            return Some(out);
+        } else {
+            out.push(c);
+        }
+    }
+    None
+}
+
+/// `define('NAME', 'value')`, or `'name' => 'value'` in a config array: the value.
+fn php_define(text: &str, name: &str) -> Option<String> {
+    for q in ['\'', '"'] {
+        let needle = format!("{q}{name}{q}");
+        let Some(i) = text.find(&needle) else {
+            continue;
+        };
+        let after = &text[i + needle.len()..];
+        let after = after
+            .trim_start_matches(|c: char| c.is_whitespace() || c == ',' || c == '=' || c == '>');
+        // a plain value ends with its statement; an array ("trusted_domains") may put its first
+        // string on a later line
+        let end = after.find([')', ';', '\n']).unwrap_or(after.len());
+        if let Some(v) = php_string(&after[..end]) {
+            return (!v.is_empty()).then_some(v);
+        }
+        let block = &after[..after.len().min(2048)];
+        if (block.starts_with("array") || block.starts_with('['))
+            && let Some(v) = php_string(block)
+        {
+            return (!v.is_empty()).then_some(v);
+        }
+    }
+    None
+}
+
+/// `public $name = 'value';` in a Joomla configuration class: the value.
+fn php_prop(text: &str, name: &str) -> Option<String> {
+    let needle = format!("${name}");
+    let mut from = 0;
+    while let Some(i) = text[from..].find(&needle) {
+        let at = from + i + needle.len();
+        from = at;
+        let next = text[at..].chars().next();
+        if next.is_some_and(|c| c.is_alphanumeric() || c == '_') {
+            continue; // $dbtype when asked for $db
+        }
+        let rest = &text[at..];
+        let stmt = &rest[..rest.find(';').unwrap_or(rest.len())];
+        if !stmt.contains('=') {
+            continue;
+        }
+        return php_string(stmt).filter(|v| !v.is_empty());
+    }
+    None
+}
+
+/// `KEY=value` in a .env file (quotes dropped, comments ignored).
+fn env_value(text: &str, key: &str) -> Option<String> {
+    text.lines().find_map(|l| {
+        let l = l.trim();
+        let l = l.strip_prefix("export ").unwrap_or(l);
+        let (k, v) = l.split_once('=')?;
+        if k.trim() != key {
+            return None;
+        }
+        let v = v.trim();
+        let v = if v.starts_with('"') || v.starts_with('\'') {
+            php_string(v).unwrap_or_default()
+        } else {
+            v.split('#').next().unwrap_or("").trim().to_string()
+        };
+        (!v.is_empty()).then_some(v)
+    })
+}
+
 pub(super) fn dump_date(f: &mut std::fs::File) -> Option<i64> {
     use std::io::{Read, Seek, SeekFrom};
     let len = f.metadata().ok()?.len();
@@ -592,46 +866,147 @@ pub(super) fn provenance(
             }
         }
         "sql-dump" if e.is_file => {
-            if let Ok(mut f) = std::fs::File::open(path) {
-                use std::io::Read;
-                let mut head = vec![0u8; 4096];
-                let n = f.read(&mut head).unwrap_or(0);
-                let t = String::from_utf8_lossy(&head[..n]);
-                let engine = if t.contains("MariaDB dump") {
-                    Some("MariaDB")
-                } else if t.contains("MySQL dump") {
-                    Some("MySQL")
-                } else if t.contains("PostgreSQL database dump") {
-                    Some("PostgreSQL")
-                } else if t.starts_with("PGDMP") {
-                    Some("PostgreSQL (custom format)")
-                } else {
-                    None
-                };
-                if let Some(en) = engine {
+            if let Some(h) = sniff_dump(path) {
+                if let Some(en) = h.engine {
                     e.confidence = 0.95;
                     e.facts.push(("Engine".into(), en.into()));
                 }
-                if let Some(l) = t
-                    .lines()
-                    .find(|l| l.contains("Host:") && l.contains("Database:"))
-                {
-                    let host = l
-                        .split("Host:")
-                        .nth(1)
-                        .and_then(|r| r.split_whitespace().next())
-                        .unwrap_or("");
-                    let dbn = l.split("Database:").nth(1).map(str::trim).unwrap_or("");
-                    if !dbn.is_empty() {
-                        e.facts.push(("Database".into(), dbn.to_string()));
-                        e.title = format!("{dbn} ({})", engine.unwrap_or("SQL"));
+                if let Some(dbn) = &h.database {
+                    e.facts.push(("Database".into(), dbn.clone()));
+                    e.title = format!("{dbn} ({})", h.engine.unwrap_or("SQL"));
+                }
+                if let Some(host) = &h.host {
+                    e.facts.push(("Host".into(), host.clone()));
+                }
+                if let Some(t) = h.date {
+                    e.facts.push(("Dumped".into(), fmt::day(t)));
+                }
+                if let Some(host) = &h.host {
+                    e.provenance.push(match h.date {
+                        Some(t) => format!("Dumped from {host} on {}.", fmt::day(t)),
+                        None => format!("Dumped from {host}."),
+                    });
+                }
+            }
+        }
+        "postgres-data" => {
+            if let Some(v) = read_small(&path.join("PG_VERSION"), 64) {
+                let v = v.trim();
+                if !v.is_empty() {
+                    e.facts.push(("Version".into(), v.to_string()));
+                    e.title = format!("{} (PostgreSQL {v})", e.title);
+                }
+            }
+        }
+        // a website's configuration says which database it uses and where it was served
+        "website" => {
+            let software = e
+                .facts
+                .iter()
+                .find(|(k, _)| k == "Software")
+                .map(|(_, v)| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let mut found: Vec<(&str, Option<String>)> = Vec::new();
+            match software.as_str() {
+                "WordPress" => {
+                    if let Some(t) = read_small(&path.join("wp-config.php"), 256 * 1024) {
+                        found.push(("Database", php_define(&t, "DB_NAME")));
+                        found.push(("Database engine", Some("MySQL or MariaDB".into())));
+                        found.push(("Database host", php_define(&t, "DB_HOST")));
+                        found.push((
+                            "Address",
+                            php_define(&t, "WP_HOME")
+                                .or_else(|| php_define(&t, "WP_SITEURL"))
+                                .and_then(|u| host_of(&u)),
+                        ));
                     }
-                    if !host.is_empty() {
-                        e.provenance.push(match dump_date(&mut f) {
-                            Some(t) => format!("Dumped from {host} on {}.", fmt::day(t)),
-                            None => format!("Dumped from {host}."),
-                        });
+                }
+                "Joomla" => {
+                    if let Some(t) = read_small(&path.join("configuration.php"), 256 * 1024) {
+                        found.push(("Database", php_prop(&t, "db")));
+                        found.push((
+                            "Database engine",
+                            php_prop(&t, "dbtype").map(|d| engine_name(&d)),
+                        ));
+                        found.push(("Database host", php_prop(&t, "host")));
+                        found.push(("Site name", php_prop(&t, "sitename")));
+                        found.push((
+                            "Address",
+                            php_prop(&t, "live_site").and_then(|u| host_of(&u)),
+                        ));
+                        found.push((
+                            "Contact",
+                            php_prop(&t, "mailfrom").filter(|m| m.contains('@')),
+                        ));
+                        found.push(("Contact name", php_prop(&t, "fromname")));
                     }
+                }
+                "Laravel" => {
+                    if let Some(t) = read_small(&path.join(".env"), 256 * 1024) {
+                        found.push(("Database", env_value(&t, "DB_DATABASE")));
+                        found.push((
+                            "Database engine",
+                            env_value(&t, "DB_CONNECTION").map(|d| engine_name(&d)),
+                        ));
+                        found.push(("Database host", env_value(&t, "DB_HOST")));
+                        found.push(("Site name", env_value(&t, "APP_NAME")));
+                        found.push((
+                            "Address",
+                            env_value(&t, "APP_URL").and_then(|u| host_of(&u)),
+                        ));
+                        found.push((
+                            "Contact",
+                            env_value(&t, "MAIL_FROM_ADDRESS").filter(|m| m.contains('@')),
+                        ));
+                        found.push(("Contact name", env_value(&t, "MAIL_FROM_NAME")));
+                    }
+                }
+                _ => {}
+            }
+            // a database engine only means something with a database name
+            let has_db = found
+                .iter()
+                .any(|(k, v)| *k == "Database" && v.as_deref().is_some_and(|v| !v.is_empty()));
+            for (k, v) in found {
+                let Some(v) = v.filter(|v| !v.is_empty() && v.len() <= 200) else {
+                    continue;
+                };
+                if k.starts_with("Database") && !has_db {
+                    continue;
+                }
+                if k == "Address" {
+                    e.title = format!("{software} site {v}");
+                }
+                e.facts.push((k.into(), v));
+            }
+        }
+        // config/config.php: the database behind it and the address it answered at
+        "nextcloud-server" => {
+            if let Some(t) = read_small(&path.join("config").join("config.php"), 256 * 1024) {
+                let mut found: Vec<(&str, Option<String>)> = vec![
+                    ("Version", php_define(&t, "version")),
+                    ("Address", php_define(&t, "trusted_domains")),
+                    ("Database", php_define(&t, "dbname")),
+                    (
+                        "Database engine",
+                        php_define(&t, "dbtype").map(|d| engine_name(&d)),
+                    ),
+                    ("Database host", php_define(&t, "dbhost")),
+                    ("Mail domain", php_define(&t, "mail_domain")),
+                    ("Data directory", php_define(&t, "datadirectory")),
+                ];
+                if found.iter().any(|(k, v)| *k == "Database" && v.is_none()) {
+                    found.retain(|(k, _)| !k.starts_with("Database"));
+                }
+                for (k, v) in found {
+                    let Some(v) = v.filter(|v| !v.is_empty() && v.len() <= 200) else {
+                        continue;
+                    };
+                    if k == "Address" {
+                        e.title = format!("Nextcloud at {v}");
+                    }
+                    e.facts.push((k.into(), v));
                 }
             }
         }

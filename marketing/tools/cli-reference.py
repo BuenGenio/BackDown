@@ -87,6 +87,13 @@ EXAMPLES = {
                'backdown health --json > health.json'],
     'entities': ['backdown entities', 'backdown entities /media/old-drive --kind mail-store',
                  'backdown entities --refresh --json > entities.json'],
+    'people': ['backdown people', '# one person, by name, address or login', 'backdown people alice',
+               'backdown people --json > people.json'],
+    'databases': ['backdown databases', '# every copy of one database', 'backdown databases shop',
+                  'backdown databases --json > databases.json'],
+    'search': ['backdown search invoice 2021', '# a phrase, and only mail', 'backdown search "garden work" --kind message',
+               '# build the index now, then see what is indexed', 'backdown search --build', 'backdown search',
+               '# index the text in rows too, from the next build on', 'backdown search --depth full --build'],
     'overlaps': ['backdown overlaps', '# only what is at least 90% elsewhere', 'backdown overlaps --min 90%'],
     'report': ['backdown report > report.md', 'backdown report --html -o report.html'],
     'plan': ['backdown plan --to /media/archive/Archive', '# only one drive', 'backdown plan --to /media/archive/Archive --from /media/old-drive',
@@ -186,9 +193,28 @@ NOTES = {
               'comes back. No self-tests are run. Exits 2 when a connected drive is failing.',
     'entities': 'Kinds: `mail-store`, `maildir`, `mdbox`, `thunderbird`, `nextcloud`, `nextcloud-server`, `timemachine`, '
                 '`ios-backup`, `android-backup`, `system`, `home-mac`, `home-linux`, `home-windows`, `website`, `git`, '
-                '`sql-dump`, `disk-image`, `photos`, `music`, `videos`, `export`, `downloads`, `recovery`. Reading where '
+                '`sql-dump`, `mongo-dump`, `sqlite-db`, `mysql-data`, `postgres-data`, `mongo-data`, `disk-image`, '
+                '`photos`, `music`, `videos`, `export`, `downloads`, `recovery`. Reading where '
                 'things came from needs the drive connected: small files only (backup scripts, plists, git config, dump '
                 'headers).',
+    'people': 'A person is whoever has a mailbox in a mail server\'s store or a Maildir of their own, a Nextcloud '
+              'account, a home folder, an identity in a Thunderbird profile, or is the contact a website\'s configuration '
+              'names. The same address on two drives is one person: mailboxes, accounts and homes are gathered under '
+              'one name, with how much there is of each. Nothing is read from inside messages or files; names come from '
+              'paths, `prefs.js`, `configuration.php` and `.env` files.',
+    'search': 'Names are found by the search box and `find`; this searches inside things. Mail: every message\'s '
+              'subject, sender, recipients and date, from Dovecot\'s own index (`dovecot.index.cache`) where a mailbox '
+              'has one, else from the message files (headers only). Dumps and SQLite files: every table with its '
+              'columns (and which columns the database indexed for full text), and at `--depth full` the text in the '
+              'rows, text-typed columns only, up to 64 MiB a file. A SQLite full-text table (FTS3/4/5) is searched in '
+              'place, through SQLite itself. The index keeps no copy of the text, only where each hit is. The service '
+              'indexes after each recognition; `--build` does it now, skipping what is already indexed for the same scan.',
+    'databases': 'A database is gathered from every dump of it (`mysqldump`, phpMyAdmin, `pg_dump`, `pg_dumpall`, '
+                 'mongodump folders), its live data directory in a server backup (MySQL, MariaDB), SQLite files, and the '
+                 'sites and Nextcloud servers configured to use it (`wp-config.php`, `configuration.php`, `.env`, '
+                 '`config/config.php`). Dumps are named from their header when the drive is connected, else from the '
+                 'file name without its date. Compressed dumps say nothing in the header; the browser\'s viewer still '
+                 'streams them.',
     'report': 'The report reads the index as it is; run `backdown hash` (or `check`/`dupes`) first so every duplicate '
               'is counted.',
     'plan': 'A plan only proposes. The archive’s own drive is never a source. Nothing is copied until `backdown apply '
@@ -277,7 +303,11 @@ SEE_ALSO = {
     'daemon': [('The background service', '/docs/concepts/#the-daemon'), ('Look from your other devices', '/docs/guides/browse-without-restoring/#look-from-your-other-devices')],
     'open': [('Getting started', '/docs/getting-started/')],
     'service': [('The background service', '/docs/concepts/#the-daemon'), ('The service on each system', '/docs/guides/settings-and-licences/#the-service-on-each-system')],
-    'entities': [('Recognised things and provenance', '/docs/concepts/#recognised-things-and-provenance')],
+    'entities': [('Recognised things and provenance', '/docs/concepts/#recognised-things-and-provenance'),
+                 ('People and databases', '/docs/concepts/#people-and-databases')],
+    'people': [('People and databases', '/docs/concepts/#people-and-databases'), ('backdown entities', '/docs/cli/backdown-entities/')],
+    'databases': [('People and databases', '/docs/concepts/#people-and-databases'), ('backdown entities', '/docs/cli/backdown-entities/')],
+    'search': [('Searching inside things', '/docs/concepts/#searching-inside-things'), ('backdown databases', '/docs/cli/backdown-databases/')],
     'overlaps': [('File your old drives into one archive', '/docs/guides/file-into-an-archive/')],
     'report': [('Getting started', '/docs/getting-started/#produce-a-report')],
     'plan': [('File your old drives into one archive', '/docs/guides/file-into-an-archive/'), ('Merge mailboxes', '/docs/guides/merge-mailboxes/#in-a-filing-plan')],

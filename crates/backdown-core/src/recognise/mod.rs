@@ -30,10 +30,13 @@ mod markers;
 mod provenance;
 mod rules;
 
-use collect::*;
-use markers::*;
+pub(crate) use collect::*;
+pub(crate) use markers::*;
 pub use provenance::*;
 pub use rules::*;
+// what other modules and the CLI build on: dump names and headers
+pub use collect::dump_stem;
+pub use markers::is_sql_dump;
 
 /// A recognised thing: a folder (or, for disk images and dumps, a file) with what it is.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -109,6 +112,11 @@ pub const KINDS: &[(&str, &str)] = &[
     ("website", "Website"),
     ("git", "Git repository"),
     ("sql-dump", "Database dump"),
+    ("mongo-dump", "MongoDB dump"),
+    ("sqlite-db", "SQLite database"),
+    ("mysql-data", "MySQL or MariaDB data directory"),
+    ("postgres-data", "PostgreSQL data directory"),
+    ("mongo-data", "MongoDB data directory"),
     ("disk-image", "Disk image"),
     ("photos", "Photo library"),
     ("music", "Music library"),
@@ -167,6 +175,8 @@ pub fn recognise(
     // in a store, libraries inside backups, submodules inside repositories
     let swallows = |outer: &str, inner: &str| match outer {
         "timemachine" | "ios-backup" | "android-backup" => true,
+        // programs keep their own SQLite files everywhere: only a loose one is a thing of its own
+        _ if inner == "sqlite-db" => !matches!(outer, "sql-dump" | "mongo-dump"),
         "mail-store" | "mdbox" => inner == "maildir",
         "git" => inner == "git",
         "system" => matches!(
@@ -176,6 +186,7 @@ pub fn recognise(
         "nextcloud" => matches!(inner, "photos" | "music" | "videos" | "maildir" | "git"),
         "website" => matches!(inner, "photos" | "git" | "website"),
         "export" => matches!(inner, "photos" | "videos" | "music"),
+        "mongo-dump" => inner == "mongo-dump",
         _ => false,
     };
     let dir_prefix_of = |c: &Candidate| {

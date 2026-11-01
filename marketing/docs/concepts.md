@@ -120,6 +120,8 @@ Some are looked at more closely, still without reading anyone's messages:
 
 - **Dovecot mdbox and sdbox:** the mailboxes and their names and, with the drive connected, message counts from Dovecot's index headers and the oldest and newest message's dates.
 - **Thunderbird profiles:** which folders are copies of server mail (IMAP) and which are kept only here (Local Folders, POP), each mailbox file with its size and, with the drive connected, the accounts, addresses and servers from `prefs.js`.
+- **Databases:** dumps (`mysqldump` and MariaDB, phpMyAdmin, `pg_dump` and `pg_dumpall`, SQLite's `.dump`; a folder of three or more is one thing), mongodump folders (`dump/<database>/<collection>.bson`), SQLite files (by their first bytes when the drive is connected; a program's own `.db` files inside a profile or home folder don't count), and the data directories of MySQL or MariaDB, PostgreSQL and MongoDB servers, with the databases and tables in them. A dump's header names its engine, database and host.
+- **Websites and Nextcloud servers:** with the drive connected, `wp-config.php`, Joomla's `configuration.php`, Laravel's `.env` and Nextcloud's `config/config.php` say which database each uses, at which address it was served, and (Joomla, Laravel) its contact address.
 - **Time Machine:** HFS+ backup sets (`Backups.backupdb`), APFS backups from macOS 11 on (the dated snapshot folders), and network backup bundles, with the computer, the number of snapshots and the span. BackDown doesn't mount snapshots or open the bundles.
 
 Folders that programs can make again are flagged as *regenerable*: caches, thumbnails, `node_modules`, build output, virtual environments, trash and the like (Settings > Junk rules lists them, and takes your own). They still count: a drive is only safe to wipe when they have copies too. A filing plan can leave them out, and then they stay on the old drive when you free it up.
@@ -138,6 +140,27 @@ It also works out where things came from, and when, by reading small files on co
 | Sync markers | Kept in sync by Syncthing, Resilio Sync, Dropbox, Nextcloud or ownCloud |
 
 Only small files are read (scripts up to 256 KiB, plists up to 8 MiB), and only on drives that are connected. `backdown entities` lists what's recognised; the background service recognises each drive again after it's been scanned and hashed.
+
+## People and databases {#people-and-databases}
+
+Things are places; people and databases are what they're about, and they span drives. From what's recognised, BackDown gathers:
+
+- **People:** everyone with a mailbox in a mail server's store (`<domain>/<user>` becomes the address), a Maildir of their own, a Nextcloud account (the folder with `files/` in it; the server's `mail_domain` gives the address), a home folder in a system, an identity in a Thunderbird profile (`prefs.js`), or who a site's configuration names as its contact. The same address, or the same login on the same host, on any drive is one person: `backdown people` and the browser's What's here > People show each with their mailboxes (and how many messages), accounts (and how much), homes and identities, on which drives.
+- **Databases:** each one with every dump of it, its live data directory, its SQLite file, and the sites and servers configured to use it, under one name per engine family (a MariaDB dump and a MySQL data directory of `shop` are the same database): `backdown databases`, What's here > Databases.
+
+Nothing is read from inside messages or database files for this; only paths, dump headers and the configuration files above, and only on connected drives. Both are gathered right after recognition (so after every scan, in the background), stored per drive and merged when shown.
+
+## Searching inside things {#searching-inside-things}
+
+The search box finds files by name. Its third scope, **Inside**, and `backdown search` find what's in them: mail by subject, sender and recipient; database dumps and SQLite files by table, column and, at full depth, the text in their rows. The hits say where to open: the mailbox folder with the message selected, the dump, the file.
+
+BackDown reuses the indexes already there before reading anything itself:
+
+- **Dovecot's index.** A Dovecot mailbox keeps the headers it cached for IMAP clients in `dovecot.index.cache`. When that file matches the mailbox's `dovecot.index`, the subjects, senders, recipients and dates come from it and no message is opened; a mailbox of a million messages is a few hundred megabytes read once. Messages the cache doesn't cover are read from their files, headers only. Where a Dovecot full-text plugin left its own index (`fts-flatcurve`, `fts-xapian`, `fts-lucene`, Squat), BackDown notes it but can't read it.
+- **SQLite's full-text tables.** A SQLite file that holds FTS3, FTS4 or FTS5 tables is searched in place, through SQLite itself: the hit says how many rows match in which table.
+- **What a dump says it indexed.** A table's `FULLTEXT KEY` in a MySQL or MariaDB dump names the columns the database itself indexed for search; they're listed with the table. (The engine's own index files in a data directory aren't readable outside the server.)
+
+Depth is a setting (`backdown search --depth off|headers|full`, `headers` by default): headers and schemas are enough to find a message or a table and cost little; `full` indexes the text of rows (text-typed columns only, up to 64 MiB a file) and grows with the data. The index keeps no copy of the text, only where each hit is, so a hit shows the subject, who and when, not a snippet. The background service indexes after each recognition, only what was scanned since; `backdown search --build` does it now.
 
 ## Overlaps
 
