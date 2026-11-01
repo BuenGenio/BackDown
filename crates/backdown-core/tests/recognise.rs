@@ -689,7 +689,10 @@ fn overlaps_and_the_report() {
 // ---------- databases, and who and what things are about (subjects.rs)
 
 fn fopt<'a>(e: &'a Entity, k: &str) -> Option<&'a str> {
-    e.facts.iter().find(|(key, _)| key == k).map(|(_, v)| v.as_str())
+    e.facts
+        .iter()
+        .find(|(key, _)| key == k)
+        .map(|(_, v)| v.as_str())
 }
 
 fn sqlite_file(d: &Path, size: usize) {
@@ -732,7 +735,10 @@ fn data_drive(d: &Path) {
     );
     // mongodump: dump/<database>/<collection>.bson + .metadata.json
     for (db, coll) in [("app", "users"), ("app", "orders"), ("logs", "events")] {
-        write(&d.join(format!("backups/mongo/dump/{db}/{coll}.bson")), &[7u8; 4096]);
+        write(
+            &d.join(format!("backups/mongo/dump/{db}/{coll}.bson")),
+            &[7u8; 4096],
+        );
         write(
             &d.join(format!("backups/mongo/dump/{db}/{coll}.metadata.json")),
             b"{\"indexes\":[]}",
@@ -850,12 +856,20 @@ fn databases_and_who_things_are_about() {
     assert_eq!(fopt(jo, "Contact name"), Some("Alice Example"));
     assert_eq!(fopt(jo, "Site name"), Some("The Club"));
     let ncs = find(es, "nextcloud-server", "cloud/nextcloud");
-    assert_eq!(fopt(ncs, "Address"), Some("cloud.example.org"), "{:?}", ncs.facts);
+    assert_eq!(
+        fopt(ncs, "Address"),
+        Some("cloud.example.org"),
+        "{:?}",
+        ncs.facts
+    );
     assert_eq!(fopt(ncs, "Database engine"), Some("PostgreSQL"));
     assert_eq!(fopt(ncs, "Database"), Some("nextcloud"));
     assert_eq!(fopt(ncs, "Mail domain"), Some("example.org"));
     assert_eq!(ncs.title, "Nextcloud at cloud.example.org");
-    assert_eq!(fopt(find(es, "nextcloud", "cloud/data"), "Users"), Some("alice, bob"));
+    assert_eq!(
+        fopt(find(es, "nextcloud", "cloud/data"), "Users"),
+        Some("alice, bob")
+    );
 
     // ---- who and what they're about
     let s = subjects::compute(&db, &r, true).unwrap();
@@ -884,15 +898,19 @@ fn databases_and_who_things_are_about() {
     // (two Nextcloud data directories on this drive, both taken as the one server's)
     assert_eq!(
         roles(alice),
-        ["Mailbox", "Nextcloud account", "Nextcloud account", "Website contact"],
+        [
+            "Mailbox",
+            "Nextcloud account",
+            "Nextcloud account",
+            "Website contact"
+        ],
         "{:#?}",
         alice.mentions
     );
     assert!(
-        alice
-            .aliases
-            .iter()
-            .any(|a| a.kind == "login" && a.value == "alice" && a.scope.as_deref() == Some("cloud.example.org")),
+        alice.aliases.iter().any(|a| a.kind == "login"
+            && a.value == "alice"
+            && a.scope.as_deref() == Some("cloud.example.org")),
         "{:?}",
         alice.aliases
     );
@@ -912,7 +930,10 @@ fn databases_and_who_things_are_about() {
         alice.facts
     );
     let bob = get("person", "bob@example.org");
-    assert_eq!(roles(bob), ["Mailbox", "Nextcloud account", "Nextcloud account"]);
+    assert_eq!(
+        roles(bob),
+        ["Mailbox", "Nextcloud account", "Nextcloud account"]
+    );
     assert_eq!(roles(get("person", "carol@example.net")), ["Mailbox"]);
     // the shop: two dumps, its live data, and the site that uses it, all one database
     let shop = get("database", "shop");
@@ -937,7 +958,11 @@ fn databases_and_who_things_are_about() {
     assert_eq!(roles(get("database", "nextcloud")), ["Used by"]);
     let app = get("database", "app");
     assert_eq!(roles(app), ["Dump"]);
-    assert!(app.mentions[0].detail.starts_with("MongoDB, 2 collections"), "{}", app.mentions[0].detail);
+    assert!(
+        app.mentions[0].detail.starts_with("MongoDB, 2 collections"),
+        "{}",
+        app.mentions[0].detail
+    );
     assert_eq!(roles(get("database", "notes.sqlite")), ["Database file"]);
 
     // stored per root, read back merged

@@ -723,10 +723,11 @@ pub(super) fn rules(db: &Db, root: &[u8], m: &Markers) -> Result<Vec<Candidate>>
     }
     // SQLite files: the largest first, and no more than a drive-full of opens
     let mut sqlite = m.sqlite.clone();
-    sqlite.sort_by(|a, b| b.1.cmp(&a.1));
+    sqlite.sort_by_key(|s| std::cmp::Reverse(s.1));
     for (path, size, certain) in sqlite.into_iter().take(2000) {
         // with the drive here, the magic bytes decide; without it, the name does
-        let magic = first_bytes(&paths::from_bytes(&path), 16).map(|b| b.starts_with(b"SQLite format 3\0"));
+        let magic =
+            first_bytes(&paths::from_bytes(&path), 16).map(|b| b.starts_with(b"SQLite format 3\0"));
         let confidence = match (magic, certain) {
             (Some(false), _) => continue,
             (Some(true), _) => 0.95,
@@ -754,7 +755,12 @@ pub(super) fn rules(db: &Db, root: &[u8], m: &Markers) -> Result<Vec<Candidate>>
             .filter(|n| {
                 !matches!(
                     n.to_ascii_lowercase().as_str(),
-                    "mysql" | "performance_schema" | "sys" | "information_schema" | "#innodb_redo" | "#innodb_temp"
+                    "mysql"
+                        | "performance_schema"
+                        | "sys"
+                        | "information_schema"
+                        | "#innodb_redo"
+                        | "#innodb_temp"
                 ) && !n.starts_with('#')
                     && !n.starts_with('.')
             })
@@ -800,11 +806,7 @@ pub(super) fn rules(db: &Db, root: &[u8], m: &Markers) -> Result<Vec<Candidate>>
                     .filter(|n| n.bytes().all(|b| b.is_ascii_digit()))
                     .count();
                 let mut c = cand(dir.clone(), "postgres-data", 0.95);
-                c.title = format!(
-                    "{} database{}",
-                    dbs,
-                    if dbs == 1 { "" } else { "s" }
-                );
+                c.title = format!("{} database{}", dbs, if dbs == 1 { "" } else { "s" });
                 c.facts.push(("Engine".into(), "PostgreSQL".into()));
                 c.facts.push(("Databases".into(), dbs.to_string()));
                 out.push(c);
@@ -813,7 +815,9 @@ pub(super) fn rules(db: &Db, root: &[u8], m: &Markers) -> Result<Vec<Candidate>>
     }
     // MongoDB: WiredTiger's own files and the catalogue
     for (dir, files) in &m.files {
-        if files.contains("wiredtiger") && (files.contains("storage.bson") || files.contains("_mdb_catalog.wt")) {
+        if files.contains("wiredtiger")
+            && (files.contains("storage.bson") || files.contains("_mdb_catalog.wt"))
+        {
             let mut c = cand(dir.clone(), "mongo-data", 0.95);
             c.title = "MongoDB data (WiredTiger)".into();
             c.facts.push(("Engine".into(), "MongoDB".into()));

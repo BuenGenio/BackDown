@@ -555,8 +555,10 @@ fn handle(ctx: &Ctx, req: Request) {
             };
             match (set, &ctx.daemon) {
                 (Some(e), _) => json_resp(&json!({ "error": e.to_string() })).with_status_code(400),
-                (None, None) => json_resp(&json!({ "error": "no daemon: run `backdown search --build` in a terminal" }))
-                    .with_status_code(409),
+                (None, None) => json_resp(
+                    &json!({ "error": "no daemon: run `backdown search --build` in a terminal" }),
+                )
+                .with_status_code(409),
                 (None, Some(d)) => json_resp(
                     &json!({ "ok": true, "job": d.enqueue("content", None, "requested", Default::default()) }),
                 ),

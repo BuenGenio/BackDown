@@ -73,17 +73,25 @@ fn decode_offset(raw_be: [u8; 4]) -> u32 {
     if v & 0x8080_8080 != 0x8080_8080 {
         return 0;
     }
-    ((v & 0x7f) | ((v & 0x7f00) >> 8 << 7) | ((v & 0x7f_0000) >> 16 << 14) | ((v & 0x7f00_0000) >> 24 << 21)) << 2
+    ((v & 0x7f)
+        | ((v & 0x7f00) >> 8 << 7)
+        | ((v & 0x7f_0000) >> 16 << 14)
+        | ((v & 0x7f00_0000) >> 24 << 21))
+        << 2
 }
 
 /// `mail_index_uint32_to_offset`, for tests.
 #[cfg(test)]
 fn encode_offset(offset: u32) -> [u8; 4] {
     let o = offset >> 2;
-    let v = 0x80 | (o & 0x7f)
-        | 0x8000 | ((o & 0x3f80) >> 7 << 8)
-        | 0x80_0000 | ((o & 0x1f_c000) >> 14 << 16)
-        | 0x8000_0000 | ((o & 0x0fe0_0000) >> 21 << 24);
+    let v = 0x80
+        | (o & 0x7f)
+        | 0x8000
+        | ((o & 0x3f80) >> 7 << 8)
+        | 0x80_0000
+        | ((o & 0x1f_c000) >> 14 << 16)
+        | 0x8000_0000
+        | ((o & 0x0fe0_0000) >> 21 << 24);
     v.to_be_bytes()
 }
 
@@ -118,7 +126,11 @@ fn read_index(path: &Path) -> Option<Index> {
     let record_size = endian.u32(&b, 8)? as usize;
     let indexid = endian.u32(&b, 16)?;
     let messages = endian.u32(&b, 32)? as usize;
-    if base_header_size < 120 || header_size < base_header_size || header_size > b.len() || record_size < 5 {
+    if base_header_size < 120
+        || header_size < base_header_size
+        || header_size > b.len()
+        || record_size < 5
+    {
         return None;
     }
     // extension headers: fixed part, name, then data at the next 8-byte boundary
@@ -270,7 +282,7 @@ pub fn cached_headers(mailbox: &Path, wanted: &[&str]) -> Option<Cached> {
         let mut at = off as usize;
         let mut hops = 0;
         while at != 0 {
-            if at % 4 != 0 || at + 8 > c.len() || hops > 64 {
+            if !at.is_multiple_of(4) || at + 8 > c.len() || hops > 64 {
                 break;
             }
             let prev = e.u32(&c, at)? as usize;
@@ -398,8 +410,11 @@ mod tests {
         b
     }
 
+    /// Each record: a message's uid and its cached fields (field index, value).
+    type Records = [(u32, Vec<(u32, Vec<u8>)>)];
+
     /// A cache with fields [hdr.subject (var), flags (fixed 4), hdr.from (var)] and records.
-    fn cache(indexid: u32, file_seq: u32, records: &mut Vec<(u32, Vec<(u32, Vec<u8>)>)>) -> (Vec<u8>, Vec<u32>) {
+    fn cache(indexid: u32, file_seq: u32, records: &mut Records) -> (Vec<u8>, Vec<u32>) {
         let mut c = vec![0u8; 32];
         c[0] = 1;
         c[1] = 8;
@@ -477,7 +492,14 @@ mod tests {
         // message 1: subject + from in one record; message 2: subject in an older record chained
         // behind a newer one holding from; message 3: nothing cached
         let mut recs = vec![
-            (0, vec![(0, hdr(&[3], "Subject: hello there")), (1, le(7).to_vec()), (2, hdr(&[1], "From: Alice <alice@example.org>"))]),
+            (
+                0,
+                vec![
+                    (0, hdr(&[3], "Subject: hello there")),
+                    (1, le(7).to_vec()),
+                    (2, hdr(&[1], "From: Alice <alice@example.org>")),
+                ],
+            ),
             (0, vec![(0, hdr(&[2], "Subject: a long\n subject line"))]),
         ];
         let (mut c, offs) = cache(42, 7, &mut recs);
@@ -510,12 +532,18 @@ mod tests {
         assert_eq!(got.messages[0].uid, 10);
         assert_eq!(
             got.messages[0].headers,
-            [("subject".to_string(), "hello there".to_string()), ("from".to_string(), "Alice <alice@example.org>".to_string())]
+            [
+                ("subject".to_string(), "hello there".to_string()),
+                ("from".to_string(), "Alice <alice@example.org>".to_string())
+            ]
         );
         assert_eq!(got.messages[1].uid, 11);
         assert_eq!(
             got.messages[1].headers,
-            [("from".to_string(), "bob@example.org".to_string()), ("subject".to_string(), "a long subject line".to_string())]
+            [
+                ("from".to_string(), "bob@example.org".to_string()),
+                ("subject".to_string(), "a long subject line".to_string())
+            ]
         );
         // only subjects, when that's all that's wanted
         let got = cached_headers(mb, &["subject"]).unwrap();

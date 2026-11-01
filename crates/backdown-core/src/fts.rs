@@ -101,10 +101,9 @@ impl<'a> Writer<'a> {
             d.scan
         ])?;
         let id = self.db.conn.last_insert_rowid();
-        let mut fts = self
-            .db
-            .conn
-            .prepare_cached("INSERT INTO content_fts(rowid, title, who, body) VALUES (?1, ?2, ?3, ?4)")?;
+        let mut fts = self.db.conn.prepare_cached(
+            "INSERT INTO content_fts(rowid, title, who, body) VALUES (?1, ?2, ?3, ?4)",
+        )?;
         fts.execute(params![id, d.title, d.who, d.body])?;
         self.added += 1;
         Ok(id)
@@ -154,7 +153,9 @@ pub fn forget(db: &Db, root_id: i64, entity_key: Option<&str>) -> Result<u64> {
         let mut del_fts = db
             .conn
             .prepare_cached("DELETE FROM content_fts WHERE rowid = ?1")?;
-        let mut del = db.conn.prepare_cached("DELETE FROM content_docs WHERE id = ?1")?;
+        let mut del = db
+            .conn
+            .prepare_cached("DELETE FROM content_docs WHERE id = ?1")?;
         for id in &ids {
             del_fts.execute(params![id])?;
             del.execute(params![id])?;
@@ -230,7 +231,14 @@ pub fn query_of(q: &str) -> String {
         let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
         let word: String = rest[..end]
             .chars()
-            .filter(|c| c.is_alphanumeric() || *c == '@' || *c == '.' || *c == '-' || *c == '_' || *c == '\'')
+            .filter(|c| {
+                c.is_alphanumeric()
+                    || *c == '@'
+                    || *c == '.'
+                    || *c == '-'
+                    || *c == '_'
+                    || *c == '\''
+            })
             .collect();
         // an address or a dotted name is several tokens to FTS5: a phrase keeps them together
         let tokens: Vec<&str> = word
@@ -240,10 +248,7 @@ pub fn query_of(q: &str) -> String {
         match tokens.len() {
             0 => {}
             1 => out.push(format!("\"{}\"*", tokens[0])),
-            _ => out.push(format!(
-                "\"{}\"*",
-                tokens.join(" ")
-            )),
+            _ => out.push(format!("\"{}\"*", tokens.join(" "))),
         }
         rest = rest[end..].trim_start();
     }
@@ -284,7 +289,9 @@ pub fn search(db: &Db, q: &Query) -> Result<Found> {
             Ok(Hit {
                 id: r.get(0)?,
                 root_id: r.get(1)?,
-                root: paths::from_bytes(&r.get::<_, Vec<u8>>(2)?).display().to_string(),
+                root: paths::from_bytes(&r.get::<_, Vec<u8>>(2)?)
+                    .display()
+                    .to_string(),
                 entity_key: r.get(3)?,
                 kind: r.get(4)?,
                 path: r.get(5)?,
@@ -338,7 +345,9 @@ pub fn coverage(db: &Db) -> Result<Vec<Coverage>> {
     let rows = stmt.query_map([], |r| {
         Ok(Coverage {
             root_id: r.get(0)?,
-            root: paths::from_bytes(&r.get::<_, Vec<u8>>(1)?).display().to_string(),
+            root: paths::from_bytes(&r.get::<_, Vec<u8>>(1)?)
+                .display()
+                .to_string(),
             kind: r.get(2)?,
             source: r.get(3)?,
             docs: r.get::<_, i64>(4)? as u64,
@@ -356,7 +365,10 @@ mod tests {
     fn words_become_a_safe_query() {
         assert_eq!(query_of("hello"), "\"hello\"*");
         assert_eq!(query_of("hello world"), "\"hello\"* \"world\"*");
-        assert_eq!(query_of("\"exact phrase\" more"), "\"exact phrase\" \"more\"*");
+        assert_eq!(
+            query_of("\"exact phrase\" more"),
+            "\"exact phrase\" \"more\"*"
+        );
         assert_eq!(query_of("alice@example.org"), "\"alice example org\"*");
         assert_eq!(query_of("AND OR NOT ( ) *"), "\"AND\"* \"OR\"* \"NOT\"*");
         assert_eq!(query_of("   "), "");

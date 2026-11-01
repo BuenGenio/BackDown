@@ -186,7 +186,10 @@ pub fn subjects(db: &Db, kind: &str, q: Option<&str>, json: bool) -> Result<Exit
             subjects::refresh(db, &r, true)?;
         }
     }
-    if ids.iter().any(|&id| recognise::load(db, id).ok().flatten().is_none()) {
+    if ids
+        .iter()
+        .any(|&id| recognise::load(db, id).ok().flatten().is_none())
+    {
         // never recognised: do it now, which gathers subjects too
         recognised(db, &ids, false, true)?;
     }
@@ -245,7 +248,11 @@ pub fn subjects(db: &Db, kind: &str, q: Option<&str>, json: bool) -> Result<Exit
         println!(
             "({} drive{} scanned again since: run `backdown entities --refresh` to update)",
             all.stale.len(),
-            if all.stale.len() == 1 { " was" } else { "s were" }
+            if all.stale.len() == 1 {
+                " was"
+            } else {
+                "s were"
+            }
         );
     }
     Ok(ExitCode::SUCCESS)

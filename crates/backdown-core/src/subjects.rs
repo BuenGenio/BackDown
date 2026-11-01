@@ -461,7 +461,9 @@ fn people(ctx: &Ctx) -> Result<Vec<Subject>> {
                     })
                     .or(nc_servers.first());
                 let address = server.and_then(|s| fact(s, "Address")).map(str::to_string);
-                let mail_domain = server.and_then(|s| fact(s, "Mail domain")).map(str::to_string);
+                let mail_domain = server
+                    .and_then(|s| fact(s, "Mail domain"))
+                    .map(str::to_string);
                 for u in recognise::children(db, &pb)? {
                     if u.starts_with("appdata_")
                         || u.starts_with("updater-")
@@ -509,7 +511,13 @@ fn people(ctx: &Ctx) -> Result<Vec<Subject>> {
                 if user.is_empty()
                     || matches!(
                         user.to_ascii_lowercase().as_str(),
-                        "shared" | "public" | "default" | "default user" | "all users" | "guest" | "root"
+                        "shared"
+                            | "public"
+                            | "default"
+                            | "default user"
+                            | "all users"
+                            | "guest"
+                            | "root"
                     )
                 {
                     continue;
@@ -525,7 +533,12 @@ fn people(ctx: &Ctx) -> Result<Vec<Subject>> {
                     None => format!("{os} home folder"),
                 };
                 let aliases = vec![Alias::new("login", &user, host)];
-                out.push(one("person", aliases, vec![], at_entity(ctx, e, "Home folder", detail)));
+                out.push(one(
+                    "person",
+                    aliases,
+                    vec![],
+                    at_entity(ctx, e, "Home folder", detail),
+                ));
             }
             "website" => {
                 if let Some(c) = fact(e, "Contact").filter(|c| is_email(c)) {
@@ -606,7 +619,7 @@ fn family_label(f: &str) -> &'static str {
 /// "shop_2021-03-04", "backup-shop-20210304T0300", "shop.2021.03.04" → "shop"
 pub fn name_from_file(stem: &str) -> Option<String> {
     let parts: Vec<&str> = stem
-        .split(|c: char| c == '_' || c == '-' || c == '.' || c == ' ')
+        .split(['_', '-', '.', ' '])
         .filter(|w| !w.is_empty())
         .filter(|w| {
             // dates, times and stamps are all digits (with T for times); "backup" says nothing
@@ -637,7 +650,15 @@ fn databases(ctx: &Ctx) -> Result<Vec<Subject>> {
                 let Some(name) = name else { continue };
                 let host = fact(e, "Host").map(str::to_string);
                 let dumped = fact(e, "Dumped").map(str::to_string);
-                out.push(dump_subject(ctx, e, at_entity(ctx, e, "Dump", String::new()), &name, engine, host, dumped));
+                out.push(dump_subject(
+                    ctx,
+                    e,
+                    at_entity(ctx, e, "Dump", String::new()),
+                    &name,
+                    engine,
+                    host,
+                    dumped,
+                ));
             }
             // a folder of dumps: each file is a dump of something
             "sql-dump" => {
@@ -677,7 +698,10 @@ fn databases(ctx: &Ctx) -> Result<Vec<Subject>> {
             // dump/<database>/<collection>.bson, or one database's folder
             "mongo-dump" => {
                 let own = files_in(db, &pb)?;
-                let dbs: Vec<(Vec<u8>, String)> = if own.iter().any(|(n, _, _)| n.ends_with(".bson") || n.ends_with(".bson.gz")) {
+                let dbs: Vec<(Vec<u8>, String)> = if own
+                    .iter()
+                    .any(|(n, _, _)| n.ends_with(".bson") || n.ends_with(".bson.gz"))
+                {
                     vec![(pb.clone(), recognise::name_of(&pb))]
                 } else {
                     recognise::children(db, &pb)?
@@ -706,7 +730,9 @@ fn databases(ctx: &Ctx) -> Result<Vec<Subject>> {
                             "MongoDB, {} collection{}{}",
                             colls.len(),
                             if colls.len() == 1 { "" } else { "s" },
-                            newest.map(|t| format!(", {}", fmt::day(t))).unwrap_or_default()
+                            newest
+                                .map(|t| format!(", {}", fmt::day(t)))
+                                .unwrap_or_default()
                         ),
                     );
                     m.files = colls.len() as u64;
@@ -738,7 +764,11 @@ fn databases(ctx: &Ctx) -> Result<Vec<Subject>> {
                     let files = files_in(db, &cp)?;
                     let (mut frm, mut data, mut bytes) = (0u64, 0u64, 0u64);
                     for (n, s, _) in &files {
-                        match n.rsplit_once('.').map(|(_, x)| x.to_ascii_lowercase()).as_deref() {
+                        match n
+                            .rsplit_once('.')
+                            .map(|(_, x)| x.to_ascii_lowercase())
+                            .as_deref()
+                        {
                             Some("frm") => frm += 1,
                             Some("ibd" | "myd" | "mad") => data += 1,
                             _ => continue,
@@ -776,14 +806,20 @@ fn databases(ctx: &Ctx) -> Result<Vec<Subject>> {
                 let m = at_entity(ctx, e, "Database file", fmt::bytes(e.bytes));
                 out.push(one(
                     "database",
-                    vec![Alias::new("database", name.to_lowercase(), Some("sqlite".into()))],
+                    vec![Alias::new(
+                        "database",
+                        name.to_lowercase(),
+                        Some("sqlite".into()),
+                    )],
                     vec![("Engine", "SQLite".into())],
                     m,
                 ));
             }
             // what uses a database, from its configuration
             "website" | "nextcloud-server" => {
-                let Some(name) = fact(e, "Database") else { continue };
+                let Some(name) = fact(e, "Database") else {
+                    continue;
+                };
                 let engine = fact(e, "Database engine").unwrap_or("SQL").to_string();
                 let fam = family(&engine);
                 let mut facts = vec![("Engine", engine.clone())];
@@ -923,7 +959,8 @@ fn name_and_key(s: &mut Subject) {
         "login" => 1,
         _ => 2,
     };
-    s.aliases.sort_by(|a, b| order(a).cmp(&order(b)).then(a.id().cmp(&b.id())));
+    s.aliases
+        .sort_by(|a, b| order(a).cmp(&order(b)).then(a.id().cmp(&b.id())));
     s.aliases.dedup_by(|a, b| a.id() == b.id());
     let first = s.aliases.iter().find(|a| a.identifies());
     s.key = match first {
@@ -963,7 +1000,10 @@ fn summarise(s: &mut Subject) {
         .filter(|(k, _)| !derived.contains(&k.as_str()) || k == "Engine")
         .cloned()
         .collect();
-    let engine = kept.iter().position(|(k, _)| k == "Engine").map(|i| kept.remove(i).1);
+    let engine = kept
+        .iter()
+        .position(|(k, _)| k == "Engine")
+        .map(|i| kept.remove(i).1);
     let mut facts: Vec<(String, String)> = Vec::new();
     if s.kind == "person" {
         let emails: Vec<String> = s
@@ -1064,11 +1104,7 @@ fn summarise(s: &mut Subject) {
         }
         if let (Some(a), Some(b)) = (oldest, newest) {
             let (ya, yb) = (year(a), year(b));
-            parts.push(if ya == yb {
-                ya
-            } else {
-                format!("{ya}–{yb}")
-            });
+            parts.push(if ya == yb { ya } else { format!("{ya}–{yb}") });
         }
         facts.push((plural.into(), parts.join(", ")));
     }
@@ -1081,11 +1117,7 @@ fn summarise(s: &mut Subject) {
 }
 
 fn year(t: i64) -> String {
-    fmt::day(t)
-        .rsplit(' ')
-        .next()
-        .unwrap_or("")
-        .to_string()
+    fmt::day(t).rsplit(' ').next().unwrap_or("").to_string()
 }
 
 fn list(items: &[String], max: usize) -> String {
@@ -1189,11 +1221,17 @@ mod tests {
     #[test]
     fn names_from_dump_files() {
         assert_eq!(name_from_file("shop_2021-03-04").as_deref(), Some("shop"));
-        assert_eq!(name_from_file("backup-shop-20210304T0300").as_deref(), Some("shop"));
+        assert_eq!(
+            name_from_file("backup-shop-20210304T0300").as_deref(),
+            Some("shop")
+        );
         assert_eq!(name_from_file("shop.2021.03.04").as_deref(), Some("shop"));
         assert_eq!(name_from_file("wp_prod").as_deref(), Some("wp_prod"));
         assert_eq!(name_from_file("2021-03-04"), None);
-        assert_eq!(name_from_file("all-databases-2020").as_deref(), Some("all_databases"));
+        assert_eq!(
+            name_from_file("all-databases-2020").as_deref(),
+            Some("all_databases")
+        );
     }
 
     #[test]
@@ -1202,7 +1240,10 @@ mod tests {
             split_identity("Alice Example <alice@example.org>"),
             (Some("Alice Example".into()), "alice@example.org".into())
         );
-        assert_eq!(split_identity("bob@example.org"), (None, "bob@example.org".into()));
+        assert_eq!(
+            split_identity("bob@example.org"),
+            (None, "bob@example.org".into())
+        );
         assert!(is_email("a@b.co"));
         assert!(!is_email("alice"));
         assert!(!is_email("a@b"));
@@ -1259,24 +1300,61 @@ mod tests {
             "Mail identity",
             1,
         );
-        let d = subj("person", vec![Alias::new("email", "bob@example.org", None)], "Mailbox", 1);
+        let d = subj(
+            "person",
+            vec![Alias::new("email", "bob@example.org", None)],
+            "Mailbox",
+            1,
+        );
         let merged = merge(vec![a, b, c, d]);
         assert_eq!(merged.len(), 2, "{merged:#?}");
         let alice = &merged[0];
         assert_eq!(alice.name, "Alice Example");
         assert_eq!(alice.key, "person:email:alice@example.org:");
         assert_eq!(alice.mentions.len(), 3);
-        assert!(alice.facts.iter().any(|(k, v)| k == "Mailboxes" && v.starts_with("1, 10 messages")), "{:?}", alice.facts);
+        assert!(
+            alice
+                .facts
+                .iter()
+                .any(|(k, v)| k == "Mailboxes" && v.starts_with("1, 10 messages")),
+            "{:?}",
+            alice.facts
+        );
         assert!(alice.facts.iter().any(|(k, v)| k == "Drives" && v == "2"));
         assert_eq!(merged[1].name, "bob@example.org");
         // a name alone never merges two people
-        let x = subj("person", vec![Alias::new("name", "J Smith", None)], "Home folder", 1);
-        let y = subj("person", vec![Alias::new("name", "J Smith", None)], "Home folder", 2);
+        let x = subj(
+            "person",
+            vec![Alias::new("name", "J Smith", None)],
+            "Home folder",
+            1,
+        );
+        let y = subj(
+            "person",
+            vec![Alias::new("name", "J Smith", None)],
+            "Home folder",
+            2,
+        );
         assert_eq!(merge(vec![x, y]).len(), 2);
         // databases: the same name in the same family, whatever said it
-        let d1 = subj("database", vec![Alias::new("database", "shop", Some("mysql".into()))], "Dump", 1);
-        let d2 = subj("database", vec![Alias::new("database", "Shop", Some("mysql".into()))], "Used by", 2);
-        let d3 = subj("database", vec![Alias::new("database", "shop", Some("postgresql".into()))], "Dump", 2);
+        let d1 = subj(
+            "database",
+            vec![Alias::new("database", "shop", Some("mysql".into()))],
+            "Dump",
+            1,
+        );
+        let d2 = subj(
+            "database",
+            vec![Alias::new("database", "Shop", Some("mysql".into()))],
+            "Used by",
+            2,
+        );
+        let d3 = subj(
+            "database",
+            vec![Alias::new("database", "shop", Some("postgresql".into()))],
+            "Dump",
+            2,
+        );
         let m = merge(vec![d1, d2, d3]);
         assert_eq!(m.len(), 2, "{m:#?}");
         assert_eq!(m[0].mentions.len(), 2);

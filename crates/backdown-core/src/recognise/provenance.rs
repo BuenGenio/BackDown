@@ -389,7 +389,11 @@ pub fn sniff_dump(path: &Path) -> Option<DumpHead> {
         h.tool = Some("pg_dump".into());
         return Some(h);
     }
-    if head.starts_with(&[0x1f, 0x8b]) || head.starts_with(b"BZh") || head.starts_with(&[0xfd, b'7', b'z', b'X', b'Z']) || head.starts_with(&[0x28, 0xb5, 0x2f, 0xfd]) {
+    if head.starts_with(&[0x1f, 0x8b])
+        || head.starts_with(b"BZh")
+        || head.starts_with(&[0xfd, b'7', b'z', b'X', b'Z'])
+        || head.starts_with(&[0x28, 0xb5, 0x2f, 0xfd])
+    {
         return Some(h); // compressed: nothing to read here
     }
     let t = String::from_utf8_lossy(head);
@@ -429,7 +433,10 @@ pub fn sniff_dump(path: &Path) -> Option<DumpHead> {
                     None => (r, None),
                 };
                 let host = host.trim();
-                let host = host.rsplit_once(':').filter(|(_, p)| p.bytes().all(|b| b.is_ascii_digit())).map_or(host, |(a, _)| a);
+                let host = host
+                    .rsplit_once(':')
+                    .filter(|(_, p)| p.bytes().all(|b| b.is_ascii_digit()))
+                    .map_or(host, |(a, _)| a);
                 if !host.is_empty() && h.host.is_none() {
                     h.host = Some(host.to_string());
                 }
@@ -446,13 +453,19 @@ pub fn sniff_dump(path: &Path) -> Option<DumpHead> {
                 if !d.is_empty() {
                     h.database.get_or_insert(d);
                 }
-            } else if let Some(r) = rest.strip_prefix("Name:").filter(|r| r.contains("Type: DATABASE")) {
+            } else if let Some(r) = rest
+                .strip_prefix("Name:")
+                .filter(|r| r.contains("Type: DATABASE"))
+            {
                 let d = unquoted(r.split(';').next().unwrap_or(""));
                 if !d.is_empty() {
                     h.database.get_or_insert(d);
                 }
             }
-        } else if let Some(r) = l.strip_prefix("\\connect ").or_else(|| l.strip_prefix("\\c ")) {
+        } else if let Some(r) = l
+            .strip_prefix("\\connect ")
+            .or_else(|| l.strip_prefix("\\c "))
+        {
             let d = unquoted(r.split_whitespace().next().unwrap_or(""));
             if !d.is_empty() && d != "postgres" && d != "template1" {
                 h.database.get_or_insert(d);
@@ -462,20 +475,28 @@ pub fn sniff_dump(path: &Path) -> Option<DumpHead> {
             if !d.is_empty() {
                 h.database.get_or_insert(d);
             }
-        } else if l.starts_with("CREATE DATABASE") {
+        } else if let Some(after) = l.strip_prefix("CREATE DATABASE") {
             // CREATE DATABASE /*!32312 IF NOT EXISTS*/ `shop` /*!40100 DEFAULT CHARACTER SET utf8 */;
-            let after = l["CREATE DATABASE".len()..].to_string();
+            let after = after.to_string();
             let after = match after.find("*/") {
                 Some(i) if after.trim_start().starts_with("/*") => after[i + 2..].to_string(),
                 _ => after,
             };
-            let d = unquoted(after.split(|c: char| c.is_whitespace() || c == '/' || c == ';').find(|w| !w.is_empty() && !w.eq_ignore_ascii_case("IF") ).unwrap_or(""));
+            let d = unquoted(
+                after
+                    .split(|c: char| c.is_whitespace() || c == '/' || c == ';')
+                    .find(|w| !w.is_empty() && !w.eq_ignore_ascii_case("IF"))
+                    .unwrap_or(""),
+            );
             if !d.is_empty() {
                 h.database.get_or_insert(d);
             }
         }
     }
-    if h.database.as_deref().is_some_and(|d| d.eq_ignore_ascii_case("IF") || d.len() > 128) {
+    if h.database
+        .as_deref()
+        .is_some_and(|d| d.eq_ignore_ascii_case("IF") || d.len() > 128)
+    {
         h.database = None;
     }
     h.date = dump_date(&mut f);
@@ -503,7 +524,10 @@ fn host_of(url: &str) -> Option<String> {
     let s = s.split_once("://").map_or(s, |(_, r)| r);
     let s = s.split(['/', '?', '#']).next()?;
     let s = s.rsplit_once('@').map_or(s, |(_, r)| r);
-    let s = s.rsplit_once(':').filter(|(_, p)| p.bytes().all(|b| b.is_ascii_digit())).map_or(s, |(a, _)| a);
+    let s = s
+        .rsplit_once(':')
+        .filter(|(_, p)| p.bytes().all(|b| b.is_ascii_digit()))
+        .map_or(s, |(a, _)| a);
     (!s.is_empty() && s != "localhost").then(|| s.to_string())
 }
 
@@ -546,10 +570,10 @@ fn php_define(text: &str, name: &str) -> Option<String> {
             return (!v.is_empty()).then_some(v);
         }
         let block = &after[..after.len().min(2048)];
-        if block.starts_with("array") || block.starts_with('[') {
-            if let Some(v) = php_string(block) {
-                return (!v.is_empty()).then_some(v);
-            }
+        if (block.starts_with("array") || block.starts_with('['))
+            && let Some(v) = php_string(block)
+        {
+            return (!v.is_empty()).then_some(v);
         }
     }
     None
@@ -567,7 +591,7 @@ fn php_prop(text: &str, name: &str) -> Option<String> {
             continue; // $dbtype when asked for $db
         }
         let rest = &text[at..];
-        let stmt = &rest[..rest.find(';').map_or(rest.len(), |n| n)];
+        let stmt = &rest[..rest.find(';').unwrap_or(rest.len())];
         if !stmt.contains('=') {
             continue;
         }
@@ -594,7 +618,6 @@ fn env_value(text: &str, key: &str) -> Option<String> {
         (!v.is_empty()).then_some(v)
     })
 }
-
 
 pub(super) fn dump_date(f: &mut std::fs::File) -> Option<i64> {
     use std::io::{Read, Seek, SeekFrom};

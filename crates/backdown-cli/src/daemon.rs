@@ -839,7 +839,8 @@ fn worker(d: &Daemon) {
             // and have other machines hash what now matches a file here by sample (remote/)
             crate::remote::after_hash(d, &db);
         }
-        if ok && job.kind == "entities" && crate::content::depth(&db) != crate::content::Depth::Off {
+        if ok && job.kind == "entities" && crate::content::depth(&db) != crate::content::Depth::Off
+        {
             // then index what's inside the things just recognised (mail headers, dump schemas…)
             d.enqueue("content", None, job.reason, JobOpts::default());
         }
@@ -1474,7 +1475,11 @@ fn run_entities(d: &Daemon, db: &Db, job: &Job) -> Result<String> {
         // then who and what those things are about (people, databases)
         d.progress(
             job.id,
-            format!("drive {} of {}: gathering people and databases", i + 1, ids.len()),
+            format!(
+                "drive {} of {}: gathering people and databases",
+                i + 1,
+                ids.len()
+            ),
             Counts {
                 stage: "recognising",
                 files: i as u64,
@@ -1511,7 +1516,11 @@ fn run_content(d: &Daemon, db: &Db, job: &Job, stop: &Arc<AtomicBool>) -> Result
             },
         );
     })?;
-    let sources: Vec<String> = rep.by_source.iter().map(|(k, v)| format!("{} {k}", fmt::count(*v))).collect();
+    let sources: Vec<String> = rep
+        .by_source
+        .iter()
+        .map(|(k, v)| format!("{} {k}", fmt::count(*v)))
+        .collect();
     Ok(if rep.stopped {
         format!("stopped after {} documents", fmt::count(rep.docs))
     } else if rep.docs == 0 {

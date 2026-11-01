@@ -12,10 +12,12 @@ use super::*;
 /// The base of a dump's file name: "shop_2021-03-04.sql.gz" → "shop_2021-03-04".
 pub fn dump_stem(name: &str) -> &str {
     let lower = name.to_ascii_lowercase();
-    let cut = [".sql.gz", ".sql.bz2", ".sql.xz", ".sql.zst", ".sql", ".dump", ".pgdump"]
-        .iter()
-        .find(|s| lower.ends_with(*s))
-        .map_or(0, |s| s.len());
+    let cut = [
+        ".sql.gz", ".sql.bz2", ".sql.xz", ".sql.zst", ".sql", ".dump", ".pgdump",
+    ]
+    .iter()
+    .find(|s| lower.ends_with(*s))
+    .map_or(0, |s| s.len());
     &name[..name.len() - cut]
 }
 

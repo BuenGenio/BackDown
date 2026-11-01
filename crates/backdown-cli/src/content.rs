@@ -161,7 +161,9 @@ pub fn build(
     let t0 = Instant::now();
     let mut report = Report::default();
     if depth == Depth::Off {
-        report.notes.push("content indexing is off (Settings, or `backdown search --depth headers`)".into());
+        report.notes.push(
+            "content indexing is off (Settings, or `backdown search --depth headers`)".into(),
+        );
         return Ok(report);
     }
     let ids: Vec<i64> = match roots {
@@ -173,17 +175,22 @@ pub fn build(
             continue;
         };
         if !Path::new(&r.root).is_dir() {
-            report
-                .notes
-                .push(format!("{}: not connected, so its contents weren't read", r.root));
+            report.notes.push(format!(
+                "{}: not connected, so its contents weren't read",
+                r.root
+            ));
             continue;
         }
-        for e in r.entities.iter().filter(|e| INDEXABLE.contains(&e.kind.as_str())) {
+        for e in r
+            .entities
+            .iter()
+            .filter(|e| INDEXABLE.contains(&e.kind.as_str()))
+        {
             // a mailbox inside a store, a dump inside a system: the container indexes it
             if e.inside.as_deref().is_some_and(|k| {
-                r.entities
-                    .iter()
-                    .any(|c| c.key == k && INDEXABLE.contains(&c.kind.as_str()) && c.kind != "sql-dump")
+                r.entities.iter().any(|c| {
+                    c.key == k && INDEXABLE.contains(&c.kind.as_str()) && c.kind != "sql-dump"
+                })
             }) {
                 continue;
             }
@@ -268,9 +275,9 @@ fn index_entity(ctx: &mut Ctx, w: &mut Writer, e: &Entity) -> Result<()> {
 
 /// Files directly in a folder, current: (name, size, mtime).
 fn files_in(db: &Db, dir: &Path) -> Result<Vec<(String, u64, i64)>> {
-    let mut stmt = db
-        .conn
-        .prepare_cached("SELECT path, size, mtime FROM files WHERE dir = ?1 AND current = 1 ORDER BY path")?;
+    let mut stmt = db.conn.prepare_cached(
+        "SELECT path, size, mtime FROM files WHERE dir = ?1 AND current = 1 ORDER BY path",
+    )?;
     let dirb = paths::to_bytes(dir);
     let rows = stmt.query_map(params![dirb], |r| {
         Ok((
@@ -334,7 +341,12 @@ struct Head {
 
 impl Head {
     fn from_cached(h: &[(String, String)]) -> Head {
-        let get = |k: &str| h.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone()).unwrap_or_default();
+        let get = |k: &str| {
+            h.iter()
+                .find(|(n, _)| n == k)
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default()
+        };
         Head {
             subject: get("subject"),
             from: get("from"),
@@ -348,14 +360,24 @@ impl Head {
 
     fn from_raw(raw: &[u8], body: bool) -> Head {
         let parser = mail_parser::MessageParser::default();
-        let m = if body { parser.parse(raw) } else { parser.parse_headers(raw) };
+        let m = if body {
+            parser.parse(raw)
+        } else {
+            parser.parse_headers(raw)
+        };
         let Some(m) = m else {
             return Head::default();
         };
         let text = if body {
-            let mut t: String = m.body_text(0).map(|t| t.chars().take(BODY_CAP).collect()).unwrap_or_default();
+            let mut t: String = m
+                .body_text(0)
+                .map(|t| t.chars().take(BODY_CAP).collect())
+                .unwrap_or_default();
             if t.is_empty() {
-                t = m.body_html(0).map(|h| strip_tags(&h, BODY_CAP)).unwrap_or_default();
+                t = m
+                    .body_html(0)
+                    .map(|h| strip_tags(&h, BODY_CAP))
+                    .unwrap_or_default();
             }
             t
         } else {
@@ -435,7 +457,7 @@ fn read_message(path: &Path, body: bool) -> Result<Vec<u8>> {
     let f = paths::open_read(path)?;
     if body {
         let mut buf = Vec::new();
-        f.take(HEAD_CAP + 512 << 10).read_to_end(&mut buf)?;
+        f.take((HEAD_CAP + 512) << 10).read_to_end(&mut buf)?;
         return Ok(buf);
     }
     let mut r = BufReader::with_capacity(8 << 10, f.take(4 * HEAD_CAP));
@@ -451,7 +473,10 @@ fn read_message(path: &Path, body: bool) -> Result<Vec<u8>> {
 
 /// The mailbox's name for people: "INBOX", ".Sent" → "Sent", "user/Maildir/.Lists.rust" → "Lists/rust".
 fn mailbox_name(mb: &Path) -> String {
-    let n = mb.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let n = mb
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
     if n.eq_ignore_ascii_case("maildir") || n.eq_ignore_ascii_case("cur") {
         return "INBOX".into();
     }
@@ -461,6 +486,7 @@ fn mailbox_name(mb: &Path) -> String {
     n
 }
 
+#[allow(clippy::too_many_arguments)]
 fn put_message(
     ctx: &mut Ctx,
     w: &mut Writer,
@@ -523,9 +549,20 @@ fn index_maildir(ctx: &mut Ctx, w: &mut Writer, e: &Entity, mb: &Path) -> Result
                 continue; // expunged, or not in the uidlist: read from the file below if it's there
             };
             let h = Head::from_cached(&m.headers);
-            let fallback = crate::mailbox::delivered(&path.file_name().unwrap_or_default().to_string_lossy())
-                .or(Some(mtime));
-            put_message(ctx, w, e, &path, Some(&m.uid.to_string()), &h, fallback, size, "dovecot-cache")?;
+            let fallback =
+                crate::mailbox::delivered(&path.file_name().unwrap_or_default().to_string_lossy())
+                    .or(Some(mtime));
+            put_message(
+                ctx,
+                w,
+                e,
+                &path,
+                Some(&m.uid.to_string()),
+                &h,
+                fallback,
+                size,
+                "dovecot-cache",
+            )?;
             done += 1;
         }
         if done > 0 {
@@ -534,27 +571,34 @@ fn index_maildir(ctx: &mut Ctx, w: &mut Writer, e: &Entity, mb: &Path) -> Result
                 mb.display(),
                 fmt::count(done),
                 dovecot::fts_plugin(mb)
-                    .map(|p| format!("; a {p} full-text index is here too, not readable by BackDown"))
+                    .map(|p| format!(
+                        "; a {p} full-text index is here too, not readable by BackDown"
+                    ))
                     .unwrap_or_default()
             ));
         }
     }
     // the rest from the files
     let mut rest: Vec<(String, (PathBuf, u64, i64))> = files.into_iter().collect();
-    rest.sort_by(|a, b| b.1.2.cmp(&a.1.2));
+    rest.sort_by_key(|a| std::cmp::Reverse(a.1.2));
     for (i, (_, (path, size, mtime))) in rest.into_iter().enumerate() {
         if ctx.stopped() {
             return Ok(());
         }
         if i % 2000 == 0 && i > 0 {
-            (ctx.progress)(&format!("{}: {name}: {} messages read", e.title, fmt::count(i as u64)));
+            (ctx.progress)(&format!(
+                "{}: {name}: {} messages read",
+                e.title,
+                fmt::count(i as u64)
+            ));
         }
         let Ok(raw) = read_message(&path, full) else {
             continue;
         };
         let h = Head::from_raw(&raw, full);
-        let fallback = crate::mailbox::delivered(&path.file_name().unwrap_or_default().to_string_lossy())
-            .or(Some(mtime));
+        let fallback =
+            crate::mailbox::delivered(&path.file_name().unwrap_or_default().to_string_lossy())
+                .or(Some(mtime));
         put_message(ctx, w, e, &path, None, &h, fallback, size, "message-file")?;
     }
     Ok(())
@@ -594,7 +638,17 @@ fn index_mdbox(ctx: &mut Ctx, w: &mut Writer, e: &Entity, root: &Path) -> Result
         (ctx.progress)(&format!("{}: {name}", e.title));
         for m in &c.messages {
             let h = Head::from_cached(&m.headers);
-            put_message(ctx, w, e, d, Some(&format!("{name}#{}", m.uid)), &h, None, 0, "dovecot-cache")?;
+            put_message(
+                ctx,
+                w,
+                e,
+                d,
+                Some(&format!("{name}#{}", m.uid)),
+                &h,
+                None,
+                0,
+                "dovecot-cache",
+            )?;
             cached += 1;
         }
     }
@@ -617,7 +671,9 @@ fn index_mdbox(ctx: &mut Ctx, w: &mut Writer, e: &Entity, root: &Path) -> Result
         }
         let p = storage.join(&n);
         (ctx.progress)(&format!("{}: storage/{n}", e.title));
-        let Ok(mut f) = paths::open_read(&p) else { continue };
+        let Ok(mut f) = paths::open_read(&p) else {
+            continue;
+        };
         // "2 M<hdr size hex> C<created hex>\n", then messages: "\x01\x02N <16 hex>\n" + bytes + metadata
         let mut first = Vec::new();
         {
@@ -639,15 +695,29 @@ fn index_mdbox(ctx: &mut Ctx, w: &mut Writer, e: &Entity, root: &Path) -> Result
             if f.read_exact(&mut mh).is_err() || &mh[..3] != b"\x01\x02N" {
                 break;
             }
-            let Ok(size) = u64::from_str_radix(std::str::from_utf8(&mh[4..20]).unwrap_or(""), 16) else {
+            let Ok(size) = u64::from_str_radix(std::str::from_utf8(&mh[4..20]).unwrap_or(""), 16)
+            else {
                 break;
             };
             let body_at = at + 21;
             let mut raw = vec![0u8; size.min(HEAD_CAP) as usize];
             f.read_exact(&mut raw)?;
-            let head_end = raw.windows(2).position(|w| w == b"\n\n").map_or(raw.len(), |i| i + 1);
+            let head_end = raw
+                .windows(2)
+                .position(|w| w == b"\n\n")
+                .map_or(raw.len(), |i| i + 1);
             let h = Head::from_raw(&raw[..head_end], false);
-            put_message(ctx, w, e, &p, Some(&body_at.to_string()), &h, Some(mtime), size, "mdbox-storage")?;
+            put_message(
+                ctx,
+                w,
+                e,
+                &p,
+                Some(&body_at.to_string()),
+                &h,
+                Some(mtime),
+                size,
+                "mdbox-storage",
+            )?;
             n_msgs += 1;
             // the metadata block after the message: "\n\x01\x03\n" lines up to an empty line
             at = body_at + size;
@@ -664,8 +734,12 @@ fn index_mdbox(ctx: &mut Ctx, w: &mut Writer, e: &Entity, root: &Path) -> Result
                 }
             }
             at += consumed;
-            if n_msgs % 1000 == 0 {
-                (ctx.progress)(&format!("{}: storage/{n}: {} messages", e.title, fmt::count(n_msgs)));
+            if n_msgs.is_multiple_of(1000) {
+                (ctx.progress)(&format!(
+                    "{}: storage/{n}: {} messages",
+                    e.title,
+                    fmt::count(n_msgs)
+                ));
             }
         }
     }
@@ -684,7 +758,11 @@ fn index_thunderbird(ctx: &mut Ctx, w: &mut Writer, e: &Entity, profile: &Path) 
             "SELECT path, size, mtime FROM files WHERE current = 1 AND path >= ?1 AND path < ?2 AND lname LIKE '%.msf'",
         )?;
         let rows = stmt.query_map(params![lo, hi], |r| {
-            Ok((paths::from_bytes(&r.get::<_, Vec<u8>>(0)?), r.get::<_, i64>(1)? as u64, r.get::<_, i64>(2)?))
+            Ok((
+                paths::from_bytes(&r.get::<_, Vec<u8>>(0)?),
+                r.get::<_, i64>(1)? as u64,
+                r.get::<_, i64>(2)?,
+            ))
         })?;
         let mut out = Vec::new();
         for row in rows {
@@ -704,18 +782,37 @@ fn index_thunderbird(ctx: &mut Ctx, w: &mut Writer, e: &Entity, profile: &Path) 
         if ctx.stopped() {
             return Ok(());
         }
-        (ctx.progress)(&format!("{}: {}", e.title, mbox.file_name().unwrap_or_default().to_string_lossy()));
+        (ctx.progress)(&format!(
+            "{}: {}",
+            e.title,
+            mbox.file_name().unwrap_or_default().to_string_lossy()
+        ));
         let f = paths::open_read(&mbox)?;
         let mut r = BufReader::with_capacity(1 << 16, f);
-        let (mut line, mut cur, mut at, mut start, mut prev_blank) = (Vec::new(), Vec::new(), 0u64, 0u64, true);
+        let (mut line, mut cur, mut at, mut start, mut prev_blank) =
+            (Vec::new(), Vec::new(), 0u64, 0u64, true);
         let mut in_head = true;
-        let cap = if full { HEAD_CAP + (BODY_CAP as u64) * 4 } else { HEAD_CAP };
+        let cap = if full {
+            HEAD_CAP + (BODY_CAP as u64) * 4
+        } else {
+            HEAD_CAP
+        };
         let flush = |ctx: &mut Ctx, w: &mut Writer, cur: &[u8], start: u64| -> Result<()> {
             if cur.is_empty() {
                 return Ok(());
             }
             let h = Head::from_raw(cur, full);
-            put_message(ctx, w, e, &mbox, Some(&start.to_string()), &h, None, 0, "mbox")
+            put_message(
+                ctx,
+                w,
+                e,
+                &mbox,
+                Some(&start.to_string()),
+                &h,
+                None,
+                0,
+                "mbox",
+            )
         };
         loop {
             line.clear();
@@ -733,10 +830,8 @@ fn index_thunderbird(ctx: &mut Ctx, w: &mut Writer, e: &Entity, profile: &Path) 
                 if mbox::blank(&line) {
                     in_head = false;
                 }
-                if in_head || full {
-                    if (cur.len() as u64) < cap {
-                        cur.extend_from_slice(&line);
-                    }
+                if (in_head || full) && (cur.len() as u64) < cap {
+                    cur.extend_from_slice(&line);
                 }
             }
             prev_blank = mbox::blank(&line);
@@ -764,11 +859,24 @@ impl TableDef {
         match self.columns.get(i) {
             None => true,
             Some((_, ty)) => {
-                !(ty.contains("blob") || ty.contains("binary") || ty.contains("bytea") || ty.contains("int")
-                    || ty.contains("decimal") || ty.contains("numeric") || ty.contains("float") || ty.contains("double")
-                    || ty.contains("real") || ty.contains("bool") || ty.contains("date") || ty.contains("time")
-                    || ty.contains("year") || ty.contains("bit") || ty.contains("serial") || ty.contains("uuid")
-                    || ty.contains("geometry") || ty.contains("point"))
+                !(ty.contains("blob")
+                    || ty.contains("binary")
+                    || ty.contains("bytea")
+                    || ty.contains("int")
+                    || ty.contains("decimal")
+                    || ty.contains("numeric")
+                    || ty.contains("float")
+                    || ty.contains("double")
+                    || ty.contains("real")
+                    || ty.contains("bool")
+                    || ty.contains("date")
+                    || ty.contains("time")
+                    || ty.contains("year")
+                    || ty.contains("bit")
+                    || ty.contains("serial")
+                    || ty.contains("uuid")
+                    || ty.contains("geometry")
+                    || ty.contains("point"))
             }
         }
     }
@@ -811,7 +919,10 @@ fn split_ident(s: &str) -> (Option<String>, String) {
 }
 
 fn index_dump(ctx: &mut Ctx, w: &mut Writer, e: &Entity, path: &Path) -> Result<()> {
-    (ctx.progress)(&format!("dump {}", path.file_name().unwrap_or_default().to_string_lossy()));
+    (ctx.progress)(&format!(
+        "dump {}",
+        path.file_name().unwrap_or_default().to_string_lossy()
+    ));
     let f = paths::open_read(path)?;
     let mut magic = [0u8; 8];
     let n = (&f).read(&mut magic)?;
@@ -826,14 +937,20 @@ fn index_dump(ctx: &mut Ctx, w: &mut Writer, e: &Entity, path: &Path) -> Result<
     let mut tables: HashMap<String, TableDef> = HashMap::new();
     let mut sinks: HashMap<String, TextSink> = HashMap::new();
     // the header names the database for mysqldump and phpMyAdmin dumps; USE and \connect change it
-    let mut db = recognise::sniff_dump(path).and_then(|h| h.database).unwrap_or_default();
+    let mut db = recognise::sniff_dump(path)
+        .and_then(|h| h.database)
+        .unwrap_or_default();
     let mut text_total = 0u64;
     let mut capped = false;
     let mut line = Vec::new();
     let mut create: Option<(String, TableDef, String)> = None; // (table, def, db)
     let mut copy: Option<(String, Vec<usize>)> = None; // COPY table (columns) FROM stdin: textual column positions
     let mut lines = 0u64;
-    let file_name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    let file_name = path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned();
     loop {
         line.clear();
         let n = peek::line_capped(&mut r, &mut line, 64 << 20)?;
@@ -841,11 +958,15 @@ fn index_dump(ctx: &mut Ctx, w: &mut Writer, e: &Entity, path: &Path) -> Result<
             break;
         }
         lines += 1;
-        if lines % 20_000 == 0 {
+        if lines.is_multiple_of(20_000) {
             if ctx.stopped() {
                 break;
             }
-            (ctx.progress)(&format!("dump {file_name}: {} tables, {} of text", tables.len(), fmt::bytes(text_total)));
+            (ctx.progress)(&format!(
+                "dump {file_name}: {} tables, {} of text",
+                tables.len(),
+                fmt::bytes(text_total)
+            ));
         }
         // COPY data lines: tab-separated, "\." ends them
         if let Some((table, cols)) = &copy {
@@ -863,7 +984,13 @@ fn index_dump(ctx: &mut Ctx, w: &mut Writer, e: &Entity, path: &Path) -> Result<
                     total: 0,
                 });
                 for (i, field) in t.trim_end_matches('\n').split('\t').enumerate() {
-                    if (cols.is_empty() || cols.contains(&i)) && field != "\\N" && field.len() > 1 && !field.bytes().all(|b| b.is_ascii_digit() || b == b'.' || b == b'-') {
+                    if (cols.is_empty() || cols.contains(&i))
+                        && field != "\\N"
+                        && field.len() > 1
+                        && !field
+                            .bytes()
+                            .all(|b| b.is_ascii_digit() || b == b'.' || b == b'-')
+                    {
                         sink.buf.push_str(field);
                         sink.buf.push(' ');
                     }
@@ -887,12 +1014,22 @@ fn index_dump(ctx: &mut Ctx, w: &mut Writer, e: &Entity, path: &Path) -> Result<
             let upper = s.to_ascii_uppercase();
             if upper.starts_with("FULLTEXT") {
                 if let (Some(a), Some(b)) = (s.find('('), s.rfind(')')) {
-                    def.fulltext
-                        .extend(s[a + 1..b].split(',').map(unquote_ident).filter(|c| !c.is_empty()));
+                    def.fulltext.extend(
+                        s[a + 1..b]
+                            .split(',')
+                            .map(unquote_ident)
+                            .filter(|c| !c.is_empty()),
+                    );
                 }
-            } else if !(upper.starts_with("PRIMARY KEY") || upper.starts_with("KEY ") || upper.starts_with("UNIQUE")
-                || upper.starts_with("INDEX") || upper.starts_with("CONSTRAINT") || upper.starts_with("FOREIGN")
-                || upper.starts_with("CHECK") || upper.starts_with("SPATIAL") || upper.starts_with("--"))
+            } else if !(upper.starts_with("PRIMARY KEY")
+                || upper.starts_with("KEY ")
+                || upper.starts_with("UNIQUE")
+                || upper.starts_with("INDEX")
+                || upper.starts_with("CONSTRAINT")
+                || upper.starts_with("FOREIGN")
+                || upper.starts_with("CHECK")
+                || upper.starts_with("SPATIAL")
+                || upper.starts_with("--"))
             {
                 // `name` type …  /  "name" type …  /  name type …
                 let (col, rest) = match s.chars().next() {
@@ -905,7 +1042,12 @@ fn index_dump(ctx: &mut Ctx, w: &mut Writer, e: &Entity, path: &Path) -> Result<
                         (s[..end].to_string(), &s[end..])
                     }
                 };
-                let ty = rest.trim().split(|c: char| c.is_whitespace() || c == ',').next().unwrap_or("").to_ascii_lowercase();
+                let ty = rest
+                    .trim()
+                    .split(|c: char| c.is_whitespace() || c == ',')
+                    .next()
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
                 if !col.is_empty() {
                     def.columns.push((col, ty));
                 }
@@ -920,12 +1062,20 @@ fn index_dump(ctx: &mut Ctx, w: &mut Writer, e: &Entity, path: &Path) -> Result<
             db = tl.split_whitespace().nth(1).unwrap_or("").to_string();
         } else if upper.starts_with("CREATE TABLE") || upper.starts_with("CREATE UNLOGGED TABLE") {
             let after = tl["CREATE".len()..].trim_start();
-            let after = after.strip_prefix("UNLOGGED").map_or(after, str::trim_start);
+            let after = after
+                .strip_prefix("UNLOGGED")
+                .map_or(after, str::trim_start);
             let after = after["TABLE".len()..].trim_start();
-            let after = after.strip_prefix("IF NOT EXISTS").map_or(after, str::trim_start);
+            let after = after
+                .strip_prefix("IF NOT EXISTS")
+                .map_or(after, str::trim_start);
             let (qdb, name) = split_ident(after);
             let cdb = qdb.unwrap_or_else(|| db.clone());
-            if tl.trim_end().ends_with(");") || tl.trim_end().ends_with(")") && tl.contains('(') && tl.matches('(').count() == tl.matches(')').count() {
+            if tl.trim_end().ends_with(");")
+                || tl.trim_end().ends_with(")")
+                    && tl.contains('(')
+                    && tl.matches('(').count() == tl.matches(')').count()
+            {
                 // one-line table (SQLite's .dump, hand-written scripts)
                 let mut def = TableDef::default();
                 if let (Some(a), Some(b)) = (tl.find('('), tl.rfind(')')) {
@@ -933,7 +1083,11 @@ fn index_dump(ctx: &mut Ctx, w: &mut Writer, e: &Entity, path: &Path) -> Result<
                         let mut it = c.trim().splitn(2, char::is_whitespace);
                         let col = unquote_ident(it.next().unwrap_or(""));
                         let ty = it.next().unwrap_or("").trim().to_ascii_lowercase();
-                        if !col.is_empty() && !col.eq_ignore_ascii_case("primary") && !col.eq_ignore_ascii_case("unique") && !col.eq_ignore_ascii_case("foreign") {
+                        if !col.is_empty()
+                            && !col.eq_ignore_ascii_case("primary")
+                            && !col.eq_ignore_ascii_case("unique")
+                            && !col.eq_ignore_ascii_case("foreign")
+                        {
                             def.columns.push((col, ty));
                         }
                     }
@@ -967,7 +1121,10 @@ fn index_dump(ctx: &mut Ctx, w: &mut Writer, e: &Entity, path: &Path) -> Result<
             let after = tl[5..].trim_start();
             let (_, name) = split_ident(after);
             let cols = match (tl.find('('), tl.find(')')) {
-                (Some(a), Some(b)) if a < b => tl[a + 1..b].split(',').map(unquote_ident).collect::<Vec<_>>(),
+                (Some(a), Some(b)) if a < b => tl[a + 1..b]
+                    .split(',')
+                    .map(unquote_ident)
+                    .collect::<Vec<_>>(),
                 _ => Vec::new(),
             };
             let textual: Vec<usize> = match tables.get(&name) {
@@ -1043,7 +1200,10 @@ fn take_literals(vals: &str, def: Option<&TableDef>, out: &mut String) {
                 if def.is_none_or(|d| d.textual(col)) && end > start + 1 {
                     let s = &vals[start..end];
                     let s = if s.contains('\\') || escaped {
-                        s.replace("\\'", "'").replace("''", "'").replace("\\n", " ").replace("\\\"", "\"")
+                        s.replace("\\'", "'")
+                            .replace("''", "'")
+                            .replace("\\n", " ")
+                            .replace("\\\"", "\"")
                     } else {
                         s.to_string()
                     };
@@ -1059,7 +1219,14 @@ fn take_literals(vals: &str, def: Option<&TableDef>, out: &mut String) {
     }
 }
 
-fn flush_sink(ctx: &mut Ctx, w: &mut Writer, e: &Entity, path: &Path, s: &mut TextSink, all: bool) -> Result<u64> {
+fn flush_sink(
+    ctx: &mut Ctx,
+    w: &mut Writer,
+    e: &Entity,
+    path: &Path,
+    s: &mut TextSink,
+    all: bool,
+) -> Result<u64> {
     let mut written = 0u64;
     while s.buf.len() >= CHUNK || (all && !s.buf.trim().is_empty()) {
         let cut = if s.buf.len() >= CHUNK {
@@ -1095,11 +1262,25 @@ fn flush_sink(ctx: &mut Ctx, w: &mut Writer, e: &Entity, path: &Path, s: &mut Te
     Ok(written)
 }
 
-fn put_table(ctx: &mut Ctx, w: &mut Writer, e: &Entity, path: &Path, db: &str, name: &str, def: &TableDef) -> Result<()> {
+fn put_table(
+    ctx: &mut Ctx,
+    w: &mut Writer,
+    e: &Entity,
+    path: &Path,
+    db: &str,
+    name: &str,
+    def: &TableDef,
+) -> Result<()> {
     let mut body = def
         .columns
         .iter()
-        .map(|(c, t)| if t.is_empty() { c.clone() } else { format!("{c} {t}") })
+        .map(|(c, t)| {
+            if t.is_empty() {
+                c.clone()
+            } else {
+                format!("{c} {t}")
+            }
+        })
         .collect::<Vec<_>>()
         .join(", ");
     if !def.fulltext.is_empty() {
@@ -1128,10 +1309,18 @@ fn put_table(ctx: &mut Ctx, w: &mut Writer, e: &Entity, path: &Path, db: &str, n
 fn open_sqlite_ro(path: &Path) -> Result<rusqlite::Connection> {
     use rusqlite::OpenFlags;
     // immutable: no locks, no journal, nothing written even to a read-only medium
-    let uri = format!("file:{}?immutable=1", path.display().to_string().replace('?', "%3F").replace('#', "%23"));
+    let uri = format!(
+        "file:{}?immutable=1",
+        path.display()
+            .to_string()
+            .replace('?', "%3F")
+            .replace('#', "%23")
+    );
     Ok(rusqlite::Connection::open_with_flags(
         uri,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        OpenFlags::SQLITE_OPEN_READ_ONLY
+            | OpenFlags::SQLITE_OPEN_URI
+            | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?)
 }
 
@@ -1147,7 +1336,11 @@ fn sqlite_tables(c: &rusqlite::Connection) -> Result<Vec<(String, String, bool)>
         out.push((name, sql, fts));
     }
     // FTS shadow tables aren't tables to a person
-    let fts_names: Vec<String> = out.iter().filter(|(_, _, f)| *f).map(|(n, _, _)| n.clone()).collect();
+    let fts_names: Vec<String> = out
+        .iter()
+        .filter(|(_, _, f)| *f)
+        .map(|(n, _, _)| n.clone())
+        .collect();
     out.retain(|(n, _, f)| *f || !fts_names.iter().any(|x| n.starts_with(&format!("{x}_"))));
     Ok(out)
 }
@@ -1162,14 +1355,30 @@ fn index_sqlite(ctx: &mut Ctx, w: &mut Writer, e: &Entity, path: &Path) -> Resul
             return Ok(());
         }
         let cols: Vec<(String, String)> = {
-            let mut stmt = c.prepare(&format!("PRAGMA table_info(\"{}\")", name.replace('"', "\"\"")))?;
-            stmt.query_map([], |r| Ok((r.get::<_, String>(1)?, r.get::<_, String>(2)?.to_ascii_lowercase())))?
-                .collect::<rusqlite::Result<_>>()?
+            let mut stmt = c.prepare(&format!(
+                "PRAGMA table_info(\"{}\")",
+                name.replace('"', "\"\"")
+            ))?;
+            stmt.query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?.to_ascii_lowercase(),
+                ))
+            })?
+            .collect::<rusqlite::Result<_>>()?
         };
         let rows: i64 = c
-            .query_row(&format!("SELECT COUNT(*) FROM \"{}\"", name.replace('"', "\"\"")), [], |r| r.get(0))
+            .query_row(
+                &format!("SELECT COUNT(*) FROM \"{}\"", name.replace('"', "\"\"")),
+                [],
+                |r| r.get(0),
+            )
             .unwrap_or(0);
-        let mut body = cols.iter().map(|(n, t)| format!("{n} {t}")).collect::<Vec<_>>().join(", ");
+        let mut body = cols
+            .iter()
+            .map(|(n, t)| format!("{n} {t}"))
+            .collect::<Vec<_>>()
+            .join(", ");
         if is_fts {
             fts_tables += 1;
             body.push_str("; a full-text index (searched in place)");
@@ -1194,7 +1403,10 @@ fn index_sqlite(ctx: &mut Ctx, w: &mut Writer, e: &Entity, path: &Path) -> Resul
             continue;
         }
         // the text columns' values, in chunks
-        let def = TableDef { columns: cols.clone(), fulltext: Vec::new() };
+        let def = TableDef {
+            columns: cols.clone(),
+            fulltext: Vec::new(),
+        };
         let textual: Vec<&str> = cols
             .iter()
             .enumerate()
@@ -1204,10 +1416,23 @@ fn index_sqlite(ctx: &mut Ctx, w: &mut Writer, e: &Entity, path: &Path) -> Resul
         if textual.is_empty() {
             continue;
         }
-        let sel = textual.iter().map(|n| format!("\"{}\"", n.replace('"', "\"\""))).collect::<Vec<_>>().join(", ");
-        let mut stmt = c.prepare(&format!("SELECT {sel} FROM \"{}\"", name.replace('"', "\"\"")))?;
+        let sel = textual
+            .iter()
+            .map(|n| format!("\"{}\"", n.replace('"', "\"\"")))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut stmt = c.prepare(&format!(
+            "SELECT {sel} FROM \"{}\"",
+            name.replace('"', "\"\"")
+        ))?;
         let mut rows = stmt.query([])?;
-        let mut sink = TextSink { table: name.clone(), db: String::new(), buf: String::new(), chunk: 0, total: 0 };
+        let mut sink = TextSink {
+            table: name.clone(),
+            db: String::new(),
+            buf: String::new(),
+            chunk: 0,
+            total: 0,
+        };
         while let Some(row) = rows.next()? {
             for i in 0..textual.len() {
                 if let Ok(Some(s)) = row.get::<_, Option<String>>(i)
@@ -1275,7 +1500,9 @@ fn search_sqlite_fts(db: &Db, q: &str, limit: usize) -> Vec<Value> {
         let Ok(c) = open_sqlite_ro(p) else { continue };
         let tq = format!("\"{}\"", table.replace('"', "\"\""));
         let n: i64 = match c.query_row(
-            &format!("SELECT COUNT(*) FROM (SELECT rowid FROM {tq} WHERE {tq} MATCH ?1 LIMIT 10000)"),
+            &format!(
+                "SELECT COUNT(*) FROM (SELECT rowid FROM {tq} WHERE {tq} MATCH ?1 LIMIT 10000)"
+            ),
             params![match_q],
             |r| r.get(0),
         ) {
@@ -1302,30 +1529,53 @@ fn search_sqlite_fts(db: &Db, q: &str, limit: usize) -> Vec<Value> {
 
 fn index_mongo_dump(ctx: &mut Ctx, w: &mut Writer, e: &Entity, root: &Path) -> Result<()> {
     let own = files_in(ctx.db, root)?;
-    let dbs: Vec<PathBuf> = if own.iter().any(|(n, _, _)| n.ends_with(".bson") || n.ends_with(".bson.gz")) {
+    let dbs: Vec<PathBuf> = if own
+        .iter()
+        .any(|(n, _, _)| n.ends_with(".bson") || n.ends_with(".bson.gz"))
+    {
         vec![root.to_path_buf()]
     } else {
-        let mut stmt = ctx.db.conn.prepare_cached("SELECT path FROM dirs WHERE parent = ?1 AND current = 1")?;
+        let mut stmt = ctx
+            .db
+            .conn
+            .prepare_cached("SELECT path FROM dirs WHERE parent = ?1 AND current = 1")?;
         let rows = stmt.query_map(params![paths::to_bytes(root)], |r| r.get::<_, Vec<u8>>(0))?;
-        rows.map(|r| r.map(|p| paths::from_bytes(&p))).collect::<rusqlite::Result<_>>()?
+        rows.map(|r| r.map(|p| paths::from_bytes(&p)))
+            .collect::<rusqlite::Result<_>>()?
     };
     for d in dbs {
-        let dbname = d.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        let dbname = d
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
         for (n, size, mtime) in files_in(ctx.db, &d)? {
-            let Some(coll) = n.strip_suffix(".bson").or_else(|| n.strip_suffix(".bson.gz")) else {
+            let Some(coll) = n
+                .strip_suffix(".bson")
+                .or_else(|| n.strip_suffix(".bson.gz"))
+            else {
                 continue;
             };
             // the metadata file lists the collection's indexes: their keys are its searchable fields
-            let meta = recognise::read_small(&d.join(format!("{coll}.metadata.json")), 1 << 20).unwrap_or_default();
+            let meta = recognise::read_small(&d.join(format!("{coll}.metadata.json")), 1 << 20)
+                .unwrap_or_default();
             let keys: Vec<String> = meta
                 .split("\"key\"")
                 .skip(1)
                 .filter_map(|s| s.split('{').nth(1))
                 .filter_map(|s| s.split('}').next())
-                .flat_map(|s| s.split(',').filter_map(|kv| kv.split(':').next()).map(|k| k.trim().trim_matches('"').to_string()))
+                .flat_map(|s| {
+                    s.split(',')
+                        .filter_map(|kv| kv.split(':').next())
+                        .map(|k| k.trim().trim_matches('"').to_string())
+                })
                 .filter(|k| !k.is_empty())
                 .collect();
-            let body = if keys.is_empty() { String::new() } else { format!("indexed fields: {}", keys.join(", ")) };
+            let body = if keys.is_empty() {
+                String::new()
+            } else {
+                format!("indexed fields: {}", keys.join(", "))
+            };
             w.put(&Doc {
                 root_id: ctx.root_id,
                 entity_key: &e.key,
@@ -1347,20 +1597,35 @@ fn index_mongo_dump(ctx: &mut Ctx, w: &mut Writer, e: &Entity, root: &Path) -> R
 }
 
 fn index_mysql_data(ctx: &mut Ctx, w: &mut Writer, e: &Entity, root: &Path) -> Result<()> {
-    let mut stmt = ctx.db.conn.prepare_cached("SELECT path FROM dirs WHERE parent = ?1 AND current = 1")?;
+    let mut stmt = ctx
+        .db
+        .conn
+        .prepare_cached("SELECT path FROM dirs WHERE parent = ?1 AND current = 1")?;
     let dbs: Vec<PathBuf> = stmt
         .query_map(params![paths::to_bytes(root)], |r| r.get::<_, Vec<u8>>(0))?
         .map(|r| r.map(|p| paths::from_bytes(&p)))
         .collect::<rusqlite::Result<_>>()?;
     for d in dbs {
-        let dbname = d.file_name().unwrap_or_default().to_string_lossy().into_owned();
-        if matches!(dbname.as_str(), "mysql" | "performance_schema" | "sys" | "information_schema") || dbname.starts_with('#') {
+        let dbname = d
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        if matches!(
+            dbname.as_str(),
+            "mysql" | "performance_schema" | "sys" | "information_schema"
+        ) || dbname.starts_with('#')
+        {
             continue;
         }
         let mut seen: Vec<String> = Vec::new();
         for (n, size, mtime) in files_in(ctx.db, &d)? {
             let lower = n.to_ascii_lowercase();
-            let Some(table) = lower.strip_suffix(".ibd").or_else(|| lower.strip_suffix(".frm")).or_else(|| lower.strip_suffix(".myd")) else {
+            let Some(table) = lower
+                .strip_suffix(".ibd")
+                .or_else(|| lower.strip_suffix(".frm"))
+                .or_else(|| lower.strip_suffix(".myd"))
+            else {
                 continue;
             };
             if seen.iter().any(|t| t == table) {
@@ -1390,7 +1655,13 @@ fn index_mysql_data(ctx: &mut Ctx, w: &mut Writer, e: &Entity, root: &Path) -> R
 // ---------- searching
 
 /// Search contents: the FTS index, plus SQLite full-text tables searched in place.
-pub fn search(db: &Db, q: &str, kind: Option<&str>, root_id: Option<i64>, limit: usize) -> Result<Value> {
+pub fn search(
+    db: &Db,
+    q: &str,
+    kind: Option<&str>,
+    root_id: Option<i64>,
+    limit: usize,
+) -> Result<Value> {
     let found = fts::search(
         db,
         &fts::Query {
@@ -1405,11 +1676,12 @@ pub fn search(db: &Db, q: &str, kind: Option<&str>, root_id: Option<i64>, limit:
     // the folder to open for each hit, with the file selected
     for h in v["hits"].as_array_mut().into_iter().flatten() {
         let p = PathBuf::from(h["path"].as_str().unwrap_or(""));
-        let dir = if h["kind"] == "message" && h["locator"].as_str().is_some_and(|l| l.contains('#')) {
-            p.clone() // an mdbox mailbox folder
-        } else {
-            p.parent().map(Path::to_path_buf).unwrap_or(p.clone())
-        };
+        let dir =
+            if h["kind"] == "message" && h["locator"].as_str().is_some_and(|l| l.contains('#')) {
+                p.clone() // an mdbox mailbox folder
+            } else {
+                p.parent().map(Path::to_path_buf).unwrap_or(p.clone())
+            };
         h["dir_key"] = json!(browse::key(&dir));
     }
     if kind.is_none_or(|k| k == "sqlite-rows") && !q.trim().is_empty() {
@@ -1445,10 +1717,21 @@ mod tests {
 
     #[test]
     fn literals_of_textual_columns_only() {
-        let mut def = TableDef::default();
-        def.columns = vec![("id".into(), "int".into()), ("name".into(), "varchar(80)".into()), ("blob".into(), "longblob".into()), ("note".into(), "text".into())];
+        let def = TableDef {
+            columns: vec![
+                ("id".into(), "int".into()),
+                ("name".into(), "varchar(80)".into()),
+                ("blob".into(), "longblob".into()),
+                ("note".into(), "text".into()),
+            ],
+            ..TableDef::default()
+        };
         let mut out = String::new();
-        take_literals("(1,'Alice O\\'Brien','\\0\\0binary',\"a note\"),(2,'Bob','x','');", Some(&def), &mut out);
+        take_literals(
+            "(1,'Alice O\\'Brien','\\0\\0binary',\"a note\"),(2,'Bob','x','');",
+            Some(&def),
+            &mut out,
+        );
         assert_eq!(out, "Alice O'Brien a note Bob ");
         let mut out = String::new();
         take_literals("(1,'It''s fine')", None, &mut out);
@@ -1457,12 +1740,24 @@ mod tests {
 
     #[test]
     fn identifiers_split() {
-        assert_eq!(split_ident("`shop`.`orders` ("), (Some("shop".into()), "orders".into()));
-        assert_eq!(split_ident("public.users (id"), (Some("public".into()), "users".into()));
+        assert_eq!(
+            split_ident("`shop`.`orders` ("),
+            (Some("shop".into()), "orders".into())
+        );
+        assert_eq!(
+            split_ident("public.users (id"),
+            (Some("public".into()), "users".into())
+        );
         assert_eq!(split_ident("\"Users\";"), (None, "Users".into()));
-        assert_eq!(mailbox_name(Path::new("/m/alice/Maildir/.Sent.2020")), "Sent/2020");
+        assert_eq!(
+            mailbox_name(Path::new("/m/alice/Maildir/.Sent.2020")),
+            "Sent/2020"
+        );
         assert_eq!(mailbox_name(Path::new("/m/alice/Maildir")), "INBOX");
-        assert_eq!(strip_tags("<p>Hello <b>world</b></p>\n<br>bye", 100), "Hello world bye");
+        assert_eq!(
+            strip_tags("<p>Hello <b>world</b></p>\n<br>bye", 100),
+            "Hello world bye"
+        );
     }
 }
 
@@ -1485,13 +1780,18 @@ pub fn cli(
         let dp = Depth::parse(dp)?;
         set_depth(db, dp)?;
         if !json {
-            eprintln!("content indexing depth: {} (the service follows it from the next scan)", dp.as_str());
+            eprintln!(
+                "content indexing depth: {} (the service follows it from the next scan)",
+                dp.as_str()
+            );
         }
     }
     if build_first {
         let stop = AtomicBool::new(false);
         let d = depth(db);
-        let rep = build(db, None, d, force, &stop, &mut |s| crate::live(&format!("indexing: {s}")))?;
+        let rep = build(db, None, d, force, &stop, &mut |s| {
+            crate::live(&format!("indexing: {s}"))
+        })?;
         crate::clear();
         if json && q.trim().is_empty() {
             println!("{}", serde_json::to_string_pretty(&rep)?);
@@ -1517,7 +1817,11 @@ pub fn cli(
         if json {
             println!("{}", serde_json::to_string_pretty(&st)?);
         } else {
-            println!("Content index: {} documents, depth {}", fmt::count(st["docs"].as_u64().unwrap_or(0)), st["depth"].as_str().unwrap_or(""));
+            println!(
+                "Content index: {} documents, depth {}",
+                fmt::count(st["docs"].as_u64().unwrap_or(0)),
+                st["depth"].as_str().unwrap_or("")
+            );
             for c in st["coverage"].as_array().into_iter().flatten() {
                 println!(
                     "  {:<40} {:<12} {:<14} {:>10} docs in {} thing{}",
@@ -1526,11 +1830,17 @@ pub fn cli(
                     c["source"].as_str().unwrap_or(""),
                     fmt::count(c["docs"].as_u64().unwrap_or(0)),
                     c["entities"].as_u64().unwrap_or(0),
-                    if c["entities"].as_u64() == Some(1) { "" } else { "s" }
+                    if c["entities"].as_u64() == Some(1) {
+                        ""
+                    } else {
+                        "s"
+                    }
                 );
             }
             if st["docs"].as_u64() == Some(0) {
-                println!("Nothing indexed yet: `backdown search --build`, or let the service do it after its next scan.");
+                println!(
+                    "Nothing indexed yet: `backdown search --build`, or let the service do it after its next scan."
+                );
             }
         }
         return Ok(ExitCode::SUCCESS);
@@ -1550,14 +1860,20 @@ pub fn cli(
         "{} match{}{} ({} ms)",
         fmt::count(total),
         if total == 1 { "" } else { "es" },
-        if total > hits.len() as u64 { format!(", the best {} shown", hits.len()) } else { String::new() },
+        if total > hits.len() as u64 {
+            format!(", the best {} shown", hits.len())
+        } else {
+            String::new()
+        },
         v["ms"].as_u64().unwrap_or(0)
     );
     for h in &hits {
         let at = h["at"].as_i64().map(fmt::day).unwrap_or_default();
         let root = h["root"].as_str().unwrap_or("");
         let path = h["path"].as_str().unwrap_or("");
-        let rel = Path::new(path).strip_prefix(root).map_or(path.to_string(), |p| p.display().to_string());
+        let rel = Path::new(path)
+            .strip_prefix(root)
+            .map_or(path.to_string(), |p| p.display().to_string());
         println!(
             "  {:<8} {:<48} {:<36} {}",
             h["kind"].as_str().unwrap_or(""),
@@ -1567,9 +1883,16 @@ pub fn cli(
         );
         println!(
             "           {}:{}{}",
-            Path::new(root).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| root.to_string()),
+            Path::new(root)
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| root.to_string()),
             rel,
-            h["locator"].as_str().filter(|l| !l.is_empty() && h["kind"] != "message").map(|l| format!(" ({l})")).unwrap_or_default()
+            h["locator"]
+                .as_str()
+                .filter(|l| !l.is_empty() && h["kind"] != "message")
+                .map(|l| format!(" ({l})"))
+                .unwrap_or_default()
         );
     }
     Ok(ExitCode::SUCCESS)
@@ -1615,7 +1938,10 @@ mod build_tests {
         );
         write(&mb.join("dovecot-uidlist"), b"3 V1 N3\n");
         // the same user's second mailbox makes a store of two, so recognition finds a maildir
-        write(&d.join("mail/example.org/bob/Maildir/cur/1.M3P3.host:2,"), b"Subject: x\n\ny");
+        write(
+            &d.join("mail/example.org/bob/Maildir/cur/1.M3P3.host:2,"),
+            b"Subject: x\n\ny",
+        );
         for f in ["new", "tmp"] {
             std::fs::create_dir_all(d.join("mail/example.org/bob/Maildir").join(f)).unwrap();
         }
@@ -1639,35 +1965,88 @@ mod build_tests {
             .unwrap();
         }
         let mut db = Db::open(&tmp.path().join("i.db")).unwrap();
-        index::index(&mut db, &d, &index::Options { one_file_system: true, allow_empty: false }, &mut |_| {}).unwrap();
+        index::index(
+            &mut db,
+            &d,
+            &index::Options {
+                one_file_system: true,
+                allow_empty: false,
+            },
+            &mut |_| {},
+        )
+        .unwrap();
         let root = recognise::root_ids(&db).unwrap()[0];
         let r = recognise::recognise(&db, root, true, &mut |_| {}).unwrap();
         recognise::store(&db, &r).unwrap();
-        assert!(r.entities.iter().any(|e| e.kind == "sqlite-db"), "{:?}", r.entities.iter().map(|e| &e.kind).collect::<Vec<_>>());
+        assert!(
+            r.entities.iter().any(|e| e.kind == "sqlite-db"),
+            "{:?}",
+            r.entities.iter().map(|e| &e.kind).collect::<Vec<_>>()
+        );
         let stop = AtomicBool::new(false);
         let rep = build(&db, None, Depth::Headers, false, &stop, &mut |_| {}).unwrap();
-        assert!(rep.notes.iter().any(|n| n.contains("full-text table")), "{:?}", rep.notes);
+        assert!(
+            rep.notes.iter().any(|n| n.contains("full-text table")),
+            "{:?}",
+            rep.notes
+        );
         let hits = |q: &str| search(&db, q, None, None, 20).unwrap();
         // mail by subject, sender, recipient
         let v = hits("invoice");
         assert_eq!(v["total"], 1, "{v}");
         assert_eq!(v["hits"][0]["kind"], "message");
         assert_eq!(v["hits"][0]["title"], "Invoice for the garden work");
-        assert!(v["hits"][0]["who"].as_str().unwrap().contains("bob@example.org"));
+        assert!(
+            v["hits"][0]["who"]
+                .as_str()
+                .unwrap()
+                .contains("bob@example.org")
+        );
         assert_eq!(v["hits"][0]["source"], "message-file");
         assert!(v["hits"][0]["dir_key"].is_string());
         assert_eq!(hits("carol@example.net")["total"], 1);
-        assert_eq!(hits("holiday")["hits"][0]["at"], 1_600_000_000, "no Date header: the delivery time from the file name");
+        assert_eq!(
+            hits("holiday")["hits"][0]["at"],
+            1_600_000_000,
+            "no Date header: the delivery time from the file name"
+        );
         // the dump's tables, with the columns the database itself indexed for search
         let v = hits("customers");
-        assert!(v["hits"].as_array().unwrap().iter().any(|h| h["kind"] == "table" && h["who"] == "shop"), "{v}");
-        assert_eq!(hits("marigolds")["total"], 0, "row text isn't indexed at headers depth");
+        assert!(
+            v["hits"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|h| h["kind"] == "table" && h["who"] == "shop"),
+            "{v}"
+        );
+        assert_eq!(
+            hits("marigolds")["total"],
+            0,
+            "row text isn't indexed at headers depth"
+        );
         // SQLite: tables by name, and its own full-text table searched in place
-        assert!(hits("notes").as_object().unwrap()["hits"].as_array().unwrap().iter().any(|h| h["kind"] == "table"));
+        assert!(
+            hits("notes").as_object().unwrap()["hits"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|h| h["kind"] == "table")
+        );
         let v = hits("saffron");
-        let kinds: Vec<&str> = v["hits"].as_array().unwrap().iter().map(|h| h["kind"].as_str().unwrap()).collect();
+        let kinds: Vec<&str> = v["hits"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|h| h["kind"].as_str().unwrap())
+            .collect();
         assert_eq!(kinds, ["sqlite-rows"], "{v}");
-        assert!(v["hits"][0]["title"].as_str().unwrap().starts_with("1 matching row in memo"));
+        assert!(
+            v["hits"][0]["title"]
+                .as_str()
+                .unwrap()
+                .starts_with("1 matching row in memo")
+        );
         // nothing is redone for the same scan
         let rep2 = build(&db, None, Depth::Headers, false, &stop, &mut |_| {}).unwrap();
         assert_eq!(rep2.docs, 0);
