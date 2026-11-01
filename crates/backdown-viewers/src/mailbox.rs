@@ -26,6 +26,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
+use backdown_core::mailmerge::letters;
 use backdown_core::{Db, browse, paths};
 use rusqlite::params;
 use serde_json::{Value, json};
@@ -56,12 +57,8 @@ const THREAD_MAX: usize = 2_000;
 
 // ---- flags: Maildir's file-name info, or an mbox's Status / X-Mozilla-Status headers
 
-pub const SEEN: u8 = 1;
-pub const REPLIED: u8 = 2;
-pub const FLAGGED: u8 = 4;
-pub const TRASHED: u8 = 8;
-pub const DRAFT: u8 = 16;
-pub const PASSED: u8 = 32;
+// the same bits as mail merge's (backdown_core::mailmerge), which reads the same file names
+pub use backdown_core::mailmerge::{DRAFT, FLAGGED, PASSED, REPLIED, SEEN, TRASHED};
 /// The mailbox says whether this message was read (without it, nothing is shown as unread).
 pub const KNOWN: u8 = 128;
 
@@ -69,25 +66,7 @@ pub const KNOWN: u8 = 128;
 /// in a file name). Lower-case letters are Dovecot keywords and are left out. A Maildir always
 /// knows whether a message was read, so a name without flags (in new/) is unread.
 pub fn maildir_flags(name: &str) -> u8 {
-    let mut f = KNOWN;
-    if let Some(i) = [":2,", "!2,", ";2,"]
-        .iter()
-        .filter_map(|s| name.rfind(s))
-        .max()
-    {
-        for c in name[i + 3..].chars() {
-            f |= match c {
-                'S' => SEEN,
-                'R' => REPLIED,
-                'F' => FLAGGED,
-                'T' => TRASHED,
-                'D' => DRAFT,
-                'P' => PASSED,
-                _ => 0,
-            };
-        }
-    }
-    f
+    KNOWN | backdown_core::mailmerge::maildir_flags(name)
 }
 
 /// When a Maildir message was delivered: the Unix time its unique name starts with.
@@ -98,22 +77,6 @@ pub fn delivered(name: &str) -> Option<i64> {
     } else {
         None
     }
-}
-
-/// Flags as letters, in Maildir's order.
-fn letters(f: u8) -> String {
-    [
-        (DRAFT, 'D'),
-        (FLAGGED, 'F'),
-        (PASSED, 'P'),
-        (REPLIED, 'R'),
-        (SEEN, 'S'),
-        (TRASHED, 'T'),
-    ]
-    .iter()
-    .filter(|(bit, _)| f & bit != 0)
-    .map(|(_, c)| *c)
-    .collect()
 }
 
 fn unread(f: u8) -> bool {
