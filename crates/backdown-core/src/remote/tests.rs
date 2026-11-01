@@ -314,6 +314,94 @@ fn count(db: &Db, sql: &str) -> i64 {
 }
 
 #[test]
+fn a_big_drive_is_walked_in_id_order_and_gives_the_same_files() {
+    let tmp = scratch();
+    let a = tmp.path().join("a");
+    let b = tmp.path().join("b");
+    for i in 0..30u8 {
+        write(&a.join(format!("{i:02}.bin")), &blob(i, 100 + i as usize));
+    }
+    for i in 0..25u8 {
+        write(&b.join(format!("{i:02}.bin")), &blob(i, 200 + i as usize));
+    }
+    let mut db = Db::open(&tmp.path().join("there.db")).unwrap();
+    scan(&mut db, &a);
+    scan(&mut db, &b);
+    // more on drive a, after b's: a's ids now have a gap where b's are
+    for i in 30..41u8 {
+        write(&a.join(format!("{i:02}.bin")), &blob(i, 100 + i as usize));
+    }
+    fs::remove_file(a.join("03.bin")).unwrap();
+    scan(&mut db, &a);
+
+    let roots = ask(&db, r#"{"id":1,"op":"roots"}"#);
+    let root = |name: &str| -> (i64, i64) {
+        let r = roots["data"]["roots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["name"] == name)
+            .unwrap();
+        (r["id"].as_i64().unwrap(), r["last_scan"].as_i64().unwrap())
+    };
+    let pages = |root: (i64, i64), since: i64, walk: serve::Walk| -> (Vec<i64>, usize, usize) {
+        let (mut ids, mut asked, mut empty, mut after) = (Vec::new(), 0, 0, 0);
+        loop {
+            let p = serve::changes(&db, [root.0, since, root.1, after], 4, walk).unwrap();
+            let rows = p["rows"].as_array().unwrap();
+            ids.extend(rows.iter().map(|r| r[0].as_i64().unwrap()));
+            asked += 1;
+            empty += usize::from(rows.is_empty());
+            assert!(asked < 1000, "the pages never end");
+            match p["next"].as_i64() {
+                Some(n) => after = n,
+                None => return (ids, asked, empty),
+            }
+        }
+    };
+    let indexed = serve::Walk {
+        above: i64::MAX,
+        window: 1,
+    };
+    let walked = serve::Walk {
+        above: 0,
+        window: 7,
+    };
+    for name in ["a", "b"] {
+        for since in [0, 1] {
+            let (want, ..) = pages(root(name), since, indexed);
+            let (got, asked, _) = pages(root(name), since, walked);
+            assert_eq!(got, want, "drive {name} since scan {since}");
+            assert!(asked > 1);
+        }
+    }
+    let (all_a, _, empty) = pages(root("a"), 0, walked);
+    assert_eq!(all_a.len(), 40, "41 written, 1 deleted");
+    assert!(all_a.windows(2).all(|w| w[0] < w[1]));
+    assert!(
+        empty > 0,
+        "a window over b's ids is an empty page that goes on"
+    );
+
+    // the request itself, with the real thresholds: small drives still go through the index
+    let (id, last) = root("a");
+    let full = ask(
+        &db,
+        &format!(
+            r#"{{"id":2,"op":"changes","root":{id},"since":0,"upto":{last},"after":0,"limit":100}}"#
+        ),
+    );
+    let got: Vec<i64> = full["data"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r[0].as_i64().unwrap())
+        .collect();
+    assert_eq!(got, all_a);
+    assert!(full["data"]["next"].is_null());
+}
+
+#[test]
 fn sync_is_incremental_and_copies_there_count_conservatively() {
     let tmp = scratch();
     let laptop = tmp.path().join("local/Laptop");

@@ -290,28 +290,7 @@ pub fn answer(db: &Db, here: &Here, req: &Request, deadline: Instant) -> Result<
             limit: l,
         } => {
             let l = limit(*l, 5000, MAX_PAGE)?;
-            let mut stmt = db.conn.prepare_cached(
-                "SELECT id, path, size, mtime, sample, sha256, error IS NOT NULL FROM files
-                 WHERE root_id = ?1 AND current = 1 AND first_scan > ?2 AND first_scan <= ?3 AND id > ?4
-                 ORDER BY id LIMIT ?5",
-            )?;
-            let rows: Vec<Value> = stmt
-                .query_map(params![root, since, upto, after, l], |r| {
-                    Ok(json!([
-                        r.get::<_, i64>(0)?,
-                        browse::key_bytes(&r.get::<_, Vec<u8>>(1)?),
-                        r.get::<_, i64>(2)?,
-                        r.get::<_, i64>(3)?,
-                        r.get::<_, Option<Vec<u8>>>(4)?.as_deref().map(fmt::hex),
-                        r.get::<_, Option<Vec<u8>>>(5)?.as_deref().map(fmt::hex),
-                        r.get::<_, bool>(6)? as i64,
-                    ]))
-                })?
-                .collect::<rusqlite::Result<_>>()?;
-            let next = (rows.len() == l as usize)
-                .then(|| rows.last().and_then(|r| r[0].as_i64()))
-                .flatten();
-            json!({ "rows": rows, "next": next })
+            changes(db, [*root, *since, *upto, *after], l, WALK)?
         }
         Request::Gone {
             root,
@@ -405,6 +384,83 @@ fn drive_health(db: &Db) -> Result<Value> {
         })?
         .collect::<rusqlite::Result<_>>()?;
     Ok(json!({ "available": true, "drives": drives, "notes": notes, "truncated": truncated }))
+}
+
+/// How a drive's files are paged for `changes`, in id order.
+#[derive(Clone, Copy)]
+pub(super) struct Walk {
+    /// A drive with more files than this (at its last scan) is walked in id order. Through
+    /// files_root, which isn't in id order, every page would gather and sort all of the drive's
+    /// rows: on a 16-million-file drive that alone ran past a request's 30 s, page after page.
+    pub above: i64,
+    /// How many ids one page of a walk may look at, so each answer stays quick where the drive's
+    /// files are sparse among the ids; the page then ends early and says where to go on from.
+    pub window: i64,
+}
+
+pub(super) const WALK: Walk = Walk {
+    above: 100_000,
+    window: 500_000,
+};
+
+/// One page of drive `root`'s current files first seen after scan `since`, up to scan `upto`,
+/// with ids above `after`. `next` is where the following page starts; a walk's page can be short,
+/// even empty, and still have one. A client only follows `next`, so older ones page through
+/// either way.
+pub(super) fn changes(
+    db: &Db,
+    [root, since, upto, after]: [i64; 4],
+    l: u32,
+    walk: Walk,
+) -> Result<Value> {
+    let files: i64 = db.conn.query_row(
+        "SELECT COALESCE((SELECT s.files FROM roots r JOIN scans s ON s.id = r.last_scan WHERE r.id = ?1), 0)",
+        [root],
+        |r| r.get(0),
+    )?;
+    let row = |r: &rusqlite::Row| -> rusqlite::Result<Value> {
+        Ok(json!([
+            r.get::<_, i64>(0)?,
+            browse::key_bytes(&r.get::<_, Vec<u8>>(1)?),
+            r.get::<_, i64>(2)?,
+            r.get::<_, i64>(3)?,
+            r.get::<_, Option<Vec<u8>>>(4)?.as_deref().map(fmt::hex),
+            r.get::<_, Option<Vec<u8>>>(5)?.as_deref().map(fmt::hex),
+            r.get::<_, bool>(6)? as i64,
+        ]))
+    };
+    let (rows, on): (Vec<Value>, Option<i64>) = if files > walk.above {
+        let top: i64 = db
+            .conn
+            .query_row("SELECT COALESCE(MAX(id), 0) FROM files", [], |r| r.get(0))?;
+        let hi = after.saturating_add(walk.window);
+        // NOT INDEXED: the rowid range, in id order, never files_root
+        let mut stmt = db.conn.prepare_cached(
+            "SELECT id, path, size, mtime, sample, sha256, error IS NOT NULL FROM files NOT INDEXED
+             WHERE id > ?4 AND id <= ?6 AND root_id = ?1 AND current = 1 AND first_scan > ?2 AND first_scan <= ?3
+             ORDER BY id LIMIT ?5",
+        )?;
+        let rows = stmt
+            .query_map(params![root, since, upto, after, l, hi], row)?
+            .collect::<rusqlite::Result<_>>()?;
+        (rows, (hi < top).then_some(hi))
+    } else {
+        let mut stmt = db.conn.prepare_cached(
+            "SELECT id, path, size, mtime, sample, sha256, error IS NOT NULL FROM files
+             WHERE root_id = ?1 AND current = 1 AND first_scan > ?2 AND first_scan <= ?3 AND id > ?4
+             ORDER BY id LIMIT ?5",
+        )?;
+        let rows = stmt
+            .query_map(params![root, since, upto, after, l], row)?
+            .collect::<rusqlite::Result<_>>()?;
+        (rows, None)
+    };
+    let next = if rows.len() == l as usize {
+        rows.last().and_then(|r| r[0].as_i64())
+    } else {
+        on
+    };
+    Ok(json!({ "rows": rows, "next": next }))
 }
 
 /// What's recognised on each drive, in brief: the biggest things, without their contents.
