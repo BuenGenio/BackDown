@@ -252,6 +252,23 @@ CREATE TABLE IF NOT EXISTS streams (
 CREATE TABLE IF NOT EXISTS streams_roots (
     root_id INTEGER PRIMARY KEY
 );
+-- the swarm (swarm.rs, docs/SWARM.md). Each other machine's storage as it last said (its drives
+-- and file systems with their size and free space, its indexed drives), replaced at each sync and
+-- each live look; and the physical drive each indexed drive here was on when it was last scanned,
+-- so one that's unplugged or moved can still be named. Added without a schema bump
+CREATE TABLE IF NOT EXISTS remote_volumes (
+    remote_id INTEGER PRIMARY KEY,
+    state     TEXT NOT NULL,              -- ok | unsupported (a BackDown there from before) | error
+    data      TEXT,                       -- JSON: its storage report (swarm::storage), as it sent it
+    error     TEXT,
+    asked_at  INTEGER NOT NULL,
+    ok_at     INTEGER                     -- when it last answered (this machine's clock)
+);
+CREATE TABLE IF NOT EXISTS root_drives (
+    root_id INTEGER PRIMARY KEY,          -- roots.id
+    at      INTEGER NOT NULL,
+    data    TEXT NOT NULL                 -- JSON: the disk (model, serial, size) and file system (label, UUID)
+);
 ";
 const VERSION: i64 = 2;
 

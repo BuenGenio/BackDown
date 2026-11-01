@@ -1503,6 +1503,8 @@ fn run_index(d: &Daemon, db: &mut Db, job: &Job) -> Result<String> {
         };
         d.progress(job.id, msg, counts);
     })?;
+    // which physical drive it is, so it can be named while unplugged or elsewhere (swarm.rs)
+    backdown_core::swarm::remember_scanned(db, st.scan, &st.root);
     Ok(format!(
         "{}: {} · {} files, {} (new {}, changed {}, gone {}) · scan {}{}",
         st.root.display(),

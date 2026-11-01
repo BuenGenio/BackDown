@@ -40,6 +40,7 @@ pub mod rescue;
 pub mod signing;
 pub mod streams;
 pub mod summary;
+pub mod swarm;
 pub mod timemachine;
 pub mod volumes;
 #[cfg(windows)]

@@ -21,7 +21,7 @@ use serde_json::json;
 const IDLE: Duration = Duration::from_secs(15 * 60);
 const MAX_ANSWER: usize = 48 << 20;
 
-fn host_name() -> String {
+pub(crate) fn host_name() -> String {
     for f in ["/proc/sys/kernel/hostname", "/etc/hostname"] {
         if let Ok(s) = std::fs::read_to_string(f)
             && !s.trim().is_empty()

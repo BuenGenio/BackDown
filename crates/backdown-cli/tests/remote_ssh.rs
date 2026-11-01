@@ -296,16 +296,15 @@ fn a_nas_over_ssh_end_to_end() {
     assert_eq!(lines[3]["ok"], true);
     assert_eq!(fs::metadata(&nas_db).unwrap().modified().unwrap(), before);
 
-    // Pro: a release without a licence can't reach machines, but can still list and forget them
+    // free since 1 Nov 2026 (with the swarm): a release without a licence reaches machines too
     let o = e.run_as(&e.local_db, &["remote", "sync", "nas"], true);
-    assert!(!o.status.success());
-    assert!(String::from_utf8_lossy(&o.stderr).contains("BackDown Pro"));
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
     let o = e.run_as(
         &e.local_db,
         &["remote", "add", "pc2", "ssh://pc2.example.org", "--no-test"],
         true,
     );
-    assert!(!o.status.success());
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
     assert!(
         e.run_as(&e.local_db, &["remote", "list"], true)
             .status
@@ -456,4 +455,100 @@ fn other_machines_drive_health_over_ssh() {
         "{}",
         String::from_utf8_lossy(&o.stderr)
     );
+}
+
+/// The swarm over ssh: `backdown swarm` shows the NAS's drives as it says them, and `swarm where`
+/// finds a file there by asking it, or, when it can't be reached, in what was synced of it.
+#[test]
+fn the_swarm_over_ssh() {
+    let base = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
+    fs::create_dir_all(&base).unwrap();
+    let tmp = tempfile::tempdir_in(fs::canonicalize(&base).unwrap()).unwrap();
+    let e = Env::new(tmp.path());
+    let laptop = e.root.join("Laptop");
+    let vol = e.root.join("volume1");
+    write(&laptop.join("docs/notes.txt"), &blob(1, 1000));
+    write(
+        &vol.join("archive/2021/Annual Report.pdf"),
+        &blob(2, 30_000),
+    );
+    write(&vol.join("archive/report-draft.odt"), &blob(3, 5_000));
+    let nas_db = e.root.join("nas.db");
+    e.ok(&nas_db, &["index", vol.to_str().unwrap()]);
+    e.ok(&e.local_db, &["index", laptop.to_str().unwrap()]);
+    let nas_url = "ssh://nas.example.org";
+    e.ok(
+        &e.local_db,
+        &[
+            "remote",
+            "add",
+            "nas",
+            nas_url,
+            "--remote-db",
+            nas_db.to_str().unwrap(),
+        ],
+    );
+    e.ok(&e.local_db, &["remote", "sync", "nas"]);
+
+    // every machine at once: this one probed now, the NAS asked over ssh
+    let o: Value =
+        serde_json::from_str(&stdout(&e.run(&e.local_db, &["swarm", "--json"]))).unwrap();
+    let ms = o["machines"].as_array().unwrap();
+    assert_eq!(ms.len(), 2, "{o}");
+    assert_eq!(ms[0]["here"], true);
+    assert_eq!(ms[1]["name"], "nas");
+    assert_eq!(ms[1]["state"], "ok", "{}", ms[1]);
+    assert_eq!(o["totals"]["files"], 3, "1 here, 2 on the NAS");
+    let text = e.ok(&e.local_db, &["swarm", "--cached"]);
+    assert!(text.contains("nas  drives as of"), "{text}");
+    assert!(text.contains("3 files indexed"), "{text}");
+
+    // where is it: asked of the NAS itself
+    let w: Value = serde_json::from_str(&stdout(
+        &e.run(&e.local_db, &["swarm", "where", "report", "--json"]),
+    ))
+    .unwrap();
+    let hits = w["hits"].as_array().unwrap();
+    assert_eq!(hits.len(), 2, "{w}");
+    assert!(
+        hits.iter()
+            .all(|h| h["machine"] == "nas" && h["here"] == false)
+    );
+    let nas = w["machines"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["name"] == "nas")
+        .unwrap()
+        .clone();
+    assert_eq!(nas["how"], "live", "{nas}");
+    let text = e.ok(&e.local_db, &["swarm", "where", "annual", "report"]);
+    assert!(
+        text.contains("nas  ") && text.contains("Annual Report.pdf"),
+        "{text}"
+    );
+    // this machine's files are found the same way
+    let text = e.ok(&e.local_db, &["swarm", "where", "notes"]);
+    assert!(text.contains("notes.txt"), "{text}");
+
+    // the NAS can't be reached: its files as synced are searched instead, and that's said
+    let db = rusqlite::Connection::open(&e.local_db).unwrap();
+    db.execute(
+        "UPDATE remotes SET url = 'ssh://unreachable.example.org' WHERE name = 'nas'",
+        [],
+    )
+    .unwrap();
+    drop(db);
+    let o = e.run(&e.local_db, &["swarm", "where", "report"]);
+    let out = String::from_utf8_lossy(&o.stdout);
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(o.status.success(), "{out}\n{err}");
+    assert!(out.contains("report-draft.odt"), "{out}");
+    assert!(err.contains("nas couldn't be asked"), "{err}");
+    assert!(err.contains("as synced"), "{err}");
+    // and the overview says it couldn't be asked, keeping its drives as last said
+    let o: Value =
+        serde_json::from_str(&stdout(&e.run(&e.local_db, &["swarm", "--json"]))).unwrap();
+    assert_eq!(o["machines"][1]["state"], "error", "{}", o["machines"][1]);
+    assert!(o["machines"][1]["ok_at"].is_i64());
 }
