@@ -1144,3 +1144,6 @@ html.is-busy,html.is-busy *{cursor:progress}
 .sw-tchoice small{font-size:.74rem;line-height:1.3}
 .sw-wizard .sw-machine>.btn{align-self:flex-start}
 @media(max-width:760px){.sw-things li.sw-thing{grid-template-columns:minmax(0,1fr)}.sw-list li.sw-vol:has(.sw-pa){grid-template-columns:minmax(0,1fr)}}
+.sw-copy h3,.sw-free h3{margin:0;font-size:1rem}
+.sw-copy p{margin:0}
+.sw-free{display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--line);padding-top:12px;margin-top:4px}

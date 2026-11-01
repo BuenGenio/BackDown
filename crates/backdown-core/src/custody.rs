@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS custody (
     dest        BLOB,
     dest_sha256 BLOB,
     size        INTEGER NOT NULL,
-    ref         TEXT NOT NULL,        -- the job: plan:N | wipe:N | dedup:N | merge:N | rescue:N | mirror:N
+    ref         TEXT NOT NULL,        -- the job: plan:N | wipe:N | dedup:N | merge:N | rescue:N | mirror:N | pool:N
     prev        BLOB NOT NULL,        -- the event before's hash (32 zero bytes for the first)
     hash        BLOB NOT NULL         -- SHA-256(prev + SHA-256(canonical JSON)), see custody.rs
 );
@@ -94,7 +94,7 @@ INSERT INTO custody_start(at) SELECT CAST(strftime('%s', 'now') AS INTEGER)
 pub const BUNDLE_KIND: &str = "backdown-custody";
 pub const SEAL_KIND: &str = "backdown-custody-seal";
 /// The jobs an event can belong to (`ref` is `<kind>:<id>`).
-pub const JOBS: &[&str] = &["plan", "wipe", "dedup", "merge", "rescue", "mirror"];
+pub const JOBS: &[&str] = &["plan", "wipe", "dedup", "merge", "rescue", "mirror", "pool"];
 /// Problems listed at most; the rest are counted.
 const MAX_PROBLEMS: usize = 50;
 
@@ -795,7 +795,7 @@ pub fn parse_ref(s: &str) -> Result<String> {
         }
     }
     bail!(
-        "{s:?} isn't a job: use plan:N, wipe:N, dedup:N, merge:N, rescue:N or mirror:N (N is its number)"
+        "{s:?} isn't a job: use plan:N, wipe:N, dedup:N, merge:N, rescue:N, mirror:N or pool:N (N is its number)"
     )
 }
 

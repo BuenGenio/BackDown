@@ -23,9 +23,9 @@ async function post(path, params = {}) {
   return j;
 }
 
-// the wizard: which drive, its plan, and what's happening
-export const P = { root: null, plan: null, busy: '', error: null, adding: false, all: false };
-let hooks = { reload: () => {}, back: () => {}, isOpen: () => false };
+// the wizard: which drive, its plan, and what's happening (`job`: the copy, as the service runs it)
+export const P = { root: null, plan: null, busy: '', error: null, adding: false, all: false, job: null, jobId: null, timer: 0 };
+let hooks = { reload: () => {}, back: () => {}, isOpen: () => false, freeUp: () => {} };
 
 export function mountPool(h) {
   hooks = { ...hooks, ...h };
@@ -88,7 +88,7 @@ export const intoButton = r => `<button class="btn sm sw-into" type="button" dat
 // ---------- the wizard
 
 export async function openWizard(root) {
-  P.root = root; P.plan = null; P.error = null; P.all = false;
+  P.root = root; P.plan = null; P.error = null; P.all = false; P.job = null; P.jobId = null; clearTimeout(P.timer);
   P.busy = 'Comparing every file on it with the pool…';
   render();
   try { P.plan = await post('pool-plan-make', { root: root.id }); }
@@ -99,7 +99,7 @@ export async function openWizard(root) {
 
 export function wizardOpen() { return !!P.root; }
 
-function close() { P.root = null; P.plan = null; hooks.back(); }
+function close() { P.root = null; P.plan = null; P.job = null; P.jobId = null; clearTimeout(P.timer); hooks.back(); }
 
 const KIND = { 'mail-store': 'Mail', maildir: 'Mail', mdbox: 'Mail', thunderbird: 'Mail', photos: 'Photos', music: 'Music', videos: 'Videos', timemachine: 'Time Machine', system: 'System', git: 'Code', unsorted: 'Folder' };
 
@@ -139,8 +139,88 @@ export function render() {
     <section class="sw-machine"><div class="sw-mhead"><h3>Where it goes</h3></div>${areas ? `<ul class="sw-list">${areas}</ul>` : '<p class="muted sw-none">There’s no pool folder yet: add one in the Swarm view.</p>'}</section>
     <section class="sw-machine"><div class="sw-mhead"><h3>What’s on it</h3><span class="muted">${pp.things.length} thing${pp.things.length === 1 ? '' : 's'}, each filed whole</span></div>
       <ul class="sw-list sw-things">${things}</ul>${more}</section>
-    <section class="act-card"><p class="muted">Next: copying it into the pool (each file read back and compared by SHA-256), then freeing the drive. That step is being built; this plan is kept (<code>backdown pool plans ${pp.id}</code>).</p></section>
+    ${copyHtml(pp)}
   </div>`;
+}
+
+// ---------- copying it, then freeing the drive
+
+const JOB_DONE = new Set(['done', 'failed', 'stopped']);
+
+function copyHtml(pp) {
+  const j = P.job, toCopy = pp.copy_bytes ?? 0;
+  const machines = [...new Set(pp.areas.filter(u => u.assigned_bytes > 0 && u.at?.machine_id != null).map(u => u.at.machine))];
+  let body;
+  if (j && !JOB_DONE.has(j.state)) {
+    const c = j.counts || {}, p = c.total_bytes ? Math.min(1, c.bytes / c.total_bytes) : null;
+    body = `<div class="act-head"><span class="pulse"></span><h3>${j.state === 'queued' ? 'Waiting its turn…' : 'Copying into the pool…'}</h3>
+        <span class="act-pct">${p != null ? Math.round(p * 100) + '%' : ''}</span>
+        <button class="btn sm" type="button" data-pool="stop">Stop</button></div>
+      <div class="meter${p == null ? ' unknown' : ''}"><i style="width:${p != null ? (p * 100).toFixed(1) : 100}%"></i></div>
+      <p class="muted">${esc(j.progress || '')}</p>
+      <p class="muted">Each file is read back where it lands and compared by SHA-256; stopped, it carries on where it was next time.</p>`;
+  } else if (j) {
+    const ok = j.state === 'done' && pp.state === 'done';
+    body = `<h3>${j.state === 'failed' ? 'The copy stopped with a problem' : j.state === 'stopped' ? 'Stopped' : ok ? 'In the pool' : 'Copied, with things to look at'}</h3>
+      <p>${esc(j.error || j.summary || '')}</p>
+      ${j.state === 'done' ? freeUpHtml(pp, machines) : `<p><button class="btn primary" type="button" data-pool="send">Carry on copying</button></p>`}`;
+  } else if (pp.state === 'done') {
+    body = `<h3>In the pool</h3><p class="muted">This plan has been carried out.</p>${freeUpHtml(pp, machines)}`;
+  } else if (toCopy > 0) {
+    body = `<h3>Copy it into the pool</h3>
+      <p>${bytes(toCopy)} goes into ${pp.areas.filter(u => u.assigned_bytes > 0).length} pool folder${pp.areas.filter(u => u.assigned_bytes > 0).length === 1 ? '' : 's'}${pp.unplaced_bytes ? `; ${bytes(pp.unplaced_bytes)} fits nowhere and stays on the drive` : ''}. Each file is written beside its place, read back there and compared by SHA-256; nothing is ever overwritten, and nothing on this drive is changed.</p>
+      <p><button class="btn primary" type="button" data-pool="send">Copy ${bytes(toCopy)} into the pool</button>${pp.state === 'partial' ? ' <span class="muted">(it carries on where it stopped)</span>' : ''}</p>`;
+  } else {
+    body = `<h3>Nothing to copy</h3><p class="muted">Everything on it is in the pool already, or left out.</p>${freeUpHtml(pp, machines)}`;
+  }
+  return `<section class="act-card sw-copy">${body}</section>`;
+}
+
+function freeUpHtml(pp, machines) {
+  const there = machines.length ? `Once ${machines.map(esc).join(' and ')} ${machines.length === 1 ? 'has' : 'have'} indexed what ${machines.length === 1 ? 'it' : 'they'} received (it started as soon as the copy ended), sync ${machines.length === 1 ? 'it' : 'them'} here so the copies count. ` : '';
+  return `<div class="sw-free"><h3>Free up ${esc(P.root?.name || 'the drive')}</h3>
+    <p>${there}Free up then checks every file on the drive has a copy that counts (copies on other machines are read again there just before anything is deleted), shows what's left, and asks you to type the drive's name before deleting anything.</p>
+    <p class="sw-mbtns">${machines.length ? '<button class="btn" type="button" data-pool="sync">Sync the pool’s machines</button>' : ''}<button class="btn primary" type="button" data-pool="free">Free up ${esc(P.root?.name || 'the drive')}…</button></p></div>`;
+}
+
+async function send() {
+  try {
+    const r = await post('pool-send', { id: P.plan.id });
+    P.jobId = r.job; P.job = { id: r.job, state: 'queued' };
+    render();
+    watch();
+  } catch (e) { toast(e.message); }
+}
+
+// the copy's progress, from the service, until it ends
+async function watch() {
+  clearTimeout(P.timer);
+  if (!P.jobId || !P.root) return;
+  try {
+    const d = await fetch('/api/daemon', { credentials: 'same-origin' }).then(r => r.json());
+    const all = [d.side, d.current, ...(d.queued || []), ...(d.recent || [])].filter(Boolean);
+    const j = all.find(x => x.id === P.jobId);
+    if (j) P.job = j;
+    if (j && JOB_DONE.has(j.state)) {
+      try { P.plan = await fetch(`/api/pool-plan?id=${P.plan.id}`, { credentials: 'same-origin' }).then(r => r.json()); } catch {}
+      if (hooks.isOpen()) render();
+      return;
+    }
+  } catch {}
+  if (hooks.isOpen()) render();
+  P.timer = setTimeout(watch, 1500);
+}
+
+async function stopJob() {
+  if (!P.jobId) return;
+  await fetch(`/api/job-stop?id=${P.jobId}`, { method: 'POST', headers: { 'X-BackDown': '1' }, credentials: 'same-origin' }).catch(() => {});
+  watch();
+}
+
+async function syncMachines() {
+  const ids = new Set(P.plan.areas.filter(u => u.assigned_bytes > 0).map(u => u.at?.machine_id).filter(x => x != null));
+  for (const m of ids) await post('machine-sync', { m }).catch(e => toast(e.message));
+  toast('Syncing: the copies count once it’s done (Activity shows it)');
 }
 
 function thingHtml(t, i, usable) {
@@ -215,5 +295,9 @@ async function onClick(e) {
     case 'again': openWizard(P.root); break;
     case 'all': P.all = true; render(); break;
     case 'compare': compare(); break;
+    case 'send': send(); break;
+    case 'stop': stopJob(); break;
+    case 'sync': syncMachines(); break;
+    case 'free': hooks.freeUp(P.root); break;
   }
 }

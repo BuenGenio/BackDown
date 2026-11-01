@@ -202,6 +202,7 @@ pub const FEATURES: &[Feature] = &[
             "/api/pool-plan",
             "/api/pool-plan-make",
             "/api/pool-plan-choose",
+            "/api/pool-send",
         ],
         views: &["swarm"],
         ready: true,

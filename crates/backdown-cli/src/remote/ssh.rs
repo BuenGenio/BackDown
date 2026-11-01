@@ -30,9 +30,18 @@ pub fn quote(s: &str) -> String {
 
 /// The command the other machine's shell runs: `'backdown' 'serve-stdio' ['--db' '<path>']`.
 pub fn remote_command(m: &Machine) -> Result<String> {
+    remote_command_for(m, "serve-stdio")
+}
+
+/// The command for one of BackDown's ends there: `serve-stdio` (it reads), or `swarm-stdio` (it
+/// writes into its own pool folders).
+pub fn remote_command_for(m: &Machine, end: &str) -> Result<String> {
+    if !matches!(end, "serve-stdio" | "swarm-stdio") {
+        bail!("there's no end called {end}");
+    }
     let cmd = m.command.as_deref().unwrap_or("backdown");
     remote::check_remote_path(cmd, "the backdown command there")?;
-    let mut words = vec![quote(cmd), quote("serve-stdio")];
+    let mut words = vec![quote(cmd), quote(end)];
     if let Some(db) = &m.db {
         remote::check_remote_path(db, "the index path there")?;
         words.push(quote("--db"));
@@ -115,7 +124,12 @@ pub struct SshPeer {
 
 impl SshPeer {
     pub fn open(m: &Machine) -> Result<SshPeer> {
-        let args = ssh_args(&m.target()?, &remote_command(m)?)?;
+        Self::open_for(m, "serve-stdio")
+    }
+
+    /// A conversation with one of BackDown's ends there (`remote_command_for`).
+    pub fn open_for(m: &Machine, end: &str) -> Result<SshPeer> {
+        let args = ssh_args(&m.target()?, &remote_command_for(m, end)?)?;
         let mut child = Command::new("ssh")
             .args(&args)
             .stdin(Stdio::piped())
@@ -234,8 +248,16 @@ pub fn explain(name: &str, what: &str, stderr: &str) -> String {
     }
 }
 
-impl Peer for SshPeer {
-    fn call(&mut self, op: &str, args: Value, timeout: Duration) -> Result<Value> {
+impl SshPeer {
+    /// Ask `op` with `args`, and with `body` send exactly that many bytes right after the request
+    /// line (a file, raw); the whole answer (`ok`, and `data` or `error`), however it went there.
+    pub fn exchange(
+        &mut self,
+        op: &str,
+        args: Value,
+        body: Option<(&mut dyn Read, u64)>,
+        timeout: Duration,
+    ) -> Result<Value> {
         self.next += 1;
         let id = self.next;
         let mut req = if args.is_object() { args } else { json!({}) };
@@ -246,15 +268,27 @@ impl Peer for SshPeer {
         req["v"] = json!(1);
         req["id"] = json!(id);
         req["op"] = json!(op);
+        let mut short = None;
         let wrote = self
             .stdin
             .as_mut()
             .context("the connection is closed")
             .and_then(|s| {
                 writeln!(s, "{req}")?;
+                if let Some((body, size)) = body {
+                    let sent = std::io::copy(&mut body.take(size), s)?;
+                    if sent < size {
+                        short = Some(sent);
+                    }
+                }
                 s.flush()?;
                 Ok(())
             });
+        if let Some(sent) = short {
+            // the other end is waiting for bytes that won't come: this conversation is over
+            let _ = self.child.kill();
+            bail!("the file ended after {sent} bytes, while it was being sent (it changed?)");
+        }
         if wrote.is_err() {
             return Err(self.why("couldn't reach it"));
         }
@@ -277,6 +311,13 @@ impl Peer for SshPeer {
         if v["id"] != json!(id) {
             bail!("{} answered out of turn", self.name);
         }
+        Ok(v)
+    }
+}
+
+impl Peer for SshPeer {
+    fn call(&mut self, op: &str, args: Value, timeout: Duration) -> Result<Value> {
+        let v = self.exchange(op, args, None, timeout)?;
         if v["ok"] != true {
             bail!(
                 "{}: {}",

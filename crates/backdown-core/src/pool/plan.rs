@@ -225,21 +225,21 @@ fn range(a: &Area) -> (Vec<u8>, Vec<u8>) {
 }
 
 /// How one source file compares with the pool.
-enum Seen {
+pub(crate) enum Seen {
     In(String),
     New,
     Unknown,
 }
 
 /// Looks up content in every indexed pool folder: this machine's files and the others' cached.
-struct Pool<'a> {
+pub(crate) struct Pool<'a> {
     db: &'a Db,
     areas: Vec<(Area, Vec<u8>, Vec<u8>)>,
     sizes: HashSet<i64>,
 }
 
 impl<'a> Pool<'a> {
-    fn new(db: &'a Db, areas: &[Area]) -> Result<Self> {
+    pub(crate) fn new(db: &'a Db, areas: &[Area]) -> Result<Self> {
         let mut out = Pool {
             db,
             areas: Vec::new(),
@@ -264,7 +264,7 @@ impl<'a> Pool<'a> {
         Ok(out)
     }
 
-    fn see(&self, size: i64, sample: Option<&[u8]>, sha: Option<&[u8]>) -> Result<Seen> {
+    pub(crate) fn see(&self, size: i64, sample: Option<&[u8]>, sha: Option<&[u8]>) -> Result<Seen> {
         if !self.sizes.contains(&size) {
             return Ok(Seen::New);
         }

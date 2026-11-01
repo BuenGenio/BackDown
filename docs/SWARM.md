@@ -47,7 +47,7 @@ A **pool folder** is a folder on a drive of one machine, declared there: `backdo
 
 ## 4. The wizard: a new drive into the pool
 
-On the machine the drive is plugged into (or, from any machine, on the one it's plugged into, through ssh: §5):
+On the machine the drive is plugged into (starting it there from another machine is phase D):
 
 1. **Index and hash** the drive (the usual jobs). The pool machines are synced, and what could be a copy there (same size) is hashed there and here, so "already in the pool" is decided by SHA-256, never by name or size.
 2. **What's already in the pool**: per thing on the drive (the recognisers' units: a mail store, a Time Machine set, a photo library, a folder), how much is there already and where, how much is new.
@@ -63,26 +63,26 @@ On the machine the drive is plugged into (or, from any machine, on the one it's 
 
 ## 5. Writing to another machine: `backdown swarm-stdio`
 
-Run by ssh on the receiving machine, like `serve-stdio`, as the person whose keys reach it. JSON lines in and out; a file's bytes follow its request line raw, `size` bytes exactly, so nothing is base64'd and one stream carries every file.
+Run by ssh on the receiving machine, like `serve-stdio`, as the person whose keys reach it, against the index `remote add --remote-db` named. JSON lines in and out; a file's bytes follow its request line raw, `size` bytes exactly, so nothing is base64'd and one connection carries every file.
 
 | request | does |
 |---|---|
-| `hello` | version, protocol, its pool folders with their room now |
-| `check {area, items:[{path, size, sha256?}]}` | for each: `new`, `same` (the same content is already there), or `conflict` (something else is) |
-| `put {area, path, size, mtime}` + raw bytes | writes `.backdown-part-…` beside the place, flushes, sets the time, renames, reads back; answers `copied` with the SHA-256 read back (or `same`/`conflict`, the bytes read and dropped) |
-| `rescan {area}` | asks its own BackDown service to rescan that pool folder |
-| `run {plan}` / `job {id}` | queue a copy job of a plan on that machine (its drive into the pool), and follow it |
+| `hello {from}` | who's sending (a machine's name); answers with the protocol, version and its pool folders with their room now |
+| `put {area, path, size, mtime, src, plan}` + raw bytes | `pool::receive::put`: written beside its place, flushed, timed, renamed into place, read back; answers `copied`, `renamed` (something else was at its place: a numbered name) or `same` (that content was there), with the SHA-256 read back |
+| `done {area}` | everything for that pool folder has come: its BackDown service indexes it, or a `backdown index` is started there now |
 
-Rules on the receiving side, whoever asks: paths are relative, inside one of its own pool folders, without `..`, control characters or a leading `-`, names checked the way `apply` checks them; nothing is ever overwritten or deleted; each file is a chain-of-custody event there (received, from which machine); the sender compares the hash read back there with the one it computed while reading the source, and journals the outcome here. A file that changed at the source since it was scanned is reported, not copied.
+Rules on the receiving side, whoever asks: the place is plain names inside one of its own pool folders (no `..`, absolute paths or control characters), never reached through a link that leads out of the folder; nothing is overwritten or deleted; the folder's reserve is kept; a refused file's bytes are still read, so the stream stays in step; each file is recorded (`pool_received`, so the next index takes its hashes instead of reading it again) and is an event in that machine's chain of custody, from `machine:path` by `pool:N`. The sender (`pool::send`) compares the hash read back there with the hash of what it read here, keeps a journal (`pool_log`) so a stopped run carries on where it was, sends nothing that's in the pool by then or isn't as its scan saw it, and records the SHA-256 of what it sent in its own index, so freeing the drive afterwards needn't read it again.
+
+A pool folder on the sending machine itself goes through the very same `receive::put`, in-process.
 
 ## 6. Phases
 
 | | What | State |
 |---|---|---|
 | A | Storage and free space per machine (`volumes` request, cached), the Swarm view and `backdown swarm`, where-is search across machines, the tier change | done (#40) |
-| B | Pool folders (`backdown pool add\|list\|set\|remove`), the pool in the Swarm view, the placement planner (`backdown pool plan`, kept plans) and the wizard's first four steps | building (`feat/swarm-pool`) |
-| C | `swarm-stdio`, copying into pool folders here and there, hash adoption after the rescan, the wizard's copy and free-up steps | after |
-| D | `swarm join`, running a copy on another machine from here, a second copy as an option (mirrors) | later |
+| B | Pool folders (`backdown pool add\|list\|set\|remove`), the pool in the Swarm view, the placement planner (`backdown pool plan`, kept plans) and the wizard's first four steps | done (#46) |
+| C | `swarm-stdio`, `backdown pool send` and the service's copy job, hash adoption after the rescan, the wizard's copy and free-up steps | building (`feat/swarm-send`) |
+| D | `swarm join` (add a machine and the ones it reaches), starting a copy of a drive on another machine from here, a second copy as an option (mirrors), a rescan of a big pool drive limited to its pool folder | later |
 
 ## 7. Not doing
 

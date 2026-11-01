@@ -119,7 +119,7 @@ const STOPPABLE: &[&str] = &["dedup", "mail-merge"];
 /// Jobs that can run for hours or days and hardly touch the index (copying a failing drive,
 /// searching a card for lost files, syncing another machine over ssh): they go in a lane of their
 /// own, one at a time, so scans and hashing carry on meanwhile, and they can be stopped.
-const SIDE: &[&str] = &["rescue", "remote-sync"];
+const SIDE: &[&str] = &["rescue", "remote-sync", "pool-send"];
 
 #[derive(Default)]
 struct State {
@@ -644,6 +644,8 @@ fn side_worker(d: &Daemon) {
             let r = match job.kind {
                 "rescue" => run_rescue(d, &db, &job, &stop),
                 "remote-sync" => run_remote_sync(d, &db, &job, &stop),
+                // copying a drive into the pool (pool.rs): hours, mostly reading and the network
+                "pool-send" => crate::pool::run_send_job(d, &db, &job, &stop),
                 k => bail!("{k} doesn't run in the side lane"),
             };
             // what it added to the chain of custody is sealed now
@@ -1500,6 +1502,8 @@ fn run_index(d: &Daemon, db: &mut Db, job: &Job) -> Result<String> {
     })?;
     // which physical drive it is, so it can be named while unplugged or elsewhere (swarm.rs)
     backdown_core::swarm::remember_scanned(db, st.scan, &st.root);
+    // files received into a pool folder here: their hashes, verified on arrival (pool/receive.rs)
+    let _ = backdown_core::pool::receive::adopt(db);
     Ok(format!(
         "{}: {} · {} files, {} (new {}, changed {}, gone {}) · scan {}{}",
         st.root.display(),
