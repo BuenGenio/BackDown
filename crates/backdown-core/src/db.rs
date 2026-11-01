@@ -252,6 +252,14 @@ CREATE TABLE IF NOT EXISTS streams (
 CREATE TABLE IF NOT EXISTS streams_roots (
     root_id INTEGER PRIMARY KEY
 );
+-- who and what the recognised things are about (subjects.rs): people and databases, per root, as
+-- of one scan, like `entities`. Added in 1.1 without a schema bump
+CREATE TABLE IF NOT EXISTS subjects (
+    root_id     INTEGER PRIMARY KEY REFERENCES roots(id),
+    scan        INTEGER NOT NULL,
+    computed_at INTEGER NOT NULL,
+    data        TEXT NOT NULL         -- JSON: subjects::RootSubjects
+);
 ";
 const VERSION: i64 = 2;
 
@@ -408,6 +416,8 @@ impl Db {
         conn.execute_batch(crate::custody::SCHEMA)?;
         // signed manifests of drives (manifest.rs), the same way
         conn.execute_batch(crate::manifest::SCHEMA)?;
+        // content search (fts.rs): documents and their FTS5 index, the same way
+        conn.execute_batch(crate::fts::SCHEMA)?;
         add_column(&conn, "journal", "note", "TEXT")?;
         // names for search: added in place, without a schema bump, since older versions just
         // leave them empty on rows they write (and the next open here fills those in)

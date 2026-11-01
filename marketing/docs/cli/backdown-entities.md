@@ -32,7 +32,7 @@ Also takes the [global options](/docs/cli/#global-options) `--db` and `--local`.
 
 ## Good to know
 
-Kinds: `mail-store`, `maildir`, `mdbox`, `thunderbird`, `nextcloud`, `nextcloud-server`, `timemachine`, `ios-backup`, `android-backup`, `system`, `home-mac`, `home-linux`, `home-windows`, `website`, `git`, `sql-dump`, `disk-image`, `photos`, `music`, `videos`, `export`, `downloads`, `recovery`. Reading where things came from needs the drive connected: small files only (backup scripts, plists, git config, dump headers).
+Kinds: `mail-store`, `maildir`, `mdbox`, `thunderbird`, `nextcloud`, `nextcloud-server`, `timemachine`, `ios-backup`, `android-backup`, `system`, `home-mac`, `home-linux`, `home-windows`, `website`, `git`, `sql-dump`, `mongo-dump`, `sqlite-db`, `mysql-data`, `postgres-data`, `mongo-data`, `disk-image`, `photos`, `music`, `videos`, `export`, `downloads`, `recovery`. Reading where things came from needs the drive connected: small files only (backup scripts, plists, git config, dump headers).
 
 ## Examples
 
@@ -45,3 +45,4 @@ backdown entities --refresh --json > entities.json
 ## See also
 
 - [Recognised things and provenance](/docs/concepts/#recognised-things-and-provenance)
+- [People and databases](/docs/concepts/#people-and-databases)

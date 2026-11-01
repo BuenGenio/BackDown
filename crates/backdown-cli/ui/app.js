@@ -967,8 +967,12 @@ const rerunSearch = () => { if (!$('#searchbox').hidden && $('#q').value.trim())
 const KIND_COLOR = { 'mail-store': '#3b8fd8', maildir: '#3b8fd8', mdbox: '#3b8fd8', thunderbird: '#3b8fd8', nextcloud: '#1f8a8a',
   'nextcloud-server': '#1f8a8a', timemachine: '#55606e', 'ios-backup': '#8e5bd1', 'android-backup': '#2e8b57', system: '#b8800e',
   'home-mac': '#d97a1b', 'home-linux': '#d97a1b', 'home-windows': '#d97a1b', website: '#c2458a', git: '#d8432b', 'sql-dump': '#b8800e',
-  'disk-image': '#55606e', photos: '#8e5bd1', music: '#c2458a', videos: '#7a4fd6', export: '#3b6fd8', downloads: '#8a8f98', recovery: '#8a8f98' };
-const ENT = { kind: 'all', q: '', data: null, overlaps: null };
+  'disk-image': '#55606e', photos: '#8e5bd1', music: '#c2458a', videos: '#7a4fd6', export: '#3b6fd8', downloads: '#8a8f98', recovery: '#8a8f98',
+  'mongo-dump': '#b8800e', 'sqlite-db': '#b8800e', 'mysql-data': '#b8800e', 'postgres-data': '#b8800e', 'mongo-data': '#b8800e' };
+// who and what the things are about (people, databases): one colour per kind of subject
+const SUBJECT_COLOR = { person: '#2e8b57', database: '#b8800e' };
+// view: 'things' (the entities per drive) or a subject kind ('person', 'database'), merged across drives
+const ENT = { kind: 'all', q: '', data: null, overlaps: null, view: 'things', subjects: null };
 const yearsOf = e => { if (!e.oldest || !e.newest) return ''; const a = new Date(e.oldest * 1000).getFullYear(), b = new Date(e.newest * 1000).getFullYear(); return a === b ? `${a}` : `${a}–${b}`; };
 
 async function showEntities() {
@@ -979,6 +983,8 @@ async function showEntities() {
   $('#view').innerHTML = '<div class="empty"><p>Loading…</p></div>';
   try { ENT.data = await api('entities'); } catch (e) { return toastError(e); }
   renderEntities();
+  // who and what those things are about: people and databases, merged across drives
+  api('subjects').then(sj => { ENT.subjects = sj; if (S.mode === 'entities') renderEntities(); }).catch(() => {});
   // how much of each thing exists elsewhere: slower, so it fills in afterwards
   api('overlaps').then(o => { ENT.overlaps = new Map(o.map(x => [x.unit.key + ':' + x.unit.level, x])); if (S.mode === 'entities') renderEntities(); }).catch(() => {});
 }
@@ -991,14 +997,22 @@ function renderEntities() {
   const kinds = [...new Map(all.map(e => [e.kind, e.label])).entries()];
   const match = e => (ENT.kind === 'all' || e.kind === ENT.kind) && (!ENT.q || `${e.label} ${e.title} ${e.path} ${e.provenance.join(' ')} ${e.facts.map(f => f[1]).join(' ')}`.toLowerCase().includes(ENT.q));
   const keep = v.scrollTop;
+  const sj = ENT.subjects, things = ENT.view === 'things';
+  const subjKinds = (sj?.kinds || []).map(k => ({ ...k, n: (sj?.subjects || []).filter(s => s.kind === k.kind).length }));
+  const views = `<div class="ent-views" role="tablist" aria-label="What to show">
+      <button type="button" role="tab" aria-selected="${things}" data-ent-view="things">Things <span>${all.length}</span></button>
+      ${subjKinds.map(k => `<button type="button" role="tab" aria-selected="${ENT.view === k.kind}" data-ent-view="${k.kind}">${esc(k.plural)} <span>${k.n}</span></button>`).join('')}</div>`;
   const bar = `<div class="ent-bar">
-      <label>Show <select id="ent-kind"><option value="all">Everything (${all.length})</option>${kinds.map(([k, l]) => `<option value="${k}"${k === ENT.kind ? ' selected' : ''}>${esc(l)} (${all.filter(e => e.kind === k).length})</option>`).join('')}</select></label>
-      <input id="ent-q" type="search" placeholder="Filter by name, path or origin" value="${esc(ENT.q)}" aria-label="Filter">
+      ${views}
+      ${things ? `<label>Show <select id="ent-kind"><option value="all">Everything (${all.length})</option>${kinds.map(([k, l]) => `<option value="${k}"${k === ENT.kind ? ' selected' : ''}>${esc(l)} (${all.filter(e => e.kind === k).length})</option>`).join('')}</select></label>` : ''}
+      <input id="ent-q" type="search" placeholder="${things ? 'Filter by name, path or origin' : 'Filter by name, address or path'}" value="${esc(ENT.q)}" aria-label="Filter">
       <span class="grow"></span>
       ${d.daemon ? '<button class="btn sm" type="button" id="ent-refresh">Recognise again</button>' : ''}
       <a class="btn sm" href="/api/report" target="_blank" rel="noopener">Report</a>
       <a class="btn sm" href="/api/report?format=md" download="backdown-report.md">Markdown</a></div>`;
-  if (!roots.length) {
+  if (!things) {
+    v.innerHTML = bar + subjectsHtml(sj);
+  } else if (!roots.length) {
     v.innerHTML = bar + `<div class="empty"><div><h2>Nothing recognised yet</h2><p>${d.daemon ? 'BackDown recognises what’s on a drive after it hashes it. Start it now with “Recognise again”.' : 'Run <code>backdown entities</code> in a terminal, then reload.'}</p></div></div>`;
   } else {
     v.innerHTML = bar + roots.map(r => {
@@ -1016,7 +1030,8 @@ function renderEntities() {
     }).join('');
   }
   v.scrollTop = keep;
-  $('#ent-kind').onchange = e => { ENT.kind = e.target.value; renderEntities(); };
+  v.querySelectorAll('[data-ent-view]').forEach(b => b.onclick = () => { ENT.view = b.dataset.entView; renderEntities(); });
+  const kindSel = $('#ent-kind'); if (kindSel) kindSel.onchange = e => { ENT.kind = e.target.value; renderEntities(); };
   const q = $('#ent-q');
   q.oninput = () => { clearTimeout(q._t); q._t = setTimeout(() => { ENT.q = q.value.trim().toLowerCase(); renderEntities(); $('#ent-q').focus(); const i = $('#ent-q'); i.setSelectionRange(i.value.length, i.value.length); }, 200); };
   $('#ent-refresh')?.addEventListener('click', async () => {
@@ -1025,6 +1040,41 @@ function renderEntities() {
     toast('Recognising: it shows in Activity, and here when it’s done');
     if (!polling) pollDaemon(true);
   });
+}
+
+// People and databases: each with every place it appears, on any drive
+function subjectsHtml(sj) {
+  const k = (sj?.kinds || []).find(x => x.kind === ENT.view) || { label: ENT.view, plural: ENT.view };
+  if (!sj) return '<div class="empty"><p>Loading…</p></div>';
+  const q = ENT.q;
+  const list = (sj.subjects || []).filter(s => s.kind === ENT.view && (!q || `${s.name} ${s.aliases.map(a => a.value).join(' ')} ${s.mentions.map(m => m.path + ' ' + m.detail + ' ' + m.entity_title).join(' ')}`.toLowerCase().includes(q)));
+  const notes = [
+    sj.stale?.length ? `<span class="pill warn" title="${esc(sj.stale.join(', '))}">${sj.stale.length === 1 ? 'a drive was' : sj.stale.length + ' drives were'} scanned again since: recognise again to update</span>` : '',
+    sj.missing?.length ? `<span class="pill off" title="${esc(sj.missing.join(', '))}">${sj.missing.length === 1 ? 'a drive hasn’t' : sj.missing.length + ' drives haven’t'} been recognised yet</span>` : '',
+  ].filter(Boolean).join(' ');
+  if (!list.length) {
+    const what = ENT.view === 'person' ? 'mailboxes in a mail store, Nextcloud accounts, home folders, Thunderbird identities and website contacts' : 'database dumps, mongodump folders, SQLite files, MySQL or MariaDB data directories, and the databases websites and Nextcloud servers are configured to use';
+    return `<div class="empty"><div><h2>${q ? `No ${esc(k.plural.toLowerCase())} match the filter` : `No ${esc(k.plural.toLowerCase())} yet`}</h2><p>${q ? '' : `${esc(k.plural)} come from ${what}, once a drive has been recognised.`}</p>${notes ? `<p>${notes}</p>` : ''}</div></div>`;
+  }
+  return `${notes ? `<p class="subj-notes">${notes}</p>` : ''}<div class="ents subjs">${list.map(subjectCard).join('')}</div>`;
+}
+
+function subjectCard(s) {
+  const bytes_ = s.mentions.reduce((n, m) => n + m.bytes, 0);
+  const aliases = s.aliases.filter(a => a.kind !== 'name' && a.value !== s.name).map(a => a.kind === 'login' && a.scope ? `${a.value} on ${a.scope}` : a.value);
+  const roots = new Set(s.mentions.map(m => m.root_id));
+  return `<article class="ent subj" style="--c:${SUBJECT_COLOR[s.kind] || '#8a8f98'}">
+    <div class="ent-top"><span class="ent-kind">${esc(s.label)}</span><span class="ent-size">${bytes_ ? bytes(bytes_) : ''}</span></div>
+    <h3>${esc(s.name)}</h3>
+    ${aliases.length ? `<div class="ent-meta subj-aliases">${aliases.map(esc).join(' · ')}</div>` : ''}
+    <div class="ent-meta">${[`${s.mentions.length} place${s.mentions.length === 1 ? '' : 's'}`, roots.size > 1 ? `${roots.size} drives` : ''].filter(Boolean).join(' · ')}</div>
+    ${s.facts.length ? `<dl class="ent-facts">${s.facts.filter(([k]) => !['Email addresses', 'Logins'].includes(k) || !aliases.length).map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('')}</dl>` : ''}
+    <ul class="subj-mentions">${s.mentions.slice(0, 40).map(m => {
+      const rel = m.path.startsWith(m.root) ? m.path.slice(m.root.length).replace(/^[\\/]/, '') : m.path;
+      return `<li><span class="subj-role">${esc(m.role)}</span><span class="subj-detail">${esc(m.detail || m.entity_title)}</span>
+        <button class="rowlink ent-path" type="button" data-ent-open="${m.key}" data-ent-file="${m.is_file ? 1 : ''}" title="Open ${esc(m.path)}">${esc(rootName(m.root))}${rel ? ': ' + esc(rel) : ''}</button></li>`;
+    }).join('')}${s.mentions.length > 40 ? `<li class="muted">and ${s.mentions.length - 40} more</li>` : ''}</ul>
+  </article>`;
 }
 
 function entityCard(e, r) {

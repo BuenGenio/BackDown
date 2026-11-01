@@ -53,6 +53,8 @@ pub fn recognised(
                 })?;
                 clear();
                 recognise::store(db, &r).context("saving what was recognised")?;
+                // and who and what those things are about (subjects.rs)
+                backdown_core::subjects::refresh(db, &r, true)?;
                 out.push((r, true));
             }
         }
@@ -169,6 +171,91 @@ pub fn entities(
         println!();
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// People or databases (`kind`), across every drive, from what was recognised: computed first
+/// for drives that have nothing stored yet, so the answer is complete.
+pub fn subjects(db: &Db, kind: &str, q: Option<&str>, json: bool) -> Result<ExitCode> {
+    use backdown_core::subjects;
+    let ids = recognise::root_ids(db)?;
+    // drives recognised but not yet gathered (an index from before this existed)
+    for &id in &ids {
+        if subjects::load(db, id)?.is_none()
+            && let Some((r, _)) = recognise::load(db, id)?
+        {
+            subjects::refresh(db, &r, true)?;
+        }
+    }
+    if ids.iter().any(|&id| recognise::load(db, id).ok().flatten().is_none()) {
+        // never recognised: do it now, which gathers subjects too
+        recognised(db, &ids, false, true)?;
+    }
+    let all = subjects::all(db)?;
+    let q = q.map(str::to_lowercase);
+    let shown: Vec<&subjects::Subject> = all
+        .subjects
+        .iter()
+        .filter(|s| s.kind == kind)
+        .filter(|s| {
+            q.as_deref().is_none_or(|q| {
+                s.name.to_lowercase().contains(q)
+                    || s.aliases.iter().any(|a| a.value.to_lowercase().contains(q))
+                    || s.mentions.iter().any(|m| m.path.to_lowercase().contains(q))
+            })
+        })
+        .collect();
+    if json {
+        println!("{}", serde_json::to_string_pretty(&shown)?);
+        return Ok(ExitCode::SUCCESS);
+    }
+    let plural = subjects::plural(kind);
+    if shown.is_empty() {
+        println!(
+            "No {} found on {} drive{}.",
+            plural.to_lowercase(),
+            all.roots,
+            if all.roots == 1 { "" } else { "s" }
+        );
+    }
+    for s in &shown {
+        println!("{}", s.name);
+        for (k, v) in &s.facts {
+            println!("  {k}: {v}");
+        }
+        for m in &s.mentions {
+            let rel = Path::new(&m.path)
+                .strip_prefix(&m.root)
+                .map_or(m.path.clone(), |p| p.display().to_string());
+            println!(
+                "  ↳ {:<18} {:<40} {}{}{}",
+                m.role,
+                if m.detail.is_empty() {
+                    m.entity_title.clone()
+                } else {
+                    m.detail.clone()
+                },
+                rootname(&m.root),
+                if rel.is_empty() { "" } else { ":" },
+                rel
+            );
+        }
+        println!();
+    }
+    if !all.stale.is_empty() {
+        println!(
+            "({} drive{} scanned again since: run `backdown entities --refresh` to update)",
+            all.stale.len(),
+            if all.stale.len() == 1 { " was" } else { "s were" }
+        );
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// "BD-500" for "/media/me/BD-500".
+fn rootname(root: &str) -> String {
+    Path::new(root)
+        .file_name()
+        .map_or(root.to_string(), |n| n.to_string_lossy().into_owned())
 }
 
 pub fn overlaps(db: &Db, min_share: f64, json: bool) -> Result<ExitCode> {

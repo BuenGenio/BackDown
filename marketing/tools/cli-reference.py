@@ -87,6 +87,10 @@ EXAMPLES = {
                'backdown health --json > health.json'],
     'entities': ['backdown entities', 'backdown entities /media/old-drive --kind mail-store',
                  'backdown entities --refresh --json > entities.json'],
+    'people': ['backdown people', '# one person, by name, address or login', 'backdown people alice',
+               'backdown people --json > people.json'],
+    'databases': ['backdown databases', '# every copy of one database', 'backdown databases shop',
+                  'backdown databases --json > databases.json'],
     'overlaps': ['backdown overlaps', '# only what is at least 90% elsewhere', 'backdown overlaps --min 90%'],
     'report': ['backdown report > report.md', 'backdown report --html -o report.html'],
     'plan': ['backdown plan --to /media/archive/Archive', '# only one drive', 'backdown plan --to /media/archive/Archive --from /media/old-drive',
@@ -186,9 +190,21 @@ NOTES = {
               'comes back. No self-tests are run. Exits 2 when a connected drive is failing.',
     'entities': 'Kinds: `mail-store`, `maildir`, `mdbox`, `thunderbird`, `nextcloud`, `nextcloud-server`, `timemachine`, '
                 '`ios-backup`, `android-backup`, `system`, `home-mac`, `home-linux`, `home-windows`, `website`, `git`, '
-                '`sql-dump`, `disk-image`, `photos`, `music`, `videos`, `export`, `downloads`, `recovery`. Reading where '
+                '`sql-dump`, `mongo-dump`, `sqlite-db`, `mysql-data`, `postgres-data`, `mongo-data`, `disk-image`, '
+                '`photos`, `music`, `videos`, `export`, `downloads`, `recovery`. Reading where '
                 'things came from needs the drive connected: small files only (backup scripts, plists, git config, dump '
                 'headers).',
+    'people': 'A person is whoever has a mailbox in a mail server\'s store or a Maildir of their own, a Nextcloud '
+              'account, a home folder, an identity in a Thunderbird profile, or is the contact a website\'s configuration '
+              'names. The same address on two drives is one person: mailboxes, accounts and homes are gathered under '
+              'one name, with how much there is of each. Nothing is read from inside messages or files; names come from '
+              'paths, `prefs.js`, `configuration.php` and `.env` files.',
+    'databases': 'A database is gathered from every dump of it (`mysqldump`, phpMyAdmin, `pg_dump`, `pg_dumpall`, '
+                 'mongodump folders), its live data directory in a server backup (MySQL, MariaDB), SQLite files, and the '
+                 'sites and Nextcloud servers configured to use it (`wp-config.php`, `configuration.php`, `.env`, '
+                 '`config/config.php`). Dumps are named from their header when the drive is connected, else from the '
+                 'file name without its date. Compressed dumps say nothing in the header; the browser\'s viewer still '
+                 'streams them.',
     'report': 'The report reads the index as it is; run `backdown hash` (or `check`/`dupes`) first so every duplicate '
               'is counted.',
     'plan': 'A plan only proposes. The archive’s own drive is never a source. Nothing is copied until `backdown apply '
@@ -277,7 +293,10 @@ SEE_ALSO = {
     'daemon': [('The background service', '/docs/concepts/#the-daemon'), ('Look from your other devices', '/docs/guides/browse-without-restoring/#look-from-your-other-devices')],
     'open': [('Getting started', '/docs/getting-started/')],
     'service': [('The background service', '/docs/concepts/#the-daemon'), ('The service on each system', '/docs/guides/settings-and-licences/#the-service-on-each-system')],
-    'entities': [('Recognised things and provenance', '/docs/concepts/#recognised-things-and-provenance')],
+    'entities': [('Recognised things and provenance', '/docs/concepts/#recognised-things-and-provenance'),
+                 ('People and databases', '/docs/concepts/#people-and-databases')],
+    'people': [('People and databases', '/docs/concepts/#people-and-databases'), ('backdown entities', '/docs/cli/backdown-entities/')],
+    'databases': [('People and databases', '/docs/concepts/#people-and-databases'), ('backdown entities', '/docs/cli/backdown-entities/')],
     'overlaps': [('File your old drives into one archive', '/docs/guides/file-into-an-archive/')],
     'report': [('Getting started', '/docs/getting-started/#produce-a-report')],
     'plan': [('File your old drives into one archive', '/docs/guides/file-into-an-archive/'), ('Merge mailboxes', '/docs/guides/merge-mailboxes/#in-a-filing-plan')],

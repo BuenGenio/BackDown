@@ -538,6 +538,34 @@ fn handle(ctx: &Ctx, req: Request) {
         let _ = req.respond(resp);
         return;
     }
+    if *req.method() == Method::Post && path == "/api/content-index" {
+        // build the content index now (and set its depth first, with ?depth=off|headers|full)
+        let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
+        let resp = if !marked {
+            plain(403, "missing X-BackDown header")
+        } else {
+            let set = match param("depth") {
+                Some(dp) => match crate::content::Depth::parse(dp) {
+                    Ok(dp) => {
+                        let db = ctx.open_db();
+                        db.and_then(|db| crate::content::set_depth(&db, dp)).err()
+                    }
+                    Err(e) => Some(e),
+                },
+                None => None,
+            };
+            match (set, &ctx.daemon) {
+                (Some(e), _) => json_resp(&json!({ "error": e.to_string() })).with_status_code(400),
+                (None, None) => json_resp(&json!({ "error": "no daemon: run `backdown search --build` in a terminal" }))
+                    .with_status_code(409),
+                (None, Some(d)) => json_resp(
+                    &json!({ "ok": true, "job": d.enqueue("content", None, "requested", Default::default()) }),
+                ),
+            }
+        };
+        let _ = req.respond(resp);
+        return;
+    }
     if *req.method() == Method::Post && crate::health::handles(path) {
         // drive health and notifications: read the drives now, mark notifications read, change
         // or try the notification settings (health.rs)
@@ -1342,6 +1370,38 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
             crate::tiers::redact_provenance(&mut v);
             v
         }
+        // who and what the recognised things are about, merged across drives (subjects.rs);
+        // ?kind=person|database narrows it
+        "/api/subjects" => {
+            use backdown_core::subjects;
+            let all = subjects::all(&db)?;
+            let kind = param("kind").map(str::to_string);
+            let list: Vec<&subjects::Subject> = all
+                .subjects
+                .iter()
+                .filter(|s| kind.as_deref().is_none_or(|k| s.kind == k))
+                .collect();
+            json!({
+                "kinds": subjects::KINDS.iter().map(|(k, one, many)| json!({ "kind": k, "label": one, "plural": many })).collect::<Vec<_>>(),
+                "subjects": list,
+                "stale": all.stale,
+                "missing": all.missing,
+                "roots": all.roots,
+                "daemon": ctx.daemon.is_some(),
+            })
+        }
+        // search inside things (content.rs): ?q=words&kind=message|table|rows&root=<id>&limit=
+        "/api/content" => {
+            let root = param("root").and_then(|r| r.parse::<i64>().ok());
+            crate::content::search(
+                &db,
+                param("q").unwrap_or(""),
+                param("kind").filter(|k| !k.is_empty()),
+                root,
+                num("limit", 50)? as usize,
+            )?
+        }
+        "/api/content-status" => crate::content::status(&db)?,
         "/api/mirrors" => json!(
             backdown_core::mirror::list(&db)?
                 .into_iter()

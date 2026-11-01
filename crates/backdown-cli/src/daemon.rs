@@ -113,7 +113,7 @@ pub struct JobOpts {
 }
 
 /// Jobs in the main lane that can be stopped at their next file (and carried on later).
-const STOPPABLE: &[&str] = &["dedup", "mail-merge"];
+const STOPPABLE: &[&str] = &["dedup", "mail-merge", "content"];
 
 /// Jobs that can run for hours or days and hardly touch the index (copying a failing drive,
 /// searching a card for lost files, syncing another machine over ssh): they go in a lane of their
@@ -735,6 +735,7 @@ fn worker(d: &Daemon) {
             "mail-merge" => crate::tidy::run_merge_job(d, &db, &job, &stop),
             "indexes" => run_indexes(d, &db, &job),
             "attest" => crate::manifesting::run_attest(d, &db, &job),
+            "content" => run_content(d, &db, &job, &stop),
             _ => run_hash(d, &mut db, &job),
         };
         // what the job added to the chain of custody is sealed now
@@ -840,6 +841,10 @@ fn worker(d: &Daemon) {
             d.enqueue("entities", None, "after-scan", JobOpts::default());
             // and have other machines hash what now matches a file here by sample (remote/)
             crate::remote::after_hash(d, &db);
+        }
+        if ok && job.kind == "entities" && crate::content::depth(&db) != crate::content::Depth::Off {
+            // then index what's inside the things just recognised (mail headers, dump schemas…)
+            d.enqueue("content", None, job.reason, JobOpts::default());
         }
         if d.state.lock().unwrap().queue.is_empty() {
             notify::send("STATUS=idle");
@@ -1469,6 +1474,18 @@ fn run_entities(d: &Daemon, db: &Db, job: &Job) -> Result<String> {
             );
         })?;
         recognise::store(db, &r)?;
+        // then who and what those things are about (people, databases)
+        d.progress(
+            job.id,
+            format!("drive {} of {}: gathering people and databases", i + 1, ids.len()),
+            Counts {
+                stage: "recognising",
+                files: i as u64,
+                total_files: ids.len() as u64,
+                ..Counts::default()
+            },
+        );
+        backdown_core::subjects::refresh(db, &r, true)?;
         things += r.entities.len();
         done += 1;
     }
@@ -1479,6 +1496,41 @@ fn run_entities(d: &Daemon, db: &Db, job: &Job) -> Result<String> {
             "recognised {things} thing{} on {done} drive{}",
             if things == 1 { "" } else { "s" },
             if done == 1 { "" } else { "s" }
+        )
+    })
+}
+
+/// Index the contents of the recognised things for search (content.rs): what's new since the
+/// last scan, or everything when asked for.
+fn run_content(d: &Daemon, db: &Db, job: &Job, stop: &Arc<AtomicBool>) -> Result<String> {
+    let depth = crate::content::depth(db);
+    let rep = crate::content::build(db, None, depth, job.reason == "requested", stop, &mut |s| {
+        d.progress(
+            job.id,
+            s.to_string(),
+            Counts {
+                stage: "indexing contents",
+                ..Counts::default()
+            },
+        );
+    })?;
+    let sources: Vec<String> = rep.by_source.iter().map(|(k, v)| format!("{} {k}", fmt::count(*v))).collect();
+    Ok(if rep.stopped {
+        format!("stopped after {} documents", fmt::count(rep.docs))
+    } else if rep.docs == 0 {
+        format!(
+            "content index is up to date ({} thing{} unchanged)",
+            rep.skipped_fresh,
+            if rep.skipped_fresh == 1 { "" } else { "s" }
+        )
+    } else {
+        format!(
+            "indexed {} document{} from {} thing{} ({})",
+            fmt::count(rep.docs),
+            if rep.docs == 1 { "" } else { "s" },
+            rep.entities,
+            if rep.entities == 1 { "" } else { "s" },
+            sources.join(", ")
         )
     })
 }

@@ -50,6 +50,11 @@ nextcloud = "Servers/{origin}/Nextcloud data"
 nextcloud-server = "Servers/{origin}/{name}"
 website = "Servers/Websites/{name}"
 sql-dump = "Servers/Databases/{name}"
+mongo-dump = "Servers/Databases/{name}"
+sqlite-db = "Servers/Databases/{name}"
+mysql-data = "Servers/{origin}/MySQL data"
+postgres-data = "Servers/{origin}/PostgreSQL data"
+mongo-data = "Servers/{origin}/MongoDB data"
 timemachine = "Machines/{origin}/Time Machine"
 system = "Machines/{origin}/System {year}"
 home-mac = "People/{name}/{origin}"
@@ -306,6 +311,8 @@ fn origin(e: &Entity, drive: &str, all: &[Entity]) -> String {
         "git" => fact(e, "Remote")
             .and_then(host_of_url)
             .or_else(|| Some("local".into())),
+        "sql-dump" => fact(e, "Host").map(str::to_string),
+        "website" => fact(e, "Address").map(str::to_string),
         "disk-image" => fact(e, "ddrescue").and_then(|c| {
             c.split_whitespace()
                 .skip(1)

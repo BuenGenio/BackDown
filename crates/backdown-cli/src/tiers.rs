@@ -146,9 +146,9 @@ pub const FEATURES: &[Feature] = &[
     Feature {
         key: "recognition",
         name: "Basic recognition",
-        unlocks: "What's on each drive: mail stores, backups, phones, systems, repositories, libraries.",
+        unlocks: "What's on each drive: mail stores, backups, phones, systems, repositories, libraries, databases; and who and what they are about.",
         tier: Community,
-        commands: &["entities"],
+        commands: &["entities", "people", "databases"],
         endpoints: &[],
         views: &["entities"],
         ready: true,
