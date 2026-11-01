@@ -18,6 +18,8 @@ ed25519-dalek = "2"
 flate2 = "1.1"
 getrandom = "0.4.3"
 quick-xml = "0.41"
+# `backdown token --qr`: the link for other devices as a QR code, for the phone app to scan
+qrcode = { version = "0.14.1", default-features = false }
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 serde = "1.0.229"
 serde_json = "1.0.151"
