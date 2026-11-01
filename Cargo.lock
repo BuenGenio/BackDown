@@ -86,22 +86,18 @@ version = "1.0.0-beta.4"
 dependencies = [
  "anyhow",
  "backdown-core",
+ "backdown-viewers",
  "base64 0.22.1",
- "bzip2",
- "calamine",
  "clap",
  "clap_complete",
- "deflate64",
  "dunce",
  "ed25519-dalek",
  "flate2",
  "getrandom 0.4.3",
  "lzma-rust2",
- "mail-parser",
  "quick-xml",
  "rusqlite",
  "rustix",
- "ruzstd",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -132,6 +128,30 @@ dependencies = [
  "unicode-normalization",
  "walkdir",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "backdown-viewers"
+version = "1.0.0-beta.4"
+dependencies = [
+ "anyhow",
+ "backdown-core",
+ "base64 0.22.1",
+ "bzip2",
+ "calamine",
+ "deflate64",
+ "dunce",
+ "flate2",
+ "getrandom 0.4.3",
+ "lzma-rust2",
+ "mail-parser",
+ "quick-xml",
+ "rusqlite",
+ "ruzstd",
+ "serde_json",
+ "tar",
+ "tempfile",
+ "zip",
 ]
 
 [[package]]

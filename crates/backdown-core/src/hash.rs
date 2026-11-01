@@ -27,6 +27,7 @@ use anyhow::Result;
 use rusqlite::params;
 use sha2::{Digest, Sha256};
 
+use crate::db::{Lock, Tx};
 use crate::{Db, paths};
 
 const CHUNK: u64 = 64 * 1024;
@@ -253,7 +254,7 @@ fn run(
         let mut set_full = conn.prepare_cached("UPDATE files SET sha256 = ?1 WHERE id = ?2")?;
         let mut set_error = conn.prepare_cached("UPDATE files SET error = ?1 WHERE id = ?2")?;
         let mut last = Instant::now();
-        conn.execute_batch("BEGIN")?;
+        let mut tx = Tx::begin(conn, Lock::Deferred)?;
         for (ids, size, out) in rx {
             match &out {
                 Ok((digest, whole)) => {
@@ -282,12 +283,12 @@ fn run(
             p.bytes += read_size(size);
             stats.bytes_read += read_size(size);
             if last.elapsed() >= Duration::from_millis(250) {
-                conn.execute_batch("COMMIT; BEGIN")?;
+                tx.checkpoint()?;
                 progress(&p);
                 last = Instant::now();
             }
         }
-        conn.execute_batch("COMMIT")?;
+        tx.commit()?;
         progress(&p);
         Ok(())
     })

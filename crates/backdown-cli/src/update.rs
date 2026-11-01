@@ -35,7 +35,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 use std::sync::Mutex;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use backdown_core::fmt;
@@ -47,6 +47,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::settings;
+use backdown_core::clock::now;
 
 pub const RELEASES_API: &str = "https://api.github.com/repos/BuenGenio/backdown-releases";
 const DAY: i64 = 86_400;
@@ -64,12 +65,6 @@ pub const RELEASE_KEY: [u8; 32] =
 /// checksums alone, this one and later ones never without a signature that checks.
 const FIRST_SIGNED: &str = "1.0.0-beta.4";
 const UNSIGNED: &str = "this release isn't signed (releases before v1.0.0-beta.4 weren't)";
-
-fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
-}
 
 // ---------- versions
 

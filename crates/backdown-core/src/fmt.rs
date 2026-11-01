@@ -71,9 +71,45 @@ pub fn hex(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
+/// The bytes `hex` wrote (either case): `None` for an odd length or anything but hex digits
+/// (no signs or spaces, which `u8::from_str_radix` would let through).
+pub fn unhex(s: impl AsRef<[u8]>) -> Option<Vec<u8>> {
+    let s = s.as_ref();
+    if !s.len().is_multiple_of(2) {
+        return None;
+    }
+    let digit = |c: u8| (c as char).to_digit(16).map(|d| d as u8);
+    s.chunks(2)
+        .map(|p| Some((digit(p[0])? << 4) | digit(p[1])?))
+        .collect()
+}
+
+/// A SHA-256 or an Ed25519 key from its 64 hex digits.
+pub fn unhex32(s: impl AsRef<[u8]>) -> Option<[u8; 32]> {
+    unhex(s)?.try_into().ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hex_round_trips_and_rejects_what_isnt_hex() {
+        let b = [0u8, 0x0f, 0xa5, 0xff];
+        assert_eq!(hex(&b), "000fa5ff");
+        assert_eq!(unhex("000fa5ff").unwrap(), b);
+        assert_eq!(unhex("000FA5FF").unwrap(), b);
+        assert_eq!(unhex(b"00ff").unwrap(), [0, 0xff]);
+        assert_eq!(unhex("").unwrap(), Vec::<u8>::new());
+        assert!(unhex("abc").is_none());
+        assert!(unhex("gg").is_none());
+        assert!(unhex("+f").is_none());
+        assert!(unhex(" f").is_none());
+        assert!(unhex("é0").is_none());
+        assert_eq!(unhex32([b'a'; 64]).unwrap(), [0xaa; 32]);
+        assert!(unhex32("aa").is_none());
+        assert!(unhex32([b'g'; 64]).is_none());
+    }
 
     #[test]
     fn formats() {

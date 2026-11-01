@@ -16,7 +16,6 @@
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use rusqlite::{OptionalExtension, params};
@@ -25,6 +24,7 @@ use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
 use crate::apply::{Outcome, copy_verified, free_space, hash_file, mtime};
+use crate::clock::now;
 use crate::custody::{self, Action, Event};
 use crate::names::{self, Renamer};
 use crate::{Db, extras, fmt, paths};
@@ -79,12 +79,6 @@ pub struct VerifyStats {
     pub differs: u64,
     pub unreadable: u64,
     pub problems: Vec<String>,
-}
-
-fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
 }
 
 fn row(r: &rusqlite::Row) -> rusqlite::Result<Mirror> {

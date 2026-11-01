@@ -20,6 +20,7 @@ use anyhow::Result;
 use rusqlite::{Connection, OptionalExtension, ToSql, params, params_from_iter};
 use serde::Serialize;
 
+use crate::db::{Lock, Tx};
 use crate::{Db, browse, paths};
 
 /// Rows named per transaction while filling in names.
@@ -150,7 +151,7 @@ fn fill_names(conn: &Connection, table: &str, indexed: bool) -> Result<()> {
         let Some(&(end, _)) = rows.last() else {
             return Ok(());
         };
-        conn.execute_batch("BEGIN IMMEDIATE")?;
+        let tx = Tx::begin(conn, Lock::Immediate)?;
         {
             let mut write =
                 conn.prepare_cached(&format!("UPDATE {table} SET lname = ?2 WHERE id = ?1"))?;
@@ -158,7 +159,7 @@ fn fill_names(conn: &Connection, table: &str, indexed: bool) -> Result<()> {
                 write.execute(params![id, lname(&paths::from_bytes(path))])?;
             }
         }
-        conn.execute_batch("COMMIT")?;
+        tx.commit()?;
         last = end;
     }
 }
