@@ -1443,7 +1443,7 @@ fn near(src_dev: u64, src_file: Option<&Path>, dest_dev: u64, dest_dir: &Path) -
 mod linux {
     use std::collections::BTreeSet;
     use std::fs;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
 
     /// A device number as sysfs names it, `major:minor` (glibc's encoding of `dev_t`).
     pub fn dev_name(dev: u64) -> String {
@@ -1489,50 +1489,7 @@ mod linux {
     /// The device number of the block device the filesystem holding `path` is mounted from (the
     /// deepest mount point containing it, by /proc/self/mountinfo).
     pub fn mounted_from(path: &Path) -> Option<u64> {
-        use std::os::unix::fs::{FileTypeExt, MetadataExt};
-        let dir = fs::canonicalize(path).ok()?;
-        let info = fs::read_to_string("/proc/self/mountinfo").ok()?;
-        let mut best: Option<(usize, PathBuf)> = None;
-        for line in info.lines() {
-            // id parent major:minor root mount-point options [optional…] - fstype source super-options
-            let Some((left, right)) = line.split_once(" - ") else {
-                continue;
-            };
-            let (Some(point), Some(source)) = (left.split(' ').nth(4), right.split(' ').nth(1))
-            else {
-                continue;
-            };
-            let point = PathBuf::from(unescape(point));
-            if dir.starts_with(&point) {
-                let depth = point.components().count();
-                // later mounts on the same point hide earlier ones
-                if best.as_ref().is_none_or(|(d, _)| depth >= *d) {
-                    best = Some((depth, PathBuf::from(unescape(source))));
-                }
-            }
-        }
-        let meta = fs::metadata(best?.1).ok()?;
-        meta.file_type().is_block_device().then(|| meta.rdev())
-    }
-
-    /// mountinfo's `\040`-style escapes.
-    fn unescape(s: &str) -> String {
-        let b = s.as_bytes();
-        let mut out = Vec::with_capacity(b.len());
-        let mut i = 0;
-        while i < b.len() {
-            if b[i] == b'\\'
-                && i + 3 < b.len()
-                && b[i + 1..i + 4].iter().all(|c| (b'0'..=b'7').contains(c))
-            {
-                out.push((b[i + 1] - b'0') * 64 + (b[i + 2] - b'0') * 8 + (b[i + 3] - b'0'));
-                i += 4;
-            } else {
-                out.push(b[i]);
-                i += 1;
-            }
-        }
-        String::from_utf8_lossy(&out).into_owned()
+        crate::volumes::mountinfo::block_device_of(path)
     }
 
     #[cfg(test)]
@@ -1551,13 +1508,6 @@ mod linux {
             assert_eq!(dev_name(make(259, 3)), "259:3");
             assert_eq!(dev_name(make(253, 300)), "253:300");
             assert_eq!(dev_name(make(4096, 1 << 20)), "4096:1048576");
-        }
-
-        #[test]
-        fn mount_points_unescape() {
-            assert_eq!(unescape(r"/media/an\040example"), "/media/an example");
-            assert_eq!(unescape(r"/plain"), "/plain");
-            assert_eq!(unescape(r"/tab\011end\"), "/tab\tend\\");
         }
     }
 }

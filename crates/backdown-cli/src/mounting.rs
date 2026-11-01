@@ -576,9 +576,10 @@ mod platform {
 
     /// (device, mount point) for every mount, from mountinfo.
     fn mounts() -> Vec<(String, String, bool)> {
-        std::fs::read_to_string("/proc/self/mountinfo")
-            .map(|t| super::mountinfo(&t))
-            .unwrap_or_default()
+        backdown_core::volumes::mountinfo::read()
+            .into_iter()
+            .map(|m| (m.source, m.point.to_string_lossy().into_owned(), m.ro))
+            .collect()
     }
 
     fn mounted_from(dev: &str) -> Vec<(String, String)> {
@@ -728,43 +729,6 @@ mod platform {
     pub fn is_mount(_point: &str) -> bool {
         false
     }
-}
-
-/// Linux's mountinfo: (source device, mount point, read-only) for each mount.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-fn mountinfo(text: &str) -> Vec<(String, String, bool)> {
-    text.lines()
-        .filter_map(|l| {
-            let (left, right) = l.split_once(" - ")?;
-            let f: Vec<&str> = left.split(' ').collect();
-            let point = unescape(f.get(4)?);
-            let opts = f.get(5)?;
-            let dev = unescape(right.split(' ').nth(1)?);
-            let ro = opts.split(',').any(|o| o == "ro");
-            Some((dev, point, ro))
-        })
-        .collect()
-}
-
-/// mountinfo's octal escapes (`\040` for a space).
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-fn unescape(s: &str) -> String {
-    let b = s.as_bytes();
-    let mut out = Vec::with_capacity(b.len());
-    let mut i = 0;
-    while i < b.len() {
-        if b[i] == b'\\'
-            && i + 3 < b.len()
-            && b[i + 1..i + 4].iter().all(|c| (b'0'..=b'7').contains(c))
-        {
-            out.push((b[i + 1] - b'0') * 64 + (b[i + 2] - b'0') * 8 + (b[i + 3] - b'0'));
-            i += 4;
-        } else {
-            out.push(b[i]);
-            i += 1;
-        }
-    }
-    String::from_utf8_lossy(&out).into_owned()
 }
 
 #[cfg(test)]
@@ -946,19 +910,6 @@ mod tests {
         );
         assert_eq!(win::letters("E\r\n\r\nf\r\n"), ["E:\\", "F:\\"]);
         assert!(win::letters("").is_empty());
-    }
-
-    #[test]
-    fn mountinfo_lines() {
-        let t = "36 35 98:0 /mnt1 /mnt/parent\\040dir rw,noatime master:1 - ext3 /dev/root rw,errors=continue\n\
-                 90 29 8:17 / /media/me/My\\040Card ro,nosuid,nodev shared:5 - vfat /dev/sdb1 ro,uid=1000\n";
-        assert_eq!(
-            mountinfo(t),
-            vec![
-                ("/dev/root".into(), "/mnt/parent dir".into(), false),
-                ("/dev/sdb1".into(), "/media/me/My Card".into(), true),
-            ]
-        );
     }
 
     #[test]

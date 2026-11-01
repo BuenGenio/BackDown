@@ -3982,50 +3982,7 @@ fn disks_under(p: &Path, out: &mut Vec<PathBuf>, depth: u32) {
 /// The device the filesystem holding `dest` was mounted from, per /proc/self/mountinfo.
 #[cfg(target_os = "linux")]
 fn mount_source(dest: &Path) -> Option<u64> {
-    use std::os::unix::fs::MetadataExt;
-    let p = fs::canonicalize(existing(dest)?).ok()?;
-    let info = fs::read_to_string("/proc/self/mountinfo").ok()?;
-    let mut best: Option<(usize, String)> = None;
-    for line in info.lines() {
-        let f: Vec<&str> = line.split(' ').collect();
-        let (Some(mp), Some(dash)) = (f.get(4), f.iter().position(|x| *x == "-")) else {
-            continue;
-        };
-        let (mp, Some(source)) = (unescape(mp), f.get(dash + 2)) else {
-            continue;
-        };
-        if p.starts_with(&mp) && best.as_ref().is_none_or(|(l, _)| mp.len() >= *l) {
-            best = Some((mp.len(), unescape(source)));
-        }
-    }
-    let (_, source) = best?;
-    if !source.starts_with("/dev/") {
-        return None;
-    }
-    fs::metadata(&source).ok().map(|m| m.rdev())
-}
-
-/// mountinfo writes spaces and the like as octal escapes (`\040`).
-#[cfg(target_os = "linux")]
-fn unescape(s: &str) -> String {
-    let b = s.as_bytes();
-    let mut out = Vec::with_capacity(b.len());
-    let mut i = 0;
-    while i < b.len() {
-        if b[i] == b'\\'
-            && let Some(v) = b
-                .get(i + 1..i + 4)
-                .and_then(|d| std::str::from_utf8(d).ok())
-                .and_then(|d| u8::from_str_radix(d, 8).ok())
-        {
-            out.push(v);
-            i += 4;
-        } else {
-            out.push(b[i]);
-            i += 1;
-        }
-    }
-    String::from_utf8_lossy(&out).into_owned()
+    crate::volumes::mountinfo::block_device_of(&existing(dest)?)
 }
 
 /// macOS, best effort: the destination's volume is a slice of the same disk (`disk4s2` of

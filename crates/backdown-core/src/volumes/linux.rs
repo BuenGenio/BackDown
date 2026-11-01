@@ -561,22 +561,14 @@ fn sniff(node: &Path) -> Option<Sniff> {
 }
 
 fn read_mountinfo(path: &Path) -> Vec<MountEntry> {
-    let Ok(text) = fs::read_to_string(path) else {
-        return Vec::new();
-    };
-    text.lines()
-        .filter_map(|line| {
-            // id parent major:minor root mount-point options [optional…] - fstype source super-options
-            let f: Vec<&str> = line.split(' ').collect();
-            let sep = 6 + f.get(6..)?.iter().position(|x| *x == "-")?;
-            let ro = |opts: &str| opts.split(',').any(|o| o == "ro");
-            Some(MountEntry {
-                dev: f.get(2)?.to_string(),
-                path: unescape_octal(f.get(4)?),
-                fs: f.get(sep + 1)?.to_string(),
-                source: unescape_octal(f.get(sep + 2)?),
-                ro: ro(f.get(5)?) || ro(f.get(sep + 3).unwrap_or(&"")),
-            })
+    super::mountinfo::read_from(path)
+        .into_iter()
+        .map(|m| MountEntry {
+            dev: format!("{}:{}", m.dev.0, m.dev.1),
+            path: m.point.to_string_lossy().into_owned(),
+            fs: m.fstype,
+            source: m.source,
+            ro: m.ro,
         })
         .collect()
 }
@@ -589,7 +581,7 @@ fn read_swaps(path: &Path, dm_names: &HashMap<String, String>) -> HashSet<String
     text.lines()
         .skip(1)
         .filter_map(|l| {
-            let dev = unescape_octal(l.split_whitespace().next()?);
+            let dev = super::mountinfo::unescape(l.split_whitespace().next()?);
             let name = dev.strip_prefix("/dev/")?;
             Some(match name.strip_prefix("mapper/") {
                 Some(dm) => dm_names.get(dm).cloned().unwrap_or_else(|| dm.to_string()),
@@ -597,28 +589,6 @@ fn read_swaps(path: &Path, dm_names: &HashMap<String, String>) -> HashSet<String
             })
         })
         .collect()
-}
-
-/// mountinfo's escapes: `\040` for a space, `\011` tab, `\012` newline, `\134` backslash.
-fn unescape_octal(s: &str) -> String {
-    let b = s.as_bytes();
-    let mut out = Vec::with_capacity(b.len());
-    let mut i = 0;
-    while i < b.len() {
-        if b[i] == b'\\'
-            && let Some(n) = b
-                .get(i + 1..i + 4)
-                .and_then(|d| std::str::from_utf8(d).ok())
-                .and_then(|d| u8::from_str_radix(d, 8).ok())
-        {
-            out.push(n);
-            i += 4;
-        } else {
-            out.push(b[i]);
-            i += 1;
-        }
-    }
-    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// udev's `_ENC` values: unsafe bytes as `\xNN`.
@@ -792,7 +762,6 @@ mod tests {
 
     #[test]
     fn escapes() {
-        assert_eq!(unescape_octal(r"/media/a\040b\134c"), r"/media/a b\c");
         assert_eq!(unescape_hex(r"My\x20Photos\x20\x20"), "My Photos");
         assert_eq!(unescape_hex(r"caf\xc3\xa9"), "café");
         assert_eq!(unescape_hex(r"bad\x2"), r"bad\x2");
