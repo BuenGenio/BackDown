@@ -1,4 +1,4 @@
-//! Other machines (Pro): `backdown remote add|list|remove|sync|test`, their side of the daemon
+//! Other machines: `backdown remote add|list|remove|sync|test`, their side of the daemon
 //! (a sync job in the side lane, on a schedule and on request), the browser's endpoints, and
 //! `backdown serve-stdio`, the end ssh runs on the other machine.
 //!
@@ -27,10 +27,10 @@ use crate::{client, locations};
 pub mod ssh;
 pub mod stdio;
 
-/// Several machines are a Pro feature: "multi-machine" in tiers.rs's table (which unlocks
-/// everything in a preview). Reaching machines (add, test, sync, browse, a wipe's re-reads, the
-/// daemon's schedule) asks here; listing and forgetting them never do. Without it, what was
-/// cached stops being refreshed, and so stops counting once the proof window has passed.
+/// Several machines are "multi-machine" in tiers.rs's table: Pro until 1 Nov 2026, free since,
+/// with the swarm that's built on it. Reaching machines (add, test, sync, browse, a wipe's
+/// re-reads, the daemon's schedule) asks here; listing and forgetting them never do. Without it,
+/// what was cached stops being refreshed, and so stops counting once the proof window has passed.
 pub fn allowed() -> bool {
     crate::tiers::feature("multi-machine").is_none_or(|f| crate::tiers::access().allows(f))
 }
@@ -38,7 +38,7 @@ pub fn allowed() -> bool {
 fn gate() -> Result<()> {
     if !allowed() {
         bail!(
-            "reaching other machines is part of BackDown Pro: add a licence key with `backdown license add <key>` (see {})",
+            "reaching other machines needs a licence that includes it: add one with `backdown license add <key>` (see {})",
             crate::tiers::PRICING_URL
         );
     }
@@ -289,7 +289,7 @@ pub fn command(db: Option<PathBuf>, local: bool, cmd: RemoteCmd) -> Result<ExitC
             proof_days,
             sync_hours,
         } => {
-            // seeing them stays free, like the list; changing them is the Pro feature's
+            // seeing them is never gated, like the list; changing them is the feature's
             if proof_days.is_some() || sync_hours.is_some() {
                 gate()?;
             }
@@ -537,7 +537,7 @@ static POOL: LazyLock<Mutex<HashMap<i64, Pooled>>> = LazyLock::new(|| {
 /// Ask machine `m` something now, reusing an open conversation when there is one. A new one is
 /// noted in the index (what the machine said, or why it couldn't be reached): a short write of
 /// its own, as the browser's reads use read-only connections.
-fn live(db_path: &Path, m: &Machine, op: &str, args: Value) -> Result<Value> {
+pub(crate) fn live(db_path: &Path, m: &Machine, op: &str, args: Value) -> Result<Value> {
     let pooled = POOL.lock().unwrap().remove(&m.id);
     let fresh = pooled.is_none();
     let mut peer = match pooled {
@@ -596,9 +596,9 @@ fn param_id(param: &dyn Fn(&str) -> Option<String>, name: &str) -> Result<i64> {
 }
 
 /// Why this browser can't reach machines itself, if it can't.
-fn blocker(desktop: bool) -> Option<&'static str> {
+pub(crate) fn blocker(desktop: bool) -> Option<&'static str> {
     if !allowed() {
-        Some("several machines are a BackDown Pro feature (backdown.io/pricing)")
+        Some("reaching other machines isn't included in this licence (backdown.io/pricing)")
     } else if !desktop {
         Some(
             "machines are reached with your own ssh keys: use your own BackDown (backdown service install, without --system)",

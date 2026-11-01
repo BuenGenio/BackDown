@@ -33,6 +33,7 @@ mod serve;
 mod service;
 mod settings;
 mod sqldump;
+mod swarm;
 mod tidy;
 mod tiers;
 mod update;
@@ -375,7 +376,7 @@ enum Cmd {
         action: LicenseCmd,
     },
     /// Other machines (a NAS, another computer) whose BackDown index is read over ssh, so copies
-    /// there count for duplicates and wiping (Pro)
+    /// there count for duplicates and wiping
     Remote {
         #[command(subcommand)]
         action: remote::RemoteCmd,
@@ -384,6 +385,18 @@ enum Cmd {
     /// line each, on stdin and stdout
     #[command(hide = true)]
     ServeStdio,
+    /// Every machine as one: each machine's drives, how full they are and what's indexed on them
+    /// (this machine and the ones `backdown remote` reaches); `swarm where NAME` finds files on all
+    Swarm {
+        #[command(subcommand)]
+        action: Option<swarm::SwarmCmd>,
+        /// Don't ask the other machines now: show them as last synced
+        #[arg(long)]
+        cached: bool,
+        /// Print it as JSON
+        #[arg(long)]
+        json: bool,
+    },
     /// Tidy an archive: identical files in FOLDER share their storage, as hardlinks or clones.
     /// Both files are re-read first; every link is journaled. Without --go, only shows what
     /// would happen
@@ -714,6 +727,12 @@ fn run(cli: Cli) -> Result<ExitCode> {
         // the other end of `backdown remote`, run there by ssh: reads only, never through a daemon
         Cmd::ServeStdio => return remote::stdio::run(cli.db),
         Cmd::Remote { action } => return remote::command(cli.db, cli.local, action),
+        // reads the index and asks the other machines over ssh, like `remote`
+        Cmd::Swarm {
+            action,
+            cached,
+            json,
+        } => return swarm::command(cli.db, cli.local, action, cached, json),
         // reads the index (an export also seals it), or only the file given
         Cmd::Custody { action } => return custody::command(cli.db, action),
         // the index directly, like `entities` (a manifest adds one row); checking needs none
@@ -804,6 +823,7 @@ fn local(db_path: &Path, cmd: Cmd, use_daemon: bool) -> Result<ExitCode> {
                         fmt::bytes(s.bytes)
                     ))
                 })?;
+                backdown_core::swarm::remember_scanned(&db, st.scan, &st.root);
                 done(&format!(
                     "{}: {} files, {} (new {}, changed {}, gone {}) · scan {}\n  {}",
                     st.root.display(),
@@ -1003,6 +1023,7 @@ fn local(db_path: &Path, cmd: Cmd, use_daemon: bool) -> Result<ExitCode> {
         | Cmd::Volumes { .. }
         | Cmd::Health { .. }
         | Cmd::Remote { .. }
+        | Cmd::Swarm { .. }
         | Cmd::Manifest { .. }
         | Cmd::ServeStdio
         | Cmd::Mount { .. }
@@ -1155,6 +1176,7 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
         | Cmd::Volumes { .. }
         | Cmd::Health { .. }
         | Cmd::Remote { .. }
+        | Cmd::Swarm { .. }
         | Cmd::Manifest { .. }
         | Cmd::ServeStdio
         | Cmd::Mount { .. }

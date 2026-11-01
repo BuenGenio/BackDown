@@ -1044,3 +1044,156 @@ fn an_older_backdown_there_syncs_fine_without_its_drive_health() {
     assert_eq!(count(&db, "SELECT COUNT(*) FROM remote_health"), 0);
     assert_eq!(count(&db, "SELECT COUNT(*) FROM notifications"), 0);
 }
+
+// ---------- the swarm: each machine's storage, and where things are (swarm.rs)
+
+/// A BackDown there from before the `volumes` request: it refuses it the way those do.
+struct NoVolumes(Local);
+
+impl Peer for NoVolumes {
+    fn call(&mut self, op: &str, args: Value, t: Duration) -> Result<Value> {
+        if op == "volumes" {
+            bail!(
+                "nas: bad request: unknown variant `volumes`, expected one of `hello`, `status`, `roots`"
+            );
+        }
+        self.0.call(op, args, t)
+    }
+}
+
+#[test]
+fn a_sync_keeps_each_machines_storage_and_an_older_one_just_doesnt_say() {
+    use crate::swarm;
+    let tmp = scratch();
+    let vol = tmp.path().join("nas/volume1");
+    write(&vol.join("backup/report.pdf"), &blob(1, 5000));
+    let nas_db = tmp.path().join("nas.db");
+    let mut there = Db::open(&nas_db).unwrap();
+    scan(&mut there, &vol);
+    let db = Db::open(&tmp.path().join("local.db")).unwrap();
+    let m = add(&db, "nas", "ssh://nas.example.org", None, None).unwrap();
+    let local = || Local {
+        db: nas_db.clone(),
+        calls: Vec::new(),
+    };
+    let st = sync(&db, &m, &mut local(), &SyncOptions::default(), &mut |_| {}).unwrap();
+    assert_eq!(st.volumes, "ok");
+    let (state, report, ok_at, asked, err) = kept_volumes(&db, m.id).unwrap().unwrap();
+    assert_eq!(state, "ok");
+    assert!(ok_at.is_some() && asked == ok_at && err.is_none());
+    let report = report.unwrap();
+    assert!(report["disks"].is_array(), "the probe of that machine");
+    // its indexed drive, connected, with what its own index has of it
+    let roots = report["roots"].as_array().unwrap();
+    assert_eq!(roots.len(), 1, "{report}");
+    assert_eq!(roots[0]["present"], true);
+    assert_eq!(roots[0]["files"], 1);
+    assert!(roots[0]["path"].as_str().unwrap().ends_with("volume1"));
+
+    // the swarm: this machine first, then the nas with its drive among its indexed ones
+    let o = swarm::overview(&db, "laptop", swarm::storage(&db)).unwrap();
+    let ms = o["machines"].as_array().unwrap();
+    assert_eq!(ms.len(), 2);
+    assert_eq!(
+        (ms[0]["name"].clone(), ms[0]["here"].clone()),
+        (json!("laptop"), json!(true))
+    );
+    assert_eq!(
+        (ms[1]["name"].clone(), ms[1]["state"].clone()),
+        (json!("nas"), json!("ok"))
+    );
+    assert_eq!(ms[1]["totals"]["files"], 1);
+    assert_eq!(o["totals"]["machines"], 2);
+    assert_eq!(o["totals"]["files"], 1, "nothing indexed here yet");
+    assert!(ms[1].to_string().contains("volume1"), "{}", ms[1]);
+    assert_eq!(swarm::one(&db, &m).unwrap()["state"], "ok");
+
+    // an error there keeps what it said last, with the error
+    store_volumes(&db, m.id, &Err(anyhow::anyhow!("nas: database is locked"))).unwrap();
+    let (state, report, ok_at2, _, err) = kept_volumes(&db, m.id).unwrap().unwrap();
+    assert_eq!(state, "error");
+    assert!(report.is_some() && ok_at2 == ok_at);
+    assert!(err.unwrap().contains("locked"));
+    // an answer that isn't a storage report is refused, not kept
+    store_volumes(&db, m.id, &Ok(json!({ "disks": "many" }))).unwrap();
+    assert_eq!(kept_volumes(&db, m.id).unwrap().unwrap().0, "error");
+
+    // a BackDown there from before the request doesn't say; the sync goes on regardless
+    let mut older = NoVolumes(local());
+    let st = sync(&db, &m, &mut older, &SyncOptions::default(), &mut |_| {}).unwrap();
+    assert_eq!(st.volumes, "unsupported");
+    assert!(older.0.calls.contains(&"roots".to_string()));
+    let (state, report, ok_at, _, _) = kept_volumes(&db, m.id).unwrap().unwrap();
+    assert_eq!(state, "unsupported");
+    assert!(
+        report.is_none() && ok_at.is_none(),
+        "what it said before isn't current"
+    );
+    // its drives are still listed, from the sync, with nothing to put them on
+    let o = swarm::overview(&db, "laptop", swarm::storage(&db)).unwrap();
+    let nas = &o["machines"][1];
+    assert_eq!(nas["state"], "unsupported");
+    assert_eq!(nas["disks"], json!([]));
+    assert_eq!(nas["elsewhere"][0]["files"], 1);
+    assert_eq!(nas["elsewhere"][0]["name"], "volume1");
+
+    // forgetting the machine forgets its storage too
+    remove(&db, m.id).unwrap();
+    assert_eq!(count(&db, "SELECT COUNT(*) FROM remote_volumes"), 0);
+}
+
+#[test]
+fn where_is_it_searches_a_machines_cached_files_when_it_cant_be_asked() {
+    use crate::swarm;
+    let tmp = scratch();
+    let vol = tmp.path().join("nas/volume1");
+    write(
+        &vol.join("backup/Quarterly Report 2021.pdf"),
+        &blob(1, 5000),
+    );
+    write(&vol.join("backup/docs/report.txt"), &blob(2, 300));
+    write(&vol.join("backup/Résumé.odt"), &blob(3, 700));
+    write(&vol.join("other.bin"), &blob(4, 900));
+    let nas_db = tmp.path().join("nas.db");
+    let mut there = Db::open(&nas_db).unwrap();
+    scan(&mut there, &vol);
+    let db = Db::open(&tmp.path().join("local.db")).unwrap();
+    let m = add(&db, "nas", "ssh://nas.example.org", None, None).unwrap();
+    let mut peer = Local {
+        db: nas_db.clone(),
+        calls: Vec::new(),
+    };
+    sync(&db, &m, &mut peer, &SyncOptions::default(), &mut |_| {}).unwrap();
+    let m = get(&db, m.id).unwrap();
+    let find = |q: &str| swarm::cached_find(&db, &m, q, 10, Duration::from_secs(5)).unwrap();
+
+    let (hits, total, complete) = find("report");
+    assert!(complete);
+    assert_eq!(total, 2);
+    // the name itself first, then a word in a name
+    assert_eq!(hits[0]["name"], "report.txt");
+    assert_eq!(hits[0]["rank"], 4);
+    assert_eq!(hits[0]["folder"], "backup/docs");
+    assert_eq!(hits[0]["drive"], "volume1");
+    assert_eq!(hits[0]["cached"], true);
+    assert_eq!(hits[1]["name"], "Quarterly Report 2021.pdf");
+    assert_eq!(hits[1]["rank"], 2);
+    // every word must be in the name; case and accents don't matter
+    assert_eq!(find("report 2021").0.len(), 1);
+    assert_eq!(find("RESUME").0[0]["name"], "Résumé.odt");
+    assert!(find("nothing-like-it").0.is_empty());
+    // the same search asked live gives the same files (its own index answers)
+    let live = peer
+        .call("find", json!({ "q": "report", "limit": 10 }), ASK)
+        .unwrap();
+    assert_eq!(live["hits"].as_array().unwrap().len(), 2);
+    assert_eq!(live["hits"][0]["name"], "report.txt");
+    // each hit can say which drive it's on, from that machine's storage
+    let (_, report, ..) = kept_volumes(&db, m.id).unwrap().unwrap();
+    let hit = swarm::with_place(hits[0].clone(), report.as_ref());
+    // (on a machine whose drives can be probed: a container may have none to show)
+    if !hit["place"].is_null() {
+        assert_eq!(hit["place"]["present"], true, "{hit}");
+        assert!(hit["place"]["volume"]["mount"].is_string(), "{hit}");
+    }
+}

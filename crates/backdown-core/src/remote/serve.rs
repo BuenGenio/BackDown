@@ -8,7 +8,8 @@
 //! Everything here reads: the index through a read-only connection (the caller opens it so), and
 //! files only by their index id, only while they're current and still as scanned (`hash` and
 //! `stat`), the way `backdown hash` would. No file's bytes are ever sent, only hashes. Drive
-//! health (`health`) is what the index holds: no drive is read for it.
+//! health (`health`) is what the index holds: no drive is read for it. Its storage (`volumes`)
+//! is the volume probe and each file system's size and free space (swarm.rs).
 //!
 //! A request this end doesn't know (one a newer BackDown added) is refused as an "unknown
 //! request", so the asker can tell it apart from a mistake and do without it; versions before
@@ -117,6 +118,11 @@ pub enum Request {
     /// Its drives' health as its index has it (no drive is read for this), and its own latest
     /// drive-health notifications.
     Health {},
+    /// Its storage (swarm.rs): its drives and file systems, each mounted one's size and free
+    /// space, and its indexed drives, each connected or not and the drive it was last scanned on.
+    /// The same read-only probe as `backdown volumes`: nothing is mounted or written, and no
+    /// drive's files are read.
+    Volumes {},
 }
 
 #[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -356,6 +362,7 @@ pub fn answer(db: &Db, here: &Here, req: &Request, deadline: Instant) -> Result<
             json!({ "results": out })
         }
         Request::Health {} => drive_health(db)?,
+        Request::Volumes {} => crate::swarm::storage(db)?,
     })
 }
 

@@ -294,7 +294,8 @@ pub fn parent(os: Os, raw: &[u8]) -> &[u8] {
     }
 }
 
-fn name_of(os: Os, raw: &[u8]) -> String {
+/// The last name of a path there (a file's or folder's own name), for people.
+pub fn name_of(os: Os, raw: &[u8]) -> String {
     let p = parent(os, raw);
     let rest = if p.len() < raw.len() {
         let r = &raw[p.len()..];
@@ -446,6 +447,8 @@ pub fn remove(db: &Db, id: i64) -> Result<()> {
             .execute("DELETE FROM remote_health WHERE remote_id = ?1", [id])?;
         db.conn
             .execute("DELETE FROM remote_health_state WHERE remote_id = ?1", [id])?;
+        db.conn
+            .execute("DELETE FROM remote_volumes WHERE remote_id = ?1", [id])?;
         if db.conn.execute("DELETE FROM remotes WHERE id = ?1", [id])? == 0 {
             bail!("there's no machine {id}");
         }
@@ -1047,6 +1050,9 @@ pub struct SyncStats {
     pub health_drives: u64,
     /// notifications recorded here about drives there getting worse
     pub health_notes: u64,
+    /// its drives and their free space (swarm.rs): "ok", "unsupported" (a BackDown there from
+    /// before the request), or "error"
+    pub volumes: &'static str,
 }
 
 pub struct SyncOptions<'a> {
@@ -1137,6 +1143,8 @@ pub fn sync(
     if opts.health {
         fetch_health(db, m, peer, skew, opts.show, &mut st)?;
     }
+    // its drives and how much room is left on them (the swarm's view of it)
+    st.volumes = fetch_volumes(db, m, peer)?;
     let roots: Vec<RootInfo> =
         serde_json::from_value(peer.call("roots", json!({}), ASK)?["roots"].clone())
             .context("its list of drives")?;
@@ -1465,6 +1473,86 @@ fn hash_there(
     }
     st.left = left_to_hash(db, m)?;
     Ok(())
+}
+
+// ---------- its drives and free space (swarm.rs)
+
+/// The most kept of a machine's storage report (its drives, file systems and indexed drives, as
+/// JSON); a bigger one is refused rather than cut.
+pub const MAX_VOLUMES_JSON: usize = 2 << 20;
+
+/// Keep what a machine said about its storage (`volumes`), or why it couldn't say: a BackDown
+/// there that doesn't know the request (an older one) is "unsupported", and what it said before
+/// is dropped (it's no longer current); an error leaves the last report in place, with the error.
+/// The state kept: "ok", "unsupported" or "error".
+pub fn store_volumes(db: &Db, id: i64, answer: &Result<Value>) -> Result<&'static str> {
+    let at = now();
+    let (state, data, error) = match answer {
+        Ok(v) => {
+            let s = v.to_string();
+            if s.len() > MAX_VOLUMES_JSON || !v["disks"].is_array() {
+                (
+                    "error",
+                    None,
+                    Some("its list of drives was too long or not one".to_string()),
+                )
+            } else {
+                ("ok", Some(s), None)
+            }
+        }
+        Err(e) if unknown_request(e, "volumes") => ("unsupported", None, None),
+        Err(e) => ("error", None, Some(clip(&format!("{e:#}"), 500))),
+    };
+    db.conn.execute(
+        "INSERT INTO remote_volumes(remote_id, state, data, error, asked_at, ok_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, CASE WHEN ?2 = 'ok' THEN ?5 END)
+         ON CONFLICT(remote_id) DO UPDATE SET state = excluded.state, error = excluded.error,
+           asked_at = excluded.asked_at,
+           data = CASE excluded.state WHEN 'ok' THEN excluded.data WHEN 'unsupported' THEN NULL ELSE data END,
+           ok_at = CASE excluded.state WHEN 'ok' THEN excluded.ok_at WHEN 'unsupported' THEN NULL ELSE ok_at END",
+        params![id, state, data, error, at],
+    )?;
+    Ok(state)
+}
+
+/// Ask machine `m` about its storage and keep the answer (`store_volumes`); a failure there is
+/// noted, and the sync goes on.
+fn fetch_volumes(db: &Db, m: &Machine, peer: &mut dyn Peer) -> Result<&'static str> {
+    let answer = peer.call("volumes", json!({}), ASK);
+    store_volumes(db, m.id, &answer)
+}
+
+/// What's kept of machine `id`'s storage: (state, its report, when it last answered, when it was
+/// last asked, why not); None when it was never asked.
+pub fn kept_volumes(db: &Db, id: i64) -> Result<Option<crate::swarm::Kept>> {
+    let has: bool = db.conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'remote_volumes')",
+        [],
+        |r| r.get(0),
+    )?;
+    if !has {
+        return Ok(None);
+    }
+    Ok(db
+        .conn
+        .query_row(
+            "SELECT state, data, ok_at, asked_at, error FROM remote_volumes WHERE remote_id = ?1",
+            [id],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, Option<String>>(1)?,
+                    r.get::<_, Option<i64>>(2)?,
+                    r.get::<_, Option<i64>>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                ))
+            },
+        )
+        .optional()?
+        .map(|(state, data, ok_at, asked, error)| {
+            let report = data.and_then(|d| serde_json::from_str(&d).ok());
+            (state, report, ok_at, asked, error)
+        }))
 }
 
 // ---------- drive health there

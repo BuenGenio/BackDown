@@ -1294,6 +1294,11 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
         let p = |k: &str| param(k).map(str::to_string);
         return crate::remote::get(ctx.daemon.as_deref(), ctx.desktop, &ctx.db, path, &p);
     }
+    if crate::swarm::handles(path) {
+        // every machine as one: drives, free space, where things are (swarm.rs)
+        let p = |k: &str| param(k).map(str::to_string);
+        return crate::swarm::get(ctx.daemon.as_deref(), ctx.desktop, &ctx.db, path, &p);
+    }
     let db = ro_db(ctx)?;
     let id = || -> Result<i64> { param("id").context("missing id")?.parse().context("bad id") };
     let dir = || -> Result<PathBuf> { browse::path_of(param("dir").context("missing dir")?) };
@@ -2175,6 +2180,7 @@ fn ui_asset(name: &str) -> Option<(&'static [u8], &'static str)> {
         "tidy.js" => "text/javascript; charset=utf-8",
         "health.js" => "text/javascript; charset=utf-8",
         "machines.js" => "text/javascript; charset=utf-8",
+        "swarm.js" => "text/javascript; charset=utf-8",
         "fsbrowse.js" => "text/javascript; charset=utf-8",
         "drives.js" => "text/javascript; charset=utf-8",
         "dupes.js" => "text/javascript; charset=utf-8",

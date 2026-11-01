@@ -163,6 +163,38 @@ pub const FEATURES: &[Feature] = &[
         views: &[],
         ready: true,
     },
+    Feature {
+        // roadmap v0.6 had it Pro; free since 1 Nov 2026, with the swarm that's built on it.
+        // Forgetting a machine (`remote remove`, /api/machine-remove) and seeing the list were
+        // never gated, so nothing gets stuck
+        key: "multi-machine",
+        name: "Several machines",
+        unlocks: "A NAS or another computer with BackDown on it, read over ssh with your keys: browse it, and let its copies count for duplicates, overlaps and freeing drives.",
+        tier: Community,
+        commands: &[],
+        endpoints: &[
+            "/api/machine-ls",
+            "/api/machine-file",
+            "/api/machine-find",
+            "/api/machine-add",
+            "/api/machine-test",
+            "/api/machine-sync",
+            "/api/machine-settings",
+        ],
+        views: &[],
+        ready: true,
+    },
+    Feature {
+        // decided 1 Nov 2026: free (docs/SWARM.md)
+        key: "swarm",
+        name: "The swarm",
+        unlocks: "Every machine as one: each drive's size and free space, which machine and drive holds any file, and a pool of folders across machines that drives are filed into, each file once.",
+        tier: Community,
+        commands: &["swarm"],
+        endpoints: &["/api/swarm", "/api/swarm-machine", "/api/swarm-where"],
+        views: &["swarm"],
+        ready: true,
+    },
     // ---- Pro
     Feature {
         key: "provenance",
@@ -227,26 +259,6 @@ pub const FEATURES: &[Feature] = &[
             "/api/threads",
             "/api/thread",
             "/api/mail-kind",
-        ],
-        views: &[],
-        ready: true,
-    },
-    Feature {
-        // roadmap v0.6: "Pro tier: multi-machine". Forgetting a machine (`remote remove`,
-        // /api/machine-remove) and seeing the list stay free, so nothing gets stuck
-        key: "multi-machine",
-        name: "Several machines",
-        unlocks: "A NAS or another computer with BackDown on it, read over ssh with your keys: browse it, and let its copies count for duplicates, overlaps and freeing drives.",
-        tier: Pro,
-        commands: &[],
-        endpoints: &[
-            "/api/machine-ls",
-            "/api/machine-file",
-            "/api/machine-find",
-            "/api/machine-add",
-            "/api/machine-test",
-            "/api/machine-sync",
-            "/api/machine-settings",
         ],
         views: &[],
         ready: true,
@@ -801,6 +813,9 @@ mod tests {
             Community,
             "decided: free"
         );
+        // decided 1 Nov 2026: the swarm is free, and so is reaching machines, which it needs
+        assert_eq!(feature("swarm").unwrap().tier, Community, "decided: free");
+        assert_eq!(feature("multi-machine").unwrap().tier, Community);
         // the free tier answers "what do I have and what's duplicated" completely
         for c in ["index", "hash", "dupes", "check", "entities", "report"] {
             assert!(
