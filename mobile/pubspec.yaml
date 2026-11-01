@@ -1,0 +1,86 @@
+name: backdown_mobile
+description: >-
+  BackDown on your phone: the drives, files, jobs and drive health of the BackDown service on your
+  computers, over your own network (Tailscale or the LAN). Nothing goes through backdown.io.
+publish_to: none
+version: 1.0.0-beta.4+1
+
+environment:
+  sdk: ^3.13.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # MIT (Remi Rousselet); state: the servers, each screen's data and its refreshes.
+  flutter_riverpod: ^3.4.3
+  # BSD-3 (Flutter team); navigation, with a path for every screen.
+  go_router: ^18.0.2
+  # BSD-3 (Dart team); the requests to the BackDown service.
+  http: ^1.6.0
+  # BSD-3 (Flutter team); the list of servers (without tokens) and the app's own settings.
+  shared_preferences: ^2.5.5
+  # BSD-3 (German Saprykin); each server's token, in the Android Keystore, the iOS Keychain or
+  # libsecret on Linux, never in plain preferences.
+  flutter_secure_storage: ^11.2.0
+  # BSD-3 (Dart team); sizes, counts and dates in the phone's locale.
+  intl: ^0.20.3
+  # BSD-3 (Dart team); clock.now() in logic, so tests can pin the time.
+  clock: ^1.1.3
+  # BSD-3 (Dart team); the demo's made-up file hashes (SHA-256), so its duplicates match.
+  crypto: ^3.0.8
+  # BSD-3 (Flutter Community); "Share" for a file from a drive.
+  share_plus: ^13.3.1
+  # BSD-3 (Flutter team); the cache folder files are downloaded into before opening or sharing.
+  path_provider: ^2.1.6
+  # BSD-3; "Open in…" another app (ACTION_VIEW through its own FileProvider; no storage permissions).
+  open_file: ^4.0.0
+  # MIT; the PDF viewer. Renders with the platform (Android PdfRenderer, iOS CGPDF), so no PDFium.
+  pdfx: ^2.11.0
+  # BSD-3 (Flutter team); video and audio, streamed from the service with the session cookie.
+  video_player: ^2.14.1
+  # MIT (Reqable); syntax colours for code and config files (highlight.js's grammars, in Dart).
+  re_highlight: ^0.0.3
+  # MIT; scans the QR code `backdown token --qr` prints, with zxing-cpp (Apache-2.0). Chosen over
+  # ML Kit based scanners, which bring Google Play services and usage telemetry.
+  flutter_zxing: ^3.1.0
+  # BSD-3 (Flutter team); flutter_zxing's camera, used directly for its permission errors.
+  camera: ^0.12.1
+  # BSD-3 (Flutter team); App Lock: fingerprint, face or the phone's screen lock.
+  local_auth: ^3.0.2
+  # MIT (Flutter Community); Android WorkManager: the background check for finished jobs and drive
+  # health warnings.
+  workmanager: ^0.10.10
+  # BSD-3-Clause; the notifications that check raises.
+  flutter_local_notifications: ^22.3.1
+  # BSD-3 (Flutter Community); the app's version in About.
+  package_info_plus: ^10.2.2
+  # BSD-3 (Flutter team); links to the docs on backdown.io.
+  url_launcher: ^6.3.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  # MIT; the launcher icons from assets/icon/.
+  flutter_launcher_icons: ^0.14.4
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icon/mark.png
+    - assets/demo/
+  fonts:
+    # SIL OFL 1.1; the wordmark and headings, as on backdown.io.
+    - family: Bricolage
+      fonts:
+        - asset: assets/fonts/BricolageGrotesque.ttf
+          weight: 800
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: assets/icon/icon.png
+  adaptive_icon_background: "#f5f3ec"
+  adaptive_icon_foreground: assets/icon/foreground.png
+  remove_alpha_ios: true
