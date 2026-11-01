@@ -9,29 +9,12 @@ use std::time::Instant;
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 
+// where an mbox's messages start: the same rule as mail merge's
+pub(crate) use backdown_core::mbox::{blank, is_from_line};
+
 use super::*;
 
 // ---- mail: single messages (.eml) and mbox files
-
-pub(crate) fn blank(line: &[u8]) -> bool {
-    line == b"\n" || line == b"\r\n"
-}
-
-pub(super) fn has_clock(l: &[u8]) -> bool {
-    l.windows(5).any(|w| {
-        w[0].is_ascii_digit()
-            && w[1].is_ascii_digit()
-            && w[2] == b':'
-            && w[3].is_ascii_digit()
-            && w[4].is_ascii_digit()
-    })
-}
-
-/// An mbox separator: "From " at the start of a line, after a blank line (or looking like
-/// "From sender Mon Jan  1 12:00:00 2024", for writers that don't leave one).
-pub(crate) fn is_from_line(line: &[u8], prev_blank: bool) -> bool {
-    line.starts_with(b"From ") && (prev_blank || has_clock(line))
-}
 
 /// One line into `buf`, keeping at most `cap` bytes of it; returns the whole line's length.
 pub(crate) fn line_capped(
