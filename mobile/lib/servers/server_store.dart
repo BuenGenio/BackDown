@@ -94,7 +94,14 @@ abstract class TokenVault {
 }
 
 class SecureTokenVault implements TokenVault {
-  SecureTokenVault([FlutterSecureStorage? storage]) : _s = storage ?? const FlutterSecureStorage();
+  // On iOS, readable after the first unlock since boot, so the background check can read tokens
+  // while the phone is locked (the default is only while unlocked).
+  SecureTokenVault([FlutterSecureStorage? storage])
+    : _s =
+          storage ??
+          const FlutterSecureStorage(
+            iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock_this_device),
+          );
   final FlutterSecureStorage _s;
 
   @override

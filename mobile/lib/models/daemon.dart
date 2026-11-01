@@ -121,7 +121,8 @@ class DaemonHealth {
   /// Notifications not yet marked read.
   final int unread;
 
-  /// The worst verdict across this machine's drives: "ok", "watch", "warn", "fail" or "unknown".
+  /// The worst verdict across this machine's drives: "ok", "warning", "failing" or "unknown" (which
+  /// the service can report even when the drives it reads are "ok").
   final String worst;
 }
 
@@ -158,7 +159,7 @@ class DaemonSnapshot {
   final int? startedAt, checkedAt, rescanEverySecs;
   final Job? current;
 
-  /// A rescue running alongside the main job.
+  /// What runs alongside the main job: a rescue, another machine's sync, sending into the pool.
   final Job? side;
   final List<Job> queued;
   final List<Job> recent;

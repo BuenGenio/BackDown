@@ -45,9 +45,10 @@ String rel(int? t, {int skew = 0}) {
   String said(String what) => s < 0 ? '$what ago' : 'in $what';
   if (a >= 86400 * 2) return said(unit((a / 86400).round(), 'day'));
   if (a >= 86400) return s < 0 ? 'yesterday' : 'tomorrow';
-  if (a >= 3600) return said(unit((a / 3600).round(), 'hour'));
+  // from where rounding would say "60 minutes", it's an hour
+  if (a >= 3570) return said(unit((a / 3600).round(), 'hour'));
   if (a >= 60) return said(unit((a / 60).round(), 'minute'));
-  if (a < 10) return s < 0 ? 'just now' : 'any moment';
+  if (a < 10) return s <= 0 ? 'just now' : 'any moment';
   return said(unit(a, 'second'));
 }
 

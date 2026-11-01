@@ -21,7 +21,7 @@ class AppShell extends ConsumerWidget {
     final busy = daemon?.busy ?? false;
     final unread = daemon?.health?.unread ?? 0;
     final worst = daemon?.health?.worst ?? 'unknown';
-    final healthDot = worst == 'watch' || worst == 'warn' || worst == 'fail';
+    final healthDot = worst == 'warning' || worst == 'failing';
 
     Widget badged(IconData icon, {bool dot = false, int count = 0, Color? color}) {
       if (count > 0) return Badge(label: Text('$count'), child: Icon(icon));

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'background/background.dart';
 import 'features/activity/routes.dart';
 import 'features/app_settings/app_settings_screen.dart';
 import 'features/app_settings/servers_screen.dart';
@@ -150,6 +151,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
     ],
   );
+  // a tapped notification opens its computer's Activity or Health
+  attachNotificationTaps(ref, router);
   ref.onDispose(() {
     hasServer.dispose();
     router.dispose();
