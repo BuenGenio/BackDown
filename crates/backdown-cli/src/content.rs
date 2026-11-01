@@ -22,20 +22,20 @@
 //! left alone, so a rebuild only touches drives that were scanned again.
 
 use std::collections::{BTreeMap, HashMap};
-use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use backdown_core::fts::{self, Doc, Writer};
 use backdown_core::recognise::{self, Entity};
 use backdown_core::{Db, browse, dovecot, fmt, paths};
 use rusqlite::params;
 use serde_json::{Value, json};
 
-use crate::peek::{self, Codec};
+use backdown_core::mbox;
+use backdown_viewers::peek::{self, Codec};
 
 /// How much to index.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -442,7 +442,7 @@ fn read_message(path: &Path, body: bool) -> Result<Vec<u8>> {
     let (mut head, mut line) = (Vec::new(), Vec::new());
     loop {
         let n = peek::line_capped(&mut r, &mut line, 16 << 10)?;
-        if n == 0 || peek::blank(&line) || head.len() as u64 + line.len() as u64 > HEAD_CAP {
+        if n == 0 || mbox::blank(&line) || head.len() as u64 + line.len() as u64 > HEAD_CAP {
             return Ok(head);
         }
         head.extend_from_slice(&line);
@@ -710,7 +710,7 @@ fn index_thunderbird(ctx: &mut Ctx, w: &mut Writer, e: &Entity, profile: &Path) 
         let (mut line, mut cur, mut at, mut start, mut prev_blank) = (Vec::new(), Vec::new(), 0u64, 0u64, true);
         let mut in_head = true;
         let cap = if full { HEAD_CAP + (BODY_CAP as u64) * 4 } else { HEAD_CAP };
-        let mut flush = |ctx: &mut Ctx, w: &mut Writer, cur: &[u8], start: u64| -> Result<()> {
+        let flush = |ctx: &mut Ctx, w: &mut Writer, cur: &[u8], start: u64| -> Result<()> {
             if cur.is_empty() {
                 return Ok(());
             }
@@ -724,13 +724,13 @@ fn index_thunderbird(ctx: &mut Ctx, w: &mut Writer, e: &Entity, profile: &Path) 
                 flush(ctx, w, &cur, start)?;
                 break;
             }
-            if peek::is_from_line(&line, prev_blank) && (at == 0 || prev_blank) {
+            if mbox::is_from_line(&line, prev_blank) && (at == 0 || prev_blank) {
                 flush(ctx, w, &cur, start)?;
                 cur.clear();
                 start = at;
                 in_head = true;
             } else {
-                if peek::blank(&line) {
+                if mbox::blank(&line) {
                     in_head = false;
                 }
                 if in_head || full {
@@ -739,7 +739,7 @@ fn index_thunderbird(ctx: &mut Ctx, w: &mut Writer, e: &Entity, profile: &Path) 
                     }
                 }
             }
-            prev_blank = peek::blank(&line);
+            prev_blank = mbox::blank(&line);
             at += n as u64;
             if at > size + (1 << 20) {
                 break;
@@ -825,7 +825,8 @@ fn index_dump(ctx: &mut Ctx, w: &mut Writer, e: &Entity, path: &Path) -> Result<
     let full = ctx.depth == Depth::Full;
     let mut tables: HashMap<String, TableDef> = HashMap::new();
     let mut sinks: HashMap<String, TextSink> = HashMap::new();
-    let mut db = String::new();
+    // the header names the database for mysqldump and phpMyAdmin dumps; USE and \connect change it
+    let mut db = recognise::sniff_dump(path).and_then(|h| h.database).unwrap_or_default();
     let mut text_total = 0u64;
     let mut capped = false;
     let mut line = Vec::new();
@@ -987,7 +988,7 @@ fn index_dump(ctx: &mut Ctx, w: &mut Writer, e: &Entity, path: &Path) -> Result<
         }
     }
     for (_, mut sink) in sinks.drain() {
-        text_total += flush_sink(ctx, w, e, path, &mut sink, true)?;
+        flush_sink(ctx, w, e, path, &mut sink, true)?;
     }
     if capped {
         ctx.report.notes.push(format!(
@@ -1224,7 +1225,7 @@ fn index_sqlite(ctx: &mut Ctx, w: &mut Writer, e: &Entity, path: &Path) -> Resul
                 }
             }
         }
-        text_total += flush_sink(ctx, w, e, path, &mut sink, true)?;
+        flush_sink(ctx, w, e, path, &mut sink, true)?;
     }
     if fts_tables > 0 {
         ctx.report.notes.push(format!(
@@ -1287,7 +1288,7 @@ fn search_sqlite_fts(db: &Db, q: &str, limit: usize) -> Vec<Value> {
                 "kind": "sqlite-rows", "path": path, "key": key, "locator": table,
                 "title": format!("{} matching row{} in {table}", fmt::count(n as u64), if n == 1 { "" } else { "s" }),
                 "who": p.file_name().unwrap_or_default().to_string_lossy(), "at": Value::Null, "bytes": 0,
-                "source": "sqlite-fts",
+                "source": "sqlite-fts", "dir_key": browse::key(p.parent().unwrap_or(p)),
             }));
             if out.len() >= limit {
                 break;
@@ -1401,6 +1402,16 @@ pub fn search(db: &Db, q: &str, kind: Option<&str>, root_id: Option<i64>, limit:
         },
     )?;
     let mut v = serde_json::to_value(&found)?;
+    // the folder to open for each hit, with the file selected
+    for h in v["hits"].as_array_mut().into_iter().flatten() {
+        let p = PathBuf::from(h["path"].as_str().unwrap_or(""));
+        let dir = if h["kind"] == "message" && h["locator"].as_str().is_some_and(|l| l.contains('#')) {
+            p.clone() // an mdbox mailbox folder
+        } else {
+            p.parent().map(Path::to_path_buf).unwrap_or(p.clone())
+        };
+        h["dir_key"] = json!(browse::key(&dir));
+    }
     if kind.is_none_or(|k| k == "sqlite-rows") && !q.trim().is_empty() {
         let extra = search_sqlite_fts(db, q, 50);
         if !extra.is_empty() {
@@ -1480,8 +1491,8 @@ pub fn cli(
     if build_first {
         let stop = AtomicBool::new(false);
         let d = depth(db);
-        let rep = build(db, None, d, force, &stop, &mut |s| crate::insight::live(&format!("indexing: {s}")))?;
-        crate::insight::clear();
+        let rep = build(db, None, d, force, &stop, &mut |s| crate::live(&format!("indexing: {s}")))?;
+        crate::clear();
         if json && q.trim().is_empty() {
             println!("{}", serde_json::to_string_pretty(&rep)?);
             return Ok(ExitCode::SUCCESS);
@@ -1571,5 +1582,109 @@ fn clip(s: &str, max: usize) -> String {
         format!("{cut}…")
     } else {
         s.to_string()
+    }
+}
+
+#[cfg(test)]
+mod build_tests {
+    use super::*;
+    use backdown_core::index;
+
+    fn write(p: &Path, b: &[u8]) {
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, b).unwrap();
+    }
+
+    /// A drive with a Maildir, a dump and a SQLite file with a full-text table; indexed and
+    /// recognised, then its contents indexed and searched.
+    #[test]
+    fn indexes_mail_dumps_and_sqlite_then_finds() {
+        let tmp = tempfile::tempdir().unwrap();
+        let d = tmp.path().join("drive");
+        let mb = d.join("mail/example.org/alice/Maildir");
+        for f in ["cur", "new", "tmp"] {
+            std::fs::create_dir_all(mb.join(f)).unwrap();
+        }
+        write(
+            &mb.join("cur/1500000000.M1P1.host:2,S"),
+            b"From: Bob <bob@example.org>\nTo: alice@example.org\nSubject: Invoice for the garden work\nDate: Fri, 14 Jul 2017 10:00:00 +0000\nMessage-ID: <1@example.org>\n\nPlease find the invoice attached. Roses and tulips.\n",
+        );
+        write(
+            &mb.join("new/1600000000.M2P2.host"),
+            b"From: carol@example.net\nTo: alice@example.org\nSubject: Re: holiday photos\n\nHere they are\n",
+        );
+        write(&mb.join("dovecot-uidlist"), b"3 V1 N3\n");
+        // the same user's second mailbox makes a store of two, so recognition finds a maildir
+        write(&d.join("mail/example.org/bob/Maildir/cur/1.M3P3.host:2,"), b"Subject: x\n\ny");
+        for f in ["new", "tmp"] {
+            std::fs::create_dir_all(d.join("mail/example.org/bob/Maildir").join(f)).unwrap();
+        }
+        write(
+            &d.join("dumps/shop.sql"),
+            format!(
+                "-- MariaDB dump 10.19\n-- Host: db1    Database: shop\n\nCREATE TABLE `customers` (\n  `id` int(11) NOT NULL,\n  `name` varchar(80) DEFAULT NULL,\n  `notes` text,\n  `photo` longblob,\n  PRIMARY KEY (`id`),\n  FULLTEXT KEY `ft` (`notes`)\n) ENGINE=InnoDB;\n\nINSERT INTO `customers` VALUES (1,'Alice Example','Likes marigolds very much','\\0\\0bin'),(2,'Bob','Allergic to pollen',NULL);\n{}",
+                "-- filler\n".repeat(120)
+            )
+            .as_bytes(),
+        );
+        {
+            std::fs::create_dir_all(d.join("data")).unwrap();
+            let c = rusqlite::Connection::open(d.join("data/notes.sqlite")).unwrap();
+            c.execute_batch(
+                "CREATE TABLE notes(id INTEGER PRIMARY KEY, title TEXT, body TEXT);
+                 INSERT INTO notes(title, body) VALUES ('Shopping', 'buy saffron and cardamom'), ('Ideas', 'a lighthouse at dawn');
+                 CREATE VIRTUAL TABLE memo USING fts5(text);
+                 INSERT INTO memo(text) VALUES ('the quick brown fox'), ('saffron risotto recipe');",
+            )
+            .unwrap();
+        }
+        let mut db = Db::open(&tmp.path().join("i.db")).unwrap();
+        index::index(&mut db, &d, &index::Options { one_file_system: true, allow_empty: false }, &mut |_| {}).unwrap();
+        let root = recognise::root_ids(&db).unwrap()[0];
+        let r = recognise::recognise(&db, root, true, &mut |_| {}).unwrap();
+        recognise::store(&db, &r).unwrap();
+        assert!(r.entities.iter().any(|e| e.kind == "sqlite-db"), "{:?}", r.entities.iter().map(|e| &e.kind).collect::<Vec<_>>());
+        let stop = AtomicBool::new(false);
+        let rep = build(&db, None, Depth::Headers, false, &stop, &mut |_| {}).unwrap();
+        assert!(rep.notes.iter().any(|n| n.contains("full-text table")), "{:?}", rep.notes);
+        let hits = |q: &str| search(&db, q, None, None, 20).unwrap();
+        // mail by subject, sender, recipient
+        let v = hits("invoice");
+        assert_eq!(v["total"], 1, "{v}");
+        assert_eq!(v["hits"][0]["kind"], "message");
+        assert_eq!(v["hits"][0]["title"], "Invoice for the garden work");
+        assert!(v["hits"][0]["who"].as_str().unwrap().contains("bob@example.org"));
+        assert_eq!(v["hits"][0]["source"], "message-file");
+        assert!(v["hits"][0]["dir_key"].is_string());
+        assert_eq!(hits("carol@example.net")["total"], 1);
+        assert_eq!(hits("holiday")["hits"][0]["at"], 1_600_000_000, "no Date header: the delivery time from the file name");
+        // the dump's tables, with the columns the database itself indexed for search
+        let v = hits("customers");
+        assert!(v["hits"].as_array().unwrap().iter().any(|h| h["kind"] == "table" && h["who"] == "shop"), "{v}");
+        assert_eq!(hits("marigolds")["total"], 0, "row text isn't indexed at headers depth");
+        // SQLite: tables by name, and its own full-text table searched in place
+        assert!(hits("notes").as_object().unwrap()["hits"].as_array().unwrap().iter().any(|h| h["kind"] == "table"));
+        let v = hits("saffron");
+        let kinds: Vec<&str> = v["hits"].as_array().unwrap().iter().map(|h| h["kind"].as_str().unwrap()).collect();
+        assert_eq!(kinds, ["sqlite-rows"], "{v}");
+        assert!(v["hits"][0]["title"].as_str().unwrap().starts_with("1 matching row in memo"));
+        // nothing is redone for the same scan
+        let rep2 = build(&db, None, Depth::Headers, false, &stop, &mut |_| {}).unwrap();
+        assert_eq!(rep2.docs, 0);
+        assert!(rep2.skipped_fresh >= 3, "{rep2:?}");
+        // full depth: the rows' text too (text columns only), from dumps and SQLite tables
+        let rep3 = build(&db, None, Depth::Full, true, &stop, &mut |_| {}).unwrap();
+        assert!(rep3.docs > rep.docs, "{rep3:?} vs {rep:?}");
+        let v = hits("marigolds");
+        assert_eq!(v["hits"][0]["kind"], "rows", "{v}");
+        assert_eq!(v["hits"][0]["who"], "shop");
+        assert_eq!(hits("lighthouse")["hits"][0]["kind"], "rows");
+        assert_eq!(hits("bin")["total"], 0, "blob columns are left out");
+        assert_eq!(hits("tulips")["total"], 1, "the body, at full depth");
+        // coverage, and forgetting a drive's documents
+        let st = status(&db).unwrap();
+        assert!(st["docs"].as_u64().unwrap() >= 6);
+        assert!(fts::forget(&db, root, None).unwrap() > 0);
+        assert_eq!(hits("invoice")["total"], 0);
     }
 }

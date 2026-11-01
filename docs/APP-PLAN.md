@@ -51,6 +51,10 @@ Subject    who or what entities are about, across drives: a Person (aliases: ema
            login@host, name) or a Database (engine family + name); each with its
            *mentions*: (entity, place, role, detail, size, dates). Kinds are a
            registry of extractor functions (subjects.rs); merging is by shared alias.
+Document   what's inside an entity, for search (fts.rs): a message (subject, who, when),
+           a table (columns), a chunk of a table's text; the FTS index keeps no text,
+           only where each hit is. Sources: Dovecot's own index cache, message files,
+           dumps, SQLite files (FTS tables searched in place).
 Overlap    (entityA or dirA, entityB or dirB) → bytes-in-common, files-in-common,
            % of A contained in B, % of B contained in A, method (name+size|hash)
 Plan       ordered list of Ops: copy / verify / delete / wipe-volume / rename-tree

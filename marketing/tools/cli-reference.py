@@ -91,6 +91,9 @@ EXAMPLES = {
                'backdown people --json > people.json'],
     'databases': ['backdown databases', '# every copy of one database', 'backdown databases shop',
                   'backdown databases --json > databases.json'],
+    'search': ['backdown search invoice 2021', '# a phrase, and only mail', 'backdown search "garden work" --kind message',
+               '# build the index now, then see what is indexed', 'backdown search --build', 'backdown search',
+               '# index the text in rows too, from the next build on', 'backdown search --depth full --build'],
     'overlaps': ['backdown overlaps', '# only what is at least 90% elsewhere', 'backdown overlaps --min 90%'],
     'report': ['backdown report > report.md', 'backdown report --html -o report.html'],
     'plan': ['backdown plan --to /media/archive/Archive', '# only one drive', 'backdown plan --to /media/archive/Archive --from /media/old-drive',
@@ -199,6 +202,13 @@ NOTES = {
               'names. The same address on two drives is one person: mailboxes, accounts and homes are gathered under '
               'one name, with how much there is of each. Nothing is read from inside messages or files; names come from '
               'paths, `prefs.js`, `configuration.php` and `.env` files.',
+    'search': 'Names are found by the search box and `find`; this searches inside things. Mail: every message\'s '
+              'subject, sender, recipients and date, from Dovecot\'s own index (`dovecot.index.cache`) where a mailbox '
+              'has one, else from the message files (headers only). Dumps and SQLite files: every table with its '
+              'columns (and which columns the database indexed for full text), and at `--depth full` the text in the '
+              'rows, text-typed columns only, up to 64 MiB a file. A SQLite full-text table (FTS3/4/5) is searched in '
+              'place, through SQLite itself. The index keeps no copy of the text, only where each hit is. The service '
+              'indexes after each recognition; `--build` does it now, skipping what is already indexed for the same scan.',
     'databases': 'A database is gathered from every dump of it (`mysqldump`, phpMyAdmin, `pg_dump`, `pg_dumpall`, '
                  'mongodump folders), its live data directory in a server backup (MySQL, MariaDB), SQLite files, and the '
                  'sites and Nextcloud servers configured to use it (`wp-config.php`, `configuration.php`, `.env`, '
@@ -297,6 +307,7 @@ SEE_ALSO = {
                  ('People and databases', '/docs/concepts/#people-and-databases')],
     'people': [('People and databases', '/docs/concepts/#people-and-databases'), ('backdown entities', '/docs/cli/backdown-entities/')],
     'databases': [('People and databases', '/docs/concepts/#people-and-databases'), ('backdown entities', '/docs/cli/backdown-entities/')],
+    'search': [('Searching inside things', '/docs/concepts/#searching-inside-things'), ('backdown databases', '/docs/cli/backdown-databases/')],
     'overlaps': [('File your old drives into one archive', '/docs/guides/file-into-an-archive/')],
     'report': [('Getting started', '/docs/getting-started/#produce-a-report')],
     'plan': [('File your old drives into one archive', '/docs/guides/file-into-an-archive/'), ('Merge mailboxes', '/docs/guides/merge-mailboxes/#in-a-filing-plan')],

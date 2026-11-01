@@ -538,7 +538,7 @@ fn handle(ctx: &Ctx, req: Request) {
         let _ = req.respond(resp);
         return;
     }
-    if *req.method() == Method::Post && path == "/api/content-index" {
+    if *req.method() == Method::Post && path == "/api/contents-index" {
         // build the content index now (and set its depth first, with ?depth=off|headers|full)
         let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
         let resp = if !marked {
@@ -546,10 +546,9 @@ fn handle(ctx: &Ctx, req: Request) {
         } else {
             let set = match param("depth") {
                 Some(dp) => match crate::content::Depth::parse(dp) {
-                    Ok(dp) => {
-                        let db = ctx.open_db();
-                        db.and_then(|db| crate::content::set_depth(&db, dp)).err()
-                    }
+                    Ok(dp) => Db::open(&ctx.db)
+                        .and_then(|db| crate::content::set_depth(&db, dp))
+                        .err(),
                     Err(e) => Some(e),
                 },
                 None => None,
@@ -575,6 +574,36 @@ fn handle(ctx: &Ctx, req: Request) {
         } else {
             let p = |k: &str| param(k).map(str::to_string);
             match crate::health::post(ctx.daemon.as_deref(), &ctx.db, path, &p) {
+                Ok(v) => json_resp(&v),
+                Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
+            }
+        };
+        let _ = req.respond(resp);
+        return;
+    }
+    if *req.method() == Method::Post && crate::swarm::handles(path) {
+        // another machine's drive into the pool, done there over ssh (swarm.rs)
+        let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
+        let resp = if !marked {
+            plain(403, "missing X-BackDown header")
+        } else {
+            let p = |k: &str| param(k).map(str::to_string);
+            match crate::swarm::post(ctx.desktop, &ctx.db, path, &p) {
+                Ok(v) => json_resp(&v),
+                Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
+            }
+        };
+        let _ = req.respond(resp);
+        return;
+    }
+    if *req.method() == Method::Post && crate::pool::handles(path) {
+        // this machine's pool folders: add, change, remove (pool.rs)
+        let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
+        let resp = if !marked {
+            plain(403, "missing X-BackDown header")
+        } else {
+            let p = |k: &str| param(k).map(str::to_string);
+            match crate::pool::post(ctx.daemon.as_deref(), &ctx.db, path, &p) {
                 Ok(v) => json_resp(&v),
                 Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
             }
@@ -1322,6 +1351,16 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
         let p = |k: &str| param(k).map(str::to_string);
         return crate::remote::get(ctx.daemon.as_deref(), ctx.desktop, &ctx.db, path, &p);
     }
+    if crate::pool::handles(path) {
+        // the pool's plans (pool.rs)
+        let p = |k: &str| param(k).map(str::to_string);
+        return crate::pool::get(&ctx.db, path, &p);
+    }
+    if crate::swarm::handles(path) {
+        // every machine as one: drives, free space, where things are (swarm.rs)
+        let p = |k: &str| param(k).map(str::to_string);
+        return crate::swarm::get(ctx.daemon.as_deref(), ctx.desktop, &ctx.db, path, &p);
+    }
     let db = ro_db(ctx)?;
     let id = || -> Result<i64> { param("id").context("missing id")?.parse().context("bad id") };
     let dir = || -> Result<PathBuf> { browse::path_of(param("dir").context("missing dir")?) };
@@ -1391,7 +1430,7 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
             })
         }
         // search inside things (content.rs): ?q=words&kind=message|table|rows&root=<id>&limit=
-        "/api/content" => {
+        "/api/contents" => {
             let root = param("root").and_then(|r| r.parse::<i64>().ok());
             crate::content::search(
                 &db,
@@ -1401,7 +1440,7 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
                 num("limit", 50)? as usize,
             )?
         }
-        "/api/content-status" => crate::content::status(&db)?,
+        "/api/contents-status" => crate::content::status(&db)?,
         "/api/mirrors" => json!(
             backdown_core::mirror::list(&db)?
                 .into_iter()
@@ -2235,6 +2274,8 @@ fn ui_asset(name: &str) -> Option<(&'static [u8], &'static str)> {
         "tidy.js" => "text/javascript; charset=utf-8",
         "health.js" => "text/javascript; charset=utf-8",
         "machines.js" => "text/javascript; charset=utf-8",
+        "swarm.js" => "text/javascript; charset=utf-8",
+        "pool.js" => "text/javascript; charset=utf-8",
         "fsbrowse.js" => "text/javascript; charset=utf-8",
         "drives.js" => "text/javascript; charset=utf-8",
         "dupes.js" => "text/javascript; charset=utf-8",

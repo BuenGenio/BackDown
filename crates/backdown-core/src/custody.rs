@@ -48,7 +48,6 @@ use std::collections::BTreeSet;
 use std::fmt;
 use std::io::{Read, Write};
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use base64::Engine;
@@ -59,6 +58,9 @@ use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
+use crate::clock::now;
+use crate::db::{Lock, Tx};
+use crate::fmt::{hex, unhex32};
 use crate::paths;
 use crate::signing::{self, Signer, canonical};
 
@@ -74,7 +76,7 @@ CREATE TABLE IF NOT EXISTS custody (
     dest        BLOB,
     dest_sha256 BLOB,
     size        INTEGER NOT NULL,
-    ref         TEXT NOT NULL,        -- the job: plan:N | wipe:N | dedup:N | merge:N | rescue:N | mirror:N
+    ref         TEXT NOT NULL,        -- the job: plan:N | wipe:N | dedup:N | merge:N | rescue:N | mirror:N | pool:N
     prev        BLOB NOT NULL,        -- the event before's hash (32 zero bytes for the first)
     hash        BLOB NOT NULL         -- SHA-256(prev + SHA-256(canonical JSON)), see custody.rs
 );
@@ -92,15 +94,9 @@ INSERT INTO custody_start(at) SELECT CAST(strftime('%s', 'now') AS INTEGER)
 pub const BUNDLE_KIND: &str = "backdown-custody";
 pub const SEAL_KIND: &str = "backdown-custody-seal";
 /// The jobs an event can belong to (`ref` is `<kind>:<id>`).
-pub const JOBS: &[&str] = &["plan", "wipe", "dedup", "merge", "rescue", "mirror"];
+pub const JOBS: &[&str] = &["plan", "wipe", "dedup", "merge", "rescue", "mirror", "pool"];
 /// Problems listed at most; the rest are counted.
 const MAX_PROBLEMS: usize = 50;
-
-fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
-}
 
 /// What was done to a file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -251,21 +247,6 @@ impl Row {
     }
 }
 
-fn hex(b: &[u8]) -> String {
-    crate::fmt::hex(b)
-}
-
-fn unhex32(s: &str) -> Option<[u8; 32]> {
-    if s.len() != 64 {
-        return None;
-    }
-    let mut out = [0u8; 32];
-    for (i, o) in out.iter_mut().enumerate() {
-        *o = u8::from_str_radix(s.get(2 * i..2 * i + 2)?, 16).ok()?;
-    }
-    Some(out)
-}
-
 fn hex32(v: &Value) -> Option<[u8; 32]> {
     v.as_str().and_then(unhex32)
 }
@@ -283,23 +264,10 @@ fn chain(prev: &[u8], digest: &[u8; 32]) -> [u8; 32] {
 /// Run `f` in a transaction: the caller's, if one is open, else one of its own (taking the write
 /// lock first, so the head can't move between reading it and adding to it).
 fn in_tx<T>(conn: &Connection, f: impl FnOnce() -> Result<T>) -> Result<T> {
-    if !conn.is_autocommit() {
-        return f();
-    }
-    conn.execute_batch("BEGIN IMMEDIATE")?;
-    match f() {
-        Ok(t) => match conn.execute_batch("COMMIT") {
-            Ok(()) => Ok(t),
-            Err(e) => {
-                let _ = conn.execute_batch("ROLLBACK");
-                Err(e.into())
-            }
-        },
-        Err(e) => {
-            let _ = conn.execute_batch("ROLLBACK");
-            Err(e)
-        }
-    }
+    let tx = Tx::join(conn, Lock::Immediate)?;
+    let t = f()?;
+    tx.commit()?;
+    Ok(t)
 }
 
 fn append_now(conn: &Connection, e: &Event) -> Result<i64> {
@@ -751,13 +719,10 @@ pub fn check(conn: &Connection) -> Result<Report> {
 
 /// Read in one snapshot, so the events and seals are of the same moment.
 fn snapshot<T>(conn: &Connection, f: impl FnOnce() -> Result<T>) -> Result<T> {
-    if !conn.is_autocommit() {
-        return f();
-    }
-    conn.execute_batch("BEGIN")?;
-    let r = f();
-    let _ = conn.execute_batch(if r.is_ok() { "COMMIT" } else { "ROLLBACK" });
-    r
+    let tx = Tx::join(conn, Lock::Deferred)?;
+    let t = f()?;
+    tx.commit()?;
+    Ok(t)
 }
 
 // ---------- exporting
@@ -830,7 +795,7 @@ pub fn parse_ref(s: &str) -> Result<String> {
         }
     }
     bail!(
-        "{s:?} isn't a job: use plan:N, wipe:N, dedup:N, merge:N, rescue:N or mirror:N (N is its number)"
+        "{s:?} isn't a job: use plan:N, wipe:N, dedup:N, merge:N, rescue:N, mirror:N or pool:N (N is its number)"
     )
 }
 

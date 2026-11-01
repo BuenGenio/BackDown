@@ -13,6 +13,9 @@ use anyhow::{Context, Result};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
+mod tx;
+pub use tx::{Lock, Tx};
+
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS roots (
     id        INTEGER PRIMARY KEY,
@@ -260,6 +263,23 @@ CREATE TABLE IF NOT EXISTS subjects (
     computed_at INTEGER NOT NULL,
     data        TEXT NOT NULL         -- JSON: subjects::RootSubjects
 );
+-- the swarm (swarm.rs, docs/SWARM.md). Each other machine's storage as it last said (its drives
+-- and file systems with their size and free space, its indexed drives), replaced at each sync and
+-- each live look; and the physical drive each indexed drive here was on when it was last scanned,
+-- so one that's unplugged or moved can still be named. Added without a schema bump
+CREATE TABLE IF NOT EXISTS remote_volumes (
+    remote_id INTEGER PRIMARY KEY,
+    state     TEXT NOT NULL,              -- ok | unsupported (a BackDown there from before) | error
+    data      TEXT,                       -- JSON: its storage report (swarm::storage), as it sent it
+    error     TEXT,
+    asked_at  INTEGER NOT NULL,
+    ok_at     INTEGER                     -- when it last answered (this machine's clock)
+);
+CREATE TABLE IF NOT EXISTS root_drives (
+    root_id INTEGER PRIMARY KEY,          -- roots.id
+    at      INTEGER NOT NULL,
+    data    TEXT NOT NULL                 -- JSON: the disk (model, serial, size) and file system (label, UUID)
+);
 ";
 const VERSION: i64 = 2;
 
@@ -418,6 +438,11 @@ impl Db {
         conn.execute_batch(crate::manifest::SCHEMA)?;
         // content search (fts.rs): documents and their FTS5 index, the same way
         conn.execute_batch(crate::fts::SCHEMA)?;
+        // the swarm's pool folders on this machine (pool.rs), the same way
+        conn.execute_batch(crate::pool::SCHEMA)?;
+        conn.execute_batch(crate::pool::plan::SCHEMA)?;
+        conn.execute_batch(crate::pool::receive::SCHEMA)?;
+        conn.execute_batch(crate::pool::send::SCHEMA)?;
         add_column(&conn, "journal", "note", "TEXT")?;
         // names for search: added in place, without a schema bump, since older versions just
         // leave them empty on rows they write (and the next open here fills those in)

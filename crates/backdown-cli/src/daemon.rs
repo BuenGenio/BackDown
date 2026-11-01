@@ -17,7 +17,7 @@ use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use backdown_core::{Db, fmt, hash, index, paths, report};
@@ -25,6 +25,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::{locations, serve};
+use backdown_core::clock::now;
 
 pub struct Options {
     pub db: PathBuf,
@@ -118,7 +119,7 @@ const STOPPABLE: &[&str] = &["dedup", "mail-merge", "content"];
 /// Jobs that can run for hours or days and hardly touch the index (copying a failing drive,
 /// searching a card for lost files, syncing another machine over ssh): they go in a lane of their
 /// own, one at a time, so scans and hashing carry on meanwhile, and they can be stopped.
-const SIDE: &[&str] = &["rescue", "remote-sync"];
+const SIDE: &[&str] = &["rescue", "remote-sync", "pool-send"];
 
 #[derive(Default)]
 struct State {
@@ -155,12 +156,6 @@ pub struct Daemon {
     state: Mutex<State>,
     wake: Condvar,
     changed: Condvar,
-}
-
-fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
 }
 
 impl Daemon {
@@ -649,6 +644,8 @@ fn side_worker(d: &Daemon) {
             let r = match job.kind {
                 "rescue" => run_rescue(d, &db, &job, &stop),
                 "remote-sync" => run_remote_sync(d, &db, &job, &stop),
+                // copying a drive into the pool (pool.rs): hours, mostly reading and the network
+                "pool-send" => crate::pool::run_send_job(d, &db, &job, &stop),
                 k => bail!("{k} doesn't run in the side lane"),
             };
             // what it added to the chain of custody is sealed now
@@ -1555,6 +1552,10 @@ fn run_index(d: &Daemon, db: &mut Db, job: &Job) -> Result<String> {
         };
         d.progress(job.id, msg, counts);
     })?;
+    // which physical drive it is, so it can be named while unplugged or elsewhere (swarm.rs)
+    backdown_core::swarm::remember_scanned(db, st.scan, &st.root);
+    // files received into a pool folder here: their hashes, verified on arrival (pool/receive.rs)
+    let _ = backdown_core::pool::receive::adopt(db);
     Ok(format!(
         "{}: {} · {} files, {} (new {}, changed {}, gone {}) · scan {}{}",
         st.root.display(),
@@ -1793,6 +1794,16 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
                         );
                     }
                     "mail-merge"
+                }
+                // copying a drive into the pool, asked from another machine (pool.rs)
+                Some("pool-send") => {
+                    if d.shared {
+                        bail!(
+                            "the machine-wide service reads only; copy into the pool from your own BackDown"
+                        );
+                    }
+                    let plan = req["plan"].as_i64().context("pool-send needs a plan")?;
+                    return Ok(json!({ "ok": true, "job": crate::pool::queue_send(d, plan) }));
                 }
                 _ => bail!(
                     "kind must be index, hash, entities, apply, wipe, dedup, mail-merge or remote-sync"

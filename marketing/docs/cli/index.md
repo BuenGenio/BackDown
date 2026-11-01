@@ -42,6 +42,7 @@ backdown [OPTIONS] <COMMAND>
 | [`entities`](/docs/cli/backdown-entities/) | What things are: mail stores, backups, phones, systems, repositories, libraries… with where they came from (reads small files like backup scripts on connected drives). |
 | [`people`](/docs/cli/backdown-people/) {preview} | Who the things are about: everyone with a mailbox, a Nextcloud account, a home folder or a mail identity on any drive, with everything found of them. |
 | [`databases`](/docs/cli/backdown-databases/) {preview} | The databases behind the dumps, data directories and sites on every drive: each one with every dump and live copy of it, and what used it. |
+| [`search`](/docs/cli/backdown-search/) {preview} | Search inside things: mail by subject, sender and recipient; database dumps and SQLite files by table, column and, at full depth, the text in their rows. Reuses Dovecot's own index for mail headers and SQLite's full-text tables in place. |
 | [`overlaps`](/docs/cli/backdown-overlaps/) | How much of each drive, folder and recognised thing already exists elsewhere, and where. |
 | [`report`](/docs/cli/backdown-report/) | The whole picture as a document: drives, what's on them, overlaps, duplicates, and which drives are safe to wipe. |
 | [`plan`](/docs/cli/backdown-plan/) | Propose where everything on the old drives goes in one archive, and why (saved, so it can be applied). |
@@ -51,7 +52,9 @@ backdown [OPTIONS] <COMMAND>
 | [`mirror`](/docs/cli/backdown-mirror/) | Keep a folder (usually part of the archive) copied on another drive, and check the copy now and then. |
 | [`wipe`](/docs/cli/backdown-wipe/) | Free drives (or folders on them): delete only what has a verified copy elsewhere, moving what exists only here to --move-to first. Without --go, only shows what would happen. |
 | [`license`](/docs/cli/backdown-license/) | Your BackDown Pro licence: add a key, or show the one you have. |
-| [`remote`](/docs/cli/backdown-remote/) | Other machines (a NAS, another computer) whose BackDown index is read over ssh, so copies there count for duplicates and wiping (Pro). |
+| [`remote`](/docs/cli/backdown-remote/) | Other machines (a NAS, another computer) whose BackDown index is read over ssh, so copies there count for duplicates and wiping. |
+| [`pool`](/docs/cli/backdown-pool/) {preview} | The pool: folders on the swarm's drives that drives are filed into, each file once. On the machine whose drive it's on: `pool add FOLDER`; `pool list` shows every machine's. |
+| [`swarm`](/docs/cli/backdown-swarm/) {preview} | Every machine as one: each machine's drives, how full they are and what's indexed on them (this machine and the ones `backdown remote` reaches); `swarm where NAME` finds files on all. |
 | [`dedup`](/docs/cli/backdown-dedup/) | Tidy an archive: identical files in FOLDER share their storage, as hardlinks or clones. Both files are re-read first; every link is journaled. Without --go, only shows what would happen. |
 | [`mail`](/docs/cli/backdown-mail/) | Mailboxes: merge copies of one into a single Maildir, or export a Maildir folder as mbox. |
 | [`custody`](/docs/cli/backdown-custody/) | The chain of custody: every copy, move, deletion, link and merge BackDown made, in a hash-chained log sealed with this installation's key. Export it as a signed bundle, verify one, or check the log in the index. |

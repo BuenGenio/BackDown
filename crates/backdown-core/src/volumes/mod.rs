@@ -25,6 +25,8 @@ use crate::{Db, browse};
 
 pub mod linux;
 pub mod macos;
+pub mod mount;
+pub mod mountinfo;
 pub mod windows;
 
 /// The probe of one machine.
@@ -106,8 +108,31 @@ pub struct Volume {
     pub indexed: Vec<Indexed>,
     /// What's stacked on it: the readable side of an encrypted or member volume.
     pub holders: Vec<Volume>,
+    /// Its file system's size and the room left on it, when it's mounted (see `Space`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub space: Option<Space>,
     #[serde(skip)]
     pub(crate) hint: Hint,
+}
+
+/// A mounted file system's size and the room left on it for this account, as `df` says: asked of
+/// the file system at its first mount point (statvfs; GetDiskFreeSpaceEx on Windows), which reads
+/// nothing from the drive itself. For an APFS volume, its container's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
+pub struct Space {
+    pub total: u64,
+    pub free: u64,
+}
+
+/// The size of the file system holding `path`, and the room left on it; None when it can't be
+/// asked (not there, or it reports no size).
+pub fn space_at(path: &Path) -> Option<Space> {
+    let total = fs4::total_space(path).ok()?;
+    let free = fs4::available_space(path).ok()?;
+    (total > 0).then_some(Space {
+        total,
+        free: free.min(total),
+    })
 }
 
 /// What the platform prober knows beyond the visible fields; `finish` turns it into a state.
@@ -211,6 +236,17 @@ pub fn probe() -> Result<Report> {
             .flat_map(|d| d.volumes.iter_mut())
             .for_each(mark);
     }
+    // each mounted file system's size and free space (the swarm's "how much room")
+    fn room(v: &mut Volume) {
+        if let Some(m) = v.mounts.first() {
+            v.space = space_at(Path::new(&m.path));
+        }
+        v.holders.iter_mut().for_each(room);
+    }
+    disks
+        .iter_mut()
+        .flat_map(|d| d.volumes.iter_mut())
+        .for_each(room);
     Ok(Report {
         os: std::env::consts::OS,
         disks,

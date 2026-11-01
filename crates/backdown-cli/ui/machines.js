@@ -1,4 +1,4 @@
-// Other machines in the browser (Pro): the Machines section of the sidebar (each machine with its
+// Other machines in the browser: the Machines section of the sidebar (each machine with its
 // drives, when it was last synced, whether it can be reached), a machine's page (drives there,
 // sync, test, remove, how its copies count), browsing its folders read-only (live over ssh, or as
 // last synced when it can't be reached), adding one, and where other machines' copies show up

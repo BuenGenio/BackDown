@@ -9,6 +9,7 @@ import { tidyCard, wireTidy, mergeButton, mergeSources } from './tidy.js';
 import { mountHealth, daemonChanged, healthOfDisk, healthOfPath, pill, dot, mirrorNote, healthHead, notesSection, machinesSection } from './health.js';
 import { mountMachines, renderMachinesNav, machinesDaemon, machinePath, showMachine, remoteCopiesHtml, dupesRemoteHtml, acrossHtml, wipeRemoteLine } from './machines.js';
 import { mountCell, mountNotice, loadMounts, allowButton, browseFoundBtn, filesBody } from './drives.js';
+import { mountSwarm, showSwarm } from './swarm.js';
 
 const $ = s => document.querySelector(s);
 // names are shown composed (NFC), whichever form the drive stores them in (HFS+ decomposes them)
@@ -112,6 +113,7 @@ function renderPlaces() {
   $('#dupes-btn').setAttribute('aria-current', String(S.mode === 'dupes'));
   $('#activity-btn').setAttribute('aria-current', String(S.mode === 'activity'));
   $('#entities-btn').setAttribute('aria-current', String(S.mode === 'entities'));
+  $('#swarm-btn').setAttribute('aria-current', String(S.mode === 'swarm'));
   $('#plan-btn').setAttribute('aria-current', String(S.mode === 'plan'));
   $('#wipe-btn').setAttribute('aria-current', String(S.mode === 'wipe'));
   $('#rescue-btn').setAttribute('aria-current', String(S.mode === 'rescue'));
@@ -201,7 +203,7 @@ function renderPath() {
   if (S.mode === 'machine') { $('#pathbar').innerHTML = machinePath(); return; }
   if (S.mode !== 'browse') {
     $('#f-count').textContent = ''; // the folder's; Duplicates writes its own
-    $('#pathbar').innerHTML = `<span class="crumb" style="cursor:default">${{ dupes: 'Duplicates', activity: 'Activity', entities: 'What’s here', plan: 'Plan', wipe: 'Free up', rescue: 'Rescue', settings: 'Settings' }[S.mode] || 'Search'}</span>`;
+    $('#pathbar').innerHTML = `<span class="crumb" style="cursor:default">${{ dupes: 'Duplicates', activity: 'Activity', entities: 'What’s here', swarm: 'Swarm', plan: 'Plan', wipe: 'Free up', rescue: 'Rescue', settings: 'Settings' }[S.mode] || 'Search'}</span>`;
     return;
   }
   $('#pathbar').innerHTML = S.listing.crumbs.map((c, i) =>
@@ -844,6 +846,7 @@ function tabTitle(t) {
   if (t.mode === 'activity') return 'Activity';
   if (t.mode === 'dupes') return 'Duplicates';
   if (t.mode === 'entities') return 'What’s here';
+  if (t.mode === 'swarm') return 'Swarm';
   if (t.mode === 'plan') return 'Plan';
   if (t.mode === 'wipe') return 'Free up';
   if (t.mode === 'rescue') return 'Rescue';
@@ -894,6 +897,7 @@ async function showCurrent() {
   if (S.mode === 'activity') return showActivity();
   if (S.mode === 'dupes') return showDupes();
   if (S.mode === 'entities') return showEntities();
+  if (S.mode === 'swarm') return showSwarm();
   if (S.mode === 'plan') return showPlan();
   if (S.mode === 'wipe') return showWipe();
   if (S.mode === 'rescue') return showRescue();
@@ -2254,6 +2258,12 @@ document.addEventListener('click', e => {
   if (t.closest('[data-find-more]')) { findMore(); return rerunSearch(); }
   if (t.closest('[data-find-scope]')) { setScope('all'); return rerunSearch(); }
   if (t.closest('[data-find-earlier]')) { setEarlier(true); return rerunSearch(); }
+    if (t.closest('[data-find-build]')) {
+      // build the content index in the background service (content.rs)
+      return fetch('/api/contents-index', { method: 'POST', headers: { 'X-BackDown': '1' }, credentials: 'same-origin' })
+        .then(async r => { if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText); toast('Indexing contents: it shows in Activity; search again when it’s done'); if (!polling) pollDaemon(true); })
+        .catch(toastError);
+    }
   const hit = t.closest('[data-hit-dir]');
   if (hit) return go(hit.dataset.hitDir, { select: hit.dataset.hitSel || null, scan: hit.dataset.hitScan ? +hit.dataset.hitScan : null });
   const item = t.closest('#view [data-key]');
@@ -2290,6 +2300,7 @@ mountFind(rerunSearch);
 $('#dupes-btn').onclick = showDupes;
 $('#activity-btn').onclick = showActivity;
 $('#entities-btn').onclick = showEntities;
+$('#swarm-btn').onclick = () => showSwarm();
 $('#plan-btn').onclick = () => showPlan();
 $('#wipe-btn').onclick = () => showWipe();
 $('#rescue-btn').onclick = showRescue;
@@ -2376,6 +2387,15 @@ mountMachines({
   refreshPath: () => renderPath(),
   isMode: m => S.mode === m,
   openLocal: (dir, sel) => { $('#timebar').hidden = S.timeline.length < 2; go(dir, { select: sel, scan: null }); },
+});
+// the Swarm view (swarm.js): every machine's drives, free space, and where any file is
+mountSwarm({
+  enter: enterView,
+  isMode: m => S.mode === m,
+  openLocal: (dir, sel) => { $('#timebar').hidden = S.timeline.length < 2; go(dir, { select: sel, scan: null }); },
+  openMachine: (id, dir, sel) => showMachine(id, dir, sel),
+  // the wizard's last step: the drive just copied into the pool, in Free up
+  freeUp: r => showWipe([{ key: r.key, path: r.path, label: r.name || r.path }]),
 });
 boot().then(restoreTabs).then(() => pollDaemon(true));
 checkUpdates();

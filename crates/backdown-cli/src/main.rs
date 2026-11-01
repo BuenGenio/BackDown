@@ -28,12 +28,14 @@ mod manifesting;
 mod mounting;
 mod notifier;
 mod peek;
+mod pool;
 mod remote;
 mod rescuing;
 mod serve;
 mod service;
 mod settings;
 mod sqldump;
+mod swarm;
 mod tidy;
 mod tiers;
 mod update;
@@ -415,7 +417,7 @@ enum Cmd {
         action: LicenseCmd,
     },
     /// Other machines (a NAS, another computer) whose BackDown index is read over ssh, so copies
-    /// there count for duplicates and wiping (Pro)
+    /// there count for duplicates and wiping
     Remote {
         #[command(subcommand)]
         action: remote::RemoteCmd,
@@ -424,6 +426,28 @@ enum Cmd {
     /// line each, on stdin and stdout
     #[command(hide = true)]
     ServeStdio,
+    /// The other end of copying into the pool, run there by ssh: writes into this machine's own
+    /// pool folders only, one JSON line per request and each file raw after its request
+    #[command(hide = true)]
+    SwarmStdio,
+    /// The pool: folders on the swarm's drives that drives are filed into, each file once. On the
+    /// machine whose drive it's on: `pool add FOLDER`; `pool list` shows every machine's
+    Pool {
+        #[command(subcommand)]
+        action: pool::PoolCmd,
+    },
+    /// Every machine as one: each machine's drives, how full they are and what's indexed on them
+    /// (this machine and the ones `backdown remote` reaches); `swarm where NAME` finds files on all
+    Swarm {
+        #[command(subcommand)]
+        action: Option<swarm::SwarmCmd>,
+        /// Don't ask the other machines now: show them as last synced
+        #[arg(long)]
+        cached: bool,
+        /// Print it as JSON
+        #[arg(long)]
+        json: bool,
+    },
     /// Tidy an archive: identical files in FOLDER share their storage, as hardlinks or clones.
     /// Both files are re-read first; every link is journaled. Without --go, only shows what
     /// would happen
@@ -753,7 +777,18 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Rescue { action } => return rescuing::run(action),
         // the other end of `backdown remote`, run there by ssh: reads only, never through a daemon
         Cmd::ServeStdio => return remote::stdio::run(cli.db),
+        // the receiving end of copying into the pool, run there by ssh: writes into its pool
+        // folders only, never through a daemon
+        Cmd::SwarmStdio => return remote::swarm_stdio::run(cli.db),
         Cmd::Remote { action } => return remote::command(cli.db, cli.local, action),
+        // reads the index and asks the other machines over ssh, like `remote`
+        Cmd::Swarm {
+            action,
+            cached,
+            json,
+        } => return swarm::command(cli.db, cli.local, action, cached, json),
+        // this machine's pool folders (a short write), and every machine's as kept
+        Cmd::Pool { action } => return pool::command(cli.db, cli.local, action),
         // reads the index (an export also seals it), or only the file given
         Cmd::Custody { action } => return custody::command(cli.db, action),
         // the index directly, like `entities` (a manifest adds one row); checking needs none
@@ -847,6 +882,8 @@ fn local(db_path: &Path, cmd: Cmd, use_daemon: bool) -> Result<ExitCode> {
                         fmt::bytes(s.bytes)
                     ))
                 })?;
+                backdown_core::swarm::remember_scanned(&db, st.scan, &st.root);
+                let _ = backdown_core::pool::receive::adopt(&db);
                 done(&format!(
                     "{}: {} files, {} (new {}, changed {}, gone {}) · scan {}\n  {}",
                     st.root.display(),
@@ -1070,8 +1107,11 @@ fn local(db_path: &Path, cmd: Cmd, use_daemon: bool) -> Result<ExitCode> {
         | Cmd::Volumes { .. }
         | Cmd::Health { .. }
         | Cmd::Remote { .. }
+        | Cmd::Swarm { .. }
+        | Cmd::Pool { .. }
         | Cmd::Manifest { .. }
         | Cmd::ServeStdio
+        | Cmd::SwarmStdio
         | Cmd::Mount { .. }
         | Cmd::Unmount { .. }
         | Cmd::Custody { .. } => {
@@ -1225,8 +1265,11 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
         | Cmd::Volumes { .. }
         | Cmd::Health { .. }
         | Cmd::Remote { .. }
+        | Cmd::Swarm { .. }
+        | Cmd::Pool { .. }
         | Cmd::Manifest { .. }
         | Cmd::ServeStdio
+        | Cmd::SwarmStdio
         | Cmd::Mount { .. }
         | Cmd::Unmount { .. }
         | Cmd::Custody { .. } => {
@@ -1886,7 +1929,7 @@ pub(crate) fn hash_absent(n: u64) -> String {
     }
 }
 
-fn live(msg: &str) {
+pub(crate) fn live(msg: &str) {
     let mut err = std::io::stderr();
     if err.is_terminal() {
         let _ = write!(err, "\r\x1b[2K{msg}");
@@ -1894,7 +1937,7 @@ fn live(msg: &str) {
     }
 }
 
-fn clear() {
+pub(crate) fn clear() {
     live("");
 }
 

@@ -69,6 +69,9 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+use crate::clock::now;
+use crate::db::{Lock, Tx};
+use crate::fmt::{hex, unhex32};
 use crate::signing::{self, Signer};
 use crate::{Db, paths};
 
@@ -480,12 +483,6 @@ fn path_json(p: &Path) -> Value {
     }
 }
 
-fn now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
-}
-
 /// Sign a manifest of drive `root_id` at `scan` (default: its latest finished scan), chained to
 /// the drive's previous one, and keep it. With `listing`, the listing is written there as it's
 /// made. `progress` hears the files done so far now and then.
@@ -551,7 +548,7 @@ pub fn create(
 
     // read the drive's newest manifest and add this one after it in one transaction, so that two
     // signers at once (the service and a command) can't both follow the same one
-    db.conn.execute_batch("BEGIN IMMEDIATE")?;
+    let tx = Tx::begin(&db.conn, Lock::Immediate)?;
     let made = (|| -> Result<Made> {
         let mut drive = path_json(&r.path);
         drive["root_id"] = json!(root_id);
@@ -594,17 +591,9 @@ pub fn create(
             scan,
             prev_id: prev.map(|(id, _)| id),
         })
-    })();
-    match made {
-        Ok(m) => {
-            db.conn.execute_batch("COMMIT")?;
-            Ok(m)
-        }
-        Err(e) => {
-            let _ = db.conn.execute_batch("ROLLBACK");
-            Err(e)
-        }
-    }
+    })()?;
+    tx.commit()?;
+    Ok(made)
 }
 
 // ---------- the stored ones
@@ -1299,21 +1288,6 @@ pub fn rfc3339(t: i64) -> String {
         secs % 3600 / 60,
         secs % 60
     )
-}
-
-fn hex(b: &[u8]) -> String {
-    crate::fmt::hex(b)
-}
-
-fn unhex32(s: &str) -> Option<[u8; 32]> {
-    if s.len() != 64 {
-        return None;
-    }
-    let mut out = [0u8; 32];
-    for (i, o) in out.iter_mut().enumerate() {
-        *o = u8::from_str_radix(s.get(2 * i..2 * i + 2)?, 16).ok()?;
-    }
-    Some(out)
 }
 
 #[cfg(test)]

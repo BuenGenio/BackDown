@@ -23,7 +23,7 @@
 
 use std::fs;
 use std::path::{MAIN_SEPARATOR_STR, Path, PathBuf};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
 use rusqlite::{OptionalExtension, params};
@@ -31,6 +31,7 @@ use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
 use crate::apply::{Outcome, copy_verified, hash_file, mtime};
+use crate::clock::now;
 use crate::custody::{self, Action};
 use crate::{Db, extras, fmt, names, paths, streams};
 
@@ -109,12 +110,6 @@ pub struct Options {
     pub move_to: Option<PathBuf>,
     /// rely on the index's hashes instead of re-reading both sides
     pub trust_index: bool,
-}
-
-fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
 }
 
 /// Why `path` must never be wiped, if it mustn't: BackDown's own index, the operating system's

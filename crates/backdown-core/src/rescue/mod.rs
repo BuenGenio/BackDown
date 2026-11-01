@@ -29,7 +29,6 @@ use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use rusqlite::{OptionalExtension, params};
@@ -37,6 +36,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::Db;
+use crate::clock::now;
 
 pub mod carve;
 pub mod files;
@@ -238,12 +238,6 @@ pub struct Rescue {
     pub state: String,
     pub summary: Option<String>,
     pub result: Value,
-}
-
-fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
 }
 
 pub fn record(

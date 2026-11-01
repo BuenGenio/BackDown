@@ -329,55 +329,7 @@ mod linux {
 
     use super::{LIMIT, Table, names_of, same_listing};
     use crate::fsread::{self, mft_scan};
-
-    /// One line of mountinfo.
-    #[derive(Debug)]
-    pub(super) struct Mount {
-        pub dev: (u64, u64),
-        /// the folder of the filesystem that's mounted (usually its top, "/")
-        pub root: PathBuf,
-        pub point: PathBuf,
-        pub fstype: String,
-        pub source: String,
-    }
-
-    /// mountinfo's escapes: `\040` for a space and the like.
-    fn unescape(s: &str) -> String {
-        let b = s.as_bytes();
-        let mut out = Vec::with_capacity(b.len());
-        let mut i = 0;
-        while i < b.len() {
-            if b[i] == b'\\'
-                && i + 3 < b.len()
-                && b[i + 1..i + 4].iter().all(|c| (b'0'..=b'7').contains(c))
-            {
-                out.push((b[i + 1] - b'0') * 64 + (b[i + 2] - b'0') * 8 + (b[i + 3] - b'0'));
-                i += 4;
-            } else {
-                out.push(b[i]);
-                i += 1;
-            }
-        }
-        String::from_utf8_lossy(&out).into_owned()
-    }
-
-    pub(super) fn mountinfo(text: &str) -> Vec<Mount> {
-        text.lines()
-            .filter_map(|line| {
-                // id parent major:minor root mount-point options [optional…] - fstype source super
-                let f: Vec<&str> = line.split(' ').collect();
-                let sep = 6 + f.get(6..)?.iter().position(|x| *x == "-")?;
-                let (maj, min) = f.get(2)?.split_once(':')?;
-                Some(Mount {
-                    dev: (maj.parse().ok()?, min.parse().ok()?),
-                    root: PathBuf::from(unescape(f.get(3)?)),
-                    point: PathBuf::from(unescape(f.get(4)?)),
-                    fstype: f.get(sep + 1)?.to_string(),
-                    source: unescape(f.get(sep + 2)?),
-                })
-            })
-            .collect()
-    }
+    use crate::volumes::mountinfo;
 
     /// glibc's split of a device number.
     pub(super) fn split(dev: u64) -> (u64, u64) {
@@ -410,9 +362,9 @@ mod linux {
 
     pub(super) fn read(root: &Path) -> Result<Table, String> {
         let meta = std::fs::metadata(root).map_err(|e| e.to_string())?;
-        let text = std::fs::read_to_string("/proc/self/mountinfo")
-            .map_err(|_| "can't read the system's list of mounts")?;
-        let mounts = mountinfo(&text);
+        let text =
+            std::fs::read(mountinfo::PATH).map_err(|_| "can't read the system's list of mounts")?;
+        let mounts = mountinfo::parse(&text);
         let dev = split(meta.dev());
         let m = mounts
             .iter()
@@ -511,16 +463,7 @@ mod linux {
         use super::*;
 
         #[test]
-        fn mountinfo_lines() {
-            let text = "36 25 0:57 / /media/u/Old\\040Drive rw,nosuid,nodev,relatime shared:112 - fuseblk /dev/sdb1 rw,user_id=0,group_id=0,allow_other,blksize=4096\n\
-                        37 25 8:2 /photos /mnt/p rw,relatime - ext4 /dev/sda2 rw\n\
-                        garbage\n";
-            let m = mountinfo(text);
-            assert_eq!(m.len(), 2);
-            assert_eq!(m[0].point, PathBuf::from("/media/u/Old Drive"));
-            assert_eq!((m[0].dev, m[0].fstype.as_str()), ((0, 57), "fuseblk"));
-            assert_eq!(m[0].source, "/dev/sdb1");
-            assert_eq!(m[1].root, PathBuf::from("/photos"));
+        fn device_numbers() {
             // glibc's makedev(8, 2) and makedev(259, 70000)
             assert_eq!(split(0x802), (8, 2));
             let big = (259u64 & 0xfff) << 8 | (70000 & 0xff) | ((70000 & !0xff) << 12);

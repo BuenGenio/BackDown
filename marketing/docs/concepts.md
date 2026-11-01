@@ -150,6 +150,18 @@ Things are places; people and databases are what they're about, and they span dr
 
 Nothing is read from inside messages or database files for this; only paths, dump headers and the configuration files above, and only on connected drives. Both are gathered right after recognition (so after every scan, in the background), stored per drive and merged when shown.
 
+## Searching inside things {#searching-inside-things}
+
+The search box finds files by name. Its third scope, **Inside**, and `backdown search` find what's in them: mail by subject, sender and recipient; database dumps and SQLite files by table, column and, at full depth, the text in their rows. The hits say where to open: the mailbox folder with the message selected, the dump, the file.
+
+BackDown reuses the indexes already there before reading anything itself:
+
+- **Dovecot's index.** A Dovecot mailbox keeps the headers it cached for IMAP clients in `dovecot.index.cache`. When that file matches the mailbox's `dovecot.index`, the subjects, senders, recipients and dates come from it and no message is opened; a mailbox of a million messages is a few hundred megabytes read once. Messages the cache doesn't cover are read from their files, headers only. Where a Dovecot full-text plugin left its own index (`fts-flatcurve`, `fts-xapian`, `fts-lucene`, Squat), BackDown notes it but can't read it.
+- **SQLite's full-text tables.** A SQLite file that holds FTS3, FTS4 or FTS5 tables is searched in place, through SQLite itself: the hit says how many rows match in which table.
+- **What a dump says it indexed.** A table's `FULLTEXT KEY` in a MySQL or MariaDB dump names the columns the database itself indexed for search; they're listed with the table. (The engine's own index files in a data directory aren't readable outside the server.)
+
+Depth is a setting (`backdown search --depth off|headers|full`, `headers` by default): headers and schemas are enough to find a message or a table and cost little; `full` indexes the text of rows (text-typed columns only, up to 64 MiB a file) and grows with the data. The index keeps no copy of the text, only where each hit is, so a hit shows the subject, who and when, not a snippet. The background service indexes after each recognition, only what was scanned since; `backdown search --build` does it now.
+
 ## Overlaps
 
 `backdown overlaps` shows how much of each drive, top-level folder and recognised thing already exists elsewhere, and where most of it is: "89% elsewhere: 89% on archive". It's the same SHA-256 test as `check`, summed up per place. The report and the [filing plan](/docs/guides/file-into-an-archive/) use it to find what's already archived.

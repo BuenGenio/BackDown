@@ -27,6 +27,7 @@ use anyhow::Result;
 use rusqlite::params;
 use sha2::{Digest, Sha256};
 
+use crate::db::{Lock, Tx};
 use crate::{Db, paths};
 
 const CHUNK: u64 = 64 * 1024;
@@ -73,8 +74,11 @@ struct Job {
     dev: Option<i64>,
 }
 
-// a hardlink group counts once: key on (dev, ino) where known, else on the row itself
-const IDENTITY: &str = "CASE WHEN ino IS NULL THEN 'r' || id ELSE dev || ':' || ino END";
+// a hardlink group counts once: key on (dev, ino) where known, else on the row itself. The
+// modification time is part of it: a row that's still current because its drive hasn't been
+// rescanned may hold an inode number the filesystem has since given to another file.
+const IDENTITY: &str =
+    "CASE WHEN ino IS NULL THEN 'r' || id ELSE dev || ':' || ino || ':' || mtime END";
 
 pub fn hash(db: &mut Db, opts: &Options, progress: &mut dyn FnMut(&Progress)) -> Result<Stats> {
     let mut stats = Stats::default();
@@ -91,7 +95,7 @@ pub fn hash(db: &mut Db, opts: &Options, progress: &mut dyn FnMut(&Progress)) ->
         &away,
         &mut stats,
         &format!(
-            "SELECT id, path, size, dev, ino FROM files
+            "SELECT id, path, size, dev, ino, mtime FROM files
              WHERE current = 1 AND sample IS NULL AND sha256 IS NULL AND error IS NULL AND size > 0
                AND (size IN (SELECT size FROM files WHERE current = 1 AND size > 0 GROUP BY size HAVING COUNT(DISTINCT {IDENTITY}) > 1)
                     -- a file of this size on another machine (remote/): it could be a copy of this one
@@ -104,13 +108,13 @@ pub fn hash(db: &mut Db, opts: &Options, progress: &mut dyn FnMut(&Progress)) ->
         db,
         &away,
         &mut stats,
-        "SELECT id, path, size, dev, ino FROM files f
+        "SELECT id, path, size, dev, ino, mtime FROM files f
          WHERE current = 1 AND sha256 IS NULL AND error IS NULL AND sample IS NOT NULL
            AND (EXISTS (SELECT 1 FROM files g WHERE g.current = 1 AND g.size = f.size AND g.sample = f.sample AND g.id <> f.id
-                        AND NOT (f.ino IS NOT NULL AND g.dev = f.dev AND g.ino = f.ino))
+                        AND NOT (f.ino IS NOT NULL AND g.dev = f.dev AND g.ino = f.ino AND g.mtime = f.mtime))
                 -- a same-size file known only by its full hash: no sample to compare with
                 OR EXISTS (SELECT 1 FROM files g WHERE g.current = 1 AND g.size = f.size AND g.sample IS NULL AND g.sha256 IS NOT NULL
-                           AND NOT (f.ino IS NOT NULL AND g.dev = f.dev AND g.ino = f.ino))
+                           AND NOT (f.ino IS NOT NULL AND g.dev = f.dev AND g.ino = f.ino AND g.mtime = f.mtime))
                 -- the same sample on another machine, or a same-size file there known only by its full hash
                 OR EXISTS (SELECT 1 FROM remote_files g WHERE g.size = f.size AND g.error = 0
                            AND (g.sample = f.sample OR (g.sample IS NULL AND g.sha256 IS NOT NULL))))",
@@ -119,15 +123,20 @@ pub fn hash(db: &mut Db, opts: &Options, progress: &mut dyn FnMut(&Progress)) ->
     Ok(stats)
 }
 
-/// Copy hashes already computed for one path of an inode to its other paths. Current rows only:
-/// an old version's inode number may since have been reused by an unrelated file.
+/// Copy hashes already computed for one path of an inode to its other paths: hardlinks, which
+/// always have the same size and modification time. An inode number alone isn't enough: an old
+/// version's may since have gone to an unrelated file, and so may a current row's, when that file
+/// was deleted from a drive that hasn't been rescanned since (its row is current until then).
 fn reuse_by_inode(db: &Db) -> Result<()> {
     db.conn.execute(
         "UPDATE files SET
-            sample = COALESCE(sample, (SELECT g.sample FROM files g WHERE g.current = 1 AND g.dev = files.dev AND g.ino = files.ino AND g.sample IS NOT NULL)),
-            sha256 = COALESCE(sha256, (SELECT g.sha256 FROM files g WHERE g.current = 1 AND g.dev = files.dev AND g.ino = files.ino AND g.sha256 IS NOT NULL))
+            sample = COALESCE(sample, (SELECT g.sample FROM files g WHERE g.current = 1 AND g.dev = files.dev AND g.ino = files.ino
+                                         AND g.size = files.size AND g.mtime = files.mtime AND g.sample IS NOT NULL)),
+            sha256 = COALESCE(sha256, (SELECT g.sha256 FROM files g WHERE g.current = 1 AND g.dev = files.dev AND g.ino = files.ino
+                                         AND g.size = files.size AND g.mtime = files.mtime AND g.sha256 IS NOT NULL))
          WHERE current = 1 AND ino IS NOT NULL AND (sample IS NULL OR sha256 IS NULL)
-           AND EXISTS (SELECT 1 FROM files g WHERE g.current = 1 AND g.dev = files.dev AND g.ino = files.ino AND g.id <> files.id)",
+           AND EXISTS (SELECT 1 FROM files g WHERE g.current = 1 AND g.dev = files.dev AND g.ino = files.ino
+                         AND g.size = files.size AND g.mtime = files.mtime AND g.id <> files.id)",
         [],
     )?;
     Ok(())
@@ -162,22 +171,24 @@ fn collect(db: &Db, away: &[Vec<u8>], stats: &mut Stats, sql: &str) -> Result<Ve
             r.get::<_, i64>(2)?,
             r.get::<_, Option<i64>>(3)?,
             r.get::<_, Option<i64>>(4)?,
+            r.get::<_, i64>(5)?,
         ))
     })?;
     let mut jobs: Vec<Job> = Vec::new();
-    let mut by_inode: HashMap<(i64, i64), usize> = HashMap::new();
+    // one job per file: the paths of one inode, with the same size and time (see reuse_by_inode)
+    let mut by_inode: HashMap<(i64, i64, i64, i64), usize> = HashMap::new();
     for row in rows {
-        let (id, path, size, dev, ino) = row?;
+        let (id, path, size, dev, ino, mtime) = row?;
         if away.iter().any(|a| path.starts_with(a)) {
             stats.absent += 1;
             continue;
         }
         if let (Some(d), Some(i)) = (dev, ino) {
-            if let Some(&j) = by_inode.get(&(d, i)) {
+            if let Some(&j) = by_inode.get(&(d, i, size, mtime)) {
                 jobs[j].ids.push(id);
                 continue;
             }
-            by_inode.insert((d, i), jobs.len());
+            by_inode.insert((d, i, size, mtime), jobs.len());
         }
         jobs.push(Job {
             ids: vec![id],
@@ -253,7 +264,7 @@ fn run(
         let mut set_full = conn.prepare_cached("UPDATE files SET sha256 = ?1 WHERE id = ?2")?;
         let mut set_error = conn.prepare_cached("UPDATE files SET error = ?1 WHERE id = ?2")?;
         let mut last = Instant::now();
-        conn.execute_batch("BEGIN")?;
+        let mut tx = Tx::begin(conn, Lock::Deferred)?;
         for (ids, size, out) in rx {
             match &out {
                 Ok((digest, whole)) => {
@@ -282,12 +293,12 @@ fn run(
             p.bytes += read_size(size);
             stats.bytes_read += read_size(size);
             if last.elapsed() >= Duration::from_millis(250) {
-                conn.execute_batch("COMMIT; BEGIN")?;
+                tx.checkpoint()?;
                 progress(&p);
                 last = Instant::now();
             }
         }
-        conn.execute_batch("COMMIT")?;
+        tx.commit()?;
         progress(&p);
         Ok(())
     })

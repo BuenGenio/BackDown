@@ -21,7 +21,7 @@ use serde_json::json;
 const IDLE: Duration = Duration::from_secs(15 * 60);
 const MAX_ANSWER: usize = 48 << 20;
 
-fn host_name() -> String {
+pub(crate) fn host_name() -> String {
     for f in ["/proc/sys/kernel/hostname", "/etc/hostname"] {
         if let Ok(s) = std::fs::read_to_string(f)
             && !s.trim().is_empty()
@@ -35,7 +35,7 @@ fn host_name() -> String {
 }
 
 /// The index to answer from: `--db`, else the one a running daemon here serves, else the default.
-fn which_db(db: Option<PathBuf>) -> PathBuf {
+pub(crate) fn which_db(db: Option<PathBuf>) -> PathBuf {
     db.or_else(|| crate::client::Client::connect(None).map(|c| PathBuf::from(c.db)))
         .unwrap_or_else(crate::locations::default_db)
 }
