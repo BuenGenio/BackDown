@@ -615,3 +615,88 @@ fn the_pool_over_ssh() {
     let shown = e.ok(&e.local_db, &["pool", "plans", "1"]);
     assert!(shown.contains("→ nas:"), "{shown}");
 }
+
+/// Copying into the pool over ssh, end to end: a drive here planned into the NAS's pool folder,
+/// sent to `swarm-stdio` there (each file read back there and compared), indexed there by itself
+/// with the hashes it verified on arrival, synced here; then the drive here is safe to wipe, proved
+/// by its copies on the NAS.
+#[test]
+fn copying_a_drive_into_a_nas_pool_over_ssh() {
+    let base = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
+    fs::create_dir_all(&base).unwrap();
+    let tmp = tempfile::tempdir_in(fs::canonicalize(&base).unwrap()).unwrap();
+    let e = Env::new(tmp.path());
+    let old = e.root.join("OLD-DRIVE");
+    let pool = e.root.join("nas/pool");
+    write(&old.join("Stuff/beach.jpg"), &blob(7, 300_000));
+    write(&old.join("Stuff/notes.txt"), &blob(8, 3_000));
+    write(&old.join("Stuff/deep/er/report.odt"), &blob(9, 40_000));
+    let nas_db = e.root.join("nas.db");
+    e.ok(
+        &nas_db,
+        &["pool", "add", pool.to_str().unwrap(), "--reserve", "1G"],
+    );
+    e.ok(&nas_db, &["index", pool.to_str().unwrap()]);
+    e.ok(&e.local_db, &["index", old.to_str().unwrap()]);
+    e.ok(
+        &e.local_db,
+        &[
+            "remote",
+            "add",
+            "nas",
+            "ssh://nas.example.org",
+            "--remote-db",
+            nas_db.to_str().unwrap(),
+        ],
+    );
+    e.ok(&e.local_db, &["remote", "sync", "nas"]);
+    e.ok(&e.local_db, &["pool", "plan", "OLD-DRIVE"]);
+
+    let out = e.ok(&e.local_db, &["pool", "send", "1"]);
+    assert!(out.contains("3 copied"), "{out}");
+    assert!(out.contains("nas:") && out.contains("indexing"), "{out}");
+    let dest = pool.join("Unsorted/OLD-DRIVE/Stuff");
+    assert_eq!(
+        fs::read(dest.join("deep/er/report.odt")).unwrap(),
+        blob(9, 40_000)
+    );
+    assert_eq!(fs::read(dest.join("beach.jpg")).unwrap(), blob(7, 300_000));
+    // the NAS indexes what it received by itself (no service of its own runs here)
+    let indexed = || -> i64 {
+        rusqlite::Connection::open(&nas_db)
+            .and_then(|c| {
+                c.query_row(
+                    "SELECT COUNT(*) FROM files WHERE current = 1 AND sha256 IS NOT NULL AND CAST(path AS TEXT) LIKE '%/Unsorted/OLD-DRIVE/%'",
+                    [],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap_or(0)
+    };
+    for _ in 0..150 {
+        if indexed() == 3 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    assert_eq!(
+        indexed(),
+        3,
+        "indexed there, with the hashes verified on arrival"
+    );
+    // sent again: nothing goes twice
+    let out = e.ok(&e.local_db, &["pool", "send", "1"]);
+    assert!(
+        out.contains("0 copied") && out.contains("3 done before"),
+        "{out}"
+    );
+
+    // here: the NAS's copies, synced, prove the drive is safe to wipe
+    e.ok(&e.local_db, &["remote", "sync", "nas"]);
+    let o = e.run(&e.local_db, &["check", old.to_str().unwrap()]);
+    let text = format!("{}{}", stdout(&o), String::from_utf8_lossy(&o.stderr));
+    assert!(
+        o.status.success(),
+        "safe to wipe, by the copies on the NAS:\n{text}"
+    );
+}

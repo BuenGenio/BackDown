@@ -26,6 +26,7 @@ use crate::{client, locations};
 
 pub mod ssh;
 pub mod stdio;
+pub mod swarm_stdio;
 
 /// Several machines are "multi-machine" in tiers.rs's table: Pro until 1 Nov 2026, free since,
 /// with the swarm that's built on it. Reaching machines (add, test, sync, browse, a wipe's

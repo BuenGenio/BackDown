@@ -19,6 +19,8 @@ use serde_json::{Value, json};
 use crate::{Db, browse, fmt, names, paths, volumes};
 
 pub mod plan;
+pub mod receive;
+pub mod send;
 
 pub const SCHEMA: &str = "
 -- the pool (pool.rs, docs/SWARM.md): this machine's folders that are part of the swarm's archive.

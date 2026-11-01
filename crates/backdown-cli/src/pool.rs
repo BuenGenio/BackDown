@@ -55,6 +55,13 @@ pub enum PoolCmd {
         #[arg(long)]
         json: bool,
     },
+    /// Copy a drive into the pool as its plan says: each file read back there and compared by
+    /// SHA-256; what's in the pool already, or not as the drive was last scanned, isn't sent.
+    /// Stopped or interrupted, it carries on where it was
+    Send {
+        /// The plan's number (backdown pool plans)
+        plan: i64,
+    },
     /// The pool plans made here, or one of them
     Plans {
         /// A plan's number, to show it whole
@@ -197,6 +204,55 @@ pub fn command(db: Option<PathBuf>, local: bool, cmd: PoolCmd) -> Result<ExitCod
                 println!("{}", serde_json::to_string_pretty(&pp)?);
             } else {
                 print_plan(&pp);
+            }
+        }
+        PoolCmd::Send { plan } => {
+            let mut last = std::time::Instant::now();
+            let (st, to_index) = run_send(&path, &db, plan, None, &mut |p| {
+                if last.elapsed().as_millis() >= 500 {
+                    last = std::time::Instant::now();
+                    eprint!(
+                        "\r{}: {} files, {} of {} copied   ",
+                        p.thing,
+                        fmt::count(p.files),
+                        fmt::bytes(p.bytes),
+                        fmt::bytes(p.total_bytes)
+                    );
+                }
+            })?;
+            eprintln!();
+            println!("Pool plan {plan}: {}", send_words(&st));
+            for d in &st.done {
+                println!("  {d}");
+            }
+            for p in &st.first_problems {
+                eprintln!("  {p}");
+            }
+            // this machine's pool folders that got files: indexed now (or by its service)
+            for f in to_index {
+                let root = covering(&db, &f)?;
+                let shown = root.display().to_string();
+                let queued = crate::client::Client::connect(Some(&path)).is_some_and(|mut c| {
+                    c.request(&json!({ "cmd": "enqueue", "kind": "index", "path": shown }))
+                        .is_ok_and(|r| r["ok"] == true)
+                });
+                if queued {
+                    println!("  BackDown's service is indexing {shown}");
+                } else {
+                    let mut w = Db::open(&path)?;
+                    backdown_core::index::scan(
+                        &mut w,
+                        &root,
+                        &backdown_core::index::Options {
+                            one_file_system: true,
+                            allow_empty: false,
+                        },
+                        backdown_core::index::Method::Auto,
+                        &mut |_| {},
+                    )?;
+                    let n = pool::receive::adopt(&w)?;
+                    println!("  indexed {shown} ({n} files' hashes taken from their copies)");
+                }
             }
         }
         PoolCmd::Plans { id: Some(id), json } => {
@@ -345,6 +401,112 @@ fn print_plan(pp: &pool::plan::PoolPlan) {
     }
 }
 
+// ---------- copying into the pool
+
+/// Carry out pool plan `id` (see backdown_core::pool::send): this machine's pool folders written
+/// in-process, the others' through `swarm-stdio` there, over ssh. What happened, and this
+/// machine's pool folders that received files (to be indexed).
+pub fn run_send(
+    db_path: &Path,
+    db: &Db,
+    id: i64,
+    stop: Option<&std::sync::atomic::AtomicBool>,
+    progress: &mut dyn FnMut(&pool::send::Progress),
+) -> Result<(pool::send::Stats, Vec<PathBuf>)> {
+    let name = crate::swarm::here_name();
+    let storage = swarm::storage(db)?;
+    let areas = pool::plan::areas(db, &name, &storage)?;
+    let mut here = pool::send::Here {
+        db,
+        to_index: Vec::new(),
+    };
+    let mut ssh = crate::remote::swarm_stdio::Ssh {
+        db: db_path.to_path_buf(),
+        name: name.clone(),
+    };
+    let st = pool::send::send(db, id, &name, &areas, &mut here, &mut ssh, stop, progress)?;
+    Ok((st, here.to_index))
+}
+
+/// The indexed drive whose scans cover `folder` (else the folder itself): what's indexed again
+/// after files land in it.
+fn covering(db: &Db, folder: &Path) -> Result<PathBuf> {
+    Ok(backdown_core::browse::roots(db)?
+        .into_iter()
+        .filter(|r| backdown_core::names::within(folder, Path::new(&r.path)))
+        .max_by_key(|r| r.path.len())
+        .map_or(folder.to_path_buf(), |r| PathBuf::from(r.path)))
+}
+
+/// "4 copied (1.2 GB), 1 in the pool already, …"
+pub fn send_words(st: &pool::send::Stats) -> String {
+    let mut parts = vec![format!(
+        "{} copied ({})",
+        fmt::count(st.copied),
+        fmt::bytes(st.copied_bytes)
+    )];
+    for (n, what) in [
+        (st.renamed, "under a numbered name"),
+        (st.same, "there already"),
+        (st.in_pool, "in the pool already"),
+        (st.twice, "twice on the drive"),
+        (st.resumed, "done before"),
+        (st.changed, "not as last scanned"),
+        (st.failed, "failed"),
+    ] {
+        if n > 0 {
+            parts.push(format!("{} {what}", fmt::count(n)));
+        }
+    }
+    parts.join(", ")
+}
+
+/// The daemon's side-lane job: carry out pool plan `job.opts.plan`, then index this machine's
+/// pool folders that received files.
+pub fn run_send_job(
+    d: &Daemon,
+    db: &Db,
+    job: &crate::daemon::Job,
+    stop: &std::sync::atomic::AtomicBool,
+) -> Result<String> {
+    let id = job
+        .opts
+        .plan
+        .ok_or_else(|| anyhow::anyhow!("a pool send without a plan"))?;
+    let (st, to_index) = run_send(&d.db, db, id, Some(stop), &mut |p| {
+        d.progress(
+            job.id,
+            format!(
+                "{}: {} files, {} copied",
+                p.thing,
+                fmt::count(p.files),
+                fmt::bytes(p.bytes)
+            ),
+            crate::daemon::Counts {
+                stage: "copying",
+                files: p.files,
+                total_files: 0,
+                bytes: p.bytes,
+                total_bytes: p.total_bytes,
+            },
+        )
+    })?;
+    for f in to_index {
+        let root = covering(db, &f)?;
+        d.enqueue(
+            "index",
+            Some(root.display().to_string()),
+            "after-pool",
+            Default::default(),
+        );
+    }
+    let mut words = send_words(&st);
+    if !st.done.is_empty() {
+        words.push_str(&format!("; {}", st.done.join("; ")));
+    }
+    Ok(words)
+}
+
 // ---------- the browser's requests
 
 pub fn handles(path: &str) -> bool {
@@ -417,6 +579,32 @@ pub fn post(
         "/api/pool-area-remove" => {
             pool::remove(&db, id()?)?;
             json!({ "ok": true })
+        }
+        // copying a drive into the pool: a job in the BackDown service's side lane
+        "/api/pool-send" => {
+            let d = d.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "copying runs in BackDown's service: `backdown pool send PLAN` in a terminal"
+                )
+            })?;
+            let id = id()?;
+            let pp = pool::plan::load(&db, id)?;
+            if pp.machine != crate::swarm::here_name() {
+                bail!(
+                    "this plan is of a drive on {}: copy it from there",
+                    pp.machine
+                );
+            }
+            let job = d.enqueue(
+                "pool-send",
+                Some(format!("pool plan {id}")),
+                "requested",
+                crate::daemon::JobOpts {
+                    plan: Some(id),
+                    ..Default::default()
+                },
+            );
+            json!({ "ok": true, "job": job })
         }
         // a drive here into the pool: its plan, made now and kept
         "/api/pool-plan-make" => {

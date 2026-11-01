@@ -24,7 +24,7 @@ export const SWARM_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentC
 
 // what's shown: the overview, which machines are being asked, the search and its answer
 const W = { data: null, asking: new Set(), errors: new Map(), q: '', found: null, searching: false, seq: 0, qseq: 0 };
-let hooks = { enter: () => {}, isMode: () => false, openLocal: () => {}, openMachine: () => {} };
+let hooks = { enter: () => {}, isMode: () => false, openLocal: () => {}, openMachine: () => {}, freeUp: () => {} };
 
 export function mountSwarm(h) {
   hooks = { ...hooks, ...h };
@@ -33,6 +33,7 @@ export function mountSwarm(h) {
     reload: local => local ? render() : showSwarm(),
     back: () => showSwarm(),
     isOpen: () => hooks.isMode('swarm') && wizardOpen(),
+    freeUp: r => hooks.freeUp(r),
   });
   document.addEventListener('click', onClick);
   document.addEventListener('submit', onSubmit);

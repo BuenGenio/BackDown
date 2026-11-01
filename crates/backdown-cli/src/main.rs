@@ -386,6 +386,10 @@ enum Cmd {
     /// line each, on stdin and stdout
     #[command(hide = true)]
     ServeStdio,
+    /// The other end of copying into the pool, run there by ssh: writes into this machine's own
+    /// pool folders only, one JSON line per request and each file raw after its request
+    #[command(hide = true)]
+    SwarmStdio,
     /// The pool: folders on the swarm's drives that drives are filed into, each file once. On the
     /// machine whose drive it's on: `pool add FOLDER`; `pool list` shows every machine's
     Pool {
@@ -733,6 +737,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Rescue { action } => return rescuing::run(action),
         // the other end of `backdown remote`, run there by ssh: reads only, never through a daemon
         Cmd::ServeStdio => return remote::stdio::run(cli.db),
+        // the receiving end of copying into the pool, run there by ssh: writes into its pool
+        // folders only, never through a daemon
+        Cmd::SwarmStdio => return remote::swarm_stdio::run(cli.db),
         Cmd::Remote { action } => return remote::command(cli.db, cli.local, action),
         // reads the index and asks the other machines over ssh, like `remote`
         Cmd::Swarm {
@@ -833,6 +840,7 @@ fn local(db_path: &Path, cmd: Cmd, use_daemon: bool) -> Result<ExitCode> {
                     ))
                 })?;
                 backdown_core::swarm::remember_scanned(&db, st.scan, &st.root);
+                let _ = backdown_core::pool::receive::adopt(&db);
                 done(&format!(
                     "{}: {} files, {} (new {}, changed {}, gone {}) · scan {}\n  {}",
                     st.root.display(),
@@ -1036,6 +1044,7 @@ fn local(db_path: &Path, cmd: Cmd, use_daemon: bool) -> Result<ExitCode> {
         | Cmd::Pool { .. }
         | Cmd::Manifest { .. }
         | Cmd::ServeStdio
+        | Cmd::SwarmStdio
         | Cmd::Mount { .. }
         | Cmd::Unmount { .. }
         | Cmd::Custody { .. } => {
@@ -1190,6 +1199,7 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
         | Cmd::Pool { .. }
         | Cmd::Manifest { .. }
         | Cmd::ServeStdio
+        | Cmd::SwarmStdio
         | Cmd::Mount { .. }
         | Cmd::Unmount { .. }
         | Cmd::Custody { .. } => {

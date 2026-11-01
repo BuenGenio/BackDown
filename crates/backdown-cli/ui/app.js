@@ -2338,6 +2338,8 @@ mountSwarm({
   isMode: m => S.mode === m,
   openLocal: (dir, sel) => { $('#timebar').hidden = S.timeline.length < 2; go(dir, { select: sel, scan: null }); },
   openMachine: (id, dir, sel) => showMachine(id, dir, sel),
+  // the wizard's last step: the drive just copied into the pool, in Free up
+  freeUp: r => showWipe([{ key: r.key, path: r.path, label: r.name || r.path }]),
 });
 boot().then(restoreTabs).then(() => pollDaemon(true));
 checkUpdates();

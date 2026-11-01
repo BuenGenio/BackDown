@@ -35,7 +35,7 @@ pub(crate) fn host_name() -> String {
 }
 
 /// The index to answer from: `--db`, else the one a running daemon here serves, else the default.
-fn which_db(db: Option<PathBuf>) -> PathBuf {
+pub(crate) fn which_db(db: Option<PathBuf>) -> PathBuf {
     db.or_else(|| crate::client::Client::connect(None).map(|c| PathBuf::from(c.db)))
         .unwrap_or_else(crate::locations::default_db)
 }
