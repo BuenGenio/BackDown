@@ -28,10 +28,6 @@ use crate::{Db, browse, find, health, volumes};
 /// server went away can hang whoever asks): past it, the drive is "not answering".
 const ASK_PATH: Duration = Duration::from_secs(3);
 
-fn now() -> i64 {
-    remote::now()
-}
-
 /// Run `f` on a thread of its own and wait for it at most `t`.
 pub(crate) fn within<T: Send + 'static>(
     t: Duration,
@@ -129,7 +125,7 @@ pub fn storage(db: &Db) -> Result<Value> {
     out["roots"] = json!(roots);
     // its pool folders, with the room on their drives now (pool.rs)
     out["pool"] = crate::pool::report(db)?;
-    out["at"] = json!(now());
+    out["at"] = json!(crate::clock::now());
     Ok(out)
 }
 
@@ -286,7 +282,7 @@ pub fn remember_drive(db: &Db, root_id: i64, path: &Path) -> Result<bool> {
     db.conn.execute(
         "INSERT INTO root_drives(root_id, at, data) VALUES (?1, ?2, ?3)
          ON CONFLICT(root_id) DO UPDATE SET at = excluded.at, data = excluded.data",
-        params![root_id, now(), d.to_string()],
+        params![root_id, crate::clock::now(), d.to_string()],
     )?;
     Ok(true)
 }

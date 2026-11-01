@@ -329,10 +329,6 @@ impl<'a> Pool<'a> {
     }
 }
 
-fn now() -> i64 {
-    remote::now()
-}
-
 /// The plan for drive `root_id` on this machine (`machine`): its things (`plan::make`'s items,
 /// placed by `schema`), each compared with the pool and given a pool folder among `areas`.
 pub fn make(
@@ -512,7 +508,7 @@ pub fn make(
 
     let mut pp = PoolPlan {
         id: None,
-        created_at: now(),
+        created_at: crate::clock::now(),
         machine: machine.to_string(),
         root_id,
         root: root.display().to_string(),

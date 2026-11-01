@@ -71,7 +71,7 @@ fn a_nas_with_a_pool_folder(db: &Db, content: &[u8], free: u64) -> i64 {
         .execute(
             "INSERT INTO remote_roots(remote_id, root_id, path, display, last_scan, synced_scan, seen_at)
              VALUES (?1, 7, ?2, '/srv/pool', 3, 3, ?3)",
-            params![m.id, b"/srv/pool".to_vec(), remote::now()],
+            params![m.id, b"/srv/pool".to_vec(), crate::clock::now()],
         )
         .unwrap();
     let sha = Sha256::digest(content).to_vec();

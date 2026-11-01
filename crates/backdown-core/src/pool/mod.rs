@@ -51,10 +51,6 @@ pub struct Area {
     pub created_at: i64,
 }
 
-fn now() -> i64 {
-    crate::remote::now()
-}
-
 fn area_row(r: &rusqlite::Row) -> rusqlite::Result<Area> {
     let takes: String = r.get(3)?;
     Ok(Area {
@@ -208,7 +204,7 @@ pub fn add(db: &Db, path: &Path, reserve: Option<Reserve>, takes: &[String]) -> 
             path.display().to_string(),
             reserve as i64,
             serde_json::to_string(&takes)?,
-            now()
+            crate::clock::now()
         ],
     )?;
     get(db, db.conn.last_insert_rowid())
