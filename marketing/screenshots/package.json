@@ -4,7 +4,7 @@
   "type": "module",
   "description": "Captures the landing-page slideshow from the real BackDown UI fed with demo data. See README.md.",
   "devDependencies": {
-    "puppeteer-core": "^25.12.0"
+    "puppeteer-core": "^25.16.0"
   },
   "scripts": {
     "capture": "node capture.mjs && python3 encode.py",
