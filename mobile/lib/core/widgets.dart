@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -29,7 +31,63 @@ class AsyncBody<T> extends StatelessWidget {
       );
     }
     if (value.hasError) return ErrorPanel(error: value.error!, onRetry: onRetry);
-    return loading ?? const Center(child: CircularProgressIndicator());
+    return loading ?? const Waiting();
+  }
+}
+
+/// A spinner that, after a few seconds, says the computer is still working on it: some answers take
+/// a minute on a big index while the service is busy.
+class Waiting extends StatefulWidget {
+  const Waiting({super.key, this.after = const Duration(seconds: 8), this.message});
+
+  final Duration after;
+  final String? message;
+
+  @override
+  State<Waiting> createState() => _WaitingState();
+}
+
+class _WaitingState extends State<Waiting> {
+  late final Timer _timer;
+  bool _long = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer(widget.after, () {
+      if (mounted) setState(() => _long = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            if (_long) ...[
+              const SizedBox(height: 16),
+              Text(
+                widget.message ??
+                    'Still waiting for the computer: on a big index, or while it\'s busy with a job, this can '
+                        'take a minute.',
+                textAlign: TextAlign.center,
+                style: context.text.bodySmall?.copyWith(color: context.bd.muted),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -47,6 +105,7 @@ class ErrorPanel extends StatelessWidget {
     final failure = e is ApiException ? e.failure : null;
     final (icon, title) = switch (failure) {
       ApiFailure.offline => (Icons.cloud_off_outlined, 'Can\'t reach the computer'),
+      ApiFailure.slow => (Icons.hourglass_bottom, 'The computer is slow to answer'),
       ApiFailure.unauthorized => (Icons.key_off_outlined, 'Not connected any more'),
       ApiFailure.wrongHost => (Icons.dns_outlined, 'Wrong address'),
       ApiFailure.atTheComputer => (Icons.computer_outlined, 'Needs someone at the computer'),

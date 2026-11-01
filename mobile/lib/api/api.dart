@@ -6,6 +6,9 @@ enum ApiFailure {
   /// The computer couldn't be reached: off, asleep, another network, Tailscale off.
   offline,
 
+  /// The computer was reached but took too long to answer (busy with a big job, a huge index).
+  slow,
+
   /// The service doesn't know this phone's token (it was reinstalled, or `backdown serve` restarted).
   unauthorized,
 

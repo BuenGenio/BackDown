@@ -185,7 +185,13 @@ class _FallbackViewState extends ConsumerState<FallbackView> {
 /// A viewer's failed read: what to do about a connection that failed (with Try again), else the
 /// fallback card with the service's reason (the file isn't what its name says, its bytes are gone).
 Widget viewerError(ViewSource s, Object e, VoidCallback retry) {
-  const connection = {ApiFailure.offline, ApiFailure.unauthorized, ApiFailure.wrongHost, ApiFailure.server};
+  const connection = {
+    ApiFailure.offline,
+    ApiFailure.slow,
+    ApiFailure.unauthorized,
+    ApiFailure.wrongHost,
+    ApiFailure.server,
+  };
   if (e is ApiException && connection.contains(e.failure)) return ErrorPanel(error: e, onRetry: retry);
   return FallbackView.error(s, e);
 }

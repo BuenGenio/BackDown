@@ -24,7 +24,9 @@ class HttpBackDownApi extends BackDownApi {
   final String _cookie;
   final http.Client _client;
 
-  static const _timeout = Duration(seconds: 45);
+  /// How long a request may take: some answers take a minute on a 7-million-file index while the
+  /// service is busy (a machine's sync, hashing).
+  static const _timeout = Duration(minutes: 2);
 
   @override
   bool get canChange => isLoopbackHost(base.host);
@@ -122,6 +124,13 @@ class HttpBackDownApi extends BackDownApi {
   }
 
   ApiException _offline(Object e) {
+    if (e is TimeoutException) {
+      return ApiException(
+        ApiFailure.slow,
+        '${base.host} didn\'t answer in time. BackDown there may be busy with a big job (a scan, hashing, a '
+        'machine\'s sync); try again in a while.',
+      );
+    }
     final why = switch (e) {
       TimeoutException() => 'it didn\'t answer in time',
       SocketException(:final osError?) => osError.message,

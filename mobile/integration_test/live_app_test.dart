@@ -119,5 +119,10 @@ void main() {
     await _until(t, find.textContaining('match'), timeout: const Duration(minutes: 3));
     await _settle(t);
     await _shot(t, '12-search');
+    // the first hit, in its viewer (a README: text with colours)
+    await t.tap(find.textContaining('README').first);
+    await _until(t, find.byIcon(Icons.share_outlined), timeout: const Duration(minutes: 1));
+    await _settle(t, const Duration(seconds: 4));
+    await _shot(t, '13-viewer');
   }, timeout: const Timeout(Duration(minutes: 15)));
 }
