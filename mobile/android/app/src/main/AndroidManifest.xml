@@ -5,7 +5,7 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- finished jobs and drive health warnings, from the background check -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- scanning the QR code `backdown token --qr` shows; nothing is recorded -->
+    <!-- scanning the QR code the computer shows (backdown token, with qr); nothing is recorded -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- the camera plugin asks for these for video; scanning needs neither -->
