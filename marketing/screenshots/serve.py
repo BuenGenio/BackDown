@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Serve the real BackDown dashboard and report UI with an invented demo dataset, for the landing-page slideshow.
 
-The product pages are used as-is (the dashboard PAGE is imported from bd-dash.py, the report from
+The product pages are used as-is (the dashboard PAGE is imported from legacy/bd-dash.py, the report from
 assets/report.html); only the data behind /api/status and /api/report is demo. The report page
 hardcodes a few strings from the founding dataset, so PRIVATE_STRINGS swaps those for neutral ones
 in the served copy. Nothing here reads index/, the journals or any real drive.
@@ -30,7 +30,7 @@ PRIVATE_PATTERNS = [
 
 
 def _dash_page():
-    spec = importlib.util.spec_from_file_location('bd_dash', REPO / 'bd-dash.py')
+    spec = importlib.util.spec_from_file_location('bd_dash', REPO / 'legacy' / 'bd-dash.py')
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)  # defines functions and PAGE only; the server starts under __main__
     return mod.PAGE

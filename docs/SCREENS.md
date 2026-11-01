@@ -27,7 +27,7 @@ Data source: `GET /api/status` (JSON) every 5 s; the first state is embedded ser
 
 ## Report — "Seven drives, one dataset"
 
-`http://localhost:8787/report` — the interactive findings page, fed by `index/report.json` (regenerate with `python3 bd-report.py`). Becomes the **What's here / Overlaps / Verdicts** screens of the app.
+`http://localhost:8787/report` — the interactive findings page, fed by `index/report.json` (regenerate with `python3 legacy/bd-report.py`). Becomes the **What's here / Overlaps / Verdicts** screens of the app.
 
 | Light | Dark |
 |---|---|

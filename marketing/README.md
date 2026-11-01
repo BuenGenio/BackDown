@@ -108,7 +108,7 @@ Run from this directory unless noted:
 
 ## Screenshots (`screenshots/`)
 
-The slideshow shows the real dashboard and report UI (`../bd-dash.py`, `../assets/report.html`), served by `serve.py` with an invented demo dataset; nothing reads `index/` or any real drive. The report page hardcodes a few details of the founding dataset, which `serve.py` neutralises by pattern in its served copy. `capture.mjs` drives Firefox (via puppeteer-core) to shoot each slide in light and dark at 2x, per language; `encode.py` writes `public/shots/<lang>/<slide>-<theme>-{960,1600,2400}.webp`.
+The slideshow shows the real dashboard and report UI (`../legacy/bd-dash.py`, `../assets/report.html`), served by `serve.py` with an invented demo dataset; nothing reads `index/` or any real drive. The report page hardcodes a few details of the founding dataset, which `serve.py` neutralises by pattern in its served copy. `capture.mjs` drives Firefox (via puppeteer-core) to shoot each slide in light and dark at 2x, per language; `encode.py` writes `public/shots/<lang>/<slide>-<theme>-{960,1600,2400}.webp`.
 
 The app UI is English-only, so for other languages `capture.mjs` swaps the rendered text using `ui-i18n/<lang>.json` (exact phrases, plus regex patterns for generated lines) and reformats numbers for the locale. If the app's UI text changes, re-extract the visible strings and update every `ui-i18n` file.
 
