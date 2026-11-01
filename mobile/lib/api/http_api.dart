@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
@@ -54,9 +55,14 @@ class HttpBackDownApi extends BackDownApi {
   }
 
   @override
-  Future<Uint8List> bytes(String endpoint, [Map<String, Object?> params = const {}, int? limit]) async {
+  Future<Uint8List> bytes(
+    String endpoint, [
+    Map<String, Object?> params = const {},
+    int? limit,
+    Duration? timeout,
+  ]) async {
     final headers = {...authHeaders, if (limit != null) 'Range': 'bytes=0-${limit - 1}'};
-    final r = await _send(() => _client.get(uri(endpoint, params), headers: headers), _timeout);
+    final r = await _send(() => _client.get(uri(endpoint, params), headers: headers), timeout ?? _timeout);
     if (r.statusCode != 200 && r.statusCode != 206) throw _failure(r.statusCode, r.body);
     return r.bodyBytes;
   }
@@ -125,16 +131,22 @@ class HttpBackDownApi extends BackDownApi {
     );
   }
 
-  Object? _json(http.Response r) {
+  Future<Object?> _json(http.Response r) async {
     if (r.statusCode != 200) throw _failure(r.statusCode, utf8.decode(r.bodyBytes, allowMalformed: true));
     // Failures always come with a non-200 status. A 200's top-level "error" is data: a file's read
     // error in /api/file, a machine's last error.
+    final body = r.bodyBytes;
     try {
-      return jsonDecode(utf8.decode(r.bodyBytes));
+      // a big answer (megabytes of entities or duplicates) is decoded in another isolate, so the
+      // screen keeps moving
+      if (body.length > _bigJson) return await Isolate.run(() => jsonDecode(utf8.decode(body)));
+      return jsonDecode(utf8.decode(body));
     } on FormatException {
       throw ApiException(ApiFailure.server, 'The service answered with something that isn\'t JSON.', status: 200);
     }
   }
+
+  static const _bigJson = 256 << 10;
 
   ApiException _failure(int status, String body) {
     Map<String, Object?>? j;

@@ -153,8 +153,10 @@ Map<String, Object?> _file(int id) {
       'readable': true,
     },
   ];
-  // the 2014 photos are on the nextcloud machine too
-  final remote = n.path.contains('/2014/')
+  // the 2014 photos, and the last two of 2015, are on the nextcloud machine too
+  final elsewhere = n.path.contains('/2014/') || const {'IMG_3410.JPG', 'IMG_3411.JPG'}.contains(n.name);
+  final year = n.path.contains('/2014/') ? '2014' : '2015';
+  final remote = elsewhere
       ? [
           {
             'machine_id': 1,
@@ -162,9 +164,9 @@ Map<String, Object?> _file(int id) {
             'url': 'ssh://sam@nextcloud',
             'rid': 9000 + id,
             'root_id': 1,
-            'path': '/srv/photos/2014/${n.name}',
-            'key': keyOfPath('/srv/photos/2014/${n.name}'),
-            'dir_key': keyOfPath('/srv/photos/2014'),
+            'path': '/srv/photos/$year/${n.name}',
+            'key': keyOfPath('/srv/photos/$year/${n.name}'),
+            'dir_key': keyOfPath('/srv/photos/$year'),
             'confirmed_at': latest.finishedAt - 7200,
             'counts': true,
             'why_not': null,

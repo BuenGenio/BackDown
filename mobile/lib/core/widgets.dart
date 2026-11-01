@@ -267,9 +267,13 @@ class Pill extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (icon != null) ...[Icon(icon, size: 12, color: c), const SizedBox(width: 3)],
-          Text(
-            text,
-            style: context.text.labelSmall?.copyWith(color: c, fontWeight: FontWeight.w700),
+          // a long label shrinks with an ellipsis rather than overflowing a narrow row
+          Flexible(
+            child: Text(
+              text,
+              style: context.text.labelSmall?.copyWith(color: c, fontWeight: FontWeight.w700),
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
         ],
       ),

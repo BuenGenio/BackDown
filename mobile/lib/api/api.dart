@@ -72,8 +72,9 @@ abstract class BackDownApi {
   /// optional JSON body.
   Future<Object?> post(String endpoint, {Map<String, Object?> params = const {}, Object? body});
 
-  /// The bytes of `/api/<endpoint>` (a file's content, an entry in an archive), at most [limit].
-  Future<Uint8List> bytes(String endpoint, [Map<String, Object?> params = const {}, int? limit]);
+  /// The bytes of `/api/<endpoint>` (a file's content, an entry in an archive, a document the
+  /// service makes), at most [limit], waiting up to [timeout] (45 s unless said).
+  Future<Uint8List> bytes(String endpoint, [Map<String, Object?> params = const {}, int? limit, Duration? timeout]);
 
   /// Downloads `/api/<endpoint>` into [into], reporting progress (bytes so far, total if known),
   /// and stopping (with nothing left behind) once [cancelled] says so. Returns [into], or null when

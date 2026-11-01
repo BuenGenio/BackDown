@@ -48,7 +48,7 @@ class DemoBackDownApi extends BackDownApi {
     ...demoMachinePosts,
     ...demoLibraryPosts,
   };
-  static final Map<String, DemoBytesHandler> byteHandlers = {...demoCoreBytes, ...demoViewerBytes};
+  static final Map<String, DemoBytesHandler> byteHandlers = {...demoCoreBytes, ...demoViewerBytes, ...demoLibraryBytes};
 
   /// State the demo's answers keep between requests (jobs, read notifications), by area.
   final Map<String, Object?> state = {};
@@ -123,7 +123,12 @@ class DemoBackDownApi extends BackDownApi {
   }
 
   @override
-  Future<Uint8List> bytes(String endpoint, [Map<String, Object?> params = const {}, int? limit]) async {
+  Future<Uint8List> bytes(
+    String endpoint, [
+    Map<String, Object?> params = const {},
+    int? limit,
+    Duration? timeout,
+  ]) async {
     final h = byteHandlers[endpoint];
     if (h == null) throw ApiException(ApiFailure.notFound, 'No preview in the demo.', status: 404);
     final b = await h(this, queryOf(params));

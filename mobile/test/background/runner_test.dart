@@ -36,7 +36,7 @@ class _FakeService extends BackDownApi {
   Future<Object?> post(String endpoint, {Map<String, Object?> params = const {}, Object? body}) =>
       throw UnimplementedError();
   @override
-  Future<Uint8List> bytes(String endpoint, [Map<String, Object?> params = const {}, int? limit]) =>
+  Future<Uint8List> bytes(String endpoint, [Map<String, Object?> params = const {}, int? limit, Duration? timeout]) =>
       throw UnimplementedError();
   @override
   Future<File?> download(

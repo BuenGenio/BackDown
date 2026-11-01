@@ -6,11 +6,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../api/api.dart';
-import '../../api/demo_api.dart';
 import '../../api/http_api.dart';
 import '../../api/json.dart';
 import '../../core/kinds.dart';
-import '../../demo/demo_library.dart';
 import '../../providers.dart';
 import 'models.dart';
 
@@ -34,21 +32,14 @@ Future<T> getParsed<T>(
   return parse(await api.get(endpoint, params));
 }
 
-/// The bytes of a document the service makes (the report, the chain of custody, a manifest).
-Future<Uint8List> documentBytes(BackDownApi api, String endpoint, [Map<String, Object?> params = const {}]) async {
-  // the demo keeps these with this area's answers (demo_library.dart)
-  final demo = api is DemoBackDownApi ? demoLibraryBytes[endpoint] : null;
-  if (demo != null) return demo(api as DemoBackDownApi, queryOf(params));
-  return api.bytes(endpoint, params);
-}
+/// The bytes of a document the service makes (the report, the chain of custody, a manifest). The
+/// report works out overlaps before it answers, which takes minutes on a big index.
+Future<Uint8List> documentBytes(BackDownApi api, String endpoint, [Map<String, Object?> params = const {}]) =>
+    api.bytes(endpoint, params, null, const Duration(minutes: 5));
 
-/// Downloads a document into [into]: the demo's from its answers, a service's streamed to disk.
-Future<File?> saveDocument(BackDownApi api, String endpoint, Map<String, Object?> params, File into) async {
-  if (api is DemoBackDownApi && demoLibraryBytes.containsKey(endpoint)) {
-    return into.writeAsBytes(await documentBytes(api, endpoint, params));
-  }
-  return api.download(endpoint, params, into);
-}
+/// Downloads a document into [into], streamed to disk.
+Future<File?> saveDocument(BackDownApi api, String endpoint, Map<String, Object?> params, File into) =>
+    api.download(endpoint, params, into);
 
 // ---------- the parsers (top level, so they can run in another isolate)
 
