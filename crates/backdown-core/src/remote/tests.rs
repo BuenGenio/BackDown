@@ -401,6 +401,92 @@ fn a_big_drive_is_walked_in_id_order_and_gives_the_same_files() {
     assert!(full["data"]["next"].is_null());
 }
 
+/// What to ask another machine to read walks the partial index of what's waiting, largest first,
+/// and stops at its limit: never a sort of every cached file.
+#[test]
+fn what_is_asked_for_walks_only_the_waiting_rows() {
+    let tmp = scratch();
+    let db = Db::open(&tmp.path().join("i.db")).unwrap();
+    db.build_later_indexes(&mut |_| {}).unwrap();
+    for (w, index) in [
+        (Want::Sample, "remote_files_unhashed"),
+        (Want::Full, "remote_files_unhashed"),
+        (Want::FullBySize, "remote_files_unhashed"),
+    ] {
+        let sql = format!(
+            "EXPLAIN QUERY PLAN SELECT r.rid, r.size FROM {} WHERE {}
+               AND (r.size < ?3 OR (r.size = ?3 AND r.rid < ?4))
+             ORDER BY r.size DESC, r.rid DESC LIMIT ?2",
+            want_from(&db).unwrap(),
+            want_sql(w)
+        );
+        let plan: Vec<String> = db
+            .conn
+            .prepare(&sql)
+            .unwrap()
+            .query_map(params![1, 64, i64::MAX, i64::MAX], |r| {
+                r.get::<_, String>(3)
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        let all = plan.join(" / ");
+        assert!(all.contains(index), "{all}");
+        assert!(!all.contains("TEMP B-TREE"), "{all}");
+    }
+}
+
+/// A pass asks about each waiting file once, however many of the largest match nothing here.
+#[test]
+fn a_pass_walks_past_what_matches_nothing_here() {
+    let tmp = scratch();
+    let db = Db::open(&tmp.path().join("i.db")).unwrap();
+    let m = add(&db, "nas", "ssh://nas.example.org", None, None).unwrap();
+    db.conn
+        .execute("INSERT INTO roots(id, path) VALUES (1, x'2f68')", [])
+        .unwrap();
+    // 300 big files there that nothing here matches, then 100 smaller ones that do
+    for i in 0..400i64 {
+        let size = if i < 300 { 10_000_000 + i } else { 1_000 + i };
+        db.conn
+            .execute(
+                "INSERT INTO remote_files(remote_id, rid, root_id, path, size, mtime) VALUES (?1, ?2, 1, ?3, ?4, 0)",
+                params![m.id, i + 1, format!("/v/{i}").into_bytes(), size],
+            )
+            .unwrap();
+        if i >= 300 {
+            db.conn
+                .execute(
+                    "INSERT INTO files(root_id, path, size, mtime, current, first_scan, last_scan) VALUES (1, ?1, ?2, 0, 1, 1, 1)",
+                    params![format!("/h/{i}").into_bytes(), size],
+                )
+                .unwrap();
+        }
+    }
+    let m = get(&db, m.id).unwrap();
+    // the same before the daemon has built the index and after
+    for indexed in [false, true] {
+        if indexed {
+            db.build_later_indexes(&mut |_| {}).unwrap();
+        }
+        let mut from = Cursor::START;
+        let mut seen = Vec::new();
+        loop {
+            let b = wanted(&db, &m, Want::FullBySize, from, 64).unwrap();
+            let Some(&(rid, size)) = b.last() else { break };
+            seen.extend(b.iter().map(|x| x.0));
+            from = Cursor(size, rid);
+        }
+        seen.sort();
+        assert_eq!(
+            seen,
+            (301..=400).collect::<Vec<i64>>(),
+            "indexed: {indexed}"
+        );
+        assert_eq!(left_to_hash(&db, &m).unwrap(), 100);
+    }
+}
+
 #[test]
 fn sync_is_incremental_and_copies_there_count_conservatively() {
     let tmp = scratch();
