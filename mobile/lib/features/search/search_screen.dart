@@ -20,8 +20,9 @@ typedef FindQuery = ({String q, String? dir, bool earlier});
 /// The ranked name search (GET /api/find): every drive, or under one folder; with [earlier],
 /// also files that are gone (with when they were last seen).
 final findProvider = FutureProvider.autoDispose.family<FindResult, FindQuery>((ref, f) async {
-  final j = await requireApi(ref)
-      .get('find', {'q': f.q, 'dir': f.dir, 'earlier': f.earlier ? '1' : null, 'limit': 200});
+  // a name search reads the whole index: seconds on millions of files, more on a busy service
+  final query = {'q': f.q, 'dir': f.dir, 'earlier': f.earlier ? '1' : null, 'limit': 200};
+  final j = await requireApi(ref).get('find', query, const Duration(minutes: 2));
   return FindResult.fromJson(asJson(j));
 });
 
@@ -78,7 +79,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
   void _changed(String v) {
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 300), () => setState(() => _q = v.trim()));
+    // one search per pause in typing, of two characters or more: each reads the whole index
+    final t = v.trim();
+    _debounce = Timer(const Duration(milliseconds: 600), () => setState(() => _q = t.length < 2 ? '' : t));
   }
 
   void _searchNow(String v) {
@@ -218,6 +221,7 @@ class _Results extends ConsumerWidget {
     return AsyncBody(
       value: r,
       onRetry: () => ref.invalidate(findProvider(query)),
+      loading: const _Searching(),
       data: (res) {
         if (res.hits.isEmpty) {
           return EmptyState(
@@ -291,6 +295,51 @@ class _Highlighted extends StatelessWidget {
       ),
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
+    );
+  }
+}
+
+/// The spinner, and after a few seconds why it takes a while.
+class _Searching extends StatefulWidget {
+  const _Searching();
+
+  @override
+  State<_Searching> createState() => _SearchingState();
+}
+
+class _SearchingState extends State<_Searching> {
+  late final Timer _timer;
+  bool _slow = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer(const Duration(seconds: 3), () => setState(() => _slow = true));
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const CircularProgressIndicator(),
+          if (_slow) ...[
+            const SizedBox(height: 16),
+            Text(
+              'Still searching: every name in the index is read,\nwhich takes a while on millions of files.',
+              textAlign: TextAlign.center,
+              style: context.text.bodySmall?.copyWith(color: context.bd.muted),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

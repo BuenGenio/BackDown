@@ -47,7 +47,7 @@ void main() {
       final c = await pumpBackDown(t, prefs: prefs);
       await goTo(t, c, Routes.search);
       await t.enterText(find.byType(TextField), 'img_21');
-      await t.pump(const Duration(milliseconds: 400));
+      await t.pump(const Duration(milliseconds: 700));
       await t.pumpAndSettle();
       await shoot(t, 'search$s');
     });

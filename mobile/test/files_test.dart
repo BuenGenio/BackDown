@@ -83,7 +83,7 @@ void main() {
     final c = await pumpBackDown(tester);
     await goTo(tester, c, Routes.search);
     await tester.enterText(find.byType(TextField), 'invoice');
-    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 700));
     await tester.pumpAndSettle();
     expect(find.textContaining('invoice-2019-0'), findsWidgets);
     expect(find.textContaining('Seagate Expansion › Documents/Invoices'), findsWidgets);
