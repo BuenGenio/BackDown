@@ -732,7 +732,16 @@ fn worker(d: &Daemon) {
             "mail-merge" => crate::tidy::run_merge_job(d, &db, &job, &stop),
             "indexes" => run_indexes(d, &db, &job),
             "attest" => crate::manifesting::run_attest(d, &db, &job),
-            "content" => run_content(d, &db, &job, &stop),
+            // it reads whatever is on the drives: a file that trips a bug ends this job, not the
+            // worker (the open transaction rolls back as the panic unwinds)
+            "content" => std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                run_content(d, &db, &job, &stop)
+            }))
+            .unwrap_or_else(|_| {
+                Err(anyhow::anyhow!(
+                    "indexing contents stopped at a file it couldn't read (a bug in BackDown; the log says where)"
+                ))
+            }),
             _ => run_hash(d, &mut db, &job),
         };
         // what the job added to the chain of custody is sealed now

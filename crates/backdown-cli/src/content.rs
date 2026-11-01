@@ -114,7 +114,6 @@ struct Ctx<'a> {
     stop: &'a AtomicBool,
     progress: &'a mut dyn FnMut(&str),
     report: &'a mut Report,
-    since_commit: u64,
 }
 
 impl Ctx<'_> {
@@ -124,15 +123,10 @@ impl Ctx<'_> {
     fn count(&mut self, source: &str) {
         self.report.docs += 1;
         *self.report.by_source.entry(source.to_string()).or_default() += 1;
-        self.since_commit += 1;
     }
     /// commit now and then, so hours of work aren't one transaction
     fn tick(&mut self, w: &mut Writer) -> Result<()> {
-        if self.since_commit >= BATCH {
-            w.checkpoint()?;
-            self.since_commit = 0;
-        }
-        Ok(())
+        w.tick(BATCH)
     }
 }
 
@@ -208,22 +202,29 @@ pub fn build(
             let mut ctx = Ctx {
                 db,
                 root_id: id,
-                scan: r.scan,
+                // written as pending; stamped with the drive's scan once the thing is settled
+                scan: fts::PENDING,
                 depth,
                 stop,
                 progress,
                 report: &mut report,
-                since_commit: 0,
             };
             let res = index_entity(&mut ctx, &mut w, e);
             let stopped = ctx.stopped();
             match res {
+                // stopped part way: what's written stays pending, so the next run does it again
+                Ok(()) if stopped => {
+                    w.commit()?;
+                }
                 Ok(()) => {
+                    fts::settle(db, id, &e.key, r.scan)?;
                     w.commit()?;
                     report.entities += 1;
                 }
                 Err(err) => {
-                    drop(w);
+                    // what was read before the error stands: a damaged file won't read better
+                    // next time, and isn't read again until the drive is scanned again
+                    let _ = fts::settle(db, id, &e.key, r.scan).and_then(|_| w.commit());
                     report
                         .notes
                         .push(format!("{} ({}): {err:#}", e.title, e.path));
@@ -452,12 +453,12 @@ fn strip_tags(html: &str, cap: usize) -> String {
     out
 }
 
-/// A message file's header block (and, with `body`, up to `MAIL_CAP` of it).
+/// A message file's header block (and, with `body`, its first `HEAD_CAP` + 512 KiB).
 fn read_message(path: &Path, body: bool) -> Result<Vec<u8>> {
     let f = paths::open_read(path)?;
     if body {
         let mut buf = Vec::new();
-        f.take((HEAD_CAP + 512) << 10).read_to_end(&mut buf)?;
+        f.take(HEAD_CAP + (512 << 10)).read_to_end(&mut buf)?;
         return Ok(buf);
     }
     let mut r = BufReader::with_capacity(8 << 10, f.take(4 * HEAD_CAP));
@@ -661,6 +662,7 @@ fn index_mdbox(ctx: &mut Ctx, w: &mut Writer, e: &Entity, root: &Path) -> Result
         return Ok(());
     }
     // no usable cache: walk the storage files message by message (headers only)
+    use backdown_core::mailstores::{DBOX_MAGIC_POST, dbox_file_header, dbox_message_size};
     let storage = root.join("storage");
     let mut files = files_in(ctx.db, &storage)?;
     files.retain(|(n, _, _)| n.starts_with("m.") && n[2..].bytes().all(|b| b.is_ascii_digit()));
@@ -674,34 +676,36 @@ fn index_mdbox(ctx: &mut Ctx, w: &mut Writer, e: &Entity, root: &Path) -> Result
         let Ok(mut f) = paths::open_read(&p) else {
             continue;
         };
-        // "2 M<hdr size hex> C<created hex>\n", then messages: "\x01\x02N <16 hex>\n" + bytes + metadata
+        // dbox-file.h: the file header line, then each message right after the one before: its
+        // header (`hdr` bytes), its body, and a metadata block ("\n\x01\x03\n", lines, an empty
+        // line). Every step is checked against the file's length and must move forward, so a
+        // damaged or crafted file ends the walk instead of looping or reading past its end.
         let mut first = Vec::new();
-        {
-            let mut r = BufReader::new(&mut f);
-            r.read_until(b'\n', &mut first)?;
-        }
-        let line = String::from_utf8_lossy(&first);
-        let hdr: u64 = line
-            .split_whitespace()
-            .find_map(|w| w.strip_prefix('M'))
-            .and_then(|h| u64::from_str_radix(h, 16).ok())
-            .unwrap_or(0);
-        let mut at = first.len() as u64 + hdr;
+        BufReader::new((&mut f).take(4096)).read_until(b'\n', &mut first)?;
+        let Some((hdr, _)) = dbox_file_header(&first) else {
+            continue;
+        };
         let len = f.metadata()?.len();
+        let mut at = first.len() as u64;
+        let mut mh = vec![0u8; hdr as usize];
         let mut n_msgs = 0u64;
-        while at + 20 < len {
+        while at.checked_add(hdr).is_some_and(|end| end <= len) {
+            if ctx.stopped() {
+                return Ok(());
+            }
             f.seek(SeekFrom::Start(at))?;
-            let mut mh = [0u8; 21];
-            if f.read_exact(&mut mh).is_err() || &mh[..3] != b"\x01\x02N" {
+            if f.read_exact(&mut mh).is_err() {
                 break;
             }
-            let Ok(size) = u64::from_str_radix(std::str::from_utf8(&mh[4..20]).unwrap_or(""), 16)
-            else {
+            let Some(size) = dbox_message_size(&mh) else {
                 break;
             };
-            let body_at = at + 21;
-            let mut raw = vec![0u8; size.min(HEAD_CAP) as usize];
-            f.read_exact(&mut raw)?;
+            let body_at = at + hdr;
+            let Some(meta_at) = body_at.checked_add(size).filter(|&m| m <= len) else {
+                break;
+            };
+            let mut raw = Vec::new();
+            (&mut f).take(size.min(HEAD_CAP)).read_to_end(&mut raw)?;
             let head_end = raw
                 .windows(2)
                 .position(|w| w == b"\n\n")
@@ -719,21 +723,27 @@ fn index_mdbox(ctx: &mut Ctx, w: &mut Writer, e: &Entity, root: &Path) -> Result
                 "mdbox-storage",
             )?;
             n_msgs += 1;
-            // the metadata block after the message: "\n\x01\x03\n" lines up to an empty line
-            at = body_at + size;
-            f.seek(SeekFrom::Start(at))?;
-            let mut r = BufReader::new(&mut f);
+            // the metadata block, which ends at an empty line
+            f.seek(SeekFrom::Start(meta_at))?;
+            let mut r = BufReader::new((&mut f).take(64 << 10));
+            let mut magic = [0u8; 4];
+            if r.read_exact(&mut magic).is_err() || magic != DBOX_MAGIC_POST {
+                break;
+            }
+            let mut consumed = magic.len() as u64;
             let mut l = Vec::new();
-            let mut consumed = 0u64;
             loop {
                 l.clear();
                 let k = r.read_until(b'\n', &mut l)?;
                 consumed += k as u64;
-                if k == 0 || (l == b"\n" && consumed > 1) {
+                if k == 0 || l == b"\n" {
                     break;
                 }
             }
-            at += consumed;
+            if l != b"\n" {
+                break; // cut off, or longer than any metadata block
+            }
+            at = meta_at + consumed;
             if n_msgs.is_multiple_of(1000) {
                 (ctx.progress)(&format!(
                     "{}: storage/{n}: {} messages",
@@ -846,6 +856,33 @@ fn index_thunderbird(ctx: &mut Ctx, w: &mut Writer, e: &Entity, profile: &Path) 
 
 // ---------- database dumps
 
+/// A column named as if it holds a credential (`user_pass`, `authentication_string`, `api_key`,
+/// `password_hash`, `session_token`…).
+fn secret_column(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    [
+        "pass",
+        "pwd",
+        "secret",
+        "token",
+        "salt",
+        "hash",
+        "credential",
+        "private",
+        "apikey",
+        "api_key",
+        "authentication",
+        "auth_key",
+        "authkey",
+        "session",
+        "otp_",
+        "totp",
+        "nonce",
+    ]
+    .iter()
+    .any(|w| n.contains(w))
+}
+
 /// A table as the dump describes it.
 #[derive(Default, Debug)]
 struct TableDef {
@@ -854,10 +891,13 @@ struct TableDef {
 }
 
 impl TableDef {
-    /// Does column `i` hold text worth indexing (unknown columns count as text)?
+    /// Does column `i` hold text worth indexing (unknown columns count as text)? Never one whose
+    /// name says it holds a credential: a password hash, a token or a key would otherwise become
+    /// words anyone with the UI could search for.
     fn textual(&self, i: usize) -> bool {
         match self.columns.get(i) {
             None => true,
+            Some((name, _)) if secret_column(name) => false,
             Some((_, ty)) => {
                 !(ty.contains("blob")
                     || ty.contains("binary")
@@ -883,6 +923,19 @@ impl TableDef {
 }
 
 /// Collects a table's text and emits a document per chunk.
+/// Where the next chunk of `buf` ends: at the last space within `CHUNK` bytes (never inside a
+/// character), or all of it when it's shorter.
+fn chunk_cut(buf: &str) -> usize {
+    if buf.len() < CHUNK {
+        return buf.len();
+    }
+    let mut end = CHUNK;
+    while !buf.is_char_boundary(end) {
+        end -= 1;
+    }
+    buf[..end].rfind(' ').map_or(end, |i| i + 1)
+}
+
 struct TextSink {
     table: String,
     db: String,
@@ -1013,7 +1066,9 @@ fn index_dump(ctx: &mut Ctx, w: &mut Writer, e: &Entity, path: &Path) -> Result<
             }
             let upper = s.to_ascii_uppercase();
             if upper.starts_with("FULLTEXT") {
-                if let (Some(a), Some(b)) = (s.find('('), s.rfind(')')) {
+                if let (Some(a), Some(b)) = (s.find('('), s.rfind(')'))
+                    && a < b
+                {
                     def.fulltext.extend(
                         s[a + 1..b]
                             .split(',')
@@ -1078,7 +1133,9 @@ fn index_dump(ctx: &mut Ctx, w: &mut Writer, e: &Entity, path: &Path) -> Result<
             {
                 // one-line table (SQLite's .dump, hand-written scripts)
                 let mut def = TableDef::default();
-                if let (Some(a), Some(b)) = (tl.find('('), tl.rfind(')')) {
+                if let (Some(a), Some(b)) = (tl.find('('), tl.rfind(')'))
+                    && a < b
+                {
                     for c in tl[a + 1..b].split(',') {
                         let mut it = c.trim().splitn(2, char::is_whitespace);
                         let col = unquote_ident(it.next().unwrap_or(""));
@@ -1101,7 +1158,8 @@ fn index_dump(ctx: &mut Ctx, w: &mut Writer, e: &Entity, path: &Path) -> Result<
             if !full || capped {
                 continue;
             }
-            let after = tl[tl.find("INTO").unwrap_or(0) + 4..].trim_start();
+            // `upper` is the line's start in capitals: the same bytes, whatever case it was in
+            let after = tl[upper.find("INTO").map_or(0, |i| i + 4)..].trim_start();
             let (_, name) = split_ident(after);
             let def = tables.get(&name);
             let Some(vals) = t.find(" VALUES").or_else(|| t.find(" values")) else {
@@ -1229,11 +1287,7 @@ fn flush_sink(
 ) -> Result<u64> {
     let mut written = 0u64;
     while s.buf.len() >= CHUNK || (all && !s.buf.trim().is_empty()) {
-        let cut = if s.buf.len() >= CHUNK {
-            s.buf[..CHUNK].rfind(' ').map_or(CHUNK, |i| i + 1)
-        } else {
-            s.buf.len()
-        };
+        let cut = chunk_cut(&s.buf);
         let chunk: String = s.buf.drain(..cut).collect();
         s.chunk += 1;
         s.total += chunk.len() as u64;
@@ -1306,22 +1360,43 @@ fn put_table(
 
 // ---------- SQLite files
 
+/// A SQLite file from a drive, which may have been made to do harm when read: read-only and
+/// immutable (no locks, no journal, nothing written even to a read-only medium), in defensive mode
+/// with an untrusted schema (its views, triggers and virtual tables can't call anything with side
+/// effects), and checking its pages as they're read.
 fn open_sqlite_ro(path: &Path) -> Result<rusqlite::Connection> {
     use rusqlite::OpenFlags;
-    // immutable: no locks, no journal, nothing written even to a read-only medium
-    let uri = format!(
-        "file:{}?immutable=1",
-        path.display()
-            .to_string()
-            .replace('?', "%3F")
-            .replace('#', "%23")
-    );
-    Ok(rusqlite::Connection::open_with_flags(
-        uri,
+    use rusqlite::config::DbConfig;
+    let c = rusqlite::Connection::open_with_flags(
+        sqlite_uri(path),
         OpenFlags::SQLITE_OPEN_READ_ONLY
             | OpenFlags::SQLITE_OPEN_URI
             | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )?)
+    )?;
+    c.set_db_config(DbConfig::SQLITE_DBCONFIG_DEFENSIVE, true)?;
+    c.set_db_config(DbConfig::SQLITE_DBCONFIG_TRUSTED_SCHEMA, false)?;
+    c.execute_batch("PRAGMA cell_size_check = ON")?;
+    Ok(c)
+}
+
+/// `path` as a SQLite URI that opens exactly that file, immutable. Every byte but letters, digits,
+/// `/-._~:\` is %-encoded: a `%`, `?` or `#` in a name would otherwise be read as an escape, a
+/// query or a fragment (`a%2F..%2Fb.db` would open `b.db` one folder up), and names that aren't
+/// UTF-8 keep their exact bytes. A path starting `//` would read as an authority, so its second
+/// slash is encoded too.
+fn sqlite_uri(path: &Path) -> String {
+    let raw = paths::to_bytes(path);
+    let mut uri = String::from("file:");
+    for (i, &b) in raw.iter().enumerate() {
+        let plain = b.is_ascii_alphanumeric() || b"/-._~:\\".contains(&b);
+        if plain && !(i == 1 && b == b'/' && raw[0] == b'/') {
+            uri.push(b as char);
+        } else {
+            uri.push_str(&format!("%{b:02X}"));
+        }
+    }
+    uri.push_str("?immutable=1");
+    uri
 }
 
 /// Tables in a SQLite file: (name, sql, is an FTS virtual table).
@@ -1716,6 +1791,67 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_sqlite_file_opens_by_its_exact_name() {
+        assert_eq!(
+            sqlite_uri(Path::new("/d/a%2F..%2Fb.db")),
+            "file:/d/a%252F..%252Fb.db?immutable=1"
+        );
+        assert_eq!(
+            sqlite_uri(Path::new("/d/x?y#z.sqlite")),
+            "file:/d/x%3Fy%23z.sqlite?immutable=1"
+        );
+        assert_eq!(
+            sqlite_uri(Path::new("//srv/d.db")),
+            "file:/%2Fsrv/d.db?immutable=1"
+        );
+        // and it opens: a database named with %, ?, # and a space, beside a decoy it must not open
+        let t = tempfile::tempdir().unwrap();
+        let name = t.path().join("we%2Fird ?#.db");
+        let decoy = t.path().join("we/ird ?#.db");
+        let made = rusqlite::Connection::open(&name).unwrap();
+        made.execute_batch("CREATE TABLE real_one(x)").unwrap();
+        drop(made);
+        assert!(!decoy.exists());
+        let c = open_sqlite_ro(&name).unwrap();
+        let n: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name = 'real_one'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn credential_columns_are_never_indexed() {
+        let def = TableDef {
+            columns: vec![
+                ("user_login".into(), "varchar(60)".into()),
+                ("user_pass".into(), "varchar(255)".into()),
+                ("authentication_string".into(), "text".into()),
+                ("api_key".into(), "varchar(64)".into()),
+                ("author".into(), "text".into()),
+            ],
+            ..TableDef::default()
+        };
+        assert!(def.textual(0));
+        assert!(!def.textual(1) && !def.textual(2) && !def.textual(3));
+        assert!(def.textual(4), "author is a name, not an auth key");
+    }
+
+    #[test]
+    fn chunks_end_at_a_space_and_never_inside_a_character() {
+        assert_eq!(chunk_cut("short"), 5);
+        // a 3-byte character straddling the CHUNK boundary, and no space before it
+        let s = format!("{}€{}", "a".repeat(CHUNK - 1), "b".repeat(10));
+        let cut = chunk_cut(&s);
+        assert!(s.is_char_boundary(cut) && cut <= CHUNK, "{cut}");
+        let s = format!("{} {}", "a".repeat(100), "é".repeat(CHUNK));
+        assert_eq!(chunk_cut(&s), 101);
+    }
+
+    #[test]
     fn literals_of_textual_columns_only() {
         let def = TableDef {
             columns: vec![
@@ -2065,5 +2201,103 @@ mod build_tests {
         assert!(st["docs"].as_u64().unwrap() >= 6);
         assert!(fts::forget(&db, root, None).unwrap() > 0);
         assert_eq!(hits("invoice")["total"], 0);
+    }
+
+    /// An mdbox store as Dovecot writes it (dbox-file.h), read message by message when there's no
+    /// cache, beside storage files and a dump made to trip the readers: every walk ends, nothing
+    /// panics, and a stopped build leaves the thing to be done again.
+    #[test]
+    fn mdbox_storage_and_hostile_files_are_read_safely() {
+        let tmp = tempfile::tempdir().unwrap();
+        let d = tmp.path().join("drive");
+        let md = d.join("vmail/ann/mdbox");
+        let msg = |body: &str, received: u32| {
+            format!(
+                "\x01\x02N 00000000 {:016x}\n{body}\n\x01\x03\nGguid\nR{received:x}\n\n",
+                body.len()
+            )
+        };
+        write(
+            &md.join("storage/m.1"),
+            format!(
+                "2 M1e C5c000000\n{}{}",
+                msg(
+                    "From: Ann <ann@example.org>\nSubject: Mdbox greetings\n\nhello\n",
+                    0x5d00_0000
+                ),
+                msg(
+                    "From: Bo <bo@example.org>\nSubject: Lantern festival\n\nbye\n",
+                    0x6000_0000
+                )
+            )
+            .as_bytes(),
+        );
+        // a size that wraps around when added to its offset, and one far past the file's end
+        let mut wraps = b"2 M1e C5c000000\n\x01\x02N 00000000 FFFFFFFFFFFFFFE9\n".to_vec();
+        wraps.extend_from_slice(&[b'x'; 64]);
+        write(&md.join("storage/m.2"), &wraps);
+        let mut past = b"2 M1e C5c000000\n\x01\x02N 00000000 0000FFFFFFFFFFFF\n".to_vec();
+        past.extend_from_slice(&[b'y'; 64]);
+        write(&md.join("storage/m.3"), &past);
+        write(&md.join("storage/dovecot.map.index"), b"\x07");
+        std::fs::create_dir_all(md.join("mailboxes/INBOX/dbox-Mails")).unwrap();
+        // a dump whose FULLTEXT line has its parentheses the wrong way round
+        write(
+            &d.join("dumps/odd.sql"),
+            format!(
+                "-- MySQL dump 10.13\n-- Host: localhost    Database: odd\n\nCREATE TABLE `t` (\n  `id` int(11),\n  `note` text,\n  FULLTEXT ) (\n) ENGINE=InnoDB;\n\ninsert into `t` VALUES (1,'odd but fine');\n{}",
+                "-- filler\n".repeat(120)
+            )
+            .as_bytes(),
+        );
+        let mut db = Db::open(&tmp.path().join("i.db")).unwrap();
+        index::index(
+            &mut db,
+            &d,
+            &index::Options {
+                one_file_system: true,
+                allow_empty: false,
+            },
+            &mut |_| {},
+        )
+        .unwrap();
+        let root = recognise::root_ids(&db).unwrap()[0];
+        let r = recognise::recognise(&db, root, true, &mut |_| {}).unwrap();
+        recognise::store(&db, &r).unwrap();
+        let kinds: Vec<&str> = r.entities.iter().map(|e| e.kind.as_str()).collect();
+        assert!(
+            kinds.contains(&"mdbox") && kinds.contains(&"sql-dump"),
+            "{kinds:?}"
+        );
+        let mdbox = r.entities.iter().find(|e| e.kind == "mdbox").unwrap();
+
+        // stopped before anything is read: nothing counts as done
+        let stopped = AtomicBool::new(true);
+        let rep = build(&db, None, Depth::Full, false, &stopped, &mut |_| {}).unwrap();
+        assert!(rep.stopped);
+        assert_ne!(
+            fts::indexed_scan(&db, root, &mdbox.key).unwrap(),
+            Some(r.scan)
+        );
+
+        let stop = AtomicBool::new(false);
+        let rep = build(&db, None, Depth::Full, false, &stop, &mut |_| {}).unwrap();
+        assert!(!rep.stopped, "{rep:?}");
+        assert_eq!(
+            fts::indexed_scan(&db, root, &mdbox.key).unwrap(),
+            Some(r.scan)
+        );
+        let hits = |q: &str| search(&db, q, None, None, 20).unwrap();
+        let v = hits("greetings");
+        assert_eq!(v["total"], 1, "{v}");
+        assert_eq!(v["hits"][0]["source"], "mdbox-storage");
+        assert_eq!(
+            hits("lantern")["total"],
+            1,
+            "the second message, after the first's metadata"
+        );
+        // the odd dump still gave its table, and a lowercase `insert into` its rows
+        assert_eq!(hits("odd")["hits"][0]["who"], "odd", "{}", hits("odd"));
+        assert_eq!(hits("fine")["hits"][0]["kind"], "rows", "{}", hits("fine"));
     }
 }

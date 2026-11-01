@@ -350,11 +350,11 @@ fn dovecot_index(n: u32) -> Vec<u8> {
 
 /// A dbox file of messages received at the given times.
 fn dbox_file(received: &[u32]) -> Vec<u8> {
-    let mut f = String::from("2 M15 C5c000000\n");
+    let mut f = String::from("2 M1e C5c000000\n");
     for (i, r) in received.iter().enumerate() {
         let body = format!("Subject: {i}\n\nhello {i}");
         f += &format!(
-            "\x01\x02N {:016x}\n{body}\n\x01\x03\nGguid{i}\nR{r:x}\n\n",
+            "\x01\x02N 00000000 {:016x}\n{body}\n\x01\x03\nGguid{i}\nR{r:x}\n\n",
             body.len()
         );
     }
@@ -895,15 +895,11 @@ fn databases_and_who_things_are_about() {
     // Alice: a mailbox in the store, a Nextcloud account (whose address the server's mail domain
     // gives), and the Joomla site's contact, which also names her
     let alice = get("person", "Alice Example");
-    // (two Nextcloud data directories on this drive, both taken as the one server's)
+    // (the drive's other Nextcloud data directory is another instance's, appdata_oc123 where the
+    // server here is oc1: its alice is a login nobody can place, and stays apart)
     assert_eq!(
         roles(alice),
-        [
-            "Mailbox",
-            "Nextcloud account",
-            "Nextcloud account",
-            "Website contact"
-        ],
+        ["Mailbox", "Nextcloud account", "Website contact"],
         "{:#?}",
         alice.mentions
     );
@@ -930,10 +926,19 @@ fn databases_and_who_things_are_about() {
         alice.facts
     );
     let bob = get("person", "bob@example.org");
-    assert_eq!(
-        roles(bob),
-        ["Mailbox", "Nextcloud account", "Nextcloud account"]
-    );
+    assert_eq!(roles(bob), ["Mailbox", "Nextcloud account"]);
+    // the other instance's accounts: a login with no known host never merges with anyone
+    let unplaced: Vec<&subjects::Subject> = s
+        .subjects
+        .iter()
+        .filter(|x| {
+            x.mentions
+                .iter()
+                .any(|m| m.role == "Nextcloud account" && m.path.contains("nextcloud-data"))
+        })
+        .collect();
+    assert_eq!(unplaced.len(), 2, "{unplaced:#?}");
+    assert!(unplaced.iter().all(|x| x.mentions.len() == 1));
     assert_eq!(roles(get("person", "carol@example.net")), ["Mailbox"]);
     // the shop: two dumps, its live data, and the site that uses it, all one database
     let shop = get("database", "shop");
@@ -963,7 +968,11 @@ fn databases_and_who_things_are_about() {
         "{}",
         app.mentions[0].detail
     );
-    assert_eq!(roles(get("database", "notes.sqlite")), ["Database file"]);
+    // a SQLite file goes by its folder and name: every app's `db.sqlite3` isn't one database
+    assert_eq!(
+        roles(get("database", "data/notes.sqlite")),
+        ["Database file"]
+    );
 
     // stored per root, read back merged
     subjects::store(&db, &s).unwrap();

@@ -19,6 +19,7 @@ use anyhow::{Context, Result};
 use rusqlite::{OptionalExtension, params};
 use serde::Serialize;
 
+use crate::db::{Lock, Tx};
 use crate::{Db, browse, paths};
 
 pub const SCHEMA: &str = "
@@ -64,21 +65,37 @@ pub struct Doc<'a> {
     pub body: &'a str,
 }
 
-/// Adds documents in one transaction. Drop without `commit` to roll back.
+/// Adds documents in one transaction (`db::Tx`). Drop without `commit` to roll back.
 pub struct Writer<'a> {
     db: &'a Db,
-    open: bool,
+    tx: Tx<'a>,
     pub added: u64,
+    /// since the last commit: how many documents, and since when
+    pending: u64,
+    since: Instant,
 }
+
+/// A writer commits at least this often, so reading a big file for a few documents never keeps
+/// other writers (scans, syncs, the command line) waiting on the index.
+const COMMIT_EVERY: std::time::Duration = std::time::Duration::from_secs(2);
 
 impl<'a> Writer<'a> {
     pub fn begin(db: &'a Db) -> Result<Self> {
-        db.conn.execute_batch("BEGIN")?;
         Ok(Writer {
             db,
-            open: true,
+            tx: Tx::begin(&db.conn, Lock::Deferred)?,
             added: 0,
+            pending: 0,
+            since: Instant::now(),
         })
+    }
+
+    /// Commit if `batch` documents or a couple of seconds have gone by since the last commit.
+    pub fn tick(&mut self, batch: u64) -> Result<()> {
+        if self.pending >= batch || (self.pending > 0 && self.since.elapsed() >= COMMIT_EVERY) {
+            self.checkpoint()?;
+        }
+        Ok(())
     }
 
     pub fn put(&mut self, d: &Doc) -> Result<i64> {
@@ -106,27 +123,21 @@ impl<'a> Writer<'a> {
         )?;
         fts.execute(params![id, d.title, d.who, d.body])?;
         self.added += 1;
+        self.pending += 1;
         Ok(id)
     }
 
     /// Commit now and start another transaction (so a long build doesn't hold one for hours).
     pub fn checkpoint(&mut self) -> Result<()> {
-        self.db.conn.execute_batch("COMMIT; BEGIN")?;
+        self.tx.checkpoint()?;
+        self.pending = 0;
+        self.since = Instant::now();
         Ok(())
     }
 
-    pub fn commit(mut self) -> Result<u64> {
-        self.db.conn.execute_batch("COMMIT")?;
-        self.open = false;
+    pub fn commit(self) -> Result<u64> {
+        self.tx.commit()?;
         Ok(self.added)
-    }
-}
-
-impl Drop for Writer<'_> {
-    fn drop(&mut self) {
-        if self.open {
-            let _ = self.db.conn.execute_batch("ROLLBACK");
-        }
     }
 }
 
@@ -147,8 +158,9 @@ pub fn forget(db: &Db, root_id: i64, entity_key: Option<&str>) -> Result<u64> {
     if ids.is_empty() {
         return Ok(0);
     }
-    db.conn.execute_batch("BEGIN")?;
-    let r = (|| -> Result<()> {
+    // inside the caller's transaction if there is one, else its own (rolled back on any error)
+    let tx = Tx::join(&db.conn, Lock::Deferred)?;
+    {
         // a contentless_delete table takes an ordinary DELETE by rowid
         let mut del_fts = db
             .conn
@@ -160,16 +172,22 @@ pub fn forget(db: &Db, root_id: i64, entity_key: Option<&str>) -> Result<u64> {
             del_fts.execute(params![id])?;
             del.execute(params![id])?;
         }
-        Ok(())
-    })();
-    match r {
-        Ok(()) => db.conn.execute_batch("COMMIT")?,
-        Err(e) => {
-            let _ = db.conn.execute_batch("ROLLBACK");
-            return Err(e);
-        }
     }
+    tx.commit()?;
     Ok(ids.len() as u64)
+}
+
+/// The scan of documents written while their thing is still being read: a build stopped part way
+/// leaves them so, and the next build sees the thing isn't done.
+pub const PENDING: i64 = 0;
+
+/// Stamp an entity's documents with the scan they describe, now that all of it has been read.
+pub fn settle(db: &Db, root_id: i64, entity_key: &str, scan: i64) -> Result<()> {
+    db.conn.execute(
+        "UPDATE content_docs SET scan = ?3 WHERE root_id = ?1 AND entity_key = ?2",
+        params![root_id, entity_key, scan],
+    )?;
+    Ok(())
 }
 
 /// The scan an entity's documents describe, if any (so a rebuild can skip what's current).

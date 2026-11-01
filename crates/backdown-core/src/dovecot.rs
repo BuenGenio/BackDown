@@ -240,6 +240,11 @@ fn header_value(name: &str, text: &str) -> String {
     out
 }
 
+/// Of one cached header, at most this much is read,
+const HEADER_READ: usize = 64 << 10;
+/// and its value is kept to this much (a subject, a list of addresses).
+const VALUE_CAP: usize = 4 << 10;
+
 /// The headers Dovecot cached for every message in `mailbox` (the folder holding
 /// `dovecot.index` and `dovecot.index.cache`), limited to `wanted` names (lowercase, without the
 /// "hdr." prefix; empty for all). `None` when there is no usable cache.
@@ -277,12 +282,16 @@ pub fn cached_headers(mailbox: &Path, wanted: &[&str]) -> Option<Cached> {
             .collect(),
         ..Cached::default()
     };
+    // each cache record is read for one message only: a damaged or crafted index that points many
+    // messages (or a record's own chain) at the same records would otherwise decode them again and
+    // again, without bound in time or memory
+    let mut used = std::collections::HashSet::new();
     for &(uid, off) in &idx.records {
         let mut headers: Vec<(String, String)> = Vec::new();
         let mut at = off as usize;
         let mut hops = 0;
         while at != 0 {
-            if !at.is_multiple_of(4) || at + 8 > c.len() || hops > 64 {
+            if !at.is_multiple_of(4) || at + 8 > c.len() || hops > 64 || !used.insert(at) {
                 break;
             }
             let prev = e.u32(&c, at)? as usize;
@@ -316,8 +325,16 @@ pub fn cached_headers(mailbox: &Path, wanted: &[&str]) -> Option<Cached> {
                     }
                     q += 4;
                     if q <= p + data_size {
-                        let text = String::from_utf8_lossy(&c[q..p + data_size]);
-                        let v = header_value(name, &text);
+                        let text_end = (p + data_size).min(q + HEADER_READ);
+                        let text = String::from_utf8_lossy(&c[q..text_end]);
+                        let mut v = header_value(name, &text);
+                        if v.len() > VALUE_CAP {
+                            let mut cut = VALUE_CAP;
+                            while !v.is_char_boundary(cut) {
+                                cut -= 1;
+                            }
+                            v.truncate(cut);
+                        }
                         if !v.is_empty() && !headers.iter().any(|(n, _)| n == name) {
                             headers.push((name.clone(), v));
                         }
@@ -557,6 +574,43 @@ mod tests {
         // and garbage is just none
         std::fs::write(mb.join("dovecot.index"), b"not an index at all").unwrap();
         assert!(cached_headers(mb, &[]).is_none());
+    }
+
+    /// An index made to reuse one cache record for every message, a record chained to itself, and a
+    /// header far longer than any real one: each record is read once, and values stay small.
+    #[test]
+    fn a_crafted_cache_costs_no_more_than_its_size() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mb = tmp.path();
+        let long = format!("Subject: {}", "spam ".repeat(40_000));
+        let mut recs = vec![(0, vec![(0, hdr(&[1], &long))])];
+        let (mut c, offs) = cache(42, 7, &mut recs);
+        // a second record whose `prev` is itself
+        let own = c.len() as u32;
+        let d = hdr(&[1], "From: loop@example.org");
+        let mut body = le(2).to_vec();
+        body.extend_from_slice(&le(d.len() as u32));
+        body.extend_from_slice(&d);
+        while !body.len().is_multiple_of(4) {
+            body.push(0);
+        }
+        c.extend_from_slice(&le(own));
+        c.extend_from_slice(&le((8 + body.len()) as u32));
+        c.extend_from_slice(&body);
+        std::fs::write(mb.join("dovecot.index.cache"), &c).unwrap();
+        let mut msgs: Vec<(u32, u32)> = (1..=5000).map(|uid| (uid, offs[0])).collect();
+        msgs.push((9000, own));
+        std::fs::write(mb.join("dovecot.index"), index(42, 7, &msgs)).unwrap();
+        let t = std::time::Instant::now();
+        let got = cached_headers(mb, &["subject", "from"]).unwrap();
+        assert!(t.elapsed().as_secs() < 5);
+        // the first message to point at the shared record has it; the rest don't
+        assert_eq!(got.messages.len(), 2, "{:?}", got.messages.len());
+        assert_eq!(got.messages[0].uid, 1);
+        assert!(got.messages[0].headers[0].1.len() <= VALUE_CAP);
+        assert_eq!(got.messages[1].uid, 9000);
+        assert_eq!(got.messages[1].headers[0].1, "loop@example.org");
+        assert_eq!(got.uncached, 4999);
     }
 
     #[test]

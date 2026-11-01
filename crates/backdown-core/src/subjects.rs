@@ -57,8 +57,14 @@ impl Alias {
             scope,
         }
     }
+    /// A login identifies only where its host or service is known: "admin" or "pi" alone is
+    /// a different person on every machine.
     fn identifies(&self) -> bool {
-        matches!(self.kind.as_str(), "email" | "login" | "database")
+        match self.kind.as_str() {
+            "email" | "database" => true,
+            "login" => self.scope.as_deref().is_some_and(|s| !s.trim().is_empty()),
+            _ => false,
+        }
     }
     /// what two aliases must share to be the same
     fn id(&self) -> String {
@@ -453,13 +459,12 @@ fn people(ctx: &Ctx) -> Result<Vec<Subject>> {
             }
             // every user folder with files/ in it is an account
             "nextcloud" => {
-                let server = nc_servers
-                    .iter()
-                    .find(|s| {
-                        fact(s, "Data directory")
-                            .is_some_and(|d| Path::new(d).file_name() == p.file_name())
-                    })
-                    .or(nc_servers.first());
+                // only the server whose configuration names this data folder: another one's
+                // address and mail domain would make up accounts and addresses that aren't these
+                let server = nc_servers.iter().find(|s| {
+                    fact(s, "Data directory")
+                        .is_some_and(|d| Path::new(d).file_name() == p.file_name())
+                });
                 let address = server.and_then(|s| fact(s, "Address")).map(str::to_string);
                 let mail_domain = server
                     .and_then(|s| fact(s, "Mail domain"))
@@ -480,11 +485,7 @@ fn people(ctx: &Ctx) -> Result<Vec<Subject>> {
                     if is_email(&u) {
                         aliases.push(Alias::new("email", &u, None));
                     } else {
-                        aliases.push(Alias::new(
-                            "login",
-                            &u,
-                            Some(address.clone().unwrap_or_else(|| "Nextcloud".into())),
-                        ));
+                        aliases.push(Alias::new("login", &u, address.clone()));
                         if let Some(d) = &mail_domain {
                             aliases.push(Alias::new("email", format!("{u}@{d}"), None));
                         }
@@ -570,7 +571,7 @@ fn mailbox_person(
         _ => vec![Alias::new(
             "login",
             user,
-            Some(fact(e, "Source host").unwrap_or("mail").to_string()),
+            fact(e, "Source host").map(str::to_string),
         )],
     };
     let mut m = mention(
@@ -802,15 +803,23 @@ fn databases(ctx: &Ctx) -> Result<Vec<Subject>> {
                 }
             }
             "sqlite-db" => {
+                // its folder and name: copies of one app's database meet, but every `db.sqlite3`
+                // or `data.db` of every app doesn't
                 let name = recognise::name_of(&pb);
+                let folder = p
+                    .parent()
+                    .and_then(|d| d.file_name())
+                    .map(|d| d.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                let id = if folder.is_empty() {
+                    name.to_lowercase()
+                } else {
+                    format!("{folder}/{name}").to_lowercase()
+                };
                 let m = at_entity(ctx, e, "Database file", fmt::bytes(e.bytes));
                 out.push(one(
                     "database",
-                    vec![Alias::new(
-                        "database",
-                        name.to_lowercase(),
-                        Some("sqlite".into()),
-                    )],
+                    vec![Alias::new("database", id, Some("sqlite".into()))],
                     vec![("Engine", "SQLite".into())],
                     m,
                 ));
