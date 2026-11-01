@@ -189,7 +189,14 @@ fn folders_list_the_same_with_the_path_index_and_use_it() {
     let built = db
         .build_later_indexes(&mut |w| doing.push(w.to_string()))
         .unwrap();
-    assert_eq!(built, ["opening folders", "the duplicates report"]);
+    assert_eq!(
+        built,
+        [
+            "opening folders",
+            "the duplicates report",
+            "asking other machines for hashes"
+        ]
+    );
     assert_eq!(doing, built);
     assert!(db.missing_later_indexes().unwrap().is_empty());
     let after = [

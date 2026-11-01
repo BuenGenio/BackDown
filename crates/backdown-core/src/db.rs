@@ -356,10 +356,19 @@ const LATER_INDEXES: &[(&str, &str, &str)] = &[
         "CREATE INDEX IF NOT EXISTS dirs_path_history ON dirs(path, first_scan)",
     ),
     ("files_dupes", "the duplicates report", DUPES_INDEX),
+    // what's still to ask another machine to read for us (remote::wanted): only the rows without
+    // a hash from there, largest first, so a sync with millions of files cached from there
+    // doesn't sort them all for every few dozen it asks about
+    (
+        "remote_files_unhashed",
+        "asking other machines for hashes",
+        "CREATE INDEX IF NOT EXISTS remote_files_unhashed ON remote_files(remote_id, size)
+            WHERE sha256 IS NULL AND error = 0",
+    ),
 ];
 
 impl Db {
-    fn has_index(&self, name: &str) -> Result<bool> {
+    pub(crate) fn has_index(&self, name: &str) -> Result<bool> {
         Ok(self.conn.query_row(
             "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?1)",
             [name],

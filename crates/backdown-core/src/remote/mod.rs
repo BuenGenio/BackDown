@@ -1237,7 +1237,7 @@ pub fn sync(
                     ASK,
                 )?;
                 let ids: Vec<i64> = serde_json::from_value(page["ids"].clone())?;
-                db.conn.execute_batch("BEGIN")?;
+                let tx = Tx::begin(&db.conn, Lock::Deferred)?;
                 {
                     let mut del = db.conn.prepare_cached(
                         "DELETE FROM remote_files WHERE remote_id = ?1 AND rid = ?2",
@@ -1246,7 +1246,7 @@ pub fn sync(
                         st.removed += del.execute(params![m.id, id])? as u64;
                     }
                 }
-                db.conn.execute_batch("COMMIT")?;
+                tx.commit()?;
                 match page["next"].as_i64() {
                     Some(n) => after = n,
                     None => break,
@@ -1266,7 +1266,8 @@ pub fn sync(
             )?;
             let rows: Vec<WireRow> =
                 serde_json::from_value(page["rows"].clone()).context("its list of files")?;
-            db.conn.execute_batch("BEGIN")?;
+            // rolled back if anything in the page is wrong (a path that isn't base64, say)
+            let tx = Tx::begin(&db.conn, Lock::Deferred)?;
             {
                 let mut put = db.conn.prepare_cached(
                     "INSERT OR REPLACE INTO remote_files(remote_id, rid, root_id, path, size, mtime, sample, sha256, error, hashed_at)
@@ -1289,7 +1290,7 @@ pub fn sync(
                     ])?;
                 }
             }
-            db.conn.execute_batch("COMMIT")?;
+            tx.commit()?;
             st.added += rows.len() as u64;
             if !rows.is_empty() {
                 st.changed = true;
@@ -1344,28 +1345,62 @@ fn wants(m: &Machine) -> &'static [Want] {
     }
 }
 
-/// Files there worth reading for `w`, largest first.
-fn wanted(db: &Db, m: &Machine, w: Want, limit: usize) -> Result<Vec<(i64, i64)>> {
-    let sql = match w {
+/// Which of a machine's cached files are worth having it read for `w`: the conditions, in terms of
+/// `r` (its row in remote_files) and the files here. Each implies the WHERE of a partial index in
+/// `db::LATER_INDEXES`, which then walks only the rows still waiting; and whether a file here
+/// matches is one lookup per row (files_size_sample), not a list of every size here. (One index,
+/// remote_files_unhashed, serves all three: a pass looks each waiting row up once.)
+fn want_sql(w: Want) -> &'static str {
+    match w {
         Want::Full => {
-            "SELECT rid, size FROM remote_files r WHERE remote_id = ?1 AND sha256 IS NULL AND sample IS NOT NULL AND error = 0
-               AND EXISTS (SELECT 1 FROM files f WHERE f.current = 1 AND f.error IS NULL AND f.size = r.size
-                           AND (f.sample = r.sample OR (f.sample IS NULL AND f.sha256 IS NOT NULL)))
-             ORDER BY size DESC LIMIT ?2"
+            "r.remote_id = ?1 AND r.sha256 IS NULL AND r.sample IS NOT NULL AND r.error = 0
+             AND EXISTS (SELECT 1 FROM files f WHERE f.size = r.size AND f.current = 1 AND f.error IS NULL
+                         AND (f.sample = r.sample OR (f.sample IS NULL AND f.sha256 IS NOT NULL)))"
         }
         Want::Sample => {
-            "SELECT rid, size FROM remote_files r WHERE remote_id = ?1 AND sample IS NULL AND sha256 IS NULL AND error = 0 AND size > 0
-               AND size IN (SELECT size FROM files WHERE current = 1 AND error IS NULL AND size > 0)
-             ORDER BY size DESC LIMIT ?2"
+            "r.remote_id = ?1 AND r.sample IS NULL AND r.sha256 IS NULL AND r.error = 0 AND r.size > 0
+             AND EXISTS (SELECT 1 FROM files f WHERE f.size = r.size AND f.current = 1 AND f.error IS NULL)"
         }
         Want::FullBySize => {
-            "SELECT rid, size FROM remote_files r WHERE remote_id = ?1 AND sha256 IS NULL AND error = 0 AND size > 0
-               AND size IN (SELECT size FROM files WHERE current = 1 AND error IS NULL AND size > 0)
-             ORDER BY size DESC LIMIT ?2"
+            "r.remote_id = ?1 AND r.sha256 IS NULL AND r.error = 0 AND r.size > 0
+             AND EXISTS (SELECT 1 FROM files f WHERE f.size = r.size AND f.current = 1 AND f.error IS NULL)"
         }
-    };
-    let mut stmt = db.conn.prepare_cached(sql)?;
-    let rows = stmt.query_map(params![m.id, limit as i64], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    }
+}
+
+/// The rows `want_sql` reads: through remote_files_unhashed once the daemon has built it. Named,
+/// because without statistics SQLite would rather take remote_files_sha and sort what it finds,
+/// which is the cost the index is there to avoid.
+fn want_from(db: &Db) -> Result<&'static str> {
+    Ok(if db.has_index("remote_files_unhashed")? {
+        "remote_files r INDEXED BY remote_files_unhashed"
+    } else {
+        "remote_files r"
+    })
+}
+
+/// Where a pass over the wanted files has got to: the last (size, rid) asked about, largest first.
+#[derive(Clone, Copy)]
+struct Cursor(i64, i64);
+
+impl Cursor {
+    const START: Cursor = Cursor(i64::MAX, i64::MAX);
+}
+
+/// Files there worth reading for `w`, largest first, after `from`: so a pass asks about each once,
+/// and the files nothing here matches are walked past once a pass, not once a batch.
+fn wanted(db: &Db, m: &Machine, w: Want, from: Cursor, limit: usize) -> Result<Vec<(i64, i64)>> {
+    let sql = format!(
+        "SELECT r.rid, r.size FROM {} WHERE {}
+           AND (r.size < ?3 OR (r.size = ?3 AND r.rid < ?4))
+         ORDER BY r.size DESC, r.rid DESC LIMIT ?2",
+        want_from(db)?,
+        want_sql(w)
+    );
+    let mut stmt = db.conn.prepare_cached(&sql)?;
+    let rows = stmt.query_map(params![m.id, limit as i64, from.0, from.1], |r| {
+        Ok((r.get(0)?, r.get(1)?))
+    })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
@@ -1373,7 +1408,12 @@ fn wanted(db: &Db, m: &Machine, w: Want, limit: usize) -> Result<Vec<(i64, i64)>
 pub fn left_to_hash(db: &Db, m: &Machine) -> Result<u64> {
     let mut n = 0;
     for w in wants(m) {
-        n += wanted(db, m, *w, 1_000_000)?.len() as u64;
+        let sql = format!(
+            "SELECT COUNT(*) FROM {} WHERE {}",
+            want_from(db)?,
+            want_sql(*w)
+        );
+        n += db.conn.query_row(&sql, [m.id], |r| r.get::<_, i64>(0))? as u64;
     }
     Ok(n)
 }
@@ -1381,7 +1421,7 @@ pub fn left_to_hash(db: &Db, m: &Machine) -> Result<u64> {
 /// Some sampling or hashing is waiting on that machine (a sync would do it).
 pub fn waiting(db: &Db, m: &Machine) -> Result<bool> {
     for w in wants(m) {
-        if !wanted(db, m, *w, 1)?.is_empty() {
+        if !wanted(db, m, *w, Cursor::START, 1)?.is_empty() {
             return Ok(true);
         }
     }
@@ -1434,20 +1474,19 @@ fn hash_there(
     let samples_ok = m.info["sample"].as_u64() == Some(SAMPLE as u64);
     for &want in wants(m) {
         let full = want != Want::Sample;
-        let mut skip: Vec<i64> = Vec::new();
+        // each file once a pass, largest first: one the answer leaves out isn't asked for again
+        // and again, and the ones that don't match anything here are walked past once
+        let mut from = Cursor::START;
         loop {
             let left = until.saturating_duration_since(Instant::now());
             if left.is_zero() || stopped(opts) {
                 break;
             }
-            let batch: Vec<(i64, i64)> = wanted(db, m, want, 64 + skip.len())?
-                .into_iter()
-                .filter(|(id, _)| !skip.contains(id))
-                .take(64)
-                .collect();
-            if batch.is_empty() {
+            let batch = wanted(db, m, want, from, 64)?;
+            let Some(&(last_rid, last_size)) = batch.last() else {
                 break;
-            }
+            };
+            from = Cursor(last_size, last_rid);
             let budget = left.as_secs().clamp(10, 300);
             let ids: Vec<i64> = batch.iter().map(|b| b.0).collect();
             let ans = peer.call(
@@ -1456,7 +1495,7 @@ fn hash_there(
                 Duration::from_secs(budget + 30),
             )?;
             let results = ans["results"].as_array().cloned().unwrap_or_default();
-            db.conn.execute_batch("BEGIN")?;
+            let tx = Tx::begin(&db.conn, Lock::Deferred)?;
             for r in &results {
                 match store_hash(db, m, r, samples_ok)? {
                     "hashed" => st.hashed += 1,
@@ -1465,15 +1504,9 @@ fn hash_there(
                     _ => {}
                 }
             }
-            db.conn.execute_batch("COMMIT")?;
+            tx.commit()?;
             if !results.is_empty() {
                 st.changed = true;
-            }
-            // a file the answer left out mustn't be asked for again and again
-            for id in &ids {
-                if !results.iter().any(|r| r["id"].as_i64() == Some(*id)) {
-                    skip.push(*id);
-                }
             }
             progress(&format!(
                 "{}: {} sampled, {} hashed there",
