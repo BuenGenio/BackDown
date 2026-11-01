@@ -13,6 +13,9 @@ use anyhow::{Context, Result};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
+mod tx;
+pub use tx::{Lock, Tx};
+
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS roots (
     id        INTEGER PRIMARY KEY,

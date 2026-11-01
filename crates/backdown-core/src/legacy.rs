@@ -54,6 +54,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 
 use crate::clock::now;
+use crate::db::{Lock, Tx};
 use crate::fmt::unhex32;
 use crate::{Db, find, hash, paths};
 
@@ -970,7 +971,7 @@ fn import_volume(
 ) -> Result<(Outcome, i64, Tally)> {
     let (root_id, scan, next_file, next_offset, mut t, outcome) = match plan {
         Plan::Fresh { forget } => {
-            conn.execute_batch("BEGIN")?;
+            let tx = Tx::begin(conn, Lock::Deferred)?;
             for (id, _) in &forget {
                 forget_root(conn, *id)?;
             }
@@ -985,7 +986,7 @@ fn import_volume(
                 "INSERT INTO legacy_imports(root_id, scan, volume, fingerprint) VALUES (?1, ?2, ?3, ?4)",
                 params![root_id, scan, v.name, v.fingerprint],
             )?;
-            conn.execute_batch("COMMIT")?;
+            tx.commit()?;
             (root_id, scan, 0, 0, Tally::default(), Outcome::Imported)
         }
         Plan::Resume {
@@ -1045,7 +1046,7 @@ fn import_volume(
     };
     let mut last = Instant::now();
     let mut in_batch = 0u64;
-    conn.execute_batch("BEGIN")?;
+    let mut tx = Tx::begin(conn, Lock::Deferred)?;
     for (i, input) in v.inputs.iter().enumerate().skip(next_file) {
         let base: u64 = sizes[..i].iter().sum();
         let from = if i == next_file { next_offset } else { 0 };
@@ -1065,7 +1066,7 @@ fn import_volume(
             let batch_done = in_batch >= BATCH;
             if batch_done {
                 save(&t, i, end)?;
-                conn.execute_batch("COMMIT; BEGIN")?;
+                tx.checkpoint()?;
                 in_batch = 0;
             }
             if batch_done || last.elapsed() >= Duration::from_millis(250) {
@@ -1077,13 +1078,13 @@ fn import_volume(
         }
     }
     save(&t, v.inputs.len(), 0)?;
-    conn.execute_batch("COMMIT")?;
+    tx.commit()?;
 
     // folder totals and the finished scan, together: a scan never shows without its folders
     p.stage = "folders";
     p.done = p.total;
     progress(&p);
-    conn.execute_batch("BEGIN")?;
+    let tx = Tx::begin(conn, Lock::Deferred)?;
     let all = write_dirs(conn, root_id, scan, root)?;
     conn.execute(
         "UPDATE scans SET finished_at = ?2, files = ?3, bytes = ?4 WHERE id = ?1",
@@ -1097,7 +1098,7 @@ fn import_volume(
         "UPDATE legacy_imports SET finished = 1 WHERE root_id = ?1",
         params![root_id],
     )?;
-    conn.execute_batch("COMMIT")?;
+    tx.commit()?;
     Ok((outcome, scan, t))
 }
 
@@ -1253,13 +1254,18 @@ impl Matcher<'_> {
             ..Progress::default()
         };
         let mut last = Instant::now();
-        if !self.dry_run {
-            conn.execute_batch("BEGIN")?;
-        }
+        // a dry run writes nothing, so it needs no transaction
+        let mut tx = if self.dry_run {
+            None
+        } else {
+            Some(Tx::begin(conn, Lock::Deferred)?)
+        };
         while let Some(r) = rows.next()? {
             t.rows += 1;
-            if !self.dry_run && t.rows.is_multiple_of(BATCH) {
-                conn.execute_batch("COMMIT; BEGIN")?;
+            if let Some(tx) = tx.as_mut()
+                && t.rows.is_multiple_of(BATCH)
+            {
+                tx.checkpoint()?;
             }
             if last.elapsed() >= Duration::from_millis(250) {
                 p.done = t.rows;
@@ -1324,8 +1330,8 @@ impl Matcher<'_> {
                 }
             }
         }
-        if !self.dry_run {
-            conn.execute_batch("COMMIT")?;
+        if let Some(tx) = tx {
+            tx.commit()?;
         }
         p.done = t.rows;
         p.files = t.attached;

@@ -59,6 +59,7 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::clock::now;
+use crate::db::{Lock, Tx};
 use crate::fmt::{hex, unhex32};
 use crate::paths;
 use crate::signing::{self, Signer, canonical};
@@ -263,23 +264,10 @@ fn chain(prev: &[u8], digest: &[u8; 32]) -> [u8; 32] {
 /// Run `f` in a transaction: the caller's, if one is open, else one of its own (taking the write
 /// lock first, so the head can't move between reading it and adding to it).
 fn in_tx<T>(conn: &Connection, f: impl FnOnce() -> Result<T>) -> Result<T> {
-    if !conn.is_autocommit() {
-        return f();
-    }
-    conn.execute_batch("BEGIN IMMEDIATE")?;
-    match f() {
-        Ok(t) => match conn.execute_batch("COMMIT") {
-            Ok(()) => Ok(t),
-            Err(e) => {
-                let _ = conn.execute_batch("ROLLBACK");
-                Err(e.into())
-            }
-        },
-        Err(e) => {
-            let _ = conn.execute_batch("ROLLBACK");
-            Err(e)
-        }
-    }
+    let tx = Tx::join(conn, Lock::Immediate)?;
+    let t = f()?;
+    tx.commit()?;
+    Ok(t)
 }
 
 fn append_now(conn: &Connection, e: &Event) -> Result<i64> {
@@ -731,13 +719,10 @@ pub fn check(conn: &Connection) -> Result<Report> {
 
 /// Read in one snapshot, so the events and seals are of the same moment.
 fn snapshot<T>(conn: &Connection, f: impl FnOnce() -> Result<T>) -> Result<T> {
-    if !conn.is_autocommit() {
-        return f();
-    }
-    conn.execute_batch("BEGIN")?;
-    let r = f();
-    let _ = conn.execute_batch(if r.is_ok() { "COMMIT" } else { "ROLLBACK" });
-    r
+    let tx = Tx::join(conn, Lock::Deferred)?;
+    let t = f()?;
+    tx.commit()?;
+    Ok(t)
 }
 
 // ---------- exporting
