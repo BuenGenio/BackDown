@@ -10,19 +10,14 @@ publish.workspace = true
 [dependencies]
 anyhow = "1.0.104"
 backdown-core = { version = "1.0.0-beta.4", path = "../backdown-core" }
+backdown-viewers = { version = "1.0.0-beta.4", path = "../backdown-viewers" }
 base64 = "0.22"
-bzip2 = "0.6"
-calamine = "0.36"
 clap = { version = "4.6.7", features = ["derive", "env"] }
-deflate64 = "0.1"
 dunce = "1.0.5"
 ed25519-dalek = "2"
 flate2 = "1.1"
 getrandom = "0.4.3"
-lzma-rust2 = { version = "0.21", default-features = false, features = ["std", "xz"] }
-mail-parser = { version = "0.11", features = ["full_encoding"] }
 quick-xml = "0.41"
-ruzstd = "0.9"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 serde = "1.0.229"
 serde_json = "1.0.151"
