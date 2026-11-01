@@ -72,6 +72,17 @@ void main() {
     expect(find.text('Copy path'), findsOneWidget);
   });
 
+  testWidgets('a mail folder offers to be read as mail, and other folders don\'t', (tester) async {
+    final c = await pumpBackDown(tester);
+    await goTo(tester, c, Routes.folder(keyOfPath('/media/sam/Seagate Expansion/Mail/mail.example.org')));
+    expect(find.text('Open as mailbox'), findsOneWidget);
+    await tester.tap(find.text('Open as mailbox'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Thread'), findsWidgets);
+    await goTo(tester, c, Routes.folder(keyOfPath('/media/sam/Seagate Expansion/Documents')));
+    expect(find.text('Open as mailbox'), findsNothing);
+  });
+
   testWidgets('an earlier scan shows with a way back to now', (tester) async {
     final c = await pumpBackDown(tester);
     final seagate = DemoFs.instance.roots.first;

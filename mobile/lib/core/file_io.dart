@@ -13,9 +13,18 @@ import 'format.dart';
 import 'widgets.dart';
 
 /// Downloads a file from a drive into this app's cache (shown with a progress dialog that can be
-/// cancelled), for sharing or opening in another app. Null if it failed or was cancelled.
-Future<File?> fetchToCache(BuildContext context, BackDownApi api, FileRef file) async {
-  final dir = Directory('${(await getTemporaryDirectory()).path}/files/${file.id}');
+/// cancelled), for sharing or opening in another app. Null if it failed or was cancelled. A file
+/// inside a container (an archive's entry, a mail's attachment) comes from its own [endpoint] with
+/// its [params], cached under [cacheKey].
+Future<File?> fetchToCache(
+  BuildContext context,
+  BackDownApi api,
+  FileRef file, {
+  String endpoint = 'content',
+  Map<String, Object?>? params,
+  String? cacheKey,
+}) async {
+  final dir = Directory('${(await getTemporaryDirectory()).path}/files/${cacheKey ?? file.id}');
   await dir.create(recursive: true);
   final safe = file.name.replaceAll(RegExp(r'[/\\:]'), '_');
   final target = File('${dir.path}/$safe');
@@ -70,8 +79,8 @@ Future<File?> fetchToCache(BuildContext context, BackDownApi api, FileRef file) 
   );
   try {
     final f = await api.download(
-      'content',
-      {'id': file.id},
+      endpoint,
+      params ?? {'id': file.id},
       target,
       onProgress: (g, t) {
         if (!cancelled) progress.value = (g, t);

@@ -6,12 +6,11 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:open_file/open_file.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../api/api.dart';
 import '../../api/json.dart';
-import '../../core/actions.dart';
+import '../../core/file_io.dart';
 import '../../core/format.dart';
 import '../../core/widgets.dart';
 import '../../models/file_ref.dart';
@@ -210,81 +209,18 @@ class InnerFile {
 /// The most of a container's entry the service hands over in one piece.
 const entryMax = 64 << 20;
 
-/// Downloads a file from inside a container into the app's cache, with a progress dialog that can
-/// be cancelled (as core/file_io.dart does for whole files). Null if it failed or was cancelled.
-Future<File?> fetchInnerToCache(BuildContext context, BackDownApi api, InnerFile f) async {
+/// Downloads a file from inside a container into the app's cache, with the same progress dialog
+/// as a whole file (core/file_io.dart). Null if it failed or was cancelled.
+Future<File?> fetchInnerToCache(BuildContext context, BackDownApi api, InnerFile f) {
   final key = '${f.endpoint}-${f.id}-${f.part ?? ''}-${f.at ?? ''}-${f.attachment ?? ''}-${f.name.hashCode}';
-  final dir = Directory('${(await getTemporaryDirectory()).path}/inner/$key');
-  await dir.create(recursive: true);
-  final target = File('${dir.path}/${f.base.replaceAll(RegExp(r'[/\\:]'), '_')}');
-  if (await target.exists() && (f.size == null || await target.length() == f.size)) return target;
-  if (!context.mounted) return null;
-
-  final progress = ValueNotifier<(int, int?)>((0, f.size));
-  var cancelled = false;
-  var open = true;
-  final navigator = Navigator.of(context, rootNavigator: true);
-  void close() {
-    if (open) navigator.pop();
-    open = false;
-  }
-
-  final dialog = showDialog<void>(
-    context: context,
-    barrierDismissible: false,
-    builder: (c) => AlertDialog(
-      title: Text(f.base, maxLines: 2, overflow: TextOverflow.ellipsis),
-      content: ValueListenableBuilder(
-        valueListenable: progress,
-        builder: (c, p, _) {
-          final (got, total) = p;
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Meter(fraction: total == null || total == 0 ? null : got / total),
-              const SizedBox(height: 10),
-              Text(total == null ? bytes(got) : '${bytes(got)} of ${bytes(total)}'),
-            ],
-          );
-        },
-      ),
-      actions: [
-        TextButton(
-          onPressed: () {
-            cancelled = true;
-            close();
-          },
-          child: const Text('Cancel'),
-        ),
-      ],
-    ),
+  return fetchToCache(
+    context,
+    api,
+    FileRef(id: f.id, name: f.base, size: f.size ?? 0),
+    endpoint: f.endpoint,
+    params: f.params,
+    cacheKey: 'inner/$key',
   );
-  unawaited(
-    dialog.whenComplete(() {
-      open = false;
-      progress.dispose();
-    }),
-  );
-  try {
-    final out = await api.download(
-      f.endpoint,
-      f.params,
-      target,
-      onProgress: (g, t) {
-        if (!cancelled) progress.value = (g, t);
-      },
-      cancelled: () => cancelled,
-    );
-    close();
-    return cancelled ? null : out;
-  } on ApiException catch (e) {
-    close();
-    if (!cancelled && context.mounted) await showActionError(context, e);
-    return null;
-  } finally {
-    cancelled = true;
-  }
 }
 
 Future<void> shareInner(BuildContext context, BackDownApi api, InnerFile f) async {

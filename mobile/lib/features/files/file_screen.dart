@@ -62,7 +62,7 @@ class FileScreen extends ConsumerWidget {
                       ),
                     ],
                     OutlinedButton.icon(
-                      onPressed: () => context.push(Routes.folder(f.dirKey, select: f.key)),
+                      onPressed: () => openInTabs(context, Routes.folder(f.dirKey, select: f.key)),
                       icon: const Icon(Icons.folder_open_outlined),
                       label: const Text('Show in folder'),
                     ),
@@ -107,7 +107,7 @@ class FileScreen extends ConsumerWidget {
                       ].join('\n'),
                     ),
                     isThreeLine: true,
-                    onTap: () => context.push('${Routes.machine(c.machineId)}/file/${c.rid}'),
+                    onTap: () => openInTabs(context, '${Routes.machine(c.machineId)}/file/${c.rid}'),
                   ),
               ],
               if (f.versions.length > 1 || f.versions.any((v) => !v.current)) ...[

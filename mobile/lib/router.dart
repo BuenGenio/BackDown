@@ -41,6 +41,9 @@ abstract final class Routes {
   /// The file itself, in the viewer that suits it.
   static String view(int id) => '/view/$id';
 
+  /// A mail folder (a Maildir) read as mail: threads, then messages.
+  static String mailbox(String dirKey) => '/mailbox/$dirKey';
+
   static const search = '/search';
   static const activity = '/activity';
   static const health = '/health';
@@ -65,6 +68,25 @@ abstract final class Routes {
 }
 
 final _rootKey = GlobalKey<NavigatorState>(debugLabel: 'root');
+
+/// The screens shown full screen, over the tabs.
+const _overTabs = ['/file/', '/view/', '/mailbox/'];
+
+/// Opens a screen that lives under the tabs (a folder, a machine) from anywhere. go_router can't
+/// push one over a full-screen screen (a file's details, a viewer), so those are closed first.
+Future<void> openInTabs(BuildContext context, String location) async {
+  final router = GoRouter.of(context);
+  // the top screen's path (the configuration's uri stays the tab's after a push)
+  bool over() => _overTabs.any(router.state.matchedLocation.startsWith);
+  if (over()) {
+    while (over() && router.canPop()) {
+      router.pop();
+    }
+    // the pops land at the end of the frame; pushing before then would push onto them
+    await WidgetsBinding.instance.endOfFrame;
+  }
+  await router.push<void>(location);
+}
 
 final routerProvider = Provider<GoRouter>((ref) {
   final hasServer = ValueNotifier<bool>(ref.read(currentServerProvider) != null);

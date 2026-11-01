@@ -71,8 +71,15 @@ Future<void> goTo(WidgetTester tester, ProviderContainer c, String location, {Ob
   if (tab) {
     router.go(location, extra: extra);
   } else {
-    // from the tab it belongs to, so the bar shows that tab selected
-    final home = [Routes.more, Routes.health, Routes.activity, Routes.search].where(location.startsWith).firstOrNull;
+    // from the tab it belongs to, so the bar shows that tab selected (and so a tab's screen is never
+    // pushed over a full-screen one, which go_router can't do)
+    final home = [
+      Routes.drives,
+      Routes.more,
+      Routes.health,
+      Routes.activity,
+      Routes.search,
+    ].where(location.startsWith).firstOrNull;
     if (home != null) {
       router.go(home);
       await tester.pumpAndSettle();

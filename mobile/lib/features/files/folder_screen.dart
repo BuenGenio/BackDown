@@ -13,6 +13,7 @@ import '../../providers.dart';
 import '../../router.dart';
 import '../../theme.dart';
 import '../app_settings/preferences.dart';
+import '../viewers/mailbox_banner.dart';
 import '../viewers/open.dart';
 import 'entry_tile.dart';
 
@@ -260,6 +261,7 @@ class _FolderScreenState extends ConsumerState<FolderScreen> {
           final header = <Widget>[
             _Crumbs(crumbs: l.crumbs, scan: widget.scan),
             if (l.isPast) _PastBanner(listing: l, onNow: () => context.pushReplacement(Routes.folder(widget.dirKey))),
+            MailboxBanner(listing: l),
             if (l.needsReindex)
               const Padding(
                 padding: EdgeInsets.all(16),

@@ -82,8 +82,12 @@ class SlidesDemo extends DemoBackDownApi {
       endpoint == 'slides' ? sampleDeck : super.get(endpoint, params, timeout);
 
   @override
-  Future<Uint8List> bytes(String endpoint, [Map<String, Object?> params = const {}, int? limit]) async =>
-      endpoint == 'entry' && '${params['name']}'.endsWith('.jpg')
+  Future<Uint8List> bytes(
+    String endpoint, [
+    Map<String, Object?> params = const {},
+    int? limit,
+    Duration? timeout,
+  ]) async => endpoint == 'entry' && '${params['name']}'.endsWith('.jpg')
       ? (await rootBundle.load('assets/demo/photo2.jpg')).buffer.asUint8List()
-      : super.bytes(endpoint, params, limit);
+      : super.bytes(endpoint, params, limit, timeout);
 }

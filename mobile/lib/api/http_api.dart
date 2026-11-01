@@ -62,8 +62,12 @@ class HttpBackDownApi extends BackDownApi {
     Duration? timeout,
   ]) async {
     final headers = {...authHeaders, if (limit != null) 'Range': 'bytes=0-${limit - 1}'};
-    final r = await _send(() => _client.get(uri(endpoint, params), headers: headers), timeout ?? _timeout);
-    if (r.statusCode != 200 && r.statusCode != 206) throw _failure(r.statusCode, r.body);
+    // a whole file (a big PDF over a slow link) gets longer than a peek at its start
+    final wait = timeout ?? (limit == null ? const Duration(minutes: 5) : _timeout);
+    final r = await _send(() => _client.get(uri(endpoint, params), headers: headers), wait);
+    if (r.statusCode != 200 && r.statusCode != 206) {
+      throw _failure(r.statusCode, utf8.decode(r.bodyBytes, allowMalformed: true));
+    }
     return r.bodyBytes;
   }
 
