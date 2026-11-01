@@ -154,12 +154,16 @@ class LocalCopy {
 class RemoteCopy {
   RemoteCopy.fromJson(Json j)
     : machineId = j.integer('machine_id'),
+      rid = j.integer('rid'),
       machine = j.str('machine'),
       path = j.str('path'),
       confirmedAt = j.intOrNull('confirmed_at'),
       counts = j.flag('counts'),
       whyNot = j.strOrNull('why_not');
   final int machineId;
+
+  /// The file's id in that machine's index (its details: /more/machines/ID/file/RID).
+  final int rid;
   final String machine, path;
   final int? confirmedAt;
 

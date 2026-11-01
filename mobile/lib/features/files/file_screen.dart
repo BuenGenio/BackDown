@@ -107,6 +107,7 @@ class FileScreen extends ConsumerWidget {
                       ].join('\n'),
                     ),
                     isThreeLine: true,
+                    onTap: () => context.push('${Routes.machine(c.machineId)}/file/${c.rid}'),
                   ),
               ],
               if (f.versions.length > 1 || f.versions.any((v) => !v.current)) ...[

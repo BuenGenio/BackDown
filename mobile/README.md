@@ -27,7 +27,7 @@ Flutter 3.47 (Dart 3.13). From `mobile/`:
 ```sh
 flutter pub get
 flutter analyze                  # must be clean
-flutter test                     # widget and unit tests, against the demo
+flutter test -j 2                # widget and unit tests, against the demo (-j: fewer test processes at once on a small machine)
 flutter test screenshots/        # real-font PNGs of every screen in build/shots/ (or $SHOTS_DIR)
 flutter run -d linux             # the app on this computer, against a real service
 flutter build apk --release      # needs an x86-64 machine with the Android SDK (aapt2 isn't built for ARM64 Linux)

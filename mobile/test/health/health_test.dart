@@ -22,6 +22,8 @@ class _Locked extends DemoBackDownApi {
     if (endpoint == 'health-machines') {
       throw ApiException(ApiFailure.needsTier, 'Other machines\' drive health is part of BackDown Team.', status: 402);
     }
+    // and no other machines at all
+    if (endpoint == 'machines') return Future.value({'machines': <Object?>[], 'allowed': true, 'daemon': true});
     return super.get(endpoint, params, timeout);
   }
 }
