@@ -1743,6 +1743,16 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
                     }
                     "mail-merge"
                 }
+                // copying a drive into the pool, asked from another machine (pool.rs)
+                Some("pool-send") => {
+                    if d.shared {
+                        bail!(
+                            "the machine-wide service reads only; copy into the pool from your own BackDown"
+                        );
+                    }
+                    let plan = req["plan"].as_i64().context("pool-send needs a plan")?;
+                    return Ok(json!({ "ok": true, "job": crate::pool::queue_send(d, plan) }));
+                }
                 _ => bail!(
                     "kind must be index, hash, entities, apply, wipe, dedup, mail-merge or remote-sync"
                 ),

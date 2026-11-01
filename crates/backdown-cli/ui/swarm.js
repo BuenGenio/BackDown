@@ -111,9 +111,12 @@ function render() {
 }
 
 const poolFolders = () => (W.data?.machines || []).reduce((n, m) => n + (m.pool?.length || 0), 0);
-// an indexed drive of this machine that is (or is in) one of its pool folders isn't poured into the pool
-const inPool = path => (W.data?.machines?.find(m => m.here)?.pool || [])
+// an indexed drive that is (or is in) one of its machine's pool folders isn't poured into the pool
+const inPool = (path, m = W.data?.machines?.find(x => x.here)) => (m?.pool || [])
   .some(a => path === a.path || String(path).startsWith(String(a.path).replace(/\/+$/, '') + '/'));
+// "Into the pool…" for an indexed drive of machine `m`: this one, or another that runs a BackDown
+// with the pool (it says its pool folders), reached with your keys
+const canPour = m => poolFolders() && (m.here || (W.data?.can_ask && Array.isArray(m.pool)));
 
 function renderPool() {
   const el = $('#sw-pool');
@@ -148,9 +151,9 @@ function machineHtml(m) {
   const head = `<div class="sw-mhead"><h3>${esc(m.name)}</h3>${stateLine(m)}
     <span class="sw-mtot muted">${t.capacity ? `${bytes(t.free)} free of ${bytes(t.capacity)}` : ''}${t.files ? `${t.capacity ? ' · ' : ''}${count(t.files)} files indexed` : ''}</span>
     ${m.here ? '' : `<span class="sw-mbtns"><button class="btn sm" type="button" data-sw="browse" data-m="${m.id}">Browse</button>${W.data?.can_ask ? `<button class="btn sm" type="button" data-sw="ask" data-m="${m.id}"${W.asking.has(m.id) ? ' disabled' : ''}>Ask again</button>` : ''}</span>`}</div>`;
-  const disks = (m.disks || []).map(d => diskHtml(d, m.here)).join('');
+  const disks = (m.disks || []).map(d => diskHtml(d, m)).join('');
   const rows = (list, f) => list?.length ? list.map(f).join('') : '';
-  const elsewhere = rows(m.elsewhere, r => `<li class="sw-extra">${folderIcon(18)}<span class="sw-p"><b>${esc(r.name || r.path)}</b>${m.here && poolFolders() && !inPool(r.path) ? ` ${intoButton(r)}` : ''}<small>${esc(r.path)}</small></span>
+  const elsewhere = rows(m.elsewhere, r => `<li class="sw-extra">${folderIcon(18)}<span class="sw-p"><b>${esc(r.name || r.path)}</b>${canPour(m) && !inPool(r.path, m) ? ` ${intoButton(r, m.here ? null : m)}` : ''}<small>${esc(r.path)}</small></span>
       <span class="muted">${count(r.files)} files · ${bytes(r.bytes)}${r.space ? ` · ${bytes(r.space.free)} free of ${bytes(r.space.total)}` : ''}</span></li>`);
   const away = rows(m.away, r => `<li class="sw-extra away">${folderIcon(18)}<span class="sw-p"><b>${esc(r.name || r.path)}</b> <span class="pill off">not connected</span><small>${esc(r.path)}${r.drive ? ` · last on ${esc(driveWords(r.drive))}` : ''}</small></span>
       <span class="muted">${count(r.files)} files · ${bytes(r.bytes)} · scanned ${day(r.scanned_at)}</span></li>`);
@@ -163,15 +166,15 @@ function machineHtml(m) {
 
 const HEALTH = { ok: ['ok', 'healthy'], warning: ['warn', 'warning'], failing: ['warn', 'failing'] };
 
-function diskHtml(d, here) {
+function diskHtml(d, m) {
   const what = [d.model, d.serial && `s/n ${d.serial}`, bytes(d.size || 0), d.transport, d.rotational === true ? 'spinning' : d.rotational === false ? 'solid state' : null].filter(Boolean);
   const h = HEALTH[d.health];
-  const vols = (d.volumes || []).map(v => volHtml(v, here)).join('');
+  const vols = (d.volumes || []).map(v => volHtml(v, m)).join('');
   return `<div class="sw-disk"><div class="sw-dhead"><b>${esc(d.name)}</b> <span class="muted">${esc(what.join(' · '))}</span>${h ? ` <span class="pill ${h[0]}">${h[1]}</span>` : ''}${d.system ? ' <span class="pill off">system</span>' : ''}</div>
     ${vols ? `<ul class="sw-list">${vols}</ul>` : '<p class="muted sw-none">Nothing on it BackDown can read.</p>'}</div>`;
 }
 
-function volHtml(v, here) {
+function volHtml(v, m) {
   const name = v.label || v.part_label || v.name;
   const where = (v.mounts || []).join(', ');
   const kind = [v.fs_name, v.via && `in ${v.via}`].filter(Boolean).join(' ');
@@ -181,7 +184,7 @@ function volHtml(v, here) {
     room = `<span class="sw-room"><span class="meter sw-meter${p > 0.95 ? ' full' : p > 0.85 ? ' high' : ''}" title="${Math.round(p * 100)}% used"><i style="width:${(p * 100).toFixed(1)}%"></i></span>
       <span class="muted">${bytes(v.space.free)} free of ${bytes(v.space.total)}</span></span>`;
   } else room = `<span class="muted">${bytes(v.size || 0)}${v.state === 'encrypted' ? ', locked' : ', not mounted'}</span>`;
-  const into = i => here && poolFolders() && !inPool(i.path) ? ` ${intoButton({ id: i.id, name: i.name, path: i.path, key: i.key })}` : '';
+  const into = i => m && canPour(m) && !inPool(i.path, m) ? ` ${intoButton({ id: i.id, name: i.name, path: i.path, key: i.key }, m.here ? null : m)}` : '';
   const indexed = (v.indexed || []).map(i => `<span class="sw-ix" title="${esc(i.path)}">${esc(i.name || i.path)} · ${count(i.files)} files · ${bytes(i.bytes)}${into(i)}</span>`).join('');
   const pool = (v.pool || []).length ? ' <span class="pill ok">pool</span>' : '';
   return `<li class="sw-vol${v.system ? ' sys' : ''}"><span class="sw-p"><b>${esc(name)}</b> <span class="muted">${esc(kind)}</span>${pool}${where ? `<small>${esc(where)}</small>` : ''}${indexed ? `<span class="sw-ixs">${indexed}</span>` : ''}</span>${room}</li>`;

@@ -195,6 +195,7 @@ pub const FEATURES: &[Feature] = &[
             "/api/swarm",
             "/api/swarm-machine",
             "/api/swarm-where",
+            "/api/swarm-pool",
             "/api/pool-area-add",
             "/api/pool-area-set",
             "/api/pool-area-remove",

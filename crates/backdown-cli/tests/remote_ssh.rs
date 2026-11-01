@@ -700,3 +700,115 @@ fn copying_a_drive_into_a_nas_pool_over_ssh() {
         "safe to wipe, by the copies on the NAS:\n{text}"
     );
 }
+
+/// One request line to `backdown swarm-stdio` on index `db`, after a hello: its answer.
+fn swarm_ask(e: &Env, db: &Path, line: &str) -> Value {
+    use std::io::Write;
+    let mut c = e.command(db, &["swarm-stdio"], false);
+    let mut child = c
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        let mut i = child.stdin.take().unwrap();
+        writeln!(i, r#"{{"id":1,"op":"hello","from":"laptop"}}"#).unwrap();
+        writeln!(i, "{line}").unwrap();
+    }
+    let out = child.wait_with_output().unwrap();
+    let lines: Vec<Value> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(lines[0]["ok"], true, "{lines:?}");
+    lines[1].clone()
+}
+
+/// A drive on another machine into the pool, from here: `swarm-stdio` there makes its plan, takes
+/// the person's choice and carries it out there, and says how it's going.
+#[test]
+fn a_drive_there_is_planned_and_copied_there_when_asked_from_here() {
+    let base = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
+    fs::create_dir_all(&base).unwrap();
+    let tmp = tempfile::tempdir_in(fs::canonicalize(&base).unwrap()).unwrap();
+    let e = Env::new(tmp.path());
+    let drive = e.root.join("nas/BD-1T-A");
+    let pool = e.root.join("nas/big/Pool");
+    write(&drive.join("Old/a.bin"), &blob(1, 20_000));
+    write(&drive.join("Old/b.bin"), &blob(2, 30_000));
+    write(&drive.join("Junk/c.bin"), &blob(3, 4_000));
+    let nas_db = e.root.join("nas.db");
+    e.ok(
+        &nas_db,
+        &["pool", "add", pool.to_str().unwrap(), "--reserve", "1G"],
+    );
+    e.ok(&nas_db, &["index", pool.to_str().unwrap()]);
+    e.ok(&nas_db, &["index", drive.to_str().unwrap()]);
+    let root: i64 = rusqlite::Connection::open(&nas_db)
+        .unwrap()
+        .query_row(
+            "SELECT id FROM roots WHERE CAST(path AS TEXT) = ?1",
+            [drive.to_str().unwrap()],
+            |r| r.get(0),
+        )
+        .unwrap();
+
+    let p = swarm_ask(
+        &e,
+        &nas_db,
+        &format!(r#"{{"id":2,"op":"plan","root":{root}}}"#),
+    );
+    assert_eq!(p["ok"], true, "{p}");
+    let plan = p["data"]["id"].as_i64().unwrap();
+    assert_eq!(p["data"]["copy_bytes"], 54_000, "{p}");
+    let things = p["data"]["things"].as_array().unwrap();
+    let junk = things
+        .iter()
+        .position(|t| t["item"]["source"].as_str().unwrap().ends_with("Junk"))
+        .unwrap();
+    // leave the junk out
+    let c = swarm_ask(
+        &e,
+        &nas_db,
+        &format!(r#"{{"id":2,"op":"choose","plan":{plan},"i":{junk},"skip":true}}"#),
+    );
+    assert_eq!(c["data"]["copy_bytes"], 50_000, "{c}");
+    // carried out there (no service of its own here: a `backdown pool send` of its own)
+    let s = swarm_ask(
+        &e,
+        &nas_db,
+        &format!(r#"{{"id":2,"op":"send","plan":{plan}}}"#),
+    );
+    assert_eq!(s["data"]["how"], "process", "{s}");
+    let mut last = Value::Null;
+    for _ in 0..150 {
+        last = swarm_ask(
+            &e,
+            &nas_db,
+            &format!(r#"{{"id":2,"op":"progress","plan":{plan}}}"#),
+        );
+        if last["data"]["state"] == "done" {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    assert_eq!(last["data"]["state"], "done", "{last}");
+    assert!(
+        last["data"]["log"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|l| l["state"] == "copied" && l["files"] == 2),
+        "{last}"
+    );
+    let dest = pool.join("Unsorted/BD-1T-A/Old");
+    assert_eq!(fs::read(dest.join("a.bin")).unwrap(), blob(1, 20_000));
+    assert!(!pool.join("Unsorted/BD-1T-A/Junk").exists(), "left out");
+    // the plan as it is there
+    let g = swarm_ask(
+        &e,
+        &nas_db,
+        &format!(r#"{{"id":2,"op":"plan-get","plan":{plan}}}"#),
+    );
+    assert_eq!(g["data"]["state"], "done");
+}

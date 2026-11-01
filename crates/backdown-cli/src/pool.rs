@@ -318,6 +318,12 @@ fn drive_id(db: &Db, which: &str) -> Result<i64> {
 /// recognised on the drive (worked out now if it's out of date), and every pool folder the swarm
 /// has (this machine's measured now, the others' as last said).
 pub fn make_plan(db: &Db, root_id: i64) -> Result<pool::plan::PoolPlan> {
+    if !backdown_core::browse::roots(db)?
+        .iter()
+        .any(|r| r.id == root_id)
+    {
+        bail!("there's no indexed drive {root_id} here");
+    }
     let (schema, _) = crate::settings::schema()?;
     let rec = crate::insight::recognised(db, &[root_id], false, false)?;
     let list: Vec<_> = rec.into_iter().map(|(r, _)| r).collect();
@@ -399,6 +405,111 @@ fn print_plan(pp: &pool::plan::PoolPlan) {
             b(pp.unknown_bytes)
         );
     }
+}
+
+/// The person's choice for thing `i` of plan `id`: a pool folder (`to`: "here:ID" for one of
+/// this machine's, "MACHINE:ID" for another's, by this index's numbers), or leaving it out.
+pub fn choose_in(
+    db: &Db,
+    id: i64,
+    i: usize,
+    to: Option<&str>,
+    skip: bool,
+) -> Result<pool::plan::PoolPlan> {
+    let mut pp = pool::plan::load(db, id)?;
+    let here = swarm::storage(db)?;
+    let areas = pool::plan::areas(db, &crate::swarm::here_name(), &here)?;
+    let to = match to.filter(|t| !t.is_empty()) {
+        None => None,
+        Some(t) => {
+            let (m, a) = t
+                .split_once(':')
+                .ok_or_else(|| anyhow::anyhow!("to is MACHINE:FOLDER"))?;
+            let machine_id = if m == "here" {
+                None
+            } else {
+                Some(m.parse::<i64>()?)
+            };
+            let area: i64 = a.parse()?;
+            Some(
+                areas
+                    .iter()
+                    .find(|x| x.at.machine_id == machine_id && x.at.area == area)
+                    .map(|x| x.at.clone())
+                    .ok_or_else(|| anyhow::anyhow!("that pool folder isn't there (any more)"))?,
+            )
+        }
+    };
+    pool::plan::choose(db, &mut pp, &areas, i, to, skip)?;
+    pool::plan::save(db, &mut pp)?;
+    Ok(pp)
+}
+
+/// Plan `id` is of a drive on this machine (only there can it be carried out).
+fn check_here(db: &Db, id: i64) -> Result<()> {
+    let pp = pool::plan::load(db, id)?;
+    if pp.machine != crate::swarm::here_name() {
+        bail!(
+            "this plan is of a drive on {}: copy it from there",
+            pp.machine
+        );
+    }
+    Ok(())
+}
+
+/// Queue plan `id`'s copy in this machine's BackDown service (its side lane).
+pub fn queue_send(d: &Daemon, id: i64) -> u64 {
+    d.enqueue(
+        "pool-send",
+        Some(format!("pool plan {id}")),
+        "requested",
+        crate::daemon::JobOpts {
+            plan: Some(id),
+            ..Default::default()
+        },
+    )
+}
+
+/// Start plan `id`'s copy on this machine, for another machine that asked (`swarm-stdio`): in this
+/// machine's BackDown service when one runs on this index, else in a `backdown pool send` of its
+/// own, started now (it outlives the conversation). How it runs.
+pub fn start_send(db_path: &Path, db: &Db, id: i64) -> Result<String> {
+    check_here(db, id)?;
+    if let Some(mut c) = crate::client::Client::connect(Some(db_path))
+        && c.request(&json!({ "cmd": "enqueue", "kind": "pool-send", "plan": id }))
+            .is_ok_and(|r| r["ok"] == true)
+    {
+        return Ok("service".into());
+    }
+    let exe = std::env::current_exe()?;
+    let mut cmd = std::process::Command::new(exe);
+    cmd.arg("--db")
+        .arg(db_path)
+        .arg("--local")
+        .arg("pool")
+        .arg("send")
+        .arg(id.to_string())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0); // not ended with the ssh session that started it
+    }
+    cmd.spawn()?;
+    Ok("process".into())
+}
+
+/// How plan `id`'s copy is going: the plan's state (`sending` while it runs), what's to copy, and
+/// its log so far by state.
+pub fn send_progress(db: &Db, id: i64) -> Result<Value> {
+    let pp = pool::plan::load(db, id)?;
+    let by: Vec<Value> = pool::send::summary(db, id)?
+        .into_iter()
+        .map(|(state, files, bytes)| json!({ "state": state, "files": files, "bytes": bytes }))
+        .collect();
+    Ok(json!({ "id": id, "state": pp.state, "copy_bytes": pp.copy_bytes, "log": by }))
 }
 
 // ---------- copying into the pool
@@ -588,23 +699,8 @@ pub fn post(
                 )
             })?;
             let id = id()?;
-            let pp = pool::plan::load(&db, id)?;
-            if pp.machine != crate::swarm::here_name() {
-                bail!(
-                    "this plan is of a drive on {}: copy it from there",
-                    pp.machine
-                );
-            }
-            let job = d.enqueue(
-                "pool-send",
-                Some(format!("pool plan {id}")),
-                "requested",
-                crate::daemon::JobOpts {
-                    plan: Some(id),
-                    ..Default::default()
-                },
-            );
-            json!({ "ok": true, "job": job })
+            check_here(&db, id)?;
+            json!({ "ok": true, "job": queue_send(d, id) })
         }
         // a drive here into the pool: its plan, made now and kept
         "/api/pool-plan-make" => {
@@ -616,39 +712,11 @@ pub fn post(
         // the person's choice for one thing: a pool folder (to=here:ID or MACHINE_ID:ID), or
         // leaving it out (skip=1)
         "/api/pool-plan-choose" => {
-            let mut pp = pool::plan::load(&db, id()?)?;
             let i: usize = param("i")
                 .and_then(|v| v.parse().ok())
                 .ok_or_else(|| anyhow::anyhow!("which thing?"))?;
             let skip = param("skip").as_deref() == Some("1");
-            let here = swarm::storage(&db)?;
-            let areas = pool::plan::areas(&db, &crate::swarm::here_name(), &here)?;
-            let to = match param("to").filter(|t| !t.is_empty()) {
-                None => None,
-                Some(t) => {
-                    let (m, a) = t
-                        .split_once(':')
-                        .ok_or_else(|| anyhow::anyhow!("to is MACHINE:FOLDER"))?;
-                    let machine_id = if m == "here" {
-                        None
-                    } else {
-                        Some(m.parse::<i64>()?)
-                    };
-                    let area: i64 = a.parse()?;
-                    Some(
-                        areas
-                            .iter()
-                            .find(|x| x.at.machine_id == machine_id && x.at.area == area)
-                            .map(|x| x.at.clone())
-                            .ok_or_else(|| {
-                                anyhow::anyhow!("that pool folder isn't there (any more)")
-                            })?,
-                    )
-                }
-            };
-            pool::plan::choose(&db, &mut pp, &areas, i, to, skip)?;
-            pool::plan::save(&db, &mut pp)?;
-            json!(pp)
+            json!(choose_in(&db, id()?, i, param("to").as_deref(), skip)?)
         }
         _ => bail!("no such endpoint"),
     })

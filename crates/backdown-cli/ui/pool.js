@@ -24,7 +24,9 @@ async function post(path, params = {}) {
 }
 
 // the wizard: which drive, its plan, and what's happening (`job`: the copy, as the service runs it)
-export const P = { root: null, plan: null, busy: '', error: null, adding: false, all: false, job: null, jobId: null, timer: 0 };
+export const P = { root: null, plan: null, busy: '', error: null, adding: false, all: false, job: null, jobId: null, timer: 0,
+  // a drive on another machine: its plan and its copy are that machine's, reached through /api/swarm-pool
+  machine: null, sawSending: false, polls: 0 };
 let hooks = { reload: () => {}, back: () => {}, isOpen: () => false, freeUp: () => {} };
 
 export function mountPool(h) {
@@ -82,16 +84,21 @@ function addForm() {
   </form>`;
 }
 
-/// "Into the pool" for an indexed drive of this machine.
-export const intoButton = r => `<button class="btn sm sw-into" type="button" data-pool="into" data-root="${r.id}" data-name="${esc(r.name || '')}" data-path="${esc(r.path || '')}" data-key="${esc(r.key || '')}">Into the pool…</button>`;
+/// "Into the pool" for an indexed drive of this machine, or (with `m`) of another machine.
+export const intoButton = (r, m = null) => `<button class="btn sm sw-into" type="button" data-pool="into" data-root="${r.id}" data-name="${esc(r.name || '')}" data-path="${esc(r.path || '')}" data-key="${esc(r.key || '')}"${m ? ` data-m="${m.id}" data-mname="${esc(m.name)}"` : ''}>Into the pool…</button>`;
+
+// the plan's requests: this machine's own, or another machine's through its swarm-stdio
+const there = (op, params) => post('swarm-pool', { m: P.machine.id, op, ...params });
+const makePlan = root => P.machine ? there('plan', { root: root.id }) : post('pool-plan-make', { root: root.id });
+const choosePlan = params => P.machine ? there('choose', { plan: params.id, i: params.i, to: params.to, skip: params.skip }) : post('pool-plan-choose', params);
 
 // ---------- the wizard
 
-export async function openWizard(root) {
-  P.root = root; P.plan = null; P.error = null; P.all = false; P.job = null; P.jobId = null; clearTimeout(P.timer);
-  P.busy = 'Comparing every file on it with the pool…';
+export async function openWizard(root, machine = null) {
+  P.root = root; P.machine = machine; P.plan = null; P.error = null; P.all = false; P.job = null; P.jobId = null; clearTimeout(P.timer);
+  P.busy = machine ? `${machine.name} is comparing every file on it with the pool…` : 'Comparing every file on it with the pool…';
   render();
-  try { P.plan = await post('pool-plan-make', { root: root.id }); }
+  try { P.plan = await makePlan(root); }
   catch (e) { P.error = e.message; }
   P.busy = '';
   render();
@@ -99,14 +106,14 @@ export async function openWizard(root) {
 
 export function wizardOpen() { return !!P.root; }
 
-function close() { P.root = null; P.plan = null; P.job = null; P.jobId = null; clearTimeout(P.timer); hooks.back(); }
+function close() { P.root = null; P.machine = null; P.plan = null; P.job = null; P.jobId = null; clearTimeout(P.timer); hooks.back(); }
 
 const KIND = { 'mail-store': 'Mail', maildir: 'Mail', mdbox: 'Mail', thunderbird: 'Mail', photos: 'Photos', music: 'Music', videos: 'Videos', timemachine: 'Time Machine', system: 'System', git: 'Code', unsorted: 'Folder' };
 
 export function render() {
   if (!P.root || !hooks.isOpen()) return;
   const r = P.root, pp = P.plan;
-  const head = `<header class="sw-top"><div><h2>Into the pool: ${esc(r.name || r.path)}</h2>
+  const head = `<header class="sw-top"><div><h2>Into the pool: ${esc(r.name || r.path)}${P.machine ? ` <span class="muted">on ${esc(P.machine.name)}</span>` : ''}</h2>
       <p class="muted">${esc(r.path || '')}${pp ? ` · ${count(pp.files)} files, ${bytes(pp.bytes)} · plan ${pp.id}, made ${ago(pp.created_at)}` : ''}</p></div>
     <span class="sw-mbtns">${pp ? '<button class="btn sm" type="button" data-pool="again">Plan again</button>' : ''}<button class="btn sm" type="button" data-pool="close">Back to the swarm</button></span></header>`;
   if (P.busy) { $('#view').innerHTML = `<div class="swarm">${head}<section class="act-card"><p class="muted">${esc(P.busy)}</p><div class="meter unknown"><i style="width:100%"></i></div></section></div>`; return; }
@@ -177,6 +184,10 @@ function copyHtml(pp) {
 }
 
 function freeUpHtml(pp, machines) {
+  if (P.machine) {
+    return `<div class="sw-free"><h3>Free up ${esc(P.root?.name || 'the drive')}</h3>
+      <p>The drive is on ${esc(P.machine.name)}, so it's freed there: once the pool's machines have indexed what they received and ${esc(P.machine.name)} has synced them, open BackDown on ${esc(P.machine.name)} (Free up, with the same proofs and typed confirmation), or run <code>backdown wipe "${esc(P.root?.path || '')}"</code> in a terminal there.</p></div>`;
+  }
   const there = machines.length ? `Once ${machines.map(esc).join(' and ')} ${machines.length === 1 ? 'has' : 'have'} indexed what ${machines.length === 1 ? 'it' : 'they'} received (it started as soon as the copy ended), sync ${machines.length === 1 ? 'it' : 'them'} here so the copies count. ` : '';
   return `<div class="sw-free"><h3>Free up ${esc(P.root?.name || 'the drive')}</h3>
     <p>${there}Free up then checks every file on the drive has a copy that counts (copies on other machines are read again there just before anything is deleted), shows what's left, and asks you to type the drive's name before deleting anything.</p>
@@ -184,6 +195,16 @@ function freeUpHtml(pp, machines) {
 }
 
 async function send() {
+  if (P.machine) {
+    try {
+      const r = await there('send', { plan: P.plan.id });
+      P.jobId = -1; P.sawSending = false; P.polls = 0;
+      P.job = { state: 'queued', progress: r.how === 'service' ? `queued in BackDown's service on ${P.machine.name}` : `started on ${P.machine.name}` };
+      render();
+      watchThere();
+    } catch (e) { toast(e.message); }
+    return;
+  }
   try {
     const r = await post('pool-send', { id: P.plan.id });
     P.jobId = r.job; P.job = { id: r.job, state: 'queued' };
@@ -211,7 +232,32 @@ async function watch() {
   P.timer = setTimeout(watch, 1500);
 }
 
+// a copy running on another machine: its plan's state and log, asked there every few seconds
+async function watchThere() {
+  clearTimeout(P.timer);
+  if (!P.root || !P.machine) return;
+  try {
+    const g = await fetch(`/api/swarm-pool?${new URLSearchParams({ m: P.machine.id, op: 'progress', plan: P.plan.id })}`, { credentials: 'same-origin' }).then(r => r.json());
+    if (!g.error) {
+      P.polls++;
+      if (g.state === 'sending') P.sawSending = true;
+      const copied = (g.log || []).filter(x => ['copied', 'renamed'].includes(x.state)).reduce((n, x) => n + x.bytes, 0);
+      const words = (g.log || []).map(x => `${x.files} ${x.state}`).join(', ');
+      const running = g.state === 'sending' || (!P.sawSending && P.polls < 10);
+      P.job = { state: running ? 'running' : 'done', progress: words || 'starting…', summary: words ? `${words} (on ${P.machine.name})` : '', counts: { bytes: copied, total_bytes: g.copy_bytes } };
+      if (!running) {
+        try { P.plan = await fetch(`/api/swarm-pool?${new URLSearchParams({ m: P.machine.id, op: 'plan-get', plan: P.plan.id })}`, { credentials: 'same-origin' }).then(r => r.json()); } catch {}
+        if (hooks.isOpen()) render();
+        return;
+      }
+    }
+  } catch {}
+  if (hooks.isOpen()) render();
+  P.timer = setTimeout(watchThere, 2000);
+}
+
 async function stopJob() {
+  if (P.machine) { toast(`Stop it on ${P.machine.name} (Activity there), or wait: it carries on where it was next time`); return; }
   if (!P.jobId) return;
   await fetch(`/api/job-stop?id=${P.jobId}`, { method: 'POST', headers: { 'X-BackDown': '1' }, credentials: 'same-origin' }).catch(() => {});
   watch();
@@ -248,7 +294,7 @@ async function choose(i, value) {
   try {
     const params = { id: P.plan.id, i };
     if (value === 'skip') params.skip = 1; else params.to = value;
-    P.plan = await post('pool-plan-choose', params);
+    P.plan = await choosePlan(params);
   } catch (e) { toast(e.message); }
   render();
 }
@@ -290,7 +336,8 @@ async function onClick(e) {
       if (!confirm('Stop treating this folder as part of the pool? Nothing in it is touched.')) return;
       try { await post('pool-area-remove', { id: b.dataset.id }); hooks.reload(); } catch (err) { toast(err.message); }
       break;
-    case 'into': openWizard({ id: Number(b.dataset.root), name: b.dataset.name, path: b.dataset.path, key: b.dataset.key }); break;
+    case 'into': openWizard({ id: Number(b.dataset.root), name: b.dataset.name, path: b.dataset.path, key: b.dataset.key },
+      b.dataset.m ? { id: Number(b.dataset.m), name: b.dataset.mname } : null); break;
     case 'close': close(); break;
     case 'again': openWizard(P.root); break;
     case 'all': P.all = true; render(); break;
