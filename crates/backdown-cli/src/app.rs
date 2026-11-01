@@ -227,9 +227,10 @@ fn user_name(passwd: &str, uid: u32) -> Option<String> {
 }
 
 /// `backdown token`: the background service's browser token, alone on stdout so scripts can use
-/// it, and in a terminal also the links with it in. `links`: only the links, one per line. The
-/// token is the one in ui.json, which the service keeps across restarts so bookmarks keep working.
-pub fn print_token(links: bool) -> Result<ExitCode> {
+/// it, and in a terminal also the links with it in. `links`: only the links, one per line. `qr`:
+/// the link for other devices as a QR code, for the phone app. The token is the one in ui.json,
+/// which the service keeps across restarts so bookmarks keep working.
+pub fn print_token(links: bool, qr: bool) -> Result<ExitCode> {
     use std::io::IsTerminal;
     let running = find_daemon();
     // the running service's file (this user's, or the machine-wide one), else the first saved one
@@ -259,7 +260,21 @@ pub fn print_token(links: bool) -> Result<ExitCode> {
     if let Some(n) = v["network_url"].as_str() {
         all.push(("from other devices (look only)", format!("{n}?t={token}")));
     }
-    if links {
+    if qr {
+        let Some(n) = v["network_url"].as_str() else {
+            bail!(
+                "other devices can't reach this BackDown: its service listens on this computer only. \
+                 Start it on an address they can reach (this computer's Tailscale address, say), with \
+                 `backdown service install --host 100.x.y.z`, then run `backdown token --qr` again"
+            );
+        };
+        let link = format!("{n}?t={token}");
+        print!("{}", qr_text(&link, std::io::stdout().is_terminal())?);
+        eprintln!(
+            "Scan it with the BackDown app on your phone, or open this link on another device (to look, \
+             not change anything):\n  {link}"
+        );
+    } else if links {
         for (_, l) in &all {
             println!("{l}");
         }
@@ -275,6 +290,28 @@ pub fn print_token(links: bool) -> Result<ExitCode> {
         eprintln!("(the service isn't running now; it uses this token again when it starts)");
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// [text] as a QR code in text: two rows of modules to a line of half blocks, with the quiet zone
+/// around it. For a terminal, forced black on white, which scanners need and which a dark terminal
+/// would otherwise invert.
+fn qr_text(text: &str, terminal: bool) -> Result<String> {
+    use qrcode::render::unicode::Dense1x2;
+    let code = qrcode::QrCode::with_error_correction_level(text.as_bytes(), qrcode::EcLevel::L)
+        .context("the link is too long for a QR code")?;
+    let art = code
+        .render::<Dense1x2>()
+        .dark_color(Dense1x2::Dark)
+        .light_color(Dense1x2::Light)
+        .quiet_zone(true)
+        .build();
+    if !terminal {
+        return Ok(format!("{art}\n"));
+    }
+    Ok(art
+        .lines()
+        .map(|l| format!("\x1b[30;107m{l}\x1b[0m\n"))
+        .collect())
 }
 
 /// The program to run for BackDown itself: inside an AppImage, the AppImage (its mount point goes
@@ -845,6 +882,32 @@ pub fn double_clicked() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_link_as_a_qr_code_is_a_square_of_half_blocks() {
+        let link = "http://studio.tailnet-1234.ts.net:8787/?t=0123456789abcdef0123456789abcdef0123456789abcdef";
+        let plain = qr_text(link, false).unwrap();
+        let rows: Vec<&str> = plain.lines().collect();
+        let width = rows[0].chars().count();
+        assert!(
+            rows.iter().all(|r| r.chars().count() == width),
+            "ragged rows"
+        );
+        // modules are two rows to a line: a square code is twice as wide as it is tall
+        assert!(
+            (rows.len() * 2).abs_diff(width) <= 1,
+            "{} lines of {width}",
+            rows.len()
+        );
+        assert!(plain.contains('\u{2588}') || plain.contains('\u{2580}'));
+        // in a terminal, every line is forced black on white and reset after
+        let colour = qr_text(link, true).unwrap();
+        assert!(
+            colour
+                .lines()
+                .all(|l| l.starts_with("\x1b[30;107m") && l.ends_with("\x1b[0m"))
+        );
+    }
 
     #[test]
     fn codes_work_once_and_only_as_issued() {

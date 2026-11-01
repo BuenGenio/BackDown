@@ -210,6 +210,9 @@ enum Cmd {
         /// Print only the links, one per line
         #[arg(long)]
         links: bool,
+        /// Show the link for other devices as a QR code, for the BackDown phone app to scan
+        #[arg(long, conflicts_with = "links")]
+        qr: bool,
     },
     /// Tab completion for backdown's commands and options: print the script for a shell, or
     /// --install it for yours
@@ -699,7 +702,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             return Ok(ExitCode::SUCCESS);
         }
         Cmd::Open => return app::open_in_browser(),
-        Cmd::Token { links } => return app::print_token(links),
+        Cmd::Token { links, qr } => return app::print_token(links, qr),
         Cmd::Completions { shell, install } => return completions::run(shell, install),
         Cmd::App {
             no_window,
