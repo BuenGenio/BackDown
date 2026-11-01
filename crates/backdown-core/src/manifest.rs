@@ -70,6 +70,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::clock::now;
+use crate::db::{Lock, Tx};
 use crate::fmt::{hex, unhex32};
 use crate::signing::{self, Signer};
 use crate::{Db, paths};
@@ -547,7 +548,7 @@ pub fn create(
 
     // read the drive's newest manifest and add this one after it in one transaction, so that two
     // signers at once (the service and a command) can't both follow the same one
-    db.conn.execute_batch("BEGIN IMMEDIATE")?;
+    let tx = Tx::begin(&db.conn, Lock::Immediate)?;
     let made = (|| -> Result<Made> {
         let mut drive = path_json(&r.path);
         drive["root_id"] = json!(root_id);
@@ -590,17 +591,9 @@ pub fn create(
             scan,
             prev_id: prev.map(|(id, _)| id),
         })
-    })();
-    match made {
-        Ok(m) => {
-            db.conn.execute_batch("COMMIT")?;
-            Ok(m)
-        }
-        Err(e) => {
-            let _ = db.conn.execute_batch("ROLLBACK");
-            Err(e)
-        }
-    }
+    })()?;
+    tx.commit()?;
+    Ok(made)
 }
 
 // ---------- the stored ones
