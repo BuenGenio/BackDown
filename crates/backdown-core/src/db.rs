@@ -200,6 +200,8 @@ CREATE TABLE IF NOT EXISTS remote_roots (
     bytes       INTEGER NOT NULL DEFAULT 0,
     synced_scan INTEGER,                  -- the scan the cached files are complete up to
     seen_at     INTEGER,                  -- when that scan finished (this machine's clock)
+    cached      INTEGER,                  -- its files cached here, counted at the end of each sync
+    cached_hashed INTEGER,                -- how many of those have a hash from there
     PRIMARY KEY (remote_id, root_id)
 );
 CREATE TABLE IF NOT EXISTS remote_files (
@@ -444,6 +446,10 @@ impl Db {
         conn.execute_batch(crate::pool::receive::SCHEMA)?;
         conn.execute_batch(crate::pool::send::SCHEMA)?;
         add_column(&conn, "journal", "note", "TEXT")?;
+        // counted once per sync instead of on every look at the machines (remote::overview):
+        // a big machine's cache is millions of rows
+        add_column(&conn, "remote_roots", "cached", "INTEGER")?;
+        add_column(&conn, "remote_roots", "cached_hashed", "INTEGER")?;
         // names for search: added in place, without a schema bump, since older versions just
         // leave them empty on rows they write (and the next open here fills those in)
         crate::find::add_names(&conn)?;
