@@ -25,6 +25,7 @@ use crate::{Db, browse};
 
 pub mod linux;
 pub mod macos;
+pub mod mount;
 pub mod mountinfo;
 pub mod windows;
 

@@ -20,8 +20,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
 
+use crate::clock::now;
 use anyhow::{Context, Result, bail};
-use backdown_core::clock::now;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -576,7 +576,7 @@ mod platform {
 
     /// (device, mount point) for every mount, from mountinfo.
     fn mounts() -> Vec<(String, String, bool)> {
-        backdown_core::volumes::mountinfo::read()
+        crate::volumes::mountinfo::read()
             .into_iter()
             .map(|m| (m.source, m.point.to_string_lossy().into_owned(), m.ro))
             .collect()
