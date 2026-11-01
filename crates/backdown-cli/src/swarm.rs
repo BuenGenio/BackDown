@@ -477,10 +477,98 @@ fn print_where(w: &Value) {
     }
 }
 
+// ---------- a drive on another machine into the pool
+
+/// Ask machine `m`'s `swarm-stdio` for `op` with `args` (its own drive into the pool: `plan`,
+/// `plan-get`, `choose`, `send`, `progress`); the answer's data.
+pub fn remote_pool(
+    db_path: &Path,
+    m_id: i64,
+    op: &str,
+    args: Value,
+    timeout: Duration,
+) -> Result<Value> {
+    let db = Db::open_read_only(db_path)?;
+    let m = core::get(&db, m_id)?;
+    let mut peer = remote::ssh::SshPeer::open_for(&m, "swarm-stdio")?;
+    let h = peer.exchange(
+        "hello",
+        json!({ "from": here_name() }),
+        None,
+        Duration::from_secs(60),
+    )?;
+    if h["ok"] != true {
+        bail!(
+            "{}: {}",
+            m.name,
+            h["error"].as_str().unwrap_or("it refused")
+        );
+    }
+    let v = peer.exchange(op, args, None, timeout)?;
+    if v["ok"] != true {
+        let e = v["error"].as_str().unwrap_or("it refused");
+        if e.contains("unknown variant") {
+            bail!(
+                "the BackDown on {} is too old to plan its drives into the pool from here: update it",
+                m.name
+            );
+        }
+        bail!("{}: {e}", m.name);
+    }
+    Ok(v["data"].clone())
+}
+
 // ---------- the browser's endpoints
 
 pub fn handles(path: &str) -> bool {
     path == "/api/swarm" || path.starts_with("/api/swarm-")
+}
+
+/// POST /api/swarm-pool?m=&op=plan&root= | op=choose&plan=&i=&to=|skip=1 | op=send&plan=: a drive
+/// on another machine into the pool, done there (its `swarm-stdio`, over ssh with your keys).
+pub fn post(
+    desktop: bool,
+    db_path: &Path,
+    path: &str,
+    param: &dyn Fn(&str) -> Option<String>,
+) -> Result<Value> {
+    if path != "/api/swarm-pool" {
+        bail!("no such endpoint");
+    }
+    if let Some(b) = remote::blocker(desktop) {
+        bail!(b);
+    }
+    let num = |k: &str| -> Result<i64> {
+        param(k)
+            .and_then(|v| v.parse().ok())
+            .ok_or_else(|| anyhow::anyhow!("missing {k}"))
+    };
+    let m = num("m")?;
+    match param("op").as_deref() {
+        // recognising what's on the drive there may take a while the first time
+        Some("plan") => remote_pool(
+            db_path,
+            m,
+            "plan",
+            json!({ "root": num("root")? }),
+            Duration::from_secs(1800),
+        ),
+        Some("choose") => {
+            let mut args = json!({ "plan": num("plan")?, "i": num("i")?, "skip": param("skip").as_deref() == Some("1") });
+            if let Some(t) = param("to").filter(|t| !t.is_empty()) {
+                args["to"] = json!(t);
+            }
+            remote_pool(db_path, m, "choose", args, Duration::from_secs(300))
+        }
+        Some("send") => remote_pool(
+            db_path,
+            m,
+            "send",
+            json!({ "plan": num("plan")? }),
+            Duration::from_secs(60),
+        ),
+        _ => bail!("ask for plan, choose or send"),
+    }
 }
 
 /// GET /api/swarm (the overview: this machine now, the others as kept), /api/swarm-machine?m=
@@ -517,6 +605,29 @@ pub fn get(
             v["asked"] = json!(asked.is_ok());
             v["ask_error"] = json!(asked.err().map(|e| format!("{e:#}")));
             v
+        }
+        // another machine's drive into the pool: its plan and its copy, as that machine has them
+        "/api/swarm-pool" => {
+            if let Some(b) = blocker {
+                bail!(b);
+            }
+            let m: i64 = param("m")
+                .and_then(|v| v.parse().ok())
+                .ok_or_else(|| anyhow::anyhow!("which machine?"))?;
+            let plan: i64 = param("plan")
+                .and_then(|v| v.parse().ok())
+                .ok_or_else(|| anyhow::anyhow!("which plan?"))?;
+            let op = param("op").unwrap_or_default();
+            if !matches!(op.as_str(), "plan-get" | "progress") {
+                bail!("ask for plan-get or progress");
+            }
+            remote_pool(
+                db_path,
+                m,
+                &op,
+                json!({ "plan": plan }),
+                Duration::from_secs(60),
+            )?
         }
         "/api/swarm-where" => {
             let q = param("q").unwrap_or_default();

@@ -56,6 +56,32 @@ enum Request {
     Done {
         area: i64,
     },
+    /// A pool plan for one of this machine's drives (its index id), made here as `backdown pool
+    /// plan` makes it: with this machine's schema and its own view of the pool
+    Plan {
+        root: i64,
+    },
+    /// One of this machine's pool plans
+    PlanGet {
+        plan: i64,
+    },
+    /// The person's choice for one thing of a plan here (`to` by this machine's numbers)
+    Choose {
+        plan: i64,
+        i: usize,
+        #[serde(default)]
+        to: Option<String>,
+        #[serde(default)]
+        skip: bool,
+    },
+    /// Carry a plan here out: in this machine's BackDown service, or a `backdown pool send`
+    Send {
+        plan: i64,
+    },
+    /// How a plan's copy here is going
+    Progress {
+        plan: i64,
+    },
 }
 
 /// A machine's name as it says it: printable, short.
@@ -209,6 +235,17 @@ pub fn run(db: Option<PathBuf>) -> Result<ExitCode> {
             (Ok(db), Request::Done { area }) => pool::get(db, area)
                 .and_then(|a| index_after(&path, db, &a))
                 .map(|said| json!({ "said": said })),
+            // a drive of this machine into the pool, asked from another machine's Swarm view
+            (Ok(db), Request::Plan { root }) => crate::pool::make_plan(db, root).map(|p| json!(p)),
+            (Ok(db), Request::PlanGet { plan }) => pool::plan::load(db, plan).map(|p| json!(p)),
+            (Ok(db), Request::Choose { plan, i, to, skip }) => {
+                crate::pool::choose_in(db, plan, i, to.as_deref(), skip).map(|p| json!(p))
+            }
+            (Ok(db), Request::Send { plan }) => {
+                crate::pool::start_send(&path, db, plan).map(|how| json!({ "how": how }))
+            }
+            (Ok(db), Request::Progress { plan }) => crate::pool::send_progress(db, plan),
+            (Err(e), _) => Err(anyhow::anyhow!("{e}")),
         };
         let line = match answer {
             Ok(data) => json!({ "id": id, "ok": true, "data": data }),

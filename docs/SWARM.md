@@ -47,7 +47,7 @@ A **pool folder** is a folder on a drive of one machine, declared there: `backdo
 
 ## 4. The wizard: a new drive into the pool
 
-On the machine the drive is plugged into (starting it there from another machine is phase D):
+On the machine the drive is plugged into, or from any machine that reaches it: the Swarm view offers "Into the pool…" on other machines' drives too, and then the plan is made, changed and carried out *there*, by that machine's own BackDown (`swarm-stdio`'s `plan`, `choose`, `send` and `progress`), and only shown here:
 
 1. **Index and hash** the drive (the usual jobs). The pool machines are synced, and what could be a copy there (same size) is hashed there and here, so "already in the pool" is decided by SHA-256, never by name or size.
 2. **What's already in the pool**: per thing on the drive (the recognisers' units: a mail store, a Time Machine set, a photo library, a folder), how much is there already and where, how much is new.
@@ -70,6 +70,9 @@ Run by ssh on the receiving machine, like `serve-stdio`, as the person whose key
 | `hello {from}` | who's sending (a machine's name); answers with the protocol, version and its pool folders with their room now |
 | `put {area, path, size, mtime, src, plan}` + raw bytes | `pool::receive::put`: written beside its place, flushed, timed, renamed into place, read back; answers `copied`, `renamed` (something else was at its place: a numbered name) or `same` (that content was there), with the SHA-256 read back |
 | `done {area}` | everything for that pool folder has come: its BackDown service indexes it, or a `backdown index` is started there now |
+| `plan {root}` / `plan-get {plan}` | a pool plan for one of its own drives, made there with its schema and its own view of the pool (another machine's Swarm view shows it) |
+| `choose {plan, i, to\|skip}` | the person's choice for one thing, by that machine's numbers |
+| `send {plan}` / `progress {plan}` | carry it out there (queued in its service, or a `backdown pool send` started now), and how it's going |
 
 Rules on the receiving side, whoever asks: the place is plain names inside one of its own pool folders (no `..`, absolute paths or control characters), never reached through a link that leads out of the folder; nothing is overwritten or deleted; the folder's reserve is kept; a refused file's bytes are still read, so the stream stays in step; each file is recorded (`pool_received`, so the next index takes its hashes instead of reading it again) and is an event in that machine's chain of custody, from `machine:path` by `pool:N`. The sender (`pool::send`) compares the hash read back there with the hash of what it read here, keeps a journal (`pool_log`) so a stopped run carries on where it was, sends nothing that's in the pool by then or isn't as its scan saw it, and records the SHA-256 of what it sent in its own index, so freeing the drive afterwards needn't read it again.
 
@@ -81,8 +84,9 @@ A pool folder on the sending machine itself goes through the very same `receive:
 |---|---|---|
 | A | Storage and free space per machine (`volumes` request, cached), the Swarm view and `backdown swarm`, where-is search across machines, the tier change | done (#40) |
 | B | Pool folders (`backdown pool add\|list\|set\|remove`), the pool in the Swarm view, the placement planner (`backdown pool plan`, kept plans) and the wizard's first four steps | done (#46) |
-| C | `swarm-stdio`, `backdown pool send` and the service's copy job, hash adoption after the rescan, the wizard's copy and free-up steps | building (`feat/swarm-send`) |
-| D | `swarm join` (add a machine and the ones it reaches), starting a copy of a drive on another machine from here, a second copy as an option (mirrors), a rescan of a big pool drive limited to its pool folder | later |
+| C | `swarm-stdio`, `backdown pool send` and the service's copy job, hash adoption after the rescan, the wizard's copy and free-up steps | done (#56) |
+| D | Starting a drive on another machine into the pool from here (the wizard over `swarm-stdio`) | building (`feat/swarm-remote-wizard`) |
+| E | `swarm join` (add a machine and the ones it reaches), a second copy as an option (mirrors), a rescan of a big pool drive limited to its pool folder, freeing another machine's drive from here | later |
 
 ## 7. Not doing
 

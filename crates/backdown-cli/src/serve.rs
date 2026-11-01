@@ -554,6 +554,21 @@ fn handle(ctx: &Ctx, req: Request) {
         let _ = req.respond(resp);
         return;
     }
+    if *req.method() == Method::Post && crate::swarm::handles(path) {
+        // another machine's drive into the pool, done there over ssh (swarm.rs)
+        let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
+        let resp = if !marked {
+            plain(403, "missing X-BackDown header")
+        } else {
+            let p = |k: &str| param(k).map(str::to_string);
+            match crate::swarm::post(ctx.desktop, &ctx.db, path, &p) {
+                Ok(v) => json_resp(&v),
+                Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
+            }
+        };
+        let _ = req.respond(resp);
+        return;
+    }
     if *req.method() == Method::Post && crate::pool::handles(path) {
         // this machine's pool folders: add, change, remove (pool.rs)
         let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
