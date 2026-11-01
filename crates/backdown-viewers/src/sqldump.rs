@@ -84,7 +84,7 @@ fn resume(id: i64, token: &str) -> Option<Box<Parser>> {
 }
 
 fn park(id: i64, p: Box<Parser>) -> Result<String> {
-    let token = crate::serve::new_token()?;
+    let token = crate::new_token()?;
     let mut parked = PARKED.lock().unwrap_or_else(|e| e.into_inner());
     parked.retain(|x| x.at.elapsed() < PARKED_IDLE);
     while parked.len() >= PARKED_MAX {
