@@ -11,30 +11,12 @@ use std::time::UNIX_EPOCH;
 use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
 
+// where an mbox's messages start: the same rule as the browser's mbox viewers
+pub(super) use crate::mbox::{blank, is_from_line};
+
 use super::*;
 
 // ---------- mbox files
-
-pub(super) fn blank(line: &[u8]) -> bool {
-    line == b"\n" || line == b"\r\n"
-}
-
-pub(super) fn has_clock(l: &[u8]) -> bool {
-    l.windows(5).any(|w| {
-        w[0].is_ascii_digit()
-            && w[1].is_ascii_digit()
-            && w[2] == b':'
-            && w[3].is_ascii_digit()
-            && w[4].is_ascii_digit()
-    })
-}
-
-/// An mbox separator: "From " at the start of a line, after a blank line (or looking like an
-/// envelope, "From sender Mon Jan  1 12:00:00 2024", for writers that don't leave one). The same
-/// rule as the browser's mbox viewer.
-pub(super) fn is_from_line(line: &[u8], prev_blank: bool) -> bool {
-    line.starts_with(b"From ") && (prev_blank || has_clock(line))
-}
 
 /// Undo mbox quoting: one '>' off every line that is '>'s then "From " (mboxrd; for the older
 /// mboxo, which quoted only "From ", it's the same except for ">>From " lines, which are rare).
