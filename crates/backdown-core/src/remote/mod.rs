@@ -40,6 +40,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::alerts::{self, Limits, Note};
+use crate::db::{Lock, Tx};
 use crate::health::{self, Change, Health, Verdict};
 use crate::{Db, browse, fmt, paths, report};
 
@@ -789,6 +790,35 @@ pub use crate::fmt::unhex;
 // ---------- what the browser shows
 
 /// Every machine with its drives as last synced, how fresh that is, and whether its copies count.
+/// Count each drive's cached files, and how many have a hash from there, and keep the counts with
+/// the drive: one pass over the machine's cache, once per sync, rather than one per drive on every
+/// look at the machines (minutes, for a machine with millions of files). The machine's total.
+fn count_cached(db: &Db, remote_id: i64) -> Result<u64> {
+    let counts: Vec<(i64, i64, i64)> = db
+        .conn
+        .prepare(
+            "SELECT root_id, COUNT(*), COUNT(sha256) FROM remote_files WHERE remote_id = ?1
+             GROUP BY root_id",
+        )?
+        .query_map([remote_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    let tx = Tx::join(&db.conn, Lock::Immediate)?;
+    db.conn.execute(
+        "UPDATE remote_roots SET cached = 0, cached_hashed = 0 WHERE remote_id = ?1",
+        [remote_id],
+    )?;
+    {
+        let mut put = db.conn.prepare_cached(
+            "UPDATE remote_roots SET cached = ?3, cached_hashed = ?4 WHERE remote_id = ?1 AND root_id = ?2",
+        )?;
+        for (root, files, hashed) in &counts {
+            put.execute(params![remote_id, root, files, hashed])?;
+        }
+    }
+    tx.commit()?;
+    Ok(counts.iter().map(|c| c.1 as u64).sum())
+}
+
 pub fn overview(db: &Db) -> Result<Value> {
     let s = settings(db);
     let cutoff = now() - s.proof_days * 86_400;
@@ -796,8 +826,7 @@ pub fn overview(db: &Db) -> Result<Value> {
     for m in list(db)? {
         let mut stmt = db.conn.prepare_cached(
             "SELECT root_id, path, display, last_scan, scanned_at, files, bytes, synced_scan, seen_at,
-                    (SELECT COUNT(*) FROM remote_files f WHERE f.remote_id = r.remote_id AND f.root_id = r.root_id),
-                    (SELECT COUNT(sha256) FROM remote_files f WHERE f.remote_id = r.remote_id AND f.root_id = r.root_id)
+                    cached, cached_hashed
              FROM remote_roots r WHERE remote_id = ?1 ORDER BY display",
         )?;
         let roots: Vec<Value> = stmt
@@ -815,8 +844,9 @@ pub fn overview(db: &Db) -> Result<Value> {
                     "bytes": r.get::<_, i64>(6)?,
                     "synced_scan": r.get::<_, Option<i64>>(7)?,
                     "seen_at": seen,
-                    "cached": r.get::<_, i64>(9)?,
-                    "hashed": r.get::<_, i64>(10)?,
+                    // as counted at the end of the last sync (null: not since this version)
+                    "cached": r.get::<_, Option<i64>>(9)?,
+                    "hashed": r.get::<_, Option<i64>>(10)?,
                     "counts": seen.is_some_and(|t| t >= cutoff),
                 }))
             })?
@@ -1283,11 +1313,7 @@ pub fn sync(
         st.changed = true;
     }
     hash_there(db, m, peer, opts, &mut st, progress)?;
-    st.files = db.conn.query_row(
-        "SELECT COUNT(*) FROM remote_files WHERE remote_id = ?1",
-        [m.id],
-        |r| r.get::<_, i64>(0),
-    )? as u64;
+    st.files = count_cached(db, m.id)?;
     if !stopped(opts) {
         db.conn.execute(
             "UPDATE remotes SET last_sync = ?2, last_error = NULL, last_try = ?2 WHERE id = ?1",

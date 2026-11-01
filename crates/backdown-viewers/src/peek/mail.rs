@@ -17,11 +17,7 @@ use super::*;
 // ---- mail: single messages (.eml) and mbox files
 
 /// One line into `buf`, keeping at most `cap` bytes of it; returns the whole line's length.
-pub(crate) fn line_capped(
-    r: &mut impl BufRead,
-    buf: &mut Vec<u8>,
-    cap: usize,
-) -> io::Result<usize> {
+pub fn line_capped(r: &mut impl BufRead, buf: &mut Vec<u8>, cap: usize) -> io::Result<usize> {
     buf.clear();
     let mut total = 0;
     loop {
@@ -43,7 +39,7 @@ pub(crate) fn line_capped(
     }
 }
 
-pub(crate) fn addrs(a: Option<&mail_parser::Address>) -> String {
+pub fn addrs(a: Option<&mail_parser::Address>) -> String {
     a.map(|a| {
         a.iter()
             .filter_map(|x| match (x.name(), x.address()) {

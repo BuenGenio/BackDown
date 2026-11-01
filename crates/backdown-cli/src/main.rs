@@ -12,6 +12,7 @@ use serde_json::json;
 mod app;
 mod client;
 mod completions;
+mod content;
 mod custody;
 mod daemon;
 mod desktop;
@@ -209,6 +210,9 @@ enum Cmd {
         /// Print only the links, one per line
         #[arg(long)]
         links: bool,
+        /// Show the link for other devices as a QR code, for the BackDown phone app to scan
+        #[arg(long, conflicts_with = "links")]
+        qr: bool,
     },
     /// Tab completion for backdown's commands and options: print the script for a shell, or
     /// --install it for yours
@@ -285,6 +289,45 @@ enum Cmd {
         /// Only this kind (mail-store, timemachine, ios-backup, git, photos, …)
         #[arg(long)]
         kind: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Who the things are about: everyone with a mailbox, a Nextcloud account, a home folder or a
+    /// mail identity on any drive, with everything found of them
+    People {
+        /// Only people whose name, address or paths contain this
+        q: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// The databases behind the dumps, data directories and sites on every drive: each one with
+    /// every dump and live copy of it, and what used it
+    Databases {
+        /// Only databases whose name or paths contain this
+        q: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Search inside things: mail by subject, sender and recipient; database dumps and SQLite
+    /// files by table, column and, at full depth, the text in their rows. Reuses Dovecot's own
+    /// index for mail headers and SQLite's full-text tables in place
+    Search {
+        /// Words to find (all of them; a phrase in quotes)
+        q: Vec<String>,
+        /// Only messages, tables or rows
+        #[arg(long)]
+        kind: Option<String>,
+        /// Build or update the index first (the service does this after each scan)
+        #[arg(long)]
+        build: bool,
+        /// With --build: index everything again, not only drives scanned since
+        #[arg(long)]
+        force: bool,
+        /// How much to index from now on: off, headers (the default) or full
+        #[arg(long)]
+        depth: Option<String>,
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
         #[arg(long)]
         json: bool,
     },
@@ -659,7 +702,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             return Ok(ExitCode::SUCCESS);
         }
         Cmd::Open => return app::open_in_browser(),
-        Cmd::Token { links } => return app::print_token(links),
+        Cmd::Token { links, qr } => return app::print_token(links, qr),
         Cmd::Completions { shell, install } => return completions::run(shell, install),
         Cmd::App {
             no_window,
@@ -762,6 +805,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
             Cmd::Serve { .. }
                 | Cmd::ImportLegacy { .. }
                 | Cmd::Entities { .. }
+                | Cmd::People { .. }
+                | Cmd::Databases { .. }
+                | Cmd::Search { .. }
                 | Cmd::Overlaps { .. }
                 | Cmd::Report { .. }
                 | Cmd::Plan { .. }
@@ -894,6 +940,30 @@ fn local(db_path: &Path, cmd: Cmd, use_daemon: bool) -> Result<ExitCode> {
             kind,
             json,
         } => return insight::entities(&db, &paths, refresh, kind.as_deref(), json),
+        Cmd::Search {
+            q,
+            kind,
+            build,
+            force,
+            depth,
+            limit,
+            json,
+        } => {
+            return content::cli(
+                &db,
+                &q.join(" "),
+                kind.as_deref(),
+                build,
+                force,
+                depth.as_deref(),
+                limit,
+                json,
+            );
+        }
+        Cmd::People { q, json } => return insight::subjects(&db, "person", q.as_deref(), json),
+        Cmd::Databases { q, json } => {
+            return insight::subjects(&db, "database", q.as_deref(), json);
+        }
         Cmd::Overlaps { min, json } => {
             let share = min
                 .trim_end_matches('%')
@@ -1183,6 +1253,9 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
         | Cmd::License { .. }
         | Cmd::ImportLegacy { .. }
         | Cmd::Entities { .. }
+        | Cmd::People { .. }
+        | Cmd::Databases { .. }
+        | Cmd::Search { .. }
         | Cmd::Overlaps { .. }
         | Cmd::Report { .. }
         | Cmd::Plan { .. }
@@ -1859,7 +1932,7 @@ pub(crate) fn hash_absent(n: u64) -> String {
     }
 }
 
-fn live(msg: &str) {
+pub(crate) fn live(msg: &str) {
     let mut err = std::io::stderr();
     if err.is_terminal() {
         let _ = write!(err, "\r\x1b[2K{msg}");
@@ -1867,7 +1940,7 @@ fn live(msg: &str) {
     }
 }
 
-fn clear() {
+pub(crate) fn clear() {
     live("");
 }
 

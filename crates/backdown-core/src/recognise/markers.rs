@@ -7,7 +7,7 @@ use crate::{paths, timemachine};
 
 // ---------- names
 
-pub(super) fn sep() -> Vec<u8> {
+pub(crate) fn sep() -> Vec<u8> {
     paths::to_bytes(Path::new(MAIN_SEPARATOR_STR))
 }
 
@@ -111,6 +111,12 @@ pub(super) fn dir_marker(lower: &str) -> bool {
             | ".dropbox.cache"
             | "vhosts"
             | "sites"
+            | "base"
+            | "global"
+            | "pg_wal"
+            | "pg_xlog"
+            | "mysql"
+            | "performance_schema"
     ) || lower.starts_with("appdata_")
         || lower.starts_with("updater-")
         || lower.starts_with(".trash")
@@ -177,6 +183,14 @@ pub(super) fn file_marker(lower: &str) -> bool {
             | ".com.apple.timemachine.machineid.plist"
             | "com.apple.timemachine.machineid.bckup"
             | "com.apple.timemachine.snapshothistory.plist"
+            | "ibdata1"
+            | "ib_logfile0"
+            | "aria_log_control"
+            | "pg_version"
+            | "wiredtiger"
+            | "storage.bson"
+            | "_mdb_catalog.wt"
+            | ".env"
     ) || lower.starts_with("._sync_")
         || lower.ends_with(".lrcat")
         || lower.ends_with(".msf")
@@ -218,7 +232,7 @@ pub(super) const INSTALLER: &[&str] = &[
 ];
 pub(super) const SCRIPT: &[&str] = &["sh", "bash", "bat", "cmd", "ps1", "cron", "command"];
 
-pub(super) fn is_sql_dump(lower: &str) -> bool {
+pub fn is_sql_dump(lower: &str) -> bool {
     lower.ends_with(".sql")
         || lower.ends_with(".sql.gz")
         || lower.ends_with(".sql.bz2")

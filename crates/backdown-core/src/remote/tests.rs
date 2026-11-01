@@ -505,6 +505,16 @@ fn sync_is_incremental_and_copies_there_count_conservatively() {
         sha_of(&db, "c.bin").is_none(),
         "never hashed: its sample differs"
     );
+    // the machines page reads the counts the sync kept, not millions of rows on every look
+    let o = overview(&db).unwrap();
+    let r0 = &o["machines"][0]["roots"][0];
+    assert_eq!(r0["cached"], 5, "{o}");
+    assert_eq!(
+        r0["hashed"],
+        count(&db, "SELECT COUNT(sha256) FROM remote_files"),
+        "{o}"
+    );
+    assert_eq!(st.files, 5);
 
     // is the laptop safe to wipe? what's on the NAS counts, what only matches by size doesn't
     let c = report::check_indexed(&db, &laptop).unwrap();

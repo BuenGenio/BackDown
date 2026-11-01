@@ -578,6 +578,18 @@ a.btn{color:inherit;text-decoration:none}
 .ent-prov li{margin:2px 0;overflow-wrap:anywhere}
 .ent-else{display:flex;flex-direction:column;gap:4px;font-size:.78rem;color:var(--ink-2)}
 .ent-else .meter{height:5px}.ent-else .meter i{background:var(--good)}
+.ent-views{display:flex;gap:2px;background:var(--hover);border-radius:8px;padding:2px}
+.ent-views button{height:28px;padding:0 10px;border:0;background:none;border-radius:6px;font:inherit;font-size:.84rem;color:var(--ink-2);cursor:pointer}
+.ent-views button span{color:var(--ink-3);font-variant-numeric:tabular-nums;margin-left:4px}
+.ent-views button[aria-selected=true]{background:var(--view);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.subj-notes{margin:-6px 0 12px;display:flex;flex-wrap:wrap;gap:6px}
+.subj-aliases{overflow-wrap:anywhere}
+.subj-mentions{list-style:none;margin:4px 0 0;padding:0;display:flex;flex-direction:column;gap:4px;font-size:.8rem;border-top:1px solid var(--line);padding-top:6px}
+.subj-mentions li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:0 8px;min-width:0}
+.subj-mentions .subj-role{font-weight:600;color:var(--c)}
+.subj-mentions .subj-detail{color:var(--ink-2);overflow-wrap:anywhere}
+.subj-mentions .ent-path{grid-column:1/-1}
+.subj-mentions li.muted{display:block;color:var(--ink-3)}
 .ent-junk{margin:0;font-size:.78rem;color:var(--ink-3)}
 
 /* Plan */

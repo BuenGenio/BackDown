@@ -134,6 +134,44 @@ pub fn dovecot_index_messages(path: &Path) -> Option<u64> {
     } as u64)
 }
 
+/// A dbox file's header line (dbox-file.h): "2 M<message header size> C<created>", hex, version 2
+/// only. The size every message's header takes, which is at least `DBOX_MSG_HEADER`, and the
+/// file's creation time.
+pub fn dbox_file_header(line: &[u8]) -> Option<(u64, Option<i64>)> {
+    let line = std::str::from_utf8(line).ok()?.trim_end();
+    let mut words = line.split(' ');
+    if words.next()? != "2" {
+        return None;
+    }
+    let (mut hdr, mut created) = (None, None);
+    for w in words {
+        if let Some(h) = w.strip_prefix('M') {
+            hdr = u64::from_str_radix(h, 16).ok();
+        } else if let Some(c) = w.strip_prefix('C') {
+            created = i64::from_str_radix(c, 16).ok();
+        }
+    }
+    // a header too small for the fields, or absurdly large, is a damaged file
+    let hdr = hdr.filter(|h| (DBOX_MSG_HEADER..=4096).contains(h))?;
+    Some((hdr, created))
+}
+
+/// `sizeof(struct dbox_message_header)` (dbox-file.h): "\x01\x02" and "N", a space, 8 hex digits
+/// (a uid of dbox v1, unused), a space, the message's size in 16 hex digits, and a LF, which is
+/// always the header's last byte, however long the file header says headers are.
+pub const DBOX_MSG_HEADER: u64 = 30;
+
+/// The size of the message whose dbox header `h` is (at least `DBOX_MSG_HEADER` bytes).
+pub fn dbox_message_size(h: &[u8]) -> Option<u64> {
+    if h.len() < DBOX_MSG_HEADER as usize || &h[..3] != b"\x01\x02N" {
+        return None;
+    }
+    u64::from_str_radix(std::str::from_utf8(&h[13..29]).ok()?, 16).ok()
+}
+
+/// What starts a dbox message's metadata block, right after its body.
+pub const DBOX_MAGIC_POST: &[u8] = b"\n\x01\x03\n";
+
 /// The received time in a dbox message's metadata block ("R<hex>" lines after "\n\x01\x03\n").
 fn dbox_received(meta: &[u8]) -> Option<i64> {
     let at = meta.windows(4).position(|w| w == b"\n\x01\x03\n")? + 4;
@@ -149,34 +187,19 @@ fn dbox_received(meta: &[u8]) -> Option<i64> {
 }
 
 /// When the first message in a dbox file arrived: the file header ("2 M<header size> C<created>"),
-/// the first message's header ("\x01\x02N <16 hex digits of size>"), then its metadata, whose
-/// received time is it. The file's creation stamp if that can't be read.
+/// the first message's header (`dbox_message_size`), then its metadata, whose received time is it.
+/// The file's creation stamp if that can't be read.
 pub fn dbox_first_received(path: &Path) -> Option<i64> {
     let mut f = File::open(path).ok()?;
     let mut head = [0u8; 256];
     let n = f.read(&mut head).ok()?;
     let head = &head[..n];
     let eol = head.iter().position(|&b| b == b'\n')?;
-    let line = std::str::from_utf8(&head[..eol]).ok()?;
-    let mut words = line.split(' ');
-    if words.next()? != "2" {
-        return None;
-    }
-    let (mut hdr, mut created) = (None, None);
-    for w in words {
-        if let Some(h) = w.strip_prefix('M') {
-            hdr = u64::from_str_radix(h, 16).ok();
-        } else if let Some(c) = w.strip_prefix('C') {
-            created = i64::from_str_radix(c, 16).ok();
-        }
-    }
+    let (hdr, created) = dbox_file_header(&head[..eol])?;
     let start = eol as u64 + 1;
-    let msg = head.get(start as usize..)?;
-    let size = (msg.len() >= 20 && &msg[..3] == b"\x01\x02N")
-        .then(|| u64::from_str_radix(std::str::from_utf8(&msg[4..20]).ok()?, 16).ok())
-        .flatten();
+    let size = head.get(start as usize..).and_then(dbox_message_size);
     let received = (|| {
-        let at = start + hdr? + size?;
+        let at = start.checked_add(hdr)?.checked_add(size?)?;
         f.seek(SeekFrom::Start(at)).ok()?;
         let mut meta = vec![0u8; 4096];
         let n = f.read(&mut meta).ok()?;
@@ -684,13 +707,13 @@ user_pref("mail.server.server3.check_new_mail", false);
         // an m.N file with two messages received at 0x5d000000 and 0x60000000
         let m = |body: &str, when: u32| {
             format!(
-                "\x01\x02N {:016x}\n{body}\n\x01\x03\nGabc\nR{when:x}\nV{:x}\n\n",
+                "\x01\x02N 00000000 {:016x}\n{body}\n\x01\x03\nGabc\nR{when:x}\nV{:x}\n\n",
                 body.len(),
                 body.len()
             )
         };
         let file = format!(
-            "2 M15 C5c000000\n{}{}",
+            "2 M1e C5c000000\n{}{}",
             m("Subject: one\n\nhello", 0x5d00_0000),
             m("Subject: two\n\nbye", 0x6000_0000)
         );

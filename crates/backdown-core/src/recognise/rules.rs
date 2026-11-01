@@ -34,14 +34,14 @@ pub(super) fn cand(path: Vec<u8>, kind: &'static str, confidence: f32) -> Candid
     }
 }
 
-pub(super) fn name_of(path: &[u8]) -> String {
+pub(crate) fn name_of(path: &[u8]) -> String {
     paths::from_bytes(path)
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| paths::from_bytes(path).display().to_string())
 }
 
-pub(super) fn parent_of(path: &[u8]) -> Option<Vec<u8>> {
+pub(crate) fn parent_of(path: &[u8]) -> Option<Vec<u8>> {
     paths::from_bytes(path).parent().map(paths::to_bytes)
 }
 
@@ -107,7 +107,7 @@ pub(super) fn apfs_time_machine(db: &Db, dir: &[u8]) -> Result<Candidate> {
     Ok(c)
 }
 
-pub(super) fn looks_like_domain(s: &str) -> bool {
+pub(crate) fn looks_like_domain(s: &str) -> bool {
     s.contains('.')
         && !s.starts_with('.')
         && s.chars()
@@ -653,6 +653,175 @@ pub(super) fn rules(db: &Db, root: &[u8], m: &Markers) -> Result<Vec<Candidate>>
                 c.facts.push(("Size".into(), fmt::bytes(size)));
                 out.push(c);
             }
+        }
+    }
+
+    // ---- databases: mongodump output, SQLite files, and the data directories of servers
+    // mongodump writes dump/<database>/<collection>.bson with a .metadata.json beside each
+    let db_dirs: Vec<&Vec<u8>> = m
+        .bson
+        .iter()
+        .filter(|(_, (bson, _, meta))| *bson >= 1 && *meta >= 1)
+        .map(|(d, _)| d)
+        .collect();
+    let mut by_parent: BTreeMap<Vec<u8>, Vec<&Vec<u8>>> = BTreeMap::new();
+    let mut alone: Vec<&Vec<u8>> = Vec::new();
+    for d in db_dirs {
+        match parent_of(d).filter(|p| p.len() >= root.len()) {
+            Some(p) => by_parent.entry(p).or_default().push(d),
+            None => alone.push(d),
+        }
+    }
+    for (parent, dbs) in by_parent {
+        // the whole dump when the folder is mongodump's own or holds several databases
+        if dbs.len() >= 2 || name_of(&parent).eq_ignore_ascii_case("dump") {
+            let mut c = cand(parent.clone(), "mongo-dump", 0.9);
+            let (colls, bytes) = dbs.iter().fold((0, 0), |(n, b), d| {
+                let x = m.bson[*d];
+                (n + x.0, b + x.1)
+            });
+            let mut names: Vec<String> = dbs.iter().map(|d| name_of(d)).collect();
+            names.sort();
+            c.title = format!(
+                "{} database{}, {} collection{}",
+                dbs.len(),
+                if dbs.len() == 1 { "" } else { "s" },
+                colls,
+                if colls == 1 { "" } else { "s" }
+            );
+            c.facts.push(("Engine".into(), "MongoDB".into()));
+            c.facts.push((
+                "Databases".into(),
+                names
+                    .iter()
+                    .take(12)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            ));
+            c.facts.push(("Collections".into(), colls.to_string()));
+            c.facts.push(("Data".into(), fmt::bytes(bytes)));
+            out.push(c);
+        } else {
+            alone.extend(dbs);
+        }
+    }
+    for d in alone {
+        let (colls, bytes, _) = m.bson[d];
+        let mut c = cand(d.clone(), "mongo-dump", 0.85);
+        c.title = format!(
+            "{} ({} collection{})",
+            name_of(d),
+            colls,
+            if colls == 1 { "" } else { "s" }
+        );
+        c.facts.push(("Engine".into(), "MongoDB".into()));
+        c.facts.push(("Databases".into(), name_of(d)));
+        c.facts.push(("Collections".into(), colls.to_string()));
+        c.facts.push(("Data".into(), fmt::bytes(bytes)));
+        out.push(c);
+    }
+    // SQLite files: the largest first, and no more than a drive-full of opens
+    let mut sqlite = m.sqlite.clone();
+    sqlite.sort_by_key(|s| std::cmp::Reverse(s.1));
+    for (path, size, certain) in sqlite.into_iter().take(2000) {
+        // with the drive here, the magic bytes decide; without it, the name does
+        let magic =
+            first_bytes(&paths::from_bytes(&path), 16).map(|b| b.starts_with(b"SQLite format 3\0"));
+        let confidence = match (magic, certain) {
+            (Some(false), _) => continue,
+            (Some(true), _) => 0.95,
+            (None, true) => 0.8,
+            (None, false) => 0.5,
+        };
+        let mut c = cand(path.clone(), "sqlite-db", confidence);
+        c.is_file = true;
+        c.title = name_of(&path);
+        c.facts.push(("Engine".into(), "SQLite".into()));
+        c.facts.push(("Size".into(), fmt::bytes(size)));
+        out.push(c);
+    }
+    // MySQL / MariaDB: the data directory has the InnoDB system files and a mysql/ schema folder;
+    // each other folder with table files is a database
+    for (dir, files) in &m.files {
+        let dirs = m.dir_names(dir);
+        if !((files.contains("ibdata1") || files.contains("ib_logfile0")) && dirs.contains("mysql"))
+            && !(dirs.contains("mysql") && dirs.contains("performance_schema"))
+        {
+            continue;
+        }
+        let mut dbs: Vec<(String, u64)> = children(db, dir)?
+            .into_iter()
+            .filter(|n| {
+                !matches!(
+                    n.to_ascii_lowercase().as_str(),
+                    "mysql"
+                        | "performance_schema"
+                        | "sys"
+                        | "information_schema"
+                        | "#innodb_redo"
+                        | "#innodb_temp"
+                ) && !n.starts_with('#')
+                    && !n.starts_with('.')
+            })
+            .filter_map(|n| {
+                let (frm, data) = m.tables.get(&join(dir, &n)).copied()?;
+                Some((n, frm.max(data)))
+            })
+            .collect();
+        dbs.sort();
+        let engine = if files.contains("aria_log_control") {
+            "MariaDB"
+        } else {
+            "MySQL or MariaDB"
+        };
+        let tables: u64 = dbs.iter().map(|(_, t)| t).sum();
+        let mut c = cand(dir.clone(), "mysql-data", 0.95);
+        c.title = format!(
+            "{} database{}, {} table{}",
+            dbs.len(),
+            if dbs.len() == 1 { "" } else { "s" },
+            tables,
+            if tables == 1 { "" } else { "s" }
+        );
+        c.facts.push(("Engine".into(), engine.into()));
+        c.facts.push((
+            "Databases".into(),
+            dbs.iter()
+                .take(12)
+                .map(|(n, _)| n.as_str())
+                .collect::<Vec<_>>()
+                .join(", "),
+        ));
+        c.facts.push(("Tables".into(), tables.to_string()));
+        out.push(c);
+    }
+    // PostgreSQL: PG_VERSION beside base/ (one folder per database, by OID) and global/
+    for (dir, files) in &m.files {
+        if files.contains("pg_version") {
+            let dirs = m.dir_names(dir);
+            if dirs.contains("base") && dirs.contains("global") {
+                let dbs = children(db, &join(dir, "base"))?
+                    .iter()
+                    .filter(|n| n.bytes().all(|b| b.is_ascii_digit()))
+                    .count();
+                let mut c = cand(dir.clone(), "postgres-data", 0.95);
+                c.title = format!("{} database{}", dbs, if dbs == 1 { "" } else { "s" });
+                c.facts.push(("Engine".into(), "PostgreSQL".into()));
+                c.facts.push(("Databases".into(), dbs.to_string()));
+                out.push(c);
+            }
+        }
+    }
+    // MongoDB: WiredTiger's own files and the catalogue
+    for (dir, files) in &m.files {
+        if files.contains("wiredtiger")
+            && (files.contains("storage.bson") || files.contains("_mdb_catalog.wt"))
+        {
+            let mut c = cand(dir.clone(), "mongo-data", 0.95);
+            c.title = "MongoDB data (WiredTiger)".into();
+            c.facts.push(("Engine".into(), "MongoDB".into()));
+            out.push(c);
         }
     }
 
