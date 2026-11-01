@@ -60,6 +60,8 @@ class _ScanScreenState extends State<ScanScreen> {
           ReaderWidget(
             onScan: _onScan,
             codeFormat: Format.qrCode,
+            // a terminal that ignores `token --qr`'s colours shows the code light on dark
+            tryInverted: true,
             showGallery: false,
             showToggleCamera: false,
             cropPercent: 0.7,
