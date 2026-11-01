@@ -149,7 +149,7 @@ function renderMachine() {
           <td class="n">${count(r.files)}</td><td class="n">${bytes(r.bytes)}</td>
           <td title="${esc(when(r.seen_at))}">${ago(r.seen_at)}</td>
           <td>${r.counts ? `<span class="pill ok">count as proof</span>` : `<span class="pill warn" title="Confirmed more than ${s.proof_days} days ago">too long ago to count</span>`}
-            <small class="muted">${count(r.hashed)} of ${count(r.cached)} hashed</small></td></tr>`).join('')}</tbody></table>`
+            <small class="muted">${r.cached == null ? 'counted at the next sync' : `${count(r.hashed)} of ${count(r.cached)} hashed`}</small></td></tr>`).join('')}</tbody></table>`
         : `<p class="muted">${m.last_sync ? 'Nothing is indexed there yet: run <code>backdown index</code> on that machine.' : 'Sync it to see its drives.'}</p>`}
     </section>
     <section class="card-ish"><h3>How copies there count</h3>
