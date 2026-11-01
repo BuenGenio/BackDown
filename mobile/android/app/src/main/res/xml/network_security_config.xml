@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The BackDown service speaks plain HTTP: on a tailnet, WireGuard already encrypts every
+     packet, and on a LAN there's no certificate to check against. So cleartext is allowed to
+     the addresses a BackDown service is reached at, and the session token goes only to the
+     server the person added. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
