@@ -28,6 +28,7 @@ pub mod magic;
 pub mod mailmerge;
 pub mod mailstores;
 pub mod manifest;
+pub mod mbox;
 pub mod mirror;
 pub mod names;
 pub mod overlap;
