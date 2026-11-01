@@ -17,7 +17,7 @@ Windows builds include startup and runtime support code from mingw-w64 (Zope Pub
 public domain) and LLVM's compiler-rt (Apache-2.0 WITH LLVM-exception), linked by the Zig toolchain.
 All builds include compiler_rt from the Zig project (MIT). macOS builds link the system's libSystem.
 
-Rust crates (141)
+Rust crates (143)
 -----------------
 adler2 2.0.1: 0BSD OR MIT OR Apache-2.0
 anstream 1.0.0: MIT OR Apache-2.0
@@ -36,7 +36,7 @@ block-buffer 0.12.1: MIT OR Apache-2.0
 bumpalo 3.20.3: MIT OR Apache-2.0
 byteorder 1.5.0: Unlicense OR MIT
 bzip2 0.6.1: MIT OR Apache-2.0
-calamine 0.36.1: MIT
+calamine 0.37.0: MIT
 cfg-if 1.0.5: MIT OR Apache-2.0
 chunked_transfer 1.5.0: MIT OR Apache-2.0
 clap 4.6.7: MIT OR Apache-2.0
@@ -96,10 +96,12 @@ mail-parser 0.11.9: Apache-2.0 OR MIT
 memchr 2.8.3: Unlicense OR MIT
 miniz_oxide 0.9.1: MIT OR Zlib OR Apache-2.0
 multiversion_no_op 1.0.0: Apache-2.0 OR MIT
+nix 0.31.3: MIT
 once_cell 1.21.4: MIT OR Apache-2.0
 once_cell_polyfill 1.70.2: MIT OR Apache-2.0
 proc-macro2 1.0.107: MIT OR Apache-2.0
 quick-xml 0.41.0: MIT
+quick-xml 0.42.0: MIT
 quote 1.0.47: MIT OR Apache-2.0
 r-efi 6.0.0: MIT OR Apache-2.0 OR LGPL-2.1-or-later
 rsqlite-vfs 0.1.1: MIT
@@ -132,7 +134,7 @@ tiny_http 0.12.0: MIT OR Apache-2.0
 tinyvec 1.12.0: Zlib OR Apache-2.0 OR MIT
 tinyvec_macros 0.1.1: MIT OR Apache-2.0 OR Zlib
 twox-hash 2.1.4: MIT
-typed-path 0.12.3: MIT OR Apache-2.0
+typed-path 0.13.0: MIT OR Apache-2.0
 typenum 1.20.1: MIT OR Apache-2.0
 unicode-ident 1.0.26: (MIT OR Apache-2.0) AND Unicode-3.0
 unicode-normalization 0.1.25: MIT OR Apache-2.0
@@ -156,7 +158,7 @@ windows_x86_64_gnu 0.52.6: MIT OR Apache-2.0
 windows_x86_64_gnullvm 0.52.6: MIT OR Apache-2.0
 windows_x86_64_msvc 0.52.6: MIT OR Apache-2.0
 zeroize 1.9.0: Apache-2.0 OR MIT
-zip 8.6.0: MIT
+zip 9.2.1: MIT
 zlib-rs 0.6.8: Zlib
 zmij 1.0.23: MIT
 zopfli 0.8.3: Apache-2.0
