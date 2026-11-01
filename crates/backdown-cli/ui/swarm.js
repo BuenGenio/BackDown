@@ -6,6 +6,7 @@
 // keys) and redrawn as it answers. Everything goes through /api/swarm* (swarm.rs in the Rust).
 import { api, bytes } from './app.js';
 import { fileIcon, folderIcon } from './icons.js';
+import { mountPool, poolHtml, intoButton, render as renderWizard, wizardOpen } from './pool.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').normalize('NFC').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -27,6 +28,12 @@ let hooks = { enter: () => {}, isMode: () => false, openLocal: () => {}, openMac
 
 export function mountSwarm(h) {
   hooks = { ...hooks, ...h };
+  // the pool (pool.js): its card here, and the wizard that takes over this view for a drive
+  mountPool({
+    reload: local => local ? render() : showSwarm(),
+    back: () => showSwarm(),
+    isOpen: () => hooks.isMode('swarm') && wizardOpen(),
+  });
   document.addEventListener('click', onClick);
   document.addEventListener('submit', onSubmit);
   document.addEventListener('keydown', onKey);
@@ -35,11 +42,12 @@ export function mountSwarm(h) {
 
 export async function showSwarm() {
   hooks.enter('swarm');
+  if (wizardOpen()) return renderWizard();
   const seq = ++W.seq;
   if (!W.data) $('#view').innerHTML = '<div class="swarm"><p class="muted">Looking at the drives…</p></div>';
   else render();
   try { W.data = await api('swarm'); } catch (e) { if (seq === W.seq && hooks.isMode('swarm')) $('#view').innerHTML = `<div class="swarm"><p class="sw-fail">${esc(e.message)}</p></div>`; return; }
-  if (seq !== W.seq || !hooks.isMode('swarm')) return;
+  if (seq !== W.seq || !hooks.isMode('swarm') || wizardOpen()) return;
   render();
   askAll();
 }
@@ -62,15 +70,16 @@ async function ask(id) {
     totals();
   } catch (e) { W.errors.set(id, e.message); }
   W.asking.delete(id);
-  if (hooks.isMode('swarm')) { renderMachine(id); renderTotals(); }
+  if (hooks.isMode('swarm') && !wizardOpen()) { renderMachine(id); renderTotals(); renderPool(); }
 }
 
 // the swarm's totals from the machines as they are now (some may have answered since)
 function totals() {
-  const t = { machines: W.data.machines.length, reporting: 0, disks: 0, capacity: 0, free: 0, files: 0, bytes: 0 };
+  const t = { machines: W.data.machines.length, reporting: 0, disks: 0, capacity: 0, free: 0, files: 0, bytes: 0, pool: { areas: 0, files: 0, bytes: 0, room: 0 } };
   for (const m of W.data.machines) {
     if (m.disks?.length) t.reporting++;
     for (const k of ['disks', 'capacity', 'free', 'files', 'bytes']) t[k] += m.totals?.[k] || 0;
+    for (const k of ['areas', 'files', 'bytes', 'room']) t.pool[k] += m.totals?.pool?.[k] || 0;
   }
   W.data.totals = t;
 }
@@ -80,13 +89,14 @@ function totals() {
 // The view's frame (heading, search box, results) is drawn once and kept, so fresh data never
 // clobbers what's being typed; the machines below it are redrawn.
 function render() {
-  if (!hooks.isMode('swarm') || !W.data) return;
+  if (!hooks.isMode('swarm') || !W.data || wizardOpen()) return;
   const d = W.data;
   if (!$('#view .swarm #sw-find')) {
     $('#view').innerHTML = `<div class="swarm">
       <header class="sw-top"><div><h2>Swarm</h2><p class="muted" id="sw-totals"></p></div><span id="sw-top-btn"></span></header>
       <form class="sw-find" id="sw-find" role="search"><input id="sw-q" type="search" placeholder="Where is it? A name, looked for on every machine" aria-label="Find on every machine" autocomplete="off" value="${esc(W.q)}"><button class="btn" type="submit">Find</button></form>
       <div id="sw-found"></div>
+      <div id="sw-pool"></div>
       <div id="sw-body"></div>
     </div>`;
     renderFound();
@@ -94,8 +104,19 @@ function render() {
   $('#sw-top-btn').innerHTML = d.can_ask && d.machines.length > 1 ? '<button class="btn sm" type="button" data-sw="ask-all">Ask the machines again</button>' : '';
   $('#sw-body').innerHTML = `${d.why_not && d.machines.length > 1 ? `<p class="note">${esc(d.why_not)}: the other machines show as last synced.</p>` : ''}
     <div class="sw-machines">${d.machines.map(m => `<section class="sw-machine" id="sw-m-${m.here ? 'here' : m.id}">${machineHtml(m)}</section>`).join('')}</div>
-    ${d.machines.length < 2 ? `<section class="act-card"><p>This is a swarm of one. Add the other machines you run BackDown on (a NAS, a server, another computer) under <b>Machines</b> in the sidebar, reached with your own ssh keys: their drives show up here too, and where every file is.</p></section>` : ''}`;
+    ${d.machines.length < 2 && !poolFolders() ? `<section class="act-card"><p>This is a swarm of one. Add the other machines you run BackDown on (a NAS, a server, another computer) under <b>Machines</b> in the sidebar, reached with your own ssh keys: their drives show up here too, and where every file is.</p></section>` : ''}`;
   renderTotals();
+  renderPool();
+}
+
+const poolFolders = () => (W.data?.machines || []).reduce((n, m) => n + (m.pool?.length || 0), 0);
+// an indexed drive of this machine that is (or is in) one of its pool folders isn't poured into the pool
+const inPool = path => (W.data?.machines?.find(m => m.here)?.pool || [])
+  .some(a => path === a.path || String(path).startsWith(String(a.path).replace(/\/+$/, '') + '/'));
+
+function renderPool() {
+  const el = $('#sw-pool');
+  if (el) el.innerHTML = poolHtml(W.data);
 }
 
 function renderTotals() {
@@ -126,9 +147,9 @@ function machineHtml(m) {
   const head = `<div class="sw-mhead"><h3>${esc(m.name)}</h3>${stateLine(m)}
     <span class="sw-mtot muted">${t.capacity ? `${bytes(t.free)} free of ${bytes(t.capacity)}` : ''}${t.files ? `${t.capacity ? ' · ' : ''}${count(t.files)} files indexed` : ''}</span>
     ${m.here ? '' : `<span class="sw-mbtns"><button class="btn sm" type="button" data-sw="browse" data-m="${m.id}">Browse</button>${W.data?.can_ask ? `<button class="btn sm" type="button" data-sw="ask" data-m="${m.id}"${W.asking.has(m.id) ? ' disabled' : ''}>Ask again</button>` : ''}</span>`}</div>`;
-  const disks = (m.disks || []).map(diskHtml).join('');
+  const disks = (m.disks || []).map(d => diskHtml(d, m.here)).join('');
   const rows = (list, f) => list?.length ? list.map(f).join('') : '';
-  const elsewhere = rows(m.elsewhere, r => `<li class="sw-extra">${folderIcon(18)}<span class="sw-p"><b>${esc(r.name || r.path)}</b><small>${esc(r.path)}</small></span>
+  const elsewhere = rows(m.elsewhere, r => `<li class="sw-extra">${folderIcon(18)}<span class="sw-p"><b>${esc(r.name || r.path)}</b>${m.here && poolFolders() && !inPool(r.path) ? ` ${intoButton(r)}` : ''}<small>${esc(r.path)}</small></span>
       <span class="muted">${count(r.files)} files · ${bytes(r.bytes)}${r.space ? ` · ${bytes(r.space.free)} free of ${bytes(r.space.total)}` : ''}</span></li>`);
   const away = rows(m.away, r => `<li class="sw-extra away">${folderIcon(18)}<span class="sw-p"><b>${esc(r.name || r.path)}</b> <span class="pill off">not connected</span><small>${esc(r.path)}${r.drive ? ` · last on ${esc(driveWords(r.drive))}` : ''}</small></span>
       <span class="muted">${count(r.files)} files · ${bytes(r.bytes)} · scanned ${day(r.scanned_at)}</span></li>`);
@@ -141,15 +162,15 @@ function machineHtml(m) {
 
 const HEALTH = { ok: ['ok', 'healthy'], warning: ['warn', 'warning'], failing: ['warn', 'failing'] };
 
-function diskHtml(d) {
+function diskHtml(d, here) {
   const what = [d.model, d.serial && `s/n ${d.serial}`, bytes(d.size || 0), d.transport, d.rotational === true ? 'spinning' : d.rotational === false ? 'solid state' : null].filter(Boolean);
   const h = HEALTH[d.health];
-  const vols = (d.volumes || []).map(volHtml).join('');
+  const vols = (d.volumes || []).map(v => volHtml(v, here)).join('');
   return `<div class="sw-disk"><div class="sw-dhead"><b>${esc(d.name)}</b> <span class="muted">${esc(what.join(' · '))}</span>${h ? ` <span class="pill ${h[0]}">${h[1]}</span>` : ''}${d.system ? ' <span class="pill off">system</span>' : ''}</div>
     ${vols ? `<ul class="sw-list">${vols}</ul>` : '<p class="muted sw-none">Nothing on it BackDown can read.</p>'}</div>`;
 }
 
-function volHtml(v) {
+function volHtml(v, here) {
   const name = v.label || v.part_label || v.name;
   const where = (v.mounts || []).join(', ');
   const kind = [v.fs_name, v.via && `in ${v.via}`].filter(Boolean).join(' ');
@@ -159,8 +180,10 @@ function volHtml(v) {
     room = `<span class="sw-room"><span class="meter sw-meter${p > 0.95 ? ' full' : p > 0.85 ? ' high' : ''}" title="${Math.round(p * 100)}% used"><i style="width:${(p * 100).toFixed(1)}%"></i></span>
       <span class="muted">${bytes(v.space.free)} free of ${bytes(v.space.total)}</span></span>`;
   } else room = `<span class="muted">${bytes(v.size || 0)}${v.state === 'encrypted' ? ', locked' : ', not mounted'}</span>`;
-  const indexed = (v.indexed || []).map(i => `<span class="sw-ix" title="${esc(i.path)}">${esc(i.name || i.path)} · ${count(i.files)} files · ${bytes(i.bytes)}</span>`).join('');
-  return `<li class="sw-vol${v.system ? ' sys' : ''}"><span class="sw-p"><b>${esc(name)}</b> <span class="muted">${esc(kind)}</span>${where ? `<small>${esc(where)}</small>` : ''}${indexed ? `<span class="sw-ixs">${indexed}</span>` : ''}</span>${room}</li>`;
+  const into = i => here && poolFolders() && !inPool(i.path) ? ` ${intoButton({ id: i.id, name: i.name, path: i.path, key: i.key })}` : '';
+  const indexed = (v.indexed || []).map(i => `<span class="sw-ix" title="${esc(i.path)}">${esc(i.name || i.path)} · ${count(i.files)} files · ${bytes(i.bytes)}${into(i)}</span>`).join('');
+  const pool = (v.pool || []).length ? ' <span class="pill ok">pool</span>' : '';
+  return `<li class="sw-vol${v.system ? ' sys' : ''}"><span class="sw-p"><b>${esc(name)}</b> <span class="muted">${esc(kind)}</span>${pool}${where ? `<small>${esc(where)}</small>` : ''}${indexed ? `<span class="sw-ixs">${indexed}</span>` : ''}</span>${room}</li>`;
 }
 
 // "Hercules (WD Elements 2620 s/n WX…)"

@@ -554,6 +554,21 @@ fn handle(ctx: &Ctx, req: Request) {
         let _ = req.respond(resp);
         return;
     }
+    if *req.method() == Method::Post && crate::pool::handles(path) {
+        // this machine's pool folders: add, change, remove (pool.rs)
+        let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
+        let resp = if !marked {
+            plain(403, "missing X-BackDown header")
+        } else {
+            let p = |k: &str| param(k).map(str::to_string);
+            match crate::pool::post(ctx.daemon.as_deref(), &ctx.db, path, &p) {
+                Ok(v) => json_resp(&v),
+                Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
+            }
+        };
+        let _ = req.respond(resp);
+        return;
+    }
     if *req.method() == Method::Post && crate::remote::handles(path) {
         // other machines: add, remove, test, sync, settings (remote/)
         let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
@@ -1293,6 +1308,11 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
         // other machines, as cached and live over ssh (remote/)
         let p = |k: &str| param(k).map(str::to_string);
         return crate::remote::get(ctx.daemon.as_deref(), ctx.desktop, &ctx.db, path, &p);
+    }
+    if crate::pool::handles(path) {
+        // the pool's plans (pool.rs)
+        let p = |k: &str| param(k).map(str::to_string);
+        return crate::pool::get(&ctx.db, path, &p);
     }
     if crate::swarm::handles(path) {
         // every machine as one: drives, free space, where things are (swarm.rs)
@@ -2181,6 +2201,7 @@ fn ui_asset(name: &str) -> Option<(&'static [u8], &'static str)> {
         "health.js" => "text/javascript; charset=utf-8",
         "machines.js" => "text/javascript; charset=utf-8",
         "swarm.js" => "text/javascript; charset=utf-8",
+        "pool.js" => "text/javascript; charset=utf-8",
         "fsbrowse.js" => "text/javascript; charset=utf-8",
         "drives.js" => "text/javascript; charset=utf-8",
         "dupes.js" => "text/javascript; charset=utf-8",

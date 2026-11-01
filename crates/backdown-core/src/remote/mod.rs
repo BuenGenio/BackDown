@@ -302,7 +302,8 @@ pub fn name_of(os: Os, raw: &[u8]) -> String {
     display(os, rest)
 }
 
-fn prefix(os: Os, dir: &[u8]) -> Vec<u8> {
+/// `dir` there with its separator at the end: what every path inside it starts with.
+pub(crate) fn prefix(os: Os, dir: &[u8]) -> Vec<u8> {
     let mut p = dir.to_vec();
     if !p.ends_with(sep(os)) {
         p.extend_from_slice(sep(os));
@@ -311,7 +312,7 @@ fn prefix(os: Os, dir: &[u8]) -> Vec<u8> {
 }
 
 /// Just past every path that starts with `p`.
-fn past(p: &[u8]) -> Vec<u8> {
+pub(crate) fn past(p: &[u8]) -> Vec<u8> {
     let mut hi = p.to_vec();
     if let Some(l) = hi.last_mut() {
         *l += 1; // a separator never ends in 0xFF

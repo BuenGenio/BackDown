@@ -1120,3 +1120,27 @@ html.is-busy,html.is-busy *{cursor:progress}
 .sw-notes{margin:0;padding-left:18px}
 @media(max-width:760px){.sw-list li{grid-template-columns:minmax(0,1fr)}.sw-room{align-items:flex-start}.sw-list li.sw-extra,.sw-list li.sw-hit{grid-template-columns:20px minmax(0,1fr)}.sw-list li.sw-extra>.muted,.sw-list li.sw-hit>.muted{grid-column:2}.sw-mtot{margin-left:0}}
 .sw-fail{color:var(--crit);margin:0;font-size:.86rem}
+/* the pool (pool.js): its folders, and the wizard that pours a drive into it */
+.sw-pool .sw-mhead .muted{font-size:.82rem}
+.sw-pool p{margin:0}
+.sw-meter{position:relative}
+.sw-reserve{position:absolute;right:0;top:0;bottom:0;background:repeating-linear-gradient(-45deg,color-mix(in srgb,var(--ink-3) 45%,transparent) 0 3px,transparent 3px 6px);border-radius:0 99px 99px 0}
+.sw-list li.sw-vol:has(.sw-pa){grid-template-columns:minmax(0,1fr) minmax(200px,auto) auto}
+.sw-addpool{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
+.sw-addpool label{display:flex;flex-direction:column;gap:4px;font-size:.78rem;color:var(--ink-2);flex:1 1 180px}
+.sw-addpool input{height:32px;border-radius:8px;border:1px solid var(--line-2);background:var(--view);color:var(--ink);padding:0 10px;font:inherit;font-size:.86rem}
+.sw-into{height:20px;padding:0 7px;font-size:.7rem;margin-left:4px;vertical-align:1px}
+.sw-ix:has(.sw-into){padding-right:3px}
+.sw-chips{display:flex;flex-wrap:wrap;gap:8px}
+.sw-chip{display:flex;flex-direction:column;gap:1px;padding:8px 12px;border-radius:10px;border:1px solid var(--line);font-size:.78rem;color:var(--ink-2);min-width:120px}
+.sw-chip b{font-size:1.02rem;color:var(--ink)}
+.sw-chip.ok b{color:var(--good)}
+.sw-chip.go{border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
+.sw-chip.warn b{color:var(--warn)}
+.sw-things li.sw-thing{grid-template-columns:minmax(0,1fr) minmax(220px,300px);align-items:start}
+.sw-thing.off .sw-p{opacity:.55}
+.sw-tchoice{display:flex;flex-direction:column;gap:4px;min-width:0}
+.sw-tchoice select{height:30px;border-radius:8px;border:1px solid var(--line-2);background:var(--view);color:var(--ink);font:inherit;font-size:.82rem;padding:0 6px;max-width:100%}
+.sw-tchoice small{font-size:.74rem;line-height:1.3}
+.sw-wizard .sw-machine>.btn{align-self:flex-start}
+@media(max-width:760px){.sw-things li.sw-thing{grid-template-columns:minmax(0,1fr)}.sw-list li.sw-vol:has(.sw-pa){grid-template-columns:minmax(0,1fr)}}

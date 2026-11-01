@@ -28,12 +28,11 @@ use crate::{Db, browse, find, health, volumes};
 /// server went away can hang whoever asks): past it, the drive is "not answering".
 const ASK_PATH: Duration = Duration::from_secs(3);
 
-fn now() -> i64 {
-    remote::now()
-}
-
 /// Run `f` on a thread of its own and wait for it at most `t`.
-fn within<T: Send + 'static>(t: Duration, f: impl FnOnce() -> T + Send + 'static) -> Option<T> {
+pub(crate) fn within<T: Send + 'static>(
+    t: Duration,
+    f: impl FnOnce() -> T + Send + 'static,
+) -> Option<T> {
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
         let _ = tx.send(f());
@@ -124,7 +123,9 @@ pub fn storage(db: &Db) -> Result<Value> {
         }
     }
     out["roots"] = json!(roots);
-    out["at"] = json!(now());
+    // its pool folders, with the room on their drives now (pool.rs)
+    out["pool"] = crate::pool::report(db)?;
+    out["at"] = json!(crate::clock::now());
     Ok(out)
 }
 
@@ -281,7 +282,7 @@ pub fn remember_drive(db: &Db, root_id: i64, path: &Path) -> Result<bool> {
     db.conn.execute(
         "INSERT INTO root_drives(root_id, at, data) VALUES (?1, ?2, ?3)
          ON CONFLICT(root_id) DO UPDATE SET at = excluded.at, data = excluded.data",
-        params![root_id, now(), d.to_string()],
+        params![root_id, crate::clock::now(), d.to_string()],
     )?;
     Ok(true)
 }
@@ -496,11 +497,71 @@ pub fn machine_view(storage: &Value, verdicts: &HashMap<String, String>) -> Valu
     elsewhere.sort_by(by_path);
     away.sort_by(by_path);
     unanswered.sort_by(by_path);
+    // its pool folders, each marked on the volume it's on
+    let (pool, pool_totals) = pool_view(storage);
+    for d in &mut disks {
+        for v in d["volumes"].as_array_mut().into_iter().flatten() {
+            let mounts: Vec<String> = v["mounts"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|m| m.as_str().map(str::to_string))
+                .collect();
+            let here: Vec<Value> = pool
+                .iter()
+                .filter(|a| {
+                    a["fs"]
+                        .as_str()
+                        .is_some_and(|f| mounts.iter().any(|m| m == f))
+                })
+                .map(|a| json!({ "id": a["id"], "path": a["path"] }))
+                .collect();
+            if !here.is_empty() {
+                v["pool"] = json!(here);
+            }
+        }
+    }
     json!({
         "os": storage["os"], "at": storage["at"], "disks": disks, "elsewhere": elsewhere,
-        "away": away, "unanswered": unanswered, "notes": storage["notes"],
-        "totals": { "disks": disks.len(), "capacity": capacity, "free": free, "files": files, "bytes": bytes },
+        "away": away, "unanswered": unanswered, "notes": storage["notes"], "pool": pool,
+        "totals": { "disks": disks.len(), "capacity": capacity, "free": free, "files": files, "bytes": bytes,
+                    "pool": pool_totals },
     })
+}
+
+/// A machine's pool folders for the overview, each with the drive it's on (`drive`) and the file
+/// system it shares room with (`fs`, its mount point); and their totals: what they hold, and the
+/// room left to fill, counted once per file system (two folders on one drive share its room,
+/// less the bigger of their reserves).
+pub fn pool_view(storage: &Value) -> (Vec<Value>, Value) {
+    let mut areas = Vec::new();
+    let mut by_fs: HashMap<String, (u64, u64)> = HashMap::new();
+    let (mut files, mut bytes) = (0u64, 0u64);
+    for a in storage["pool"].as_array().into_iter().flatten() {
+        let mut a = a.clone();
+        let path = a["path"].as_str().unwrap_or("").to_string();
+        let drive = place(storage, &path, None);
+        let fs = drive["volume"]["mount"]
+            .as_str()
+            .map_or_else(|| path.clone(), str::to_string);
+        files += a["files"].as_u64().unwrap_or(0);
+        bytes += a["bytes"].as_u64().unwrap_or(0);
+        if a["present"] == json!(true)
+            && let Some(free) = a["space"]["free"].as_u64()
+        {
+            let e = by_fs.entry(fs.clone()).or_insert((free, 0));
+            e.1 = e.1.max(a["reserve"].as_u64().unwrap_or(0));
+        }
+        a["drive"] = drive;
+        a["fs"] = json!(fs);
+        areas.push(a);
+    }
+    let room: u64 = by_fs.values().map(|(f, r)| f.saturating_sub(*r)).sum();
+    let n = areas.len();
+    (
+        areas,
+        json!({ "areas": n, "files": files, "bytes": bytes, "room": room }),
+    )
 }
 
 /// A machine's storage as last kept here (remote::store_volumes): (state, its report, when it
@@ -553,6 +614,15 @@ pub fn overview(db: &Db, name: &str, here: Result<Value>) -> Result<Value> {
             add(&mut t, k, m["totals"][k].as_u64().unwrap_or(0));
         }
     }
+    // the pool: every machine's pool folders together
+    let mut pool = json!({ "areas": 0, "files": 0, "bytes": 0, "room": 0 });
+    for m in &machines {
+        for k in ["areas", "files", "bytes", "room"] {
+            pool[k] =
+                json!(pool[k].as_u64().unwrap_or(0) + m["totals"]["pool"][k].as_u64().unwrap_or(0));
+        }
+    }
+    t["pool"] = pool;
     Ok(json!({ "here": name, "machines": machines, "totals": t }))
 }
 

@@ -364,6 +364,29 @@ pub fn make(
     if !target.is_absolute() {
         bail!("the archive folder must be an absolute path");
     }
+    make_in(db, Some(target), only, schema, recognised, overlaps)
+}
+
+/// The same, for an archive that isn't one folder on this machine (the swarm's pool: pool/plan.rs
+/// works out what's in it already, and where each thing goes): no drive here is left out for
+/// holding it, and nothing is skipped as "already in the archive".
+pub fn make_elsewhere(
+    db: &Db,
+    only: Option<&[i64]>,
+    schema: &Schema,
+    recognised: &[RootEntities],
+) -> Result<Plan> {
+    make_in(db, None, only, schema, recognised, &[])
+}
+
+fn make_in(
+    db: &Db,
+    target: Option<&Path>,
+    only: Option<&[i64]>,
+    schema: &Schema,
+    recognised: &[RootEntities],
+    overlaps: &[Overlap],
+) -> Result<Plan> {
     let sep = paths::to_bytes(Path::new(MAIN_SEPARATOR_STR));
     let mut roots = db
         .conn
@@ -389,9 +412,10 @@ pub fn make(
         .iter()
         .map(|o| ((o.unit.level.as_str(), o.unit.key.as_str()), o))
         .collect();
-    let target_s = target.display().to_string();
+    let target_s = target.map(|t| t.display().to_string()).unwrap_or_default();
     // copies of `bytes` bytes of a unit that already sit in the archive
     let in_archive = |level: &str, key: &str, bytes: u64| -> Option<String> {
+        let target = target?;
         let o = ov_by_key.get(&(level, key))?;
         o.containers
             .iter()
@@ -407,8 +431,7 @@ pub fn make(
         let root_b = paths::to_bytes(root);
         // the archive's own drive isn't a source (nor is anything that holds or sits in the
         // archive), whichever Unicode form the archive's path was given in
-        if names::within(target, root)
-            || names::within(root, target)
+        if target.is_some_and(|t| names::within(t, root) || names::within(root, t))
             || only.is_some_and(|o| !o.contains(id))
         {
             continue;
