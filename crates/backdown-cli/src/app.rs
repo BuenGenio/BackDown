@@ -154,6 +154,78 @@ pub fn find_daemon() -> Option<Found> {
     None
 }
 
+/// No daemon of ours answers, yet a BackDown daemon listens on the port ours would take
+/// (BACKDOWN_PORT, else 8787): another user's (typically your own, seen from a root shell), whose
+/// token only its owner can read. Says so, instead of "none is running"; `cmd` is what to run
+/// again as that user.
+pub fn someone_elses_daemon(cmd: &str) -> Option<String> {
+    let port: u16 = match std::env::var("BACKDOWN_PORT") {
+        Ok(p) => p.trim().parse().ok()?,
+        Err(_) => 8787,
+    };
+    // 0: any free port, so nobody can be in the way
+    if port == 0
+        || !request(port, "GET", "/api/daemon", None)
+            .is_ok_and(|(status, body)| status == 401 && body.contains("BackDown"))
+    {
+        return None;
+    }
+    Some(match listener_owner(port) {
+        Some((theirs, me)) if theirs == me => format!(
+            "BackDown is running on port {port} as you, but its token isn't in {} (was it started \
+             with a different HOME or XDG_DATA_HOME?)",
+            locations::state_dir().display()
+        ),
+        Some((theirs, me)) => format!(
+            "BackDown is running on port {port} as {theirs}, not as {me}: run `{cmd}` as \
+             {theirs}, without sudo (only {theirs} can read its token)"
+        ),
+        None => format!(
+            "BackDown is running on port {port}, but not as this user: run `{cmd}` as the user \
+             who started it, without sudo"
+        ),
+    })
+}
+
+/// Who listens on `port`, and who we are, as user names.
+#[cfg(target_os = "linux")]
+fn listener_owner(port: u16) -> Option<(String, String)> {
+    let uid = ["/proc/net/tcp", "/proc/net/tcp6"]
+        .iter()
+        .filter_map(|f| std::fs::read_to_string(f).ok())
+        .find_map(|t| listener_uid(&t, port))?;
+    let passwd = std::fs::read_to_string("/etc/passwd").unwrap_or_default();
+    let name = |u: u32| user_name(&passwd, u).unwrap_or_else(|| format!("uid {u}"));
+    Some((name(uid), name(rustix::process::geteuid().as_raw())))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn listener_owner(_port: u16) -> Option<(String, String)> {
+    None
+}
+
+/// The uid listening on `port`, from /proc/net/tcp or tcp6: any local address, state 0A (LISTEN).
+#[cfg(target_os = "linux")]
+fn listener_uid(table: &str, port: u16) -> Option<u32> {
+    table.lines().skip(1).find_map(|l| {
+        let f: Vec<&str> = l.split_whitespace().collect();
+        let local = u16::from_str_radix(f.get(1)?.rsplit_once(':')?.1, 16).ok()?;
+        if local != port || *f.get(3)? != "0A" {
+            return None;
+        }
+        f.get(7)?.parse().ok()
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn user_name(passwd: &str, uid: u32) -> Option<String> {
+    passwd.lines().find_map(|l| {
+        let mut f = l.split(':');
+        let name = f.next()?;
+        (f.nth(1)?.parse::<u32>().ok()? == uid).then(|| name.to_string())
+    })
+}
+
 /// `backdown token`: the background service's browser token, alone on stdout so scripts can use
 /// it, and in a terminal also the links with it in. `links`: only the links, one per line. The
 /// token is the one in ui.json, which the service keeps across restarts so bookmarks keep working.
@@ -168,11 +240,16 @@ pub fn print_token(links: bool) -> Result<ExitCode> {
         .find_map(|(_, f)| {
             let v: Value = serde_json::from_slice(&std::fs::read(f).ok()?).ok()?;
             v["token"].as_str().is_some().then_some(v)
-        })
-        .context(
+        });
+    let Some(v) = v else {
+        if let Some(why) = someone_elses_daemon("backdown token") {
+            bail!(why);
+        }
+        bail!(
             "no BackDown service has run here yet: start one with `backdown service install` or \
-             `backdown app` (`backdown serve` prints its own link)",
-        )?;
+             `backdown app` (`backdown serve` prints its own link)"
+        );
+    };
     let token = v["token"].as_str().unwrap_or_default();
     let port = v["port"].as_u64().unwrap_or(8787);
     let mut all = vec![(
@@ -261,6 +338,10 @@ fn start_daemon() -> Result<Option<std::process::Child>> {
 pub fn ensure_daemon() -> Result<Found> {
     if let Some(f) = find_daemon() {
         return Ok(f);
+    }
+    // ours couldn't have the port anyway
+    if let Some(why) = someone_elses_daemon("backdown app") {
+        bail!(why);
     }
     let mut child = start_daemon()?;
     let start = Instant::now();
@@ -719,6 +800,9 @@ pub fn run(a: Args) -> Result<ExitCode> {
 /// `backdown open`: the UI in the default browser, through a one-time code.
 pub fn open_in_browser() -> Result<ExitCode> {
     let Some(found) = find_daemon() else {
+        if let Some(why) = someone_elses_daemon("backdown open") {
+            bail!(why);
+        }
         bail!(
             "no BackDown daemon is running. Start one with `backdown app` (or `backdown service install`), or browse without it: `backdown serve`"
         );
@@ -770,6 +854,32 @@ mod tests {
         assert!(!redeem(&c[..47]));
         assert!(redeem(&c));
         assert!(!redeem(&c), "a code works once");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_listener_and_its_owner_by_name() {
+        let tcp = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n\
+            \x20  0: 0100007F:0277 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 1 1 0 100 0 0 10 0\n\
+            \x20  1: 0100007F:2253 0100007F:A1B2 01 00000000:00000000 00:00000000 00000000     7        0 2 1 0 20 4 30 10 -1\n\
+            \x20  2: 0100007F:2253 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 3 1 0 100 0 0 10 0\n";
+        assert_eq!(
+            listener_uid(tcp, 8787),
+            Some(1000),
+            "the listener, not a connection"
+        );
+        assert_eq!(listener_uid(tcp, 631), Some(0));
+        assert_eq!(listener_uid(tcp, 8788), None);
+        let tcp6 = "  sl  local_address                         remote_address                        st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n\
+            \x20  0: 00000000000000000000000000000000:2253 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000  1001        0 4 1 0 100 0 0 10 0\n";
+        assert_eq!(listener_uid(tcp6, 8787), Some(1001));
+
+        let passwd = "root:x:0:0:root:/root:/bin/bash\n\
+                      daemon:x:1:1::/usr/sbin:/usr/sbin/nologin\n\
+                      alex:x:1000:1000:Alex,,,:/home/alex:/bin/bash\n";
+        assert_eq!(user_name(passwd, 1000).as_deref(), Some("alex"));
+        assert_eq!(user_name(passwd, 0).as_deref(), Some("root"));
+        assert_eq!(user_name(passwd, 4242), None);
     }
 
     #[test]
