@@ -23,6 +23,7 @@ use serde_json::{Value, json};
 
 use crate::daemon::{Counts, Daemon, Job, JobOpts};
 use crate::{clear, client, live, locations, tiers, utc};
+use backdown_core::clock::now;
 
 #[derive(Subcommand)]
 pub enum ManifestCmd {
@@ -838,12 +839,6 @@ pub fn due(
 /// Drives whose last attestation failed, and when: tried again after a while, not every check.
 static FAILED: Mutex<Option<HashMap<i64, i64>>> = Mutex::new(None);
 const RETRY_AFTER: i64 = 6 * 3600;
-
-fn now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
-}
 
 /// Whether scheduled attestations may run here: the setting is on, the licence covers them, and
 /// (on the machine-wide service) its key can be kept in its data folder. Why not, if not.

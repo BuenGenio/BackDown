@@ -17,7 +17,7 @@ use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use backdown_core::{Db, fmt, hash, index, paths, report};
@@ -25,6 +25,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::{locations, serve};
+use backdown_core::clock::now;
 
 pub struct Options {
     pub db: PathBuf,
@@ -155,12 +156,6 @@ pub struct Daemon {
     state: Mutex<State>,
     wake: Condvar,
     changed: Condvar,
-}
-
-fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
 }
 
 impl Daemon {

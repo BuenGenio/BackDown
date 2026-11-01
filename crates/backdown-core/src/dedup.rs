@@ -36,7 +36,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
 use rusqlite::{OptionalExtension, params};
@@ -45,6 +45,7 @@ use serde::{Deserialize, Serialize};
 use crate::apply::hash_file;
 #[cfg(unix)]
 use crate::apply::mtime;
+use crate::clock::now;
 use crate::custody::{self, Action, Event};
 use crate::{Db, fastcopy, fmt, paths};
 
@@ -151,12 +152,6 @@ pub struct Report {
     pub examples: Vec<Group>,
     pub problems: Vec<String>,
     pub warning: String,
-}
-
-fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
 }
 
 fn push(v: &mut Vec<String>, s: String) {

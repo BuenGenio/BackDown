@@ -19,9 +19,9 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
+use backdown_core::clock::now;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -376,12 +376,6 @@ fn change(state: &Path, f: impl FnOnce(&mut Vec<Mounted>)) -> Result<()> {
     std::fs::write(&tmp, serde_json::to_vec_pretty(&all)?)?;
     std::fs::rename(&tmp, record_path(state))?;
     Ok(())
-}
-
-fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
 }
 
 /// Mounts the partition `dev` read-only and records it. `dev` must be what the volume probe calls

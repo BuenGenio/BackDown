@@ -22,7 +22,7 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::{Condvar, Mutex};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use backdown_core::alerts::{self, Limits, Note};
@@ -33,6 +33,7 @@ use serde_json::{Value, json};
 use crate::daemon::{Daemon, Job};
 use crate::notifier::{self, Settings};
 use crate::{client, locations};
+use backdown_core::clock::now;
 
 /// How often every connected drive is read.
 pub const EVERY: i64 = 6 * 3600;
@@ -42,12 +43,6 @@ pub const EVERY: i64 = 6 * 3600;
 /// `backdown health --machines` and GET /api/health-machines. This machine's own stay free.
 pub fn machines_allowed() -> bool {
     crate::tiers::feature("health-alerts").is_none_or(|f| crate::tiers::access().allows(f))
-}
-
-fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
 }
 
 // ---------- where readings come from

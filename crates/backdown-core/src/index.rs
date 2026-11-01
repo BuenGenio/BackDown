@@ -28,13 +28,14 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
+use crate::clock::now;
 use crate::{Db, find, paths};
 
 mod changes;
@@ -1134,12 +1135,6 @@ fn refuse_nested(db: &Db, root: &Path, root_bytes: &[u8]) -> Result<()> {
         }
     }
     Ok(())
-}
-
-pub(crate) fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
 }
 
 fn note_error(st: &mut Stats, msg: String) {

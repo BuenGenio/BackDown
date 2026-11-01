@@ -48,7 +48,6 @@ use std::collections::BTreeSet;
 use std::fmt;
 use std::io::{Read, Write};
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use base64::Engine;
@@ -59,6 +58,8 @@ use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
+use crate::clock::now;
+use crate::fmt::{hex, unhex32};
 use crate::paths;
 use crate::signing::{self, Signer, canonical};
 
@@ -95,12 +96,6 @@ pub const SEAL_KIND: &str = "backdown-custody-seal";
 pub const JOBS: &[&str] = &["plan", "wipe", "dedup", "merge", "rescue", "mirror"];
 /// Problems listed at most; the rest are counted.
 const MAX_PROBLEMS: usize = 50;
-
-fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
-}
 
 /// What was done to a file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -249,21 +244,6 @@ impl Row {
             "elided": true,
         })
     }
-}
-
-fn hex(b: &[u8]) -> String {
-    crate::fmt::hex(b)
-}
-
-fn unhex32(s: &str) -> Option<[u8; 32]> {
-    if s.len() != 64 {
-        return None;
-    }
-    let mut out = [0u8; 32];
-    for (i, o) in out.iter_mut().enumerate() {
-        *o = u8::from_str_radix(s.get(2 * i..2 * i + 2)?, 16).ok()?;
-    }
-    Some(out)
 }
 
 fn hex32(v: &Value) -> Option<[u8; 32]> {

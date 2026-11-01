@@ -22,12 +22,12 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::OsStr;
 use std::path::{MAIN_SEPARATOR_STR, Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
+use crate::clock::now;
 use crate::overlap::Overlap;
 use crate::recognise::{Entity, RootEntities};
 use crate::{Db, browse, names, paths};
@@ -200,12 +200,6 @@ pub struct Plan {
     pub drives: Vec<DriveOutcome>,
     pub copy_files: u64,
     pub copy_bytes: u64,
-}
-
-fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
 }
 
 fn fact<'a>(e: &'a Entity, key: &str) -> Option<&'a str> {

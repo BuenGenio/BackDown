@@ -11,6 +11,7 @@
 pub mod alerts;
 pub mod apply;
 pub mod browse;
+pub mod clock;
 pub mod custody;
 pub mod db;
 pub mod dedup;

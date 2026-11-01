@@ -32,13 +32,14 @@ use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Instant, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::clock::now;
 use crate::custody::{self, Action, Event};
 use crate::{Db, fastcopy, fmt, paths};
 
@@ -82,12 +83,6 @@ const UNION: u8 = SEEN | REPLIED | FLAGGED | PASSED;
 
 /// Maildir's info separator: ':' where file names may hold it, '!' on Windows.
 const INFO: &str = if cfg!(windows) { "!2," } else { ":2," };
-
-fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
-}
 
 fn push(v: &mut Vec<String>, s: String) {
     if v.len() < 30 {

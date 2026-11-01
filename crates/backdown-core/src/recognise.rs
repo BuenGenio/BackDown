@@ -18,12 +18,12 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{MAIN_SEPARATOR_STR, Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
+use crate::clock::now;
 use crate::plist::{self, Plist};
 use crate::{Db, browse, fmt, names, paths, timemachine};
 
@@ -116,12 +116,6 @@ fn label(kind: &str) -> String {
         .find(|(k, _)| *k == kind)
         .map_or(kind, |(_, l)| l)
         .to_string()
-}
-
-fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
 }
 
 // ---------- names

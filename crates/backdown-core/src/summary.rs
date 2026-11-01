@@ -4,11 +4,11 @@
 //! pasting, HTML for a browser; both from the same `Summary`.
 
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
+use crate::clock::now;
 use crate::overlap::{Container, Overlap};
 use crate::recognise::{Entity, Junk, RootEntities};
 use crate::report::{self, Dupes, UniqueDir};
@@ -51,12 +51,6 @@ pub struct Verdict {
     pub unique_bytes: u64,
     pub unreadable_files: u64,
     pub top_unique: Vec<UniqueDir>,
-}
-
-fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
 }
 
 /// Put the report together from the index, the stored recognition (per root, and whether it's
