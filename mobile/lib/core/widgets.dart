@@ -211,24 +211,36 @@ class StatTile extends StatelessWidget {
               children: [
                 if (icon != null) ...[Icon(icon, size: 16, color: color ?? context.bd.muted), const SizedBox(width: 6)],
                 Expanded(
-                  child: Text(
-                    label,
-                    style: context.text.labelMedium?.copyWith(color: context.colors.onSurfaceVariant),
-                    overflow: TextOverflow.ellipsis,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      label,
+                      style: context.text.labelMedium?.copyWith(color: context.colors.onSurfaceVariant),
+                      maxLines: 1,
+                    ),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 6),
-            Text(
-              value,
-              style: context.text.titleLarge?.copyWith(fontWeight: FontWeight.w700, color: color),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            // a number is shrunk to fit a narrow phone rather than cut short
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                value,
+                style: context.text.titleLarge?.copyWith(fontWeight: FontWeight.w700, color: color),
+                maxLines: 1,
+              ),
             ),
             if (sub != null) ...[
               const SizedBox(height: 2),
-              Text(sub!, style: context.text.bodySmall?.copyWith(color: context.bd.muted), maxLines: 2),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(sub!, style: context.text.bodySmall?.copyWith(color: context.bd.muted), maxLines: 1),
+              ),
             ],
           ],
         ),

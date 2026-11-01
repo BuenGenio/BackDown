@@ -25,6 +25,12 @@ void main() {
       await shoot(t, 'drives$s');
     });
 
+    testWidgets('drives-small$s', (t) async {
+      // the emulator's 320 × 640: numbers shrink to fit rather than being cut
+      await pumpBackDown(t, prefs: prefs, size: const Size(320, 640));
+      await shoot(t, 'drives-small$s');
+    });
+
     testWidgets('folder$s', (t) async {
       final c = await pumpBackDown(t, prefs: prefs);
       await goTo(t, c, Routes.folder(keyOfPath('/media/sam/Seagate Expansion')));
