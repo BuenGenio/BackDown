@@ -46,7 +46,7 @@ fn count(db: &Db, sql: &str) -> i64 {
 
 #[test]
 fn wipe_deletes_only_what_is_kept_and_moves_the_rest() {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
     let old = tmp.path().join("media/OLD-USB");
     let keep = tmp.path().join("media/ARCHIVE");
     let rescued = tmp.path().join("media/ARCHIVE/Rescued");
@@ -155,7 +155,7 @@ fn wipe_deletes_only_what_is_kept_and_moves_the_rest() {
 
 #[test]
 fn trusting_the_index_still_needs_the_copy_to_be_there() {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
     let a = tmp.path().join("media/STICK");
     let b = tmp.path().join("media/ARCHIVE");
     write(&a.join("p.jpg"), &blob(1, 20_000));
