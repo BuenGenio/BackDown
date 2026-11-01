@@ -8,12 +8,18 @@
 //! notifications are on and within the limits (a few in any ten minutes, a dozen a day), so a bad
 //! morning with many drives doesn't become a wall of pop-ups: the rest wait, unread, in the list.
 //! A drive that's failing is the exception: that one always reaches the desktop.
+//!
+//! What a drive's new health reading is worth saying is decided here too (`drive_notes`: worse,
+//! failing, or only its cable), and which mirrors that drive holds (`mirrors_on`).
+
+use std::path::Path;
 
 use anyhow::Result;
 use rusqlite::{OptionalExtension, params};
 use serde::Serialize;
 
-use crate::Db;
+use crate::health::{Change, Health, Recorded, Verdict};
+use crate::{Db, fmt, mirror};
 
 /// Something to tell.
 #[derive(Debug, Clone, PartialEq)]
@@ -188,9 +194,129 @@ pub fn mark_read(db: &Db, id: Option<i64>) -> Result<usize> {
     })
 }
 
+// ---------- what a drive's new reading says
+
+/// The mirrors whose copies are on drive `h`: the deepest mount point (of every drive) holding
+/// the mirror's folder is one of `h`'s.
+pub fn mirrors_on<'a>(
+    h: &Health,
+    mirrors: &'a [mirror::Mirror],
+    drives: &[Health],
+) -> Vec<&'a mirror::Mirror> {
+    mirrors
+        .iter()
+        .filter(|m| {
+            let t = Path::new(&m.target);
+            drives
+                .iter()
+                .flat_map(|d| d.mounts.iter().map(move |mp| (d, mp)))
+                .filter(|(_, mp)| t.starts_with(mp.as_str()))
+                .max_by_key(|(_, mp)| mp.len())
+                .is_some_and(|(d, _)| d.device == h.device)
+        })
+        .collect()
+}
+
+/// What to tell about one reading: its verdict getting worse (once a week at most for the same
+/// verdict), or, short of that, counters getting worse (once a day at most per drive).
+pub fn drive_notes(h: &Health, r: &Recorded, on: &[&mirror::Mirror]) -> Vec<Note> {
+    let serious: Vec<&Change> = r
+        .changes
+        .iter()
+        .filter(|c| c.level.rank() > 0 && c.code != "verdict")
+        .collect();
+    let worsened = r.changes.iter().find(|c| c.code == "verdict");
+    if worsened.is_none() && serious.is_empty() {
+        return Vec::new();
+    }
+    let label = h.label();
+    let level = r
+        .changes
+        .iter()
+        .map(|c| c.level)
+        .max_by_key(|l| l.rank())
+        .unwrap_or(Verdict::Warning);
+    let cable_only = worsened.is_none() && serious.iter().all(|c| c.code == "crc");
+    let what = if serious.is_empty() {
+        worsened
+            .map(|w| w.text.split_once(": ").map_or(w.text.as_str(), |(_, x)| x))
+            .unwrap_or("")
+            .to_string()
+    } else {
+        serious
+            .iter()
+            .map(|c| c.text.as_str())
+            .collect::<Vec<_>>()
+            .join("; ")
+    };
+    let advice = if cable_only {
+        ""
+    } else if level == Verdict::Failing {
+        " Copy what matters off it now: BackDown's Rescue can copy the whole drive."
+    } else {
+        " Make sure what's on it has another copy."
+    };
+    // the mirrored folder by its last two names: enough to recognise, short enough for a pop-up
+    let short = |p: &str| {
+        let parts: Vec<String> = Path::new(p)
+            .iter()
+            .map(|c| c.to_string_lossy().into_owned())
+            .filter(|c| !c.is_empty() && c != "/" && c != "\\")
+            .collect();
+        if parts.len() <= 2 {
+            p.to_string()
+        } else {
+            format!("…/{}", parts[parts.len() - 2..].join("/"))
+        }
+    };
+    let mirror_line = if !on.is_empty() && !cable_only {
+        format!(
+            " It holds the mirror of {}: this mirror drive is dying, add another mirror.",
+            on.iter()
+                .map(|m| short(&m.source))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    } else {
+        String::new()
+    };
+    let (title, key, quiet) = match worsened {
+        Some(_) if level == Verdict::Failing => (
+            format!("{label} is failing"),
+            format!("health:{}:verdict:failing", h.id),
+            7 * 86_400,
+        ),
+        Some(_) => (
+            format!("{label} needs watching"),
+            format!("health:{}:verdict:{}", h.id, level.as_str()),
+            7 * 86_400,
+        ),
+        None if cable_only => (
+            format!("Transfer errors on {label}"),
+            format!("health:{}:cable", h.id),
+            20 * 3600,
+        ),
+        None => (
+            format!("{label} is getting worse"),
+            format!("health:{}:worse", h.id),
+            20 * 3600,
+        ),
+    };
+    vec![Note {
+        kind: "health",
+        key,
+        level: level.as_str(),
+        title,
+        body: format!("{}.{advice}{mirror_line}", fmt::capitalised(&what)),
+        drive: Some(h.id.clone()),
+        quiet_for: quiet,
+    }]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::health;
 
     fn note(key: &str) -> Note {
         Note {
@@ -292,5 +418,110 @@ mod tests {
         assert_eq!(mark_read(&db, None).unwrap(), 3);
         assert_eq!(unread(&db).unwrap(), 0);
         assert!(list(&db, 10).unwrap().iter().all(|s| s.read));
+    }
+
+    fn reading(realloc: u64, at: i64) -> Health {
+        Health {
+            id: "sn:FAKE0001".into(),
+            device: "/dev/sdb".into(),
+            name: "sdb".into(),
+            model: Some("FAKEDISK HD4000".into()),
+            serial: Some("FAKE0001".into()),
+            rotational: Some(true),
+            reported: Some(Verdict::Ok),
+            reallocated: Some(realloc),
+            pending: Some(0),
+            mounts: vec!["/media/someone/Mirror".into()],
+            read_at: at,
+            ..Health::default()
+        }
+    }
+
+    fn mirror_to(target: &str) -> mirror::Mirror {
+        mirror::Mirror {
+            id: 1,
+            source: "/home/someone/Archive".into(),
+            target: target.into(),
+            created_at: 0,
+            verify_every_days: 30,
+            last_sync: None,
+            last_sync_summary: None,
+            last_verify: None,
+            last_verify_summary: None,
+            last_verify_ok: None,
+        }
+    }
+
+    #[test]
+    fn notes_say_what_got_worse_and_about_mirrors() {
+        let prev = reading(0, 1_000);
+        let cur = reading(3, 2_000);
+        let r = Recorded {
+            stored: true,
+            first: false,
+            before: Some(Verdict::Ok),
+            verdict: Verdict::Warning,
+            changes: health::step(Some(&prev), &cur),
+        };
+        let mirrors = [mirror_to("/media/someone/Mirror/Archive")];
+        let root = Health {
+            device: "/dev/nvme0n1".into(),
+            mounts: vec!["/".into()],
+            ..Health::default()
+        };
+        let all = [root.clone(), cur.clone()];
+        let on = mirrors_on(&cur, &mirrors, &all);
+        assert_eq!(on.len(), 1);
+        // the system drive's "/" holds it too, but less deeply
+        assert!(mirrors_on(&root, &mirrors, &all).is_empty());
+        let n = drive_notes(&cur, &r, &on);
+        assert_eq!(n.len(), 1);
+        assert_eq!(n[0].title, "FAKEDISK HD4000 needs watching");
+        assert_eq!(n[0].key, "health:sn:FAKE0001:verdict:warning");
+        assert_eq!(n[0].level, "warning");
+        assert!(n[0].body.starts_with("3 more sectors have gone bad"));
+        assert!(n[0].body.contains(
+            "It holds the mirror of …/someone/Archive: this mirror drive is dying, add another mirror."
+        ));
+        // not about a mirror elsewhere
+        let elsewhere = [mirror_to("/media/other/Archive")];
+        let n = drive_notes(&cur, &r, &mirrors_on(&cur, &elsewhere, &all));
+        assert!(!n[0].body.contains("mirror"));
+
+        // already warning, more sectors: "getting worse", at most daily
+        let next = reading(7, 3_000);
+        let r = Recorded {
+            changes: health::step(Some(&cur), &next),
+            verdict: Verdict::Warning,
+            ..Recorded::default()
+        };
+        let n = drive_notes(&next, &r, &[]);
+        assert_eq!(n[0].title, "FAKEDISK HD4000 is getting worse");
+        assert_eq!(n[0].key, "health:sn:FAKE0001:worse");
+        // nothing new: nothing to say
+        let r = Recorded {
+            changes: health::step(Some(&next), &next),
+            ..Recorded::default()
+        };
+        assert!(drive_notes(&next, &r, &[]).is_empty());
+    }
+
+    #[test]
+    fn cable_errors_are_about_the_cable() {
+        let mut a = reading(0, 1_000);
+        a.crc_errors = Some(2);
+        let mut b = a.clone();
+        b.read_at = 2_000;
+        b.crc_errors = Some(40);
+        let r = Recorded {
+            changes: health::step(Some(&a), &b),
+            ..Recorded::default()
+        };
+        let m = [mirror_to("/media/someone/Mirror/x")];
+        let n = drive_notes(&b, &r, &m.iter().collect::<Vec<_>>());
+        assert_eq!(n[0].title, "Transfer errors on FAKEDISK HD4000");
+        assert!(n[0].body.contains("cable"));
+        assert!(!n[0].body.contains("Copy what matters"));
+        assert!(!n[0].body.contains("dying"));
     }
 }
