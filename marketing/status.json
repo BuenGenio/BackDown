@@ -1,6 +1,6 @@
 {
   "_comment": "The /status/ page's roadmap and changelog. Text fields are {lang: text}; a missing language falls back to English (marked lang=en), so English can be updated first. Keep it public-safe: no real paths, hosts or drive names.",
-  "updated": "2026-10-04",
+  "updated": "2026-11-02",
   "now": [
     {
       "state": "done",
@@ -143,6 +143,45 @@
         "cs": "Beta verze 1.0 se vším výše uvedeným a instalátory pro Linux, macOS a Windows",
         "sk": "Beta verzie 1.0 so všetkým uvedeným vyššie a inštalátormi pre Linux, macOS a Windows",
         "uk": "Бета-версія 1.0 з усім переліченим вище та інсталяторами для Linux, macOS і Windows"
+      }
+    },
+    {
+      "state": "done",
+      "text": {
+        "en": "The swarm: every machine as one, where any file is, and a shared pool that drives are filed into from any machine",
+        "es": "El enjambre: todas las máquinas como una, dónde está cualquier archivo y un fondo común en el que se archivan los discos desde cualquier máquina",
+        "pt-br": "O enxame: todas as máquinas como uma, onde está qualquer arquivo e um pool compartilhado no qual os discos são arquivados de qualquer máquina",
+        "de": "Der Schwarm: alle Rechner als einer, wo eine Datei liegt, und ein gemeinsamer Pool, in den Laufwerke von jedem Rechner aus eingeordnet werden",
+        "pl": "Rój: wszystkie maszyny jako jedna, gdzie jest dowolny plik, i wspólna pula, do której dyski są porządkowane z dowolnej maszyny",
+        "cs": "Roj: všechny počítače jako jeden, kde je kterýkoli soubor, a společný fond, do kterého se disky třídí z kteréhokoli počítače",
+        "sk": "Roj: všetky počítače ako jeden, kde je ktorýkoľvek súbor, a spoločný fond, do ktorého sa disky triedia z ktoréhokoľvek počítača",
+        "uk": "Рій: усі машини як одна, де лежить будь-який файл, і спільний пул, до якого диски розкладаються з будь-якої машини"
+      }
+    },
+    {
+      "state": "done",
+      "text": {
+        "en": "People and databases gathered across drives, and search inside mail and databases that reuses the indexes already there",
+        "es": "Personas y bases de datos reunidas de todos los discos, y búsqueda dentro del correo y las bases de datos que reutiliza los índices ya existentes",
+        "pt-br": "Pessoas e bancos de dados reunidos de todos os discos, e busca dentro de e-mails e bancos de dados que reaproveita os índices já existentes",
+        "de": "Personen und Datenbanken über alle Laufwerke hinweg gesammelt, und Suche in Mails und Datenbanken, die die vorhandenen Indizes wiederverwendet",
+        "pl": "Osoby i bazy danych zebrane ze wszystkich dysków oraz wyszukiwanie wewnątrz poczty i baz danych wykorzystujące istniejące indeksy",
+        "cs": "Lidé a databáze shromáždění napříč disky a hledání uvnitř pošty a databází, které využívá už existující indexy",
+        "sk": "Ľudia a databázy zhromaždené naprieč diskami a hľadanie vnútri pošty a databáz, ktoré využíva už existujúce indexy",
+        "uk": "Люди й бази даних, зібрані з усіх дисків, і пошук усередині пошти та баз даних, що повторно використовує наявні індекси"
+      }
+    },
+    {
+      "state": "done",
+      "text": {
+        "en": "A phone app for Android and iOS, and files opened or fetched from whichever machine holds them",
+        "es": "Una app para Android e iOS, y archivos abiertos o traídos desde la máquina que los tenga",
+        "pt-br": "Um app para Android e iOS, e arquivos abertos ou trazidos de qualquer máquina que os tenha",
+        "de": "Eine App für Android und iOS, und Dateien geöffnet oder geholt von welchem Rechner auch immer sie hat",
+        "pl": "Aplikacja na Androida i iOS oraz pliki otwierane lub pobierane z tej maszyny, która je ma",
+        "cs": "Aplikace pro Android a iOS a soubory otevřené nebo stažené z kteréhokoli počítače, který je má",
+        "sk": "Aplikácia pre Android a iOS a súbory otvorené alebo stiahnuté z ktoréhokoľvek počítača, ktorý ich má",
+        "uk": "Застосунок для Android та iOS і файли, відкриті чи отримані з тієї машини, де вони є"
       }
     },
     {
@@ -371,6 +410,20 @@
     }
   ],
   "shipped": [
+    {
+      "date": "2026-11-02",
+      "version": "v1.0.0-beta.5",
+      "text": {
+        "en": "The swarm: every machine you run BackDown on as one, with each machine's drives and free space, a search for where any file is, and a shared pool that drives are filed into from any machine, one verified copy of each file, then freed. People and databases gathered across drives from mail stores, Nextcloud data, home folders, site configs and dumps; search inside mail and databases (<code>backdown search</code>) that reuses Dovecot's own index and SQLite's full-text tables; a file opened, previewed or fetched from whichever machine holds it; a phone app for Android and iOS; removing a drive from the index; Settings in tabs. Several machines is free now.",
+        "es": "El enjambre: todas las máquinas en las que ejecutas BackDown como una sola, con los discos y el espacio libre de cada una, una búsqueda de dónde está cualquier archivo y un fondo común en el que se archivan los discos desde cualquier máquina, una copia verificada de cada archivo, y luego se liberan. Personas y bases de datos reunidas de todos los discos a partir de buzones de correo, datos de Nextcloud, carpetas personales, configuraciones de sitios y volcados; búsqueda dentro del correo y las bases de datos (<code>backdown search</code>) que reutiliza el índice propio de Dovecot y las tablas de texto completo de SQLite; abrir, previsualizar o traer un archivo desde la máquina que lo tenga; una app para Android e iOS; quitar un disco del índice; Ajustes en pestañas. Varias máquinas ahora es gratis.",
+        "pt-br": "O enxame: todas as máquinas em que você roda o BackDown como uma só, com os discos e o espaço livre de cada uma, uma busca de onde está qualquer arquivo e um pool compartilhado no qual os discos são arquivados a partir de qualquer máquina, uma cópia verificada de cada arquivo, e depois liberados. Pessoas e bancos de dados reunidos de todos os discos a partir de caixas de e-mail, dados do Nextcloud, pastas pessoais, configurações de sites e dumps; busca dentro de e-mails e bancos de dados (<code>backdown search</code>) que reaproveita o índice do próprio Dovecot e as tabelas de texto completo do SQLite; abrir, visualizar ou trazer um arquivo de qualquer máquina que o tenha; um app para Android e iOS; remover um disco do índice; Configurações em abas. Várias máquinas agora é grátis.",
+        "de": "Der Schwarm: alle Rechner, auf denen BackDown läuft, als einer, mit den Laufwerken und dem freien Platz jedes Rechners, einer Suche danach, wo eine Datei liegt, und einem gemeinsamen Pool, in den Laufwerke von jedem Rechner aus eingeordnet werden, eine geprüfte Kopie jeder Datei, und dann freigegeben. Personen und Datenbanken, über alle Laufwerke hinweg gesammelt aus Mailspeichern, Nextcloud-Daten, Home-Ordnern, Website-Konfigurationen und Dumps; Suche in Mails und Datenbanken (<code>backdown search</code>), die Dovecots eigenen Index und SQLites Volltexttabellen wiederverwendet; eine Datei öffnen, ansehen oder holen, von welchem Rechner auch immer sie hat; eine App für Android und iOS; ein Laufwerk aus dem Index entfernen; Einstellungen in Tabs. Mehrere Rechner ist jetzt kostenlos.",
+        "pl": "Rój: wszystkie maszyny, na których działa BackDown, jako jedna, z dyskami i wolnym miejscem każdej z nich, wyszukiwaniem, gdzie jest dowolny plik, i wspólną pulą, do której dyski są porządkowane z dowolnej maszyny, po jednej zweryfikowanej kopii każdego pliku, a potem zwalniane. Osoby i bazy danych zebrane ze wszystkich dysków z archiwów poczty, danych Nextcloud, katalogów domowych, konfiguracji stron i zrzutów; wyszukiwanie wewnątrz poczty i baz danych (<code>backdown search</code>), które wykorzystuje własny indeks Dovecota i tabele pełnotekstowe SQLite; otwieranie, podgląd lub pobranie pliku z tej maszyny, która go ma; aplikacja na Androida i iOS; usuwanie dysku z indeksu; Ustawienia w zakładkach. Kilka maszyn jest teraz darmowe.",
+        "cs": "Roj: všechny počítače, na kterých běží BackDown, jako jeden, s disky a volným místem každého z nich, hledáním, kde se kterýkoli soubor nachází, a společným fondem, do kterého se disky třídí z kteréhokoli počítače, jedna ověřená kopie každého souboru, a pak se uvolní. Lidé a databáze shromáždění napříč disky z poštovních úložišť, dat Nextcloudu, domovských složek, konfigurací webů a výpisů; hledání uvnitř pošty a databází (<code>backdown search</code>), které využívá vlastní index Dovecotu a fulltextové tabulky SQLite; otevření, náhled nebo stažení souboru z kteréhokoli počítače, který ho má; aplikace pro Android a iOS; odebrání disku z indexu; Nastavení v záložkách. Více počítačů je nyní zdarma.",
+        "sk": "Roj: všetky počítače, na ktorých beží BackDown, ako jeden, s diskami a voľným miestom každého z nich, hľadaním, kde sa ktorýkoľvek súbor nachádza, a spoločným fondom, do ktorého sa disky triedia z ktoréhokoľvek počítača, jedna overená kópia každého súboru, a potom sa uvoľnia. Ľudia a databázy zhromaždené naprieč diskami z poštových úložísk, dát Nextcloudu, domovských priečinkov, konfigurácií webov a výpisov; hľadanie vnútri pošty a databáz (<code>backdown search</code>), ktoré využíva vlastný index Dovecotu a fulltextové tabuľky SQLite; otvorenie, náhľad alebo stiahnutie súboru z ktoréhokoľvek počítača, ktorý ho má; aplikácia pre Android a iOS; odobratie disku z indexu; Nastavenia v záložkách. Viac počítačov je teraz zadarmo.",
+        "uk": "Рій: усі машини, на яких працює BackDown, як одна, з дисками й вільним місцем кожної, пошуком того, де лежить будь-який файл, і спільним пулом, до якого диски розкладаються з будь-якої машини, по одній перевіреній копії кожного файлу, а потім звільняються. Люди й бази даних, зібрані з усіх дисків із поштових сховищ, даних Nextcloud, домашніх тек, конфігурацій сайтів і дампів; пошук усередині пошти та баз даних (<code>backdown search</code>), що повторно використовує власний індекс Dovecot і повнотекстові таблиці SQLite; відкрити, переглянути чи отримати файл з тієї машини, де він є; застосунок для Android та iOS; вилучення диска з індексу; Налаштування у вкладках. Кілька машин тепер безкоштовно."
+      }
+    },
     {
       "date": "2026-10-04",
       "version": "v1.0.0-beta.4",
