@@ -218,6 +218,7 @@ async function loadFile(rid) {
   try { f = await api('machine-file', { m: M.cur, id: rid }); } catch (e) { if (seq === M.fseq) $('#mc-detail').innerHTML = `<p class="note">${esc(e.message)}</p>`; return; }
   if (seq !== M.fseq) return;
   M.file = f;
+  M.rid = rid;
   $('#mc-detail').innerHTML = detailHtml();
 }
 
@@ -242,7 +243,12 @@ function detailHtml() {
     ${there.length ? `<h4>Other copies on ${esc(m?.name)} (${there.length})</h4>${there.map(c => `<p class="mc-path">${esc(c.path)}</p>`).join('')}` : ''}
     ${others.length ? `<h4>On other machines (${others.length})</h4>${others.map(copyRow).join('')}` : ''}
     ${(f.versions || []).length > 1 ? `<h4>Versions there (${f.versions.length})</h4>${[...f.versions].reverse().map(x => `<div class="ver"><span class="when">${esc(new Date(x.from * 1000).toLocaleDateString())}</span><span class="meta">${bytes(x.size)}${x.sha256 ? ` · ${x.sha256.slice(0, 10)}…` : ''}</span></div>`).join('')}` : ''}
-    <p class="note">To open it, open it on ${esc(m?.name)}: BackDown doesn’t bring files over from other machines.</p>`;
+    <div class="mc-actions">
+      <a class="btn sm" href="/api/content?m=${M.cur}&id=${M.rid}" target="_blank" rel="noopener">Preview</a>
+      <a class="btn sm" href="/api/content?m=${M.cur}&id=${M.rid}&download=1" download="${esc(f.name)}">Download a copy</a>
+      <button class="btn sm" type="button" data-mc-open="${M.rid}">Open</button>
+    </div>
+    <p class="note">Opening or downloading brings this file here from ${esc(m?.name)} over ssh, only then, and only if it's still as ${esc(m?.name)} indexed it${f.size > 256 * 1024 * 1024 ? '; this one is too big to keep in the cache here, so it streams each time' : '; files up to 256 MB are kept in a small cache here for a while'}.</p>`;
 }
 
 function copyRow(c) {
@@ -320,6 +326,16 @@ async function onClick(e) {
   const t = e.target;
   const add = t.closest('[data-mc-add]');
   if (add) return showAdd();
+  const op = t.closest('[data-mc-open]');
+  if (op) {
+    // open with the system's app: fetched into the cache here first (serve.rs /api/open?m=)
+    op.disabled = true;
+    fetch(`/api/open?m=${M.cur}&id=${op.dataset.mcOpen}`, { method: 'POST', headers: { 'X-BackDown': '1' }, credentials: 'same-origin' })
+      .then(async r => { const j = await r.json().catch(() => ({})); if (!r.ok || j.error) throw new Error(j.error || r.statusText); })
+      .catch(err => toast(err.message))
+      .finally(() => { op.disabled = false; });
+    return;
+  }
   const loc = t.closest('[data-mc-local]');
   if (loc) return hooks.openLocal(loc.dataset.mcLocal, loc.dataset.mcLocalSel);
   const sync = t.closest('[data-mc-sync]');

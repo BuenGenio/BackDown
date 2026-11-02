@@ -812,3 +812,178 @@ fn a_drive_there_is_planned_and_copied_there_when_asked_from_here() {
     );
     assert_eq!(g["data"]["state"], "done");
 }
+
+/// A file on the other machine is brought here by `remote fetch`, by path or by id, checked
+/// against the hash there; one that changed there since its scan is refused; and the bytes stop
+/// at the right place so the conversation can go on.
+#[test]
+fn a_file_is_fetched_from_the_other_machine() {
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/tmp");
+    fs::create_dir_all(&base).unwrap();
+    let tmp = tempfile::tempdir_in(&base).unwrap();
+    let e = Env::new(tmp.path());
+    // the NAS: one drive with a photo and a big-ish document, indexed and hashed there
+    let nas = e.root.join("nas");
+    let photo = blob(7, 300 * 1024 + 17);
+    write(&nas.join("volume1/Photos/holiday.jpg"), &photo);
+    // a second copy there, so hashing there goes to SHA-256 (a lone file gets a sample only)
+    write(&nas.join("volume1/Backup/holiday.jpg"), &photo);
+    write(
+        &nas.join("volume1/Docs/notes.txt"),
+        b"first line\nsecond line\n",
+    );
+    // paths as the NAS's index spells them (canonical)
+    let nas = fs::canonicalize(&nas).unwrap();
+    let nas_db = e.root.join("nas.db");
+    e.ok(&nas_db, &["index", nas.join("volume1").to_str().unwrap()]);
+    e.ok(&nas_db, &["hash"]);
+    e.ok(
+        &e.local_db,
+        &[
+            "remote",
+            "add",
+            "nas",
+            "ssh://alice@nas.example.org",
+            "--remote-db",
+            nas_db.to_str().unwrap(),
+        ],
+    );
+    e.ok(&e.local_db, &["remote", "sync", "nas"]);
+
+    // by its path there, into a folder here: the same bytes, verified by the hash there
+    let here = e.root.join("here");
+    fs::create_dir_all(&here).unwrap();
+    let out = e.ok(
+        &e.local_db,
+        &[
+            "remote",
+            "fetch",
+            "nas",
+            nas.join("volume1/Photos/holiday.jpg").to_str().unwrap(),
+            "-o",
+            here.to_str().unwrap(),
+        ],
+    );
+    assert!(
+        out.contains("Fetched holiday.jpg") && out.contains("SHA-256 verified"),
+        "{out}"
+    );
+    assert_eq!(fs::read(here.join("holiday.jpg")).unwrap(), photo);
+    // never overwrites
+    let o = e.run(
+        &e.local_db,
+        &[
+            "remote",
+            "fetch",
+            "nas",
+            nas.join("volume1/Photos/holiday.jpg").to_str().unwrap(),
+            "-o",
+            here.to_str().unwrap(),
+        ],
+    );
+    assert!(!o.status.success());
+    assert!(String::from_utf8_lossy(&o.stderr).contains("exists already"));
+
+    // by its id there, to a named file
+    let id: i64 = {
+        let c = rusqlite::Connection::open(&nas_db).unwrap();
+        c.query_row(
+            "SELECT id FROM files WHERE current = 1 AND path LIKE '%notes.txt'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap()
+    };
+    let out = e.ok(
+        &e.local_db,
+        &[
+            "remote",
+            "fetch",
+            "nas",
+            &id.to_string(),
+            "-o",
+            here.join("the-notes.txt").to_str().unwrap(),
+        ],
+    );
+    assert!(out.contains("Fetched notes.txt"), "{out}");
+    assert_eq!(
+        fs::read_to_string(here.join("the-notes.txt")).unwrap(),
+        "first line\nsecond line\n"
+    );
+
+    // the file changed there since its scan: refused, nothing saved
+    write(
+        &nas.join("volume1/Docs/notes.txt"),
+        b"first line\nsecond line\nthird\n",
+    );
+    let o = e.run(
+        &e.local_db,
+        &[
+            "remote",
+            "fetch",
+            "nas",
+            &id.to_string(),
+            "-o",
+            here.join("again.txt").to_str().unwrap(),
+        ],
+    );
+    assert!(!o.status.success());
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(err.contains("changed since it was indexed"), "{err}");
+    assert!(!here.join("again.txt").exists() && !here.join("again.txt.part").exists());
+
+    // the protocol itself: an ok answer line, then exactly the bytes, then the next answer
+    let mut child = e
+        .command(&nas_db, &["serve-stdio"], false)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let photo_id: i64 = {
+        let c = rusqlite::Connection::open(&nas_db).unwrap();
+        c.query_row(
+            "SELECT id FROM files WHERE current = 1 AND path LIKE '%holiday.jpg'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap()
+    };
+    {
+        use std::io::Write;
+        let mut stdin = child.stdin.take().unwrap();
+        writeln!(
+            stdin,
+            r#"{{"id":1,"op":"get","file":{photo_id},"from":1000,"len":5000}}"#
+        )
+        .unwrap();
+        writeln!(stdin, r#"{{"id":2,"op":"status"}}"#).unwrap();
+        writeln!(
+            stdin,
+            r#"{{"id":3,"op":"get","file":{photo_id},"from":0,"len":999999999}}"#
+        )
+        .unwrap();
+    }
+    let mut out = Vec::new();
+    std::io::Read::read_to_end(&mut child.stdout.take().unwrap(), &mut out).unwrap();
+    child.wait().unwrap();
+    let nl = out.iter().position(|&b| b == b'\n').unwrap();
+    let first: Value = serde_json::from_slice(&out[..nl]).unwrap();
+    assert_eq!(first["ok"], true, "{first}");
+    assert_eq!(first["data"]["len"], 5000);
+    assert_eq!(first["data"]["size"], photo.len());
+    assert_eq!(first["data"]["name"], "holiday.jpg");
+    let bytes = &out[nl + 1..nl + 1 + 5000];
+    assert_eq!(bytes, &photo[1000..6000]);
+    let rest = &out[nl + 1 + 5000..];
+    let nl2 = rest.iter().position(|&b| b == b'\n').unwrap();
+    let second: Value = serde_json::from_slice(&rest[..nl2]).unwrap();
+    assert_eq!(second["id"], 2);
+    assert_eq!(second["ok"], true);
+    let third: Value =
+        serde_json::from_slice(rest[nl2 + 1..].split(|&b| b == b'\n').next().unwrap()).unwrap();
+    assert_eq!(third["ok"], false);
+    assert!(
+        third["error"].as_str().unwrap().contains("past the end"),
+        "{third}"
+    );
+}

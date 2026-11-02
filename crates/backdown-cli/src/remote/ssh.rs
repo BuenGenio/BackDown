@@ -120,7 +120,16 @@ pub struct SshPeer {
     lines: Receiver<Result<String, String>>,
     stderr: Arc<Mutex<String>>,
     next: u64,
+    /// set before a `get` is sent: after the next answer line that says ok, the reader passes
+    /// exactly this many raw bytes down the channel instead of reading lines
+    raw: RawMode,
 }
+
+/// How many raw bytes follow the next ok answer, and where they go.
+type RawMode = Arc<Mutex<Option<(u64, std::sync::mpsc::SyncSender<Vec<u8>>)>>>;
+
+/// A chunk of a fetched file's bytes, as the reader hands them over.
+pub const CHUNK: usize = 256 << 10;
 
 impl SshPeer {
     pub fn open(m: &Machine) -> Result<SshPeer> {
@@ -139,6 +148,8 @@ impl SshPeer {
             .context("can't run ssh: is OpenSSH installed?")?;
         let stdout = child.stdout.take().context("ssh's output")?;
         let (tx, rx) = channel();
+        let raw: RawMode = Arc::new(Mutex::new(None));
+        let raw_r = Arc::clone(&raw);
         std::thread::spawn(move || {
             let mut r = BufReader::new(stdout);
             loop {
@@ -154,8 +165,31 @@ impl SshPeer {
                     }
                     Ok(_) => {
                         let line = String::from_utf8_lossy(&buf).trim_end().to_string();
+                        // a `get` was asked: its ok answer is followed by the bytes, raw
+                        let pending = raw_r.lock().unwrap().take();
+                        let ok = line.contains("\"ok\":true");
                         if tx.send(Ok(line)).is_err() {
                             break;
+                        }
+                        if let Some((mut left, bytes)) = pending
+                            && ok
+                        {
+                            let mut chunk = vec![0u8; CHUNK];
+                            while left > 0 {
+                                let want = chunk.len().min(left as usize);
+                                match r.read(&mut chunk[..want]) {
+                                    Ok(0) | Err(_) => break, // short: the receiver notices
+                                    Ok(n) => {
+                                        left -= n as u64;
+                                        if bytes.send(chunk[..n].to_vec()).is_err() {
+                                            break; // nobody wants the rest: the connection goes
+                                        }
+                                    }
+                                }
+                            }
+                            if left > 0 {
+                                break;
+                            }
                         }
                     }
                     Err(e) => {
@@ -190,7 +224,66 @@ impl SshPeer {
             lines: rx,
             stderr,
             next: 0,
+            raw,
         })
+    }
+
+    /// Ask for a file's bytes (`get`): the plan the other end answered with (size, mtime, name,
+    /// sha256, from, len), and the channel its bytes arrive on, in order, `len` of them in all.
+    /// Fewer means the conversation died (the file changed, or the link); the caller counts.
+    pub fn fetch(
+        &mut self,
+        file: i64,
+        from: Option<u64>,
+        len: Option<u64>,
+        timeout: Duration,
+    ) -> Result<(Value, Receiver<Vec<u8>>)> {
+        // how many bytes to expect: asked for, or the whole file, which `file` tells
+        let expect = match len {
+            Some(l) => l,
+            None => {
+                let f = self.call("file", json!({ "file": file }), timeout)?;
+                let size = f["size"].as_u64().context("no size for that file")?;
+                size.saturating_sub(from.unwrap_or(0))
+            }
+        };
+        let (btx, brx) = std::sync::mpsc::sync_channel::<Vec<u8>>(32);
+        *self.raw.lock().unwrap() = Some((expect, btx));
+        let v = self.exchange(
+            "get",
+            json!({ "file": file, "from": from, "len": Some(expect) }),
+            None,
+            timeout,
+        );
+        let v = match v {
+            Ok(v) => v,
+            Err(e) => {
+                *self.raw.lock().unwrap() = None;
+                return Err(e);
+            }
+        };
+        if v["ok"] != true {
+            *self.raw.lock().unwrap() = None; // the reader took it already, but be sure
+            bail!(
+                "{}: {}",
+                self.name,
+                v["error"].as_str().unwrap_or("it refused the request")
+            );
+        }
+        let plan = v["data"].clone();
+        if plan["len"].as_u64() != Some(expect) {
+            let _ = self.child.kill();
+            bail!(
+                "{} promised a different number of bytes than asked",
+                self.name
+            );
+        }
+        Ok((plan, brx))
+    }
+
+    /// End this conversation now (after a short read, for one).
+    pub fn abandon(mut self) {
+        let _ = self.child.kill();
     }
 
     /// Why the conversation ended, in words: from what ssh (or the other end) said.

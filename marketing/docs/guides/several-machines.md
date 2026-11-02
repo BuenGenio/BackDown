@@ -91,7 +91,22 @@ With `--trust-index`, the other machine only checks that its copy is still there
 
 ## Browse a machine
 
-Each machine in the sidebar opens its page: whether it can be reached, when it was synced, its drives (and whether their copies count), **Sync now**, **Test connection** and **Remove…**. Its drives can be browsed, read-only: live over ssh as its last scan saw them, or from what was synced when it can't be reached. A file's details show its hash there and its copies here and elsewhere. Files there don't open or preview here: "To open it, open it on nas: BackDown doesn't bring files over from other machines."
+Each machine in the sidebar opens its page: whether it can be reached, when it was synced, its drives (and whether their copies count), **Sync now**, **Test connection** and **Remove…**. Its drives can be browsed, read-only: live over ssh as its last scan saw them, or from what was synced when it can't be reached. A file's details show its hash there and its copies here and elsewhere.
+
+## Open, preview or save a file that's there {#fetch}
+
+A file's details on a machine's page have **Preview**, **Download a copy** and **Open**. Each brings that one file here over the same ssh connection, only then: the other machine reads it only if it's still exactly as its index scanned it (same size and date), and says so otherwise. Files up to 256 MB are kept in a small cache here (`remote-cache` beside the index, 2 GB in all, the least recently used going first), so a second look or a video seek costs nothing more; bigger files stream the part asked for each time. In a terminal:
+
+```sh
+backdown remote fetch nas /volume1/Photos/2019/IMG_0412.jpg -o ~/Pictures/
+backdown remote fetch nas 18233 -o ./notes.txt     # by its id in the NAS's index
+```
+
+```text
+Fetched IMG_0412.jpg (3.1 MB) from nas: /volume1/Photos/2019/IMG_0412.jpg → /home/you/Pictures/IMG_0412.jpg; SHA-256 verified
+```
+
+The path is the one `remote sync` saw; the bytes are hashed on the way and compared with the hash the other machine has, when it has one. Nothing is overwritten. Indexing stays each machine's own business: this reads one file you asked for, never a drive.
 
 To forget a machine: `backdown remote remove nas` (or **Remove…**). Nothing on it is touched; its copies stop counting here.
 
@@ -99,7 +114,7 @@ To forget a machine: `backdown remote remove nas` (or **Remove…**). Nothing on
 
 - BackDown runs your system's own `ssh`, as you, with your keys, agent, `known_hosts` and `~/.ssh/config`. It adds `BatchMode=yes`, so ssh never asks for a password, and turns off agent and X11 forwarding. Host keys are checked as your ssh configuration says.
 - Nothing listens on the network, here or there. On the other machine, ssh starts `backdown serve-stdio`, which answers questions about its index over the ssh connection and exits when it closes. It opens the index read-only, never creates or changes one, and reads a file only to hash it when asked, and only if it's still as indexed.
-- What travels is index entries (paths, sizes, dates, hashes), hashes, and what that machine's BackDown last read of its drives' health (their SMART readings, verdicts and its drive-health notifications), never files' contents.
+- What travels is index entries (paths, sizes, dates, hashes), hashes, and what that machine's BackDown last read of its drives' health (their SMART readings, verdicts and its drive-health notifications). A file's contents travel only when you open, preview, download or `remote fetch` it, one file at a time, and only from that machine's indexed drives.
 
 ## When it can't connect
 
@@ -115,7 +130,7 @@ To forget a machine: `backdown remote remove nas` (or **Remove…**). Nothing on
 
 ## Not yet
 
-Windows computers can't be the other end yet (they can be this end). Files on another machine can't be opened or previewed here.
+Windows computers can't be the other end yet (they can be this end).
 
 ## Further
 

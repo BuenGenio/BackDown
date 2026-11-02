@@ -69,7 +69,7 @@ test('refuses a key that is not the release key built into the app', () => {
   const dir = temp();
   const k = throwaway(dir);
   const sums = sumsIn(dir);
-  const app = readFileSync(join(repo, 'crates/backdown-cli/src/update.rs'), 'utf8').match(/hex32\(\s*"([0-9a-f]{64})"\s*\)/)[1];
+  const app = readFileSync(join(repo, 'crates/backdown-cli/src/update/mod.rs'), 'utf8').match(/hex32\(\s*"([0-9a-f]{64})"\s*\)/)[1];
   const r = run('node', [signer, sums], { BACKDOWN_RELEASE_KEY: k.path });
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, /isn't the release-signing key/);
@@ -136,7 +136,7 @@ const TAG = 'v9.9.9';
 function fakeRepo({ fakeNode } = {}) {
   const root = temp();
   for (const d of ['scripts/release-notes', 'crates/backdown-cli/src', 'fakebin', `target/dist/${TAG}`]) mkdirSync(join(root, d), { recursive: true });
-  for (const f of ['scripts/publish-release.sh', 'scripts/sign-release.mjs', 'crates/backdown-cli/src/update.rs']) copyFileSync(join(repo, f), join(root, f));
+  for (const f of ['scripts/publish-release.sh', 'scripts/sign-release.mjs', 'crates/backdown-cli/src/update/mod.rs']) { mkdirSync(dirname(join(root, f)), { recursive: true }); copyFileSync(join(repo, f), join(root, f)); }
   chmodSync(join(root, 'scripts/publish-release.sh'), 0o755);
   writeFileSync(join(root, `scripts/release-notes/${TAG}.md`), 'notes\n');
   const git = (...a) => {
