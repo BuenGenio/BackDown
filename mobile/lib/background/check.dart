@@ -159,7 +159,7 @@ const unreachableAfter = Duration(hours: 3);
 const maxNoteNotices = 3;
 
 /// A job that's worth a "done": copying, freeing up and rescues always (someone started them), and
-/// scans, hashing and syncs that took five minutes or more.
+/// scans, hashing, syncs and drive removals that took five minutes or more.
 bool isLongJob(Job j) {
   if (!longJobKinds.contains(j.kind)) return false;
   if (const {'apply', 'wipe', 'rescue'}.contains(j.kind)) return true;

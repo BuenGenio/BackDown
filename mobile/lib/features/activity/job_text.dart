@@ -23,7 +23,11 @@ String jobTitle(Job j, {String Function(String path)? driveName, String? rescueN
     'mail-merge' => 'Merge mailboxes (${p ?? 'merge'})',
     'indexes' || 'dupes-index' => 'Prepare the index for speed (once)',
     'attest' => 'Sign a manifest of ${name.isEmpty ? 'a drive' : name}',
-    _ => 'Hash new and changed files',
+    'forget' => 'Remove ${name.isEmpty ? 'a drive' : name} from the index',
+    'content' => 'Index what\'s inside the files',
+    'hash' => 'Hash new and changed files',
+    // a kind newer than this app: its own name rather than a wrong one
+    _ => j.kind,
   };
 }
 
@@ -40,6 +44,7 @@ String jobReason(String reason) => switch (reason) {
   'after-merge' => 'after merging mail',
   'after-sync' => 'after a machine\'s sync',
   'after-hash' => 'after hashing',
+  'resumed' => 'carrying on',
   _ => reason,
 };
 
@@ -57,6 +62,8 @@ IconData jobIcon(String kind) => switch (kind) {
   'wipe' => Icons.delete_outline,
   'rescue' => Icons.healing_outlined,
   'attest' => Icons.workspace_premium_outlined,
+  'forget' => Icons.remove_circle_outline,
+  'content' => Icons.manage_search,
   _ => Icons.settings_outlined,
 };
 
@@ -75,6 +82,8 @@ String jobKind(String kind) => switch (kind) {
   'wipe' => 'Freeing up',
   'rescue' => 'Rescue',
   'attest' => 'Manifest',
+  'forget' => 'Removing a drive from the index',
+  'content' => 'Indexing what\'s inside files',
   'indexes' || 'dupes-index' => 'Preparing the index',
   _ => kind,
 };
@@ -127,8 +136,8 @@ int? jobTook(Job j) {
 }
 
 /// The jobs that take long enough for a phone to be told when they're done: scans, hashing,
-/// copying, freeing up, rescues and syncs.
-const longJobKinds = {'index', 'hash', 'apply', 'wipe', 'rescue', 'remote-sync', 'mirror-sync', 'pool-send'};
+/// copying, freeing up, rescues, syncs and removing a drive from the index.
+const longJobKinds = {'index', 'hash', 'apply', 'wipe', 'rescue', 'remote-sync', 'mirror-sync', 'pool-send', 'forget'};
 
 /// A time that's already past ("3 minutes ago", "just now"), as [rel] says it but never "any
 /// moment": the service's seconds and the phone's whole seconds can make "now" look a moment ahead.

@@ -1859,7 +1859,8 @@ const jobName = j => j.kind === 'index' ? `Scan ${rootName(j.path)}` : j.kind ==
   : j.kind === 'dedup' ? `Tidy the archive (${j.path || 'dedup'})` : j.kind === 'mail-merge' ? `Merge mailboxes (${j.path || 'merge'})`
   : j.kind === 'indexes' || j.kind === 'dupes-index' ? 'Prepare the index for speed (once)'
   : j.kind === 'attest' ? `Sign a manifest of ${rootName(j.path)}`
-  : j.kind === 'forget' ? `Remove ${rootName(j.path)} from the index` : 'Hash new and changed files';
+  : j.kind === 'forget' ? `Remove ${rootName(j.path)} from the index`
+  : j.kind === 'content' ? 'Index what’s inside the files' : 'Hash new and changed files';
 function rescueJobName(j) {
   const r = RS.list.find(x => `rescue ${x.id}` === j.path);
   return r ? `${RS_TITLE[r.mode] || 'Rescue'}: ${baseName(r.source)}` : 'Rescue';
