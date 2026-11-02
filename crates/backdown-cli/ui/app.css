@@ -371,6 +371,9 @@ select{font:inherit;color:var(--ink);background:var(--view);border:1px solid var
 .pill.off{color:var(--ink-3)}
 .act-drives{background:var(--view);border:1px solid var(--line);border-radius:12px;overflow:hidden}
 .act-drives th{position:static;cursor:default}
+.act-drive-acts{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
+.btn.act-remove{color:var(--ink-3)}
+.btn.act-remove:hover:not(:disabled){color:var(--crit);border-color:color-mix(in srgb,var(--crit) 45%,var(--line-2))}
 .act-drives td small{display:block;font-size:.74rem;max-width:32ch;overflow:hidden;text-overflow:ellipsis}
 .act-foot{font-size:.78rem;line-height:1.6}
 .side-foot #status-act:empty{display:none}

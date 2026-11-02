@@ -47,10 +47,21 @@ pub struct Root {
 }
 
 pub fn roots(db: &Db) -> Result<Vec<Root>> {
-    let mut stmt = db.conn.prepare(
-        "SELECT r.id, r.path, r.last_scan, s.finished_at, COALESCE(s.files, 0), COALESCE(s.bytes, 0)
-         FROM roots r LEFT JOIN scans s ON s.id = r.last_scan ORDER BY r.path",
+    // drives being removed (forget.rs) are gone as far as anyone looking is concerned; an index
+    // opened read-only by an older version's schema may not have that table yet
+    let removing: bool = db.conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'roots_removing')",
+        [],
+        |r| r.get(0),
     )?;
+    let mut stmt = db.conn.prepare(if removing {
+        "SELECT r.id, r.path, r.last_scan, s.finished_at, COALESCE(s.files, 0), COALESCE(s.bytes, 0)
+         FROM roots r LEFT JOIN scans s ON s.id = r.last_scan
+         WHERE r.id NOT IN (SELECT root_id FROM roots_removing) ORDER BY r.path"
+    } else {
+        "SELECT r.id, r.path, r.last_scan, s.finished_at, COALESCE(s.files, 0), COALESCE(s.bytes, 0)
+         FROM roots r LEFT JOIN scans s ON s.id = r.last_scan ORDER BY r.path"
+    })?;
     let rows = stmt.query_map([], |r| {
         let path = paths::from_bytes(&r.get::<_, Vec<u8>>(1)?);
         Ok(Root {

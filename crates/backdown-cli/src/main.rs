@@ -76,6 +76,12 @@ enum Cmd {
         #[arg(long, default_value = "auto", value_parser = ["auto", "walk", "journal", "table"])]
         method: String,
     },
+    /// Remove an indexed drive or folder from the index: its files, folders, scans and what was
+    /// recognised on it (signed manifests and the chain of custody stay). Nothing on it is touched
+    Forget {
+        /// The drive or folder as it was indexed (`backdown status` lists them)
+        path: PathBuf,
+    },
     /// Hash only what could be a duplicate: size, then a sample, then full SHA-256
     Hash {
         #[command(flatten)]
@@ -865,6 +871,25 @@ fn local(db_path: &Path, cmd: Cmd, use_daemon: bool) -> Result<ExitCode> {
     }
     let mut db = Db::open(db_path)?;
     match cmd {
+        Cmd::Forget { path } => {
+            let abs = indexed_path(&path);
+            let gone = backdown_core::forget::forget(&db, &abs, &mut |p| {
+                live(&format!(
+                    "removing {}: {} {} of {}",
+                    abs.display(),
+                    p.stage,
+                    fmt::count(p.done),
+                    fmt::count(p.total)
+                ))
+            })?;
+            done(&format!(
+                "{} removed from the index: {} file versions, {} folder versions, {} scans (nothing on it was touched)",
+                abs.display(),
+                fmt::count(gone.files),
+                fmt::count(gone.dirs),
+                gone.scans
+            ));
+        }
         Cmd::Index {
             paths,
             cross_filesystems,
@@ -1125,6 +1150,13 @@ fn local(db_path: &Path, cmd: Cmd, use_daemon: bool) -> Result<ExitCode> {
 }
 
 /// The same commands, carried out by the running daemon.
+/// A drive's path as it was indexed (canonical), or as given when it can't be opened now (an
+/// unplugged drive can still be removed).
+fn indexed_path(path: &Path) -> PathBuf {
+    backdown_core::paths::canonical(path)
+        .unwrap_or_else(|_| std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()))
+}
+
 fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
     let mut follow = |c: &mut client::Client, job: u64, what: &str| -> Result<String> {
         let what = what.to_string();
@@ -1152,6 +1184,17 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
         Ok(())
     };
     match cmd {
+        Cmd::Forget { path } => {
+            let abs = indexed_path(&path);
+            let r =
+                c.request(&json!({ "cmd": "remove-drive", "path": abs.display().to_string() }))?;
+            let summary = follow(
+                &mut c,
+                r["job"].as_u64().unwrap_or(0),
+                &format!("removing {}", abs.display()),
+            )?;
+            eprintln!("{summary}");
+        }
         Cmd::Index {
             paths,
             cross_filesystems,
