@@ -20,6 +20,7 @@ pub mod extras;
 pub mod fastcopy;
 pub mod find;
 pub mod fmt;
+pub mod forget;
 pub mod fsread;
 pub mod fts;
 pub mod hash;

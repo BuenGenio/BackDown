@@ -523,6 +523,21 @@ fn handle(ctx: &Ctx, req: Request) {
         let _ = req.respond(resp);
         return;
     }
+    if *req.method() == Method::Post && path == "/api/drive-remove" {
+        // take an indexed drive out of the index (forget.rs); nothing on the drive is touched
+        let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
+        let resp = match (marked, &ctx.daemon, param("path")) {
+            (false, _, _) => plain(403, "missing X-BackDown header"),
+            (true, None, _) => json_resp(&json!({ "error": "removing a drive runs in the BackDown service: `backdown forget PATH` in a terminal" })).with_status_code(409),
+            (true, Some(_), None) => json_resp(&json!({ "error": "missing path" })).with_status_code(400),
+            (true, Some(d), Some(p)) => match d.remove_drive(p) {
+                Ok(job) => json_resp(&json!({ "ok": true, "job": job })),
+                Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
+            },
+        };
+        let _ = req.respond(resp);
+        return;
+    }
     if *req.method() == Method::Post && path == "/api/recognise" {
         let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
         let resp = match (marked, &ctx.daemon) {

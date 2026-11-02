@@ -282,6 +282,12 @@ CREATE TABLE IF NOT EXISTS root_drives (
     at      INTEGER NOT NULL,
     data    TEXT NOT NULL                 -- JSON: the disk (model, serial, size) and file system (label, UUID)
 );
+-- drives being removed from the index (forget.rs): not scanned again, and finished if a removal
+-- was interrupted. Added without a schema bump
+CREATE TABLE IF NOT EXISTS roots_removing (
+    root_id INTEGER PRIMARY KEY,          -- roots.id
+    at      INTEGER NOT NULL
+);
 ";
 const VERSION: i64 = 2;
 

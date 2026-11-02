@@ -113,8 +113,9 @@ pub struct JobOpts {
     pub root: Option<i64>,
 }
 
-/// Jobs in the main lane that can be stopped at their next file (and carried on later).
-const STOPPABLE: &[&str] = &["dedup", "mail-merge", "content"];
+/// Jobs in the main lane that can be stopped at their next file (and carried on later: a stopped
+/// scan keeps what it read, and the drive's next scan finishes it).
+const STOPPABLE: &[&str] = &["index", "dedup", "mail-merge", "content"];
 
 /// Jobs that can run for hours or days and hardly touch the index (copying a failing drive,
 /// searching a card for lost files, syncing another machine over ssh): they go in a lane of their
@@ -191,7 +192,7 @@ impl Daemon {
         }
         st.next += 1;
         let id = st.next;
-        if auto || kind == "index" {
+        if auto || kind == "index" || kind == "forget" {
             eprintln!(
                 "queued {kind}{}{}",
                 path.as_deref()
@@ -206,6 +207,7 @@ impl Daemon {
                     "after-merge" => " (after merging mail into it)",
                     "scheduled" => " (scheduled)",
                     "returned" => " (the drive is back)",
+                    "resumed" => " (carrying on where it stopped)",
                     _ => "",
                 }
             );
@@ -380,6 +382,41 @@ impl Daemon {
             .jobs
             .iter()
             .any(|j| kinds.contains(&j.kind) && (j.state == "queued" || j.state == "running"))
+    }
+
+    /// Remove an indexed drive from the index (forget.rs): its waiting scans are taken off the
+    /// queue, a running one is stopped, it's marked so the scheduler leaves it alone, and the
+    /// removal is queued behind whatever the worker is doing. Returns the removal's job id.
+    pub fn remove_drive(&self, path: &str) -> Result<u64> {
+        let db = Db::open(&self.db)?;
+        backdown_core::forget::mark(&db, Path::new(path))?;
+        drop(db);
+        // the drives list loses it at the scheduler's next look, in a few seconds
+        self.state.lock().unwrap().recheck = true;
+        let scans: Vec<(u64, &'static str)> = self
+            .state
+            .lock()
+            .unwrap()
+            .jobs
+            .iter()
+            .filter(|j| {
+                j.kind == "index"
+                    && j.path.as_deref() == Some(path)
+                    && matches!(j.state, "queued" | "running")
+            })
+            .map(|j| (j.id, j.state))
+            .collect();
+        for (id, state) in scans {
+            if let Err(e) = self.stop(id) {
+                eprintln!("removing {path}: couldn't stop its {state} scan: {e:#}");
+            }
+        }
+        Ok(self.enqueue(
+            "forget",
+            Some(path.to_string()),
+            "requested",
+            JobOpts::default(),
+        ))
     }
 
     fn pending_index(&self, path: &str) -> bool {
@@ -723,7 +760,8 @@ fn worker(d: &Daemon) {
             d.state.lock().unwrap().stops.insert(id, Arc::clone(&stop));
         }
         let result = match job.kind {
-            "index" => run_index(d, &mut db, &job),
+            "index" => run_index(d, &mut db, &job, &stop),
+            "forget" => run_forget(d, &db, &job),
             "entities" => run_entities(d, &db, &job),
             "apply" => run_apply(d, &mut db, &job),
             "mirror-sync" | "mirror-verify" => run_mirror(d, &db, &job),
@@ -749,7 +787,12 @@ fn worker(d: &Daemon) {
         d.state.lock().unwrap().stops.remove(&id);
         serve::forget_index_status();
         let stopped = stop.load(Ordering::Relaxed);
-        let ok = result.is_ok();
+        // a stopped scan isn't hashed or followed up: it carries on at the drive's next scan
+        let ok = result.is_ok() && !stopped;
+        if job.kind == "forget" {
+            // the drives list loses it now, not at the scheduler's next look
+            d.state.lock().unwrap().recheck = true;
+        }
         // a mirror that no longer matches, or a scheduled job that failed: tell someone
         crate::health::after_job(
             d,
@@ -1550,7 +1593,7 @@ fn run_content(d: &Daemon, db: &Db, job: &Job, stop: &Arc<AtomicBool>) -> Result
     })
 }
 
-fn run_index(d: &Daemon, db: &mut Db, job: &Job) -> Result<String> {
+fn run_index(d: &Daemon, db: &mut Db, job: &Job, stop: &Arc<AtomicBool>) -> Result<String> {
     let path = PathBuf::from(job.path.as_deref().context("index job without a path")?);
     let opts = index::Options {
         one_file_system: !job.opts.cross_filesystems,
@@ -1558,8 +1601,12 @@ fn run_index(d: &Daemon, db: &mut Db, job: &Job) -> Result<String> {
     };
     // the drive's previous scan is the best guess at how far this one has to go
     let before = d.drive(&path.display().to_string());
+    let mut seen = (0, 0);
+    // stopped at its next file when asked (Activity's Stop, or removing the drive)
+    let _stop = index::stop_when(stop);
     // the change log, the file table or a walk, whichever is safe and fastest (index.rs)
-    let st = index::scan(db, &path, &opts, job.opts.method, &mut |s| {
+    let scanned = index::scan(db, &path, &opts, job.opts.method, &mut |s| {
+        seen = (s.files, s.bytes);
         let msg = format!("{} files, {}", fmt::count(s.files), fmt::bytes(s.bytes));
         let counts = Counts {
             stage: "scanning",
@@ -1569,7 +1616,18 @@ fn run_index(d: &Daemon, db: &mut Db, job: &Job) -> Result<String> {
             total_bytes: before.as_ref().map_or(0, |b| b.bytes),
         };
         d.progress(job.id, msg, counts);
-    })?;
+    });
+    let st = match scanned {
+        Err(e) if e.is::<index::Stopped>() => {
+            return Ok(format!(
+                "{}: stopped after {} files, {}; what was read is kept, and its next scan carries on",
+                path.display(),
+                fmt::count(seen.0),
+                fmt::bytes(seen.1)
+            ));
+        }
+        r => r?,
+    };
     // which physical drive it is, so it can be named while unplugged or elsewhere (swarm.rs)
     backdown_core::swarm::remember_scanned(db, st.scan, &st.root);
     // files received into a pool folder here: their hashes, verified on arrival (pool/receive.rs)
@@ -1589,6 +1647,38 @@ fn run_index(d: &Daemon, db: &mut Db, job: &Job) -> Result<String> {
         } else {
             String::new()
         }
+    ))
+}
+
+/// Remove a drive and everything recorded of it from the index (forget.rs).
+fn run_forget(d: &Daemon, db: &Db, job: &Job) -> Result<String> {
+    let path = PathBuf::from(job.path.as_deref().context("forget job without a path")?);
+    let gone = backdown_core::forget::forget(db, &path, &mut |p| {
+        d.progress(
+            job.id,
+            match p.stage {
+                "done" => "finishing".into(),
+                s => format!(
+                    "removing {s}: {} of {}",
+                    fmt::count(p.done),
+                    fmt::count(p.total)
+                ),
+            },
+            Counts {
+                stage: "removing",
+                files: p.done,
+                total_files: p.total,
+                ..Counts::default()
+            },
+        );
+    })?;
+    Ok(format!(
+        "{} removed from the index: {} file versions, {} folder versions, {} scan{} (nothing on the drive was touched)",
+        path.display(),
+        fmt::count(gone.files),
+        fmt::count(gone.dirs),
+        gone.scans,
+        if gone.scans == 1 { "" } else { "s" }
     ))
 }
 
@@ -1676,10 +1766,25 @@ fn check_roots(d: &Daemon, present: &mut HashMap<String, bool>) -> Result<()> {
     })?;
     let now = now();
     let mut drives = Vec::new();
+    // drives being removed are left out, and a removal that was interrupted (the daemon stopped
+    // part way) is carried on
+    let removing: Vec<String> = backdown_core::forget::pending(&db)
+        .unwrap_or_default()
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect();
+    for path in &removing {
+        if !d.pending("forget", path) {
+            d.enqueue("forget", Some(path.clone()), "resumed", JobOpts::default());
+        }
+    }
     for row in rows {
         let (path, last, files, bytes, scan) = row?;
         let p = paths::from_bytes(&path);
         let key = p.display().to_string();
+        if removing.contains(&key) {
+            continue;
+        }
         let here = p.is_dir()
             && (files == 0 || std::fs::read_dir(&p).is_ok_and(|mut it| it.next().is_some()));
         let how = scan
@@ -1757,6 +1862,12 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
                 json!(serve::index_status(&ro()?, &d.db)?)
             };
             json!({ "ok": true, "index": index, "daemon": d.snapshot() })
+        }
+        "remove-drive" => {
+            let path = req["path"]
+                .as_str()
+                .context("remove-drive without a path")?;
+            json!({ "ok": true, "job": d.remove_drive(path)? })
         }
         "enqueue" => {
             let kind = match req["kind"].as_str() {

@@ -49,6 +49,50 @@ pub use changes::ChangeSet;
 const BATCH: u64 = 20_000;
 const MAX_ERRORS_KEPT: usize = 20;
 
+// ---------- stopping a scan part way
+
+thread_local! {
+    /// set by `stop_when` for the scans this thread makes; checked at every file
+    static STOP: std::cell::RefCell<Option<std::sync::Arc<std::sync::atomic::AtomicBool>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// A scan was asked to stop: what it read so far is committed (like an interrupted scan, the
+/// next one carries on from there) and it stays unfinished, so it never shows on the timeline.
+#[derive(Debug)]
+pub struct Stopped;
+
+impl std::fmt::Display for Stopped {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the scan was stopped")
+    }
+}
+
+impl std::error::Error for Stopped {}
+
+/// Until the guard is dropped, scans made on this thread stop at their next file once `flag` is
+/// set, with the error `Stopped`.
+pub fn stop_when(flag: &std::sync::Arc<std::sync::atomic::AtomicBool>) -> StopGuard {
+    STOP.with(|s| *s.borrow_mut() = Some(std::sync::Arc::clone(flag)));
+    StopGuard(())
+}
+
+pub struct StopGuard(());
+
+impl Drop for StopGuard {
+    fn drop(&mut self) {
+        STOP.with(|s| *s.borrow_mut() = None);
+    }
+}
+
+fn stop_asked() -> bool {
+    STOP.with(|s| {
+        s.borrow()
+            .as_ref()
+            .is_some_and(|f| f.load(std::sync::atomic::Ordering::Relaxed))
+    })
+}
+
 pub struct Options {
     /// Stay on the filesystem the root is on (don't descend into other mounts).
     pub one_file_system: bool,
@@ -470,6 +514,12 @@ fn prepare(db: &mut Db, root: &Path, opts: &Options) -> Result<(PathBuf, i64)> {
         params![root_bytes],
         |r| r.get(0),
     )?;
+    if crate::forget::is_marked(db, root_id)? {
+        bail!(
+            "{} is being removed from the index; it can be added again once that's done",
+            root.display()
+        );
+    }
     if !opts.allow_empty {
         let had: i64 = conn.query_row(
             "SELECT COALESCE((SELECT files FROM scans WHERE id = r.last_scan), 0) FROM roots r WHERE r.id = ?1",
@@ -871,11 +921,18 @@ impl<'c> Writer<'c> {
         }
     }
 
-    /// Commits a batch now and then, and reports progress.
+    /// Commits a batch now and then, and reports progress. Asked to stop (`stop_when`), it
+    /// commits what it has and returns `Stopped`.
     pub fn tick(&mut self, progress: &mut dyn FnMut(&Stats)) -> Result<()> {
         if self.pending >= BATCH {
             self.conn.execute_batch("COMMIT; BEGIN")?;
             self.pending = 0;
+        }
+        if stop_asked() {
+            self.conn.execute_batch("COMMIT")?;
+            self.open = false;
+            self.pending = 0;
+            return Err(Stopped.into());
         }
         if self.last.elapsed() >= Duration::from_millis(250) {
             progress(&self.st);

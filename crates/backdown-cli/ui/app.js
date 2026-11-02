@@ -1858,7 +1858,8 @@ const jobName = j => j.kind === 'index' ? `Scan ${rootName(j.path)}` : j.kind ==
   : j.kind === 'remote-sync' ? `Sync the machine ${j.path || ''}`
   : j.kind === 'dedup' ? `Tidy the archive (${j.path || 'dedup'})` : j.kind === 'mail-merge' ? `Merge mailboxes (${j.path || 'merge'})`
   : j.kind === 'indexes' || j.kind === 'dupes-index' ? 'Prepare the index for speed (once)'
-  : j.kind === 'attest' ? `Sign a manifest of ${rootName(j.path)}` : 'Hash new and changed files';
+  : j.kind === 'attest' ? `Sign a manifest of ${rootName(j.path)}`
+  : j.kind === 'forget' ? `Remove ${rootName(j.path)} from the index` : 'Hash new and changed files';
 function rescueJobName(j) {
   const r = RS.list.find(x => `rescue ${x.id}` === j.path);
   return r ? `${RS_TITLE[r.mode] || 'Rescue'}: ${baseName(r.source)}` : 'Rescue';
@@ -1922,6 +1923,27 @@ async function applyDaemon(d) {
   }
 }
 
+// take a drive out of the index (forget.rs): a scan of it in progress stops, and the removal runs
+// in the background service; nothing on the drive is touched
+async function removeDrive(btn) {
+  const path = btn.dataset.driveRemove, name = rootName(path);
+  const x = S.daemon?.drives?.find(d => d.path === path);
+  const what = x?.files ? `${count(x.files)} files (${bytes(x.bytes)})` : 'what was read of it so far';
+  if (!confirm(`Remove ${name} (${path}) from the index?\n\nIts ${what}, its scan history and what was recognised on it are forgotten. `
+    + `Nothing on the drive itself is touched, and you can index it again later.${['scanning', 'queued'].includes(x?.state) ? '\n\nThe scan of it in progress stops first.' : ''}`)) return;
+  btn.disabled = true;
+  try {
+    const r = await fetch(`/api/drive-remove?${new URLSearchParams({ path })}`, { method: 'POST', headers: { 'X-BackDown': '1' }, credentials: 'same-origin' });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.error) throw new Error(j.error || r.statusText);
+    toast(`Removing ${name} from the index`);
+    // it's gone from the drive list at once (the removal itself can take a minute on a big drive)
+    const data = await api('roots').catch(() => null);
+    if (data) { S.roots = data.roots; showSummary(data.status); renderPlaces(); }
+    if (!polling) pollDaemon(true);
+  } catch (e) { btn.disabled = false; toastError(e); }
+}
+
 async function rescan(rootId) {
   const r = await fetch(`/api/rescan?root=${rootId}`, { method: 'POST', headers: { 'X-BackDown': '1' }, credentials: 'same-origin' });
   const j = await r.json().catch(() => ({}));
@@ -1961,12 +1983,13 @@ function eta(j, now) {
   if (p == null || p < 0.02 || took < 15) return '';
   return `about ${dur(took * (1 - p) / p)} left`;
 }
-const REASON = { requested: 'you asked', scheduled: 'scheduled', returned: 'drive came back', 'after-scan': 'after a scan', 'after-apply': 'after copying', 'after-wipe': 'after wiping', 'after-rescue': 'recovered files', 'after-dedup': 'after tidying', 'after-merge': 'after merging mail', 'after-sync': 'after a machine’s sync', 'after-hash': 'after hashing' };
+const REASON = { requested: 'you asked', scheduled: 'scheduled', returned: 'drive came back', 'after-scan': 'after a scan', 'after-apply': 'after copying', 'after-wipe': 'after wiping', 'after-rescue': 'recovered files', 'after-dedup': 'after tidying', 'after-merge': 'after merging mail', 'after-sync': 'after a machine’s sync', 'after-hash': 'after hashing', resumed: 'carrying on' };
 const JOB_ICON = {
   'remote-sync': '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>',
   dedup: '<svg viewBox="0 0 24 24"><path d="M10 14a3.5 3.5 0 0 0 5 0l3-3a3.5 3.5 0 0 0-5-5l-.5.5"/><path d="M14 10a3.5 3.5 0 0 0-5 0l-3 3a3.5 3.5 0 0 0 5 5l.5-.5"/></svg>',
   'mail-merge': '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>',
   index: '<svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg>',
+  forget: '<svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M9 12h6"/></svg>',
   hash: '<svg viewBox="0 0 24 24"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></svg>',
   entities: '<svg viewBox="0 0 24 24"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>',
   apply: '<svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>',
@@ -2146,7 +2169,7 @@ function drivesTable(drives, live) {
       <td title="${esc(when(x.last_scan_at))}">${x.last_scan_at ? rel(x.last_scan_at) : 'never finished'}${x.last_how ? `<small class="muted act-how ${esc(x.last_method || '')}" title="${esc(x.last_how)}">${esc(x.last_how)}</small>` : ''}</td>
       ${live ? `<td>${next(x)}</td>` : ''}
       <td class="n">${count(x.files)}</td><td class="n">${bytes(x.bytes)}</td>
-      ${live ? `<td>${r && x.present !== false ? `<button class="btn sm" type="button" data-rescan="${r.id}"${['scanning', 'queued'].includes(x.state) ? ' disabled' : ''}>Rescan now</button>` : ''}</td>` : ''}
+      ${live ? `<td><div class="act-drive-acts">${r && x.present !== false ? `<button class="btn sm" type="button" data-rescan="${r.id}"${['scanning', 'queued'].includes(x.state) ? ' disabled' : ''}>Rescan now</button>` : ''}<button class="btn sm act-remove" type="button" data-drive-remove="${esc(x.path)}" title="Take ${esc(rootName(x.path))} out of the index (nothing on it is touched)">Remove…</button></div></td>` : ''}
     </tr>`; }).join('')}</tbody></table>`;
 }
 
@@ -2245,6 +2268,8 @@ document.addEventListener('click', e => {
   }
   const rs = t.closest('[data-rescan]');
   if (rs) { rs.classList.add('spin'); return rescan(rs.dataset.rescan); }
+  const rm = t.closest('[data-drive-remove]');
+  if (rm) return removeDrive(rm);
   const place = t.closest('.place[data-key]');
   if (place) { $('#timebar').hidden = S.timeline.length < 2; return go(place.dataset.key, { scan: null }); }
   const crumb = t.closest('.crumb[data-key]');
