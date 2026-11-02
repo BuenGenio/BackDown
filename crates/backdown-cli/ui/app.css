@@ -1047,6 +1047,7 @@ b.v-warning{color:var(--warn)}
 .mc-detail{border-left:1px solid var(--line);overflow:auto;padding:18px 16px;background:var(--bg)}
 .mc-detail .hero{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;padding-bottom:12px;border-bottom:1px solid var(--line)}
 .mc-detail h3{margin:0;font-size:1rem;word-break:break-word}
+.mc-actions{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 4px}.mc-actions a.btn{text-decoration:none;color:inherit}
 .mc-detail h4{font-size:.74rem;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-3);margin:18px 0 6px}
 .mc-path{font-size:.8rem;margin:4px 8px;word-break:break-all;color:var(--ink-2)}
 .mc-copy .note{display:block;margin:2px 0 0}

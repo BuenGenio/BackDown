@@ -7,7 +7,10 @@
 //!
 //! Everything here reads: the index through a read-only connection (the caller opens it so), and
 //! files only by their index id, only while they're current and still as scanned (`hash` and
-//! `stat`), the way `backdown hash` would. No file's bytes are ever sent, only hashes. Drive
+//! `stat`), the way `backdown hash` would. A file's bytes travel only for `get`, one file at a time, asked for by the person at the
+//! other end to open, preview or save it there: the answer says what follows, and the process
+//! (remote/stdio.rs in the CLI) writes exactly that many raw bytes after the answer line, as
+//! `swarm-stdio` takes a `put`'s. Drive
 //! health (`health`) is what the index holds: no drive is read for it. Its storage (`volumes`)
 //! is the volume probe and each file system's size and free space (swarm.rs).
 //!
@@ -123,6 +126,70 @@ pub enum Request {
     /// The same read-only probe as `backdown volumes`: nothing is mounted or written, and no
     /// drive's files are read.
     Volumes {},
+    /// A file's bytes, by its index id, only while it's current and still as scanned: `len`
+    /// bytes from `from` (the whole file unless said). The answer describes them; the raw bytes
+    /// follow the answer line, exactly `len` of them.
+    Get {
+        file: i64,
+        #[serde(default)]
+        from: Option<u64>,
+        #[serde(default)]
+        len: Option<u64>,
+    },
+}
+
+/// What a `get` answer promises follows it.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct GetPlan {
+    pub path: std::path::PathBuf,
+    pub name: String,
+    pub size: u64,
+    pub mtime: i64,
+    pub from: u64,
+    pub len: u64,
+    pub sha256: Option<String>,
+}
+
+/// The `get` request's plan: the file if it's current and unchanged, and the range asked for,
+/// checked against its size.
+pub fn get_plan(db: &Db, file: i64, from: Option<u64>, len: Option<u64>) -> Result<GetPlan> {
+    let (row, why) = current(db, file)?;
+    let Some(r) = row else {
+        bail!(
+            "that file {}",
+            match why {
+                Some("missing") => "isn't there any more",
+                Some("changed") => "has changed since it was indexed",
+                _ => "isn't in the index (or isn't current)",
+            }
+        );
+    };
+    let from = from.unwrap_or(0);
+    if from > r.size {
+        bail!("the range starts past the end of the file");
+    }
+    let len = len.unwrap_or(r.size - from);
+    if from + len > r.size {
+        bail!("the range runs past the end of the file");
+    }
+    let mtime: i64 = db
+        .conn
+        .query_row("SELECT mtime FROM files WHERE id = ?1", [file], |x| {
+            x.get(0)
+        })?;
+    Ok(GetPlan {
+        name: r
+            .path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+        path: r.path,
+        size: r.size,
+        mtime,
+        from,
+        len,
+        sha256: r.sha.as_deref().map(fmt::hex),
+    })
 }
 
 #[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -137,6 +204,8 @@ impl Request {
     pub fn budget_secs(&self) -> u64 {
         match self {
             Request::Hash { budget, .. } => budget.unwrap_or(60).clamp(1, MAX_BUDGET) + 5,
+            // the answer line is quick; the bytes after it take as long as the link allows
+            Request::Get { .. } => 30,
             _ => 30,
         }
     }
@@ -342,6 +411,7 @@ pub fn answer(db: &Db, here: &Here, req: &Request, deadline: Instant) -> Result<
         }
         Request::Health {} => drive_health(db)?,
         Request::Volumes {} => crate::swarm::storage(db)?,
+        Request::Get { file, from, len } => json!(get_plan(db, *file, *from, *len)?),
     })
 }
 

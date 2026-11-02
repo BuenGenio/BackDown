@@ -19,6 +19,7 @@ use backdown_core::alerts::Note;
 use backdown_core::remote::{self as core, Machine, Peer, SyncOptions};
 use backdown_core::{Db, fmt};
 use clap::Subcommand;
+use rusqlite::OptionalExtension;
 use serde_json::{Value, json};
 
 use crate::daemon::{Daemon, JobOpts};
@@ -77,6 +78,17 @@ pub enum RemoteCmd {
     Sync { name: Option<String> },
     /// Try reaching a machine: ssh, BackDown there, its index
     Test { name: String },
+    /// Bring one of a machine's indexed files here: by its path there (as `remote sync` saw it)
+    /// or its id in that machine's index. Read there only if it's still as scanned, and checked
+    /// against its SHA-256 when that machine has one
+    Fetch {
+        name: String,
+        /// The file's path on that machine, or its index id there
+        what: String,
+        /// Where to save it (its own name in the current folder unless said)
+        #[arg(short, long, value_name = "PATH")]
+        out: Option<PathBuf>,
+    },
     /// How long a copy on another machine counts as proof after it was last confirmed there, and
     /// how often machines are synced
     Settings {
@@ -204,6 +216,31 @@ pub fn command(db: Option<PathBuf>, local: bool, cmd: RemoteCmd) -> Result<ExitC
             println!(
                 "Forgot {}; nothing on it was touched, and its copies no longer count here.",
                 m.name
+            );
+        }
+        RemoteCmd::Fetch { name, what, out } => {
+            gate()?;
+            let db = open(&db_path)?;
+            let m = core::find(&db, &name)?;
+            let rid = match what.parse::<i64>() {
+                Ok(id) if !what.contains(['/', '\\']) => id,
+                _ => rid_of_path(&db, &m, &what)?,
+            };
+            let out = out.unwrap_or_else(|| PathBuf::from("."));
+            let saved = fetch_to_file(&db_path, &m, rid, &out, &mut |s| crate::live(s))?;
+            crate::clear();
+            println!(
+                "Fetched {} ({}) from {}: {} → {}{}",
+                saved.name,
+                fmt::bytes(saved.size),
+                m.name,
+                saved.path_there,
+                saved.saved_as.display(),
+                if saved.verified {
+                    "; SHA-256 verified"
+                } else {
+                    "; not hashed there, so not verified"
+                }
             );
         }
         RemoteCmd::Test { name } => {
@@ -581,6 +618,365 @@ pub(crate) fn live(db_path: &Path, m: &Machine, op: &str, args: Value) -> Result
         }
         Err(e) => Err(e),
     }
+}
+
+// ---------- bringing a file here (`get`): opened, previewed or saved on this machine
+
+/// A file's bytes as they arrive from the other machine, read like a file. The conversation is
+/// kept until the last byte and then goes back to the pool; a short stream ends it.
+pub struct Fetched {
+    pub plan: Value,
+    rx: std::sync::mpsc::Receiver<Vec<u8>>,
+    buf: Vec<u8>,
+    pos: usize,
+    left: u64,
+    peer: Option<(i64, ssh::SshPeer)>,
+}
+
+impl Fetched {
+    pub fn size(&self) -> u64 {
+        self.plan["size"].as_u64().unwrap_or(0)
+    }
+    pub fn name(&self) -> String {
+        self.plan["name"].as_str().unwrap_or("file").to_string()
+    }
+    fn finish(&mut self) {
+        if let Some((id, peer)) = self.peer.take() {
+            if self.left == 0 {
+                POOL.lock().unwrap().insert(
+                    id,
+                    Pooled {
+                        peer,
+                        used: Instant::now(),
+                    },
+                );
+            } else {
+                peer.abandon();
+            }
+        }
+    }
+}
+
+impl std::io::Read for Fetched {
+    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+        if self.pos >= self.buf.len() {
+            if self.left == 0 {
+                self.finish();
+                return Ok(0);
+            }
+            match self.rx.recv_timeout(Duration::from_secs(60)) {
+                Ok(chunk) => {
+                    self.left = self.left.saturating_sub(chunk.len() as u64);
+                    self.buf = chunk;
+                    self.pos = 0;
+                }
+                Err(_) => {
+                    self.finish();
+                    return Err(std::io::Error::other(format!(
+                        "the bytes stopped {} short (the file changed there, or the link dropped)",
+                        fmt::bytes(self.left)
+                    )));
+                }
+            }
+        }
+        let n = out.len().min(self.buf.len() - self.pos);
+        out[..n].copy_from_slice(&self.buf[self.pos..self.pos + n]);
+        self.pos += n;
+        Ok(n)
+    }
+}
+
+impl Drop for Fetched {
+    fn drop(&mut self) {
+        self.finish();
+    }
+}
+
+/// A conversation with `m`: one from the pool, or a new one (greeted and noted in the index).
+fn take_peer(db_path: &Path, m: &Machine) -> Result<(ssh::SshPeer, bool)> {
+    if let Some(p) = POOL.lock().unwrap().remove(&m.id) {
+        return Ok((p.peer, false));
+    }
+    let r = ssh::SshPeer::open(m).and_then(|mut p| core::greet(m, &mut p).map(|h| (p, h)));
+    let note = Db::open(db_path);
+    match r {
+        Ok((p, (h, asked))) => {
+            if let Ok(w) = &note {
+                let _ = core::record_hello(w, m.id, &h, asked);
+                let _ = core::record_try(w, m.id, None);
+            }
+            Ok((p, true))
+        }
+        Err(e) => {
+            if let Ok(w) = &note {
+                let _ = core::record_try(w, m.id, Some(&format!("{e:#}")));
+            }
+            Err(e)
+        }
+    }
+}
+
+/// Start bringing file `rid` of machine `m` here: `len` bytes from `from` (all of it unless
+/// said), as a stream. Only if the file there is still as its index scanned it.
+pub(crate) fn fetch(
+    db_path: &Path,
+    m: &Machine,
+    rid: i64,
+    from: Option<u64>,
+    len: Option<u64>,
+) -> Result<Fetched> {
+    let (mut peer, fresh) = take_peer(db_path, m)?;
+    match peer.fetch(rid, from, len, Duration::from_secs(30)) {
+        Ok((plan, rx)) => {
+            let left = plan["len"].as_u64().unwrap_or(0);
+            Ok(Fetched {
+                plan,
+                rx,
+                buf: Vec::new(),
+                pos: 0,
+                left,
+                peer: Some((m.id, peer)),
+            })
+        }
+        // a conversation left open may have died meanwhile: once more, afresh
+        Err(_) if !fresh => {
+            peer.abandon();
+            fetch(db_path, m, rid, from, len)
+        }
+        Err(e) => {
+            peer.abandon();
+            Err(e)
+        }
+    }
+}
+
+/// Fetched files are kept here a while, so a file opened twice crosses the link once.
+pub(crate) fn cache_dir(db_path: &Path) -> PathBuf {
+    db_path
+        .parent()
+        .map(|d| d.join("remote-cache"))
+        .unwrap_or_else(|| locations::state_dir().join("remote-cache"))
+}
+
+/// A file bigger than this isn't kept in the cache (it streams each time it's asked for).
+pub const CACHE_FILE_MAX: u64 = 256 << 20;
+/// The cache as a whole stays under this; the least recently used files go first.
+const CACHE_TOTAL_MAX: u64 = 2 << 30;
+
+/// The whole of file `rid` of `m` as a file here, from the cache or fetched into it (files up
+/// to `CACHE_FILE_MAX`). Returns the path and the plan the other end described it with.
+pub(crate) fn fetch_cached(db_path: &Path, m: &Machine, rid: i64) -> Result<(PathBuf, Value)> {
+    let dir = cache_dir(db_path).join(m.id.to_string());
+    locations::ensure_private_dir(&dir, false)?;
+    // what's cached is named by the file's identity there (id, size, mtime), so a changed file
+    // never answers from the cache
+    let mut f = fetch(db_path, m, rid, None, None)?;
+    let (size, mtime) = (f.size(), f.plan["mtime"].as_i64().unwrap_or(0));
+    let name = f.name();
+    let ext = Path::new(&name)
+        .extension()
+        .map(|e| format!(".{}", e.to_string_lossy()))
+        .unwrap_or_default();
+    let target = dir.join(format!("{rid}-{size}-{mtime}{ext}"));
+    if std::fs::metadata(&target).is_ok_and(|md| md.is_file() && md.len() == size) {
+        drop(f); // a short read on purpose: the bytes aren't wanted
+        touch(&target);
+        return Ok((
+            target,
+            serde_json::json!({ "name": name, "size": size, "mtime": mtime, "cached": true }),
+        ));
+    }
+    if size > CACHE_FILE_MAX {
+        bail!(
+            "{} is {}: too big to keep here; download a copy instead",
+            name,
+            fmt::bytes(size)
+        );
+    }
+    make_room(&cache_dir(db_path), size);
+    let tmp = dir.join(format!(".{rid}-{size}-{mtime}.part"));
+    let plan = f.plan.clone();
+    let copied = (|| -> Result<u64> {
+        let mut out = std::fs::File::create(&tmp)?;
+        let n = std::io::copy(&mut f, &mut out)?;
+        out.sync_all()?;
+        Ok(n)
+    })();
+    match copied {
+        Ok(n) if n == size => {
+            std::fs::rename(&tmp, &target)?;
+            Ok((target, plan))
+        }
+        Ok(n) => {
+            let _ = std::fs::remove_file(&tmp);
+            bail!(
+                "{} gave {} of {} bytes",
+                m.name,
+                fmt::bytes(n),
+                fmt::bytes(size)
+            );
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            Err(e)
+        }
+    }
+}
+
+fn touch(p: &Path) {
+    let now = std::fs::FileTimes::new().set_accessed(std::time::SystemTime::now());
+    if let Ok(f) = std::fs::File::options().write(true).open(p) {
+        let _ = f.set_times(now);
+    }
+}
+
+/// Keep the cache under its size, least recently used first, leaving room for `incoming`.
+fn make_room(cache: &Path, incoming: u64) {
+    let mut files: Vec<(std::time::SystemTime, u64, PathBuf)> = Vec::new();
+    for machine in std::fs::read_dir(cache).into_iter().flatten().flatten() {
+        for e in std::fs::read_dir(machine.path())
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
+            if let Ok(md) = e.metadata()
+                && md.is_file()
+            {
+                let used = md
+                    .accessed()
+                    .or_else(|_| md.modified())
+                    .unwrap_or(std::time::UNIX_EPOCH);
+                files.push((used, md.len(), e.path()));
+            }
+        }
+    }
+    let mut total: u64 = files.iter().map(|f| f.1).sum::<u64>() + incoming;
+    files.sort();
+    for (_, size, p) in files {
+        if total <= CACHE_TOTAL_MAX {
+            break;
+        }
+        if std::fs::remove_file(&p).is_ok() {
+            total -= size;
+        }
+    }
+}
+
+/// What `fetch_to_file` did.
+pub struct Saved {
+    pub name: String,
+    pub size: u64,
+    pub path_there: String,
+    pub saved_as: PathBuf,
+    pub verified: bool,
+}
+
+/// Bring the whole file here, to `out` (a folder: under its own name), hashing it on the way and
+/// comparing with the hash that machine has, when it has one. Never overwrites.
+pub(crate) fn fetch_to_file(
+    db_path: &Path,
+    m: &Machine,
+    rid: i64,
+    out: &Path,
+    progress: &mut dyn FnMut(&str),
+) -> Result<Saved> {
+    use sha2::Digest;
+    let mut f = fetch(db_path, m, rid, None, None)?;
+    let name = f.name();
+    let size = f.size();
+    let path_there = f.plan["path"].as_str().unwrap_or("").to_string();
+    let dest = if out.is_dir() {
+        out.join(&name)
+    } else {
+        out.to_path_buf()
+    };
+    if dest.exists() {
+        bail!("{} exists already; say another --out", dest.display());
+    }
+    let tmp = dest.with_extension(format!(
+        "{}.part",
+        dest.extension()
+            .map(|e| e.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    ));
+    let mut file =
+        std::fs::File::create(&tmp).with_context(|| format!("creating {}", tmp.display()))?;
+    let mut hasher = sha2::Sha256::new();
+    let mut buf = vec![0u8; 1 << 20];
+    let mut done = 0u64;
+    let r = (|| -> Result<()> {
+        loop {
+            let n = std::io::Read::read(&mut f, &mut buf)?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buf[..n]);
+            std::io::Write::write_all(&mut file, &buf[..n])?;
+            done += n as u64;
+            if done.is_multiple_of(16 << 20) || done == size {
+                progress(&format!(
+                    "{}: {} of {}",
+                    name,
+                    fmt::bytes(done),
+                    fmt::bytes(size)
+                ));
+            }
+        }
+        file.sync_all()?;
+        Ok(())
+    })();
+    if let Err(e) = r {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    if done != size {
+        let _ = std::fs::remove_file(&tmp);
+        bail!(
+            "{} gave {} of {} bytes",
+            m.name,
+            fmt::bytes(done),
+            fmt::bytes(size)
+        );
+    }
+    let got = fmt::hex(&hasher.finalize());
+    let verified = match f.plan["sha256"].as_str() {
+        Some(h) if h != got => {
+            let _ = std::fs::remove_file(&tmp);
+            bail!(
+                "{}'s copy of {} doesn't match the hash in its index: not saved",
+                m.name,
+                name
+            );
+        }
+        Some(_) => true,
+        None => false,
+    };
+    std::fs::rename(&tmp, &dest)?;
+    Ok(Saved {
+        name,
+        size,
+        path_there,
+        saved_as: dest,
+        verified,
+    })
+}
+
+/// The id, in machine `m`'s index, of the file at `path` there, from what was synced here.
+fn rid_of_path(db: &Db, m: &Machine, path: &str) -> Result<i64> {
+    let bytes = backdown_core::paths::to_bytes(Path::new(path));
+    db.conn
+        .query_row(
+            "SELECT rid FROM remote_files WHERE remote_id = ?1 AND path = ?2",
+            rusqlite::params![m.id, bytes],
+            |r| r.get(0),
+        )
+        .optional()?
+        .with_context(|| {
+            format!(
+                "{} has no file {path} in what was synced here (sync it, or give the file's id there)",
+                m.name
+            )
+        })
 }
 
 // ---------- the browser's endpoints

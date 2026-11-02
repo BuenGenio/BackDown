@@ -10,7 +10,7 @@
 // The key is the release-signing private key (PKCS#8 PEM) in the file BACKDOWN_RELEASE_KEY names, by
 // default ~/.config/backdown/release-signing-key.pem. It's read, used and dropped; only the .sig is written.
 // Before signing, its public half is checked against the one built into the app (RELEASE_KEY in
-// crates/backdown-cli/src/update.rs), so a wrong key can't sign a release that BackDown would refuse, and
+// crates/backdown-cli/src/update/mod.rs), so a wrong key can't sign a release that BackDown would refuse, and
 // the new signature is checked before it's written.
 //
 // For tests only: BACKDOWN_TEST_RELEASE_PUBKEY (64 hex digits) stands in for the app's public key in that
@@ -42,9 +42,9 @@ if (testKey) {
   process.stderr.write('sign-release: BACKDOWN_TEST_RELEASE_PUBKEY is set: checking the key against that test key, not the app\'s (for tests only)\n');
   expected = testKey;
 } else {
-  const rs = readFileSync(join(dirname(here), '..', 'crates/backdown-cli/src/update.rs'), 'utf8');
+  const rs = readFileSync(join(dirname(here), '..', 'crates/backdown-cli/src/update/mod.rs'), 'utf8');
   expected = (rs.match(/RELEASE_KEY\s*:\s*\[u8;\s*32\]\s*=\s*(?:crate::license::)?hex32\(\s*"([0-9a-f]{64})"\s*\)/) || [])[1];
-  if (!expected) die('can\'t find RELEASE_KEY in crates/backdown-cli/src/update.rs');
+  if (!expected) die('can\'t find RELEASE_KEY in crates/backdown-cli/src/update/mod.rs');
 }
 
 // the signing key, and its public half against that

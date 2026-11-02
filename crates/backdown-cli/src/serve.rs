@@ -400,7 +400,13 @@ fn handle(ctx: &Ctx, req: Request) {
         let resp = if !marked {
             plain(403, "missing X-BackDown header")
         } else {
-            match open_on_desktop(ctx, param("id"), param("dir"), param("reveal") == Some("1")) {
+            match open_on_desktop(
+                ctx,
+                param("m"),
+                param("id"),
+                param("dir"),
+                param("reveal") == Some("1"),
+            ) {
                 Ok(v) => json_resp(&v),
                 Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400),
             }
@@ -770,6 +776,10 @@ fn handle(ctx: &Ctx, req: Request) {
             .find(|h| h.field.equiv("Range"))
             .map(|h| h.value.as_str().to_string());
         let download = param("download") == Some("1");
+        // ?m=<machine id>: the file is on another machine and is brought here (remote.rs)
+        if let Some(m) = param("m") {
+            return remote_content(ctx, req, m, param("id"), range.as_deref(), download);
+        }
         return content(ctx, req, param("id"), range.as_deref(), download);
     }
     if path == "/api/entry" || path == "/api/attachment" {
@@ -1741,6 +1751,82 @@ fn disposition(name: &str) -> String {
     format!("attachment; filename=\"{ascii}\"; filename*=UTF-8''{encoded}")
 }
 
+/// A file on machine `m` (its id there): small ones through the cache, so ranges and a second
+/// look cost nothing more; big ones streamed as they come, the range asked for only.
+fn remote_content(
+    ctx: &Ctx,
+    req: Request,
+    m: &str,
+    id: Option<&str>,
+    range: Option<&str>,
+    download: bool,
+) {
+    let prepared = (|| -> Result<(backdown_core::remote::Machine, i64, u64)> {
+        if let Some(why) = crate::remote::blocker(ctx.desktop) {
+            bail!("{why}");
+        }
+        let db = ro_db(ctx)?;
+        let m = backdown_core::remote::get(&db, m.parse().context("bad m")?)?;
+        let rid: i64 = id.context("missing id")?.parse().context("bad id")?;
+        let info = crate::remote::live(&ctx.db, &m, "file", json!({ "file": rid }))?;
+        let size = info["size"].as_u64().context("no size")?;
+        Ok((m, rid, size))
+    })();
+    let (m, rid, size) = match prepared {
+        Ok(x) => x,
+        Err(e) => {
+            let _ = req.respond(plain(404, &format!("{e:#}")));
+            return;
+        }
+    };
+    if size <= crate::remote::CACHE_FILE_MAX {
+        match crate::remote::fetch_cached(&ctx.db, &m, rid) {
+            Ok((path, plan)) => {
+                let name = plan["name"].as_str().unwrap_or("file").to_string();
+                return serve_file(req, &path, size, Some(&name), range, download);
+            }
+            Err(e) => {
+                let _ = req.respond(plain(502, &format!("{e:#}")));
+                return;
+            }
+        }
+    }
+    // too big to keep: the range asked for, straight through
+    let (start, end) = parse_range(range, size).unwrap_or((0, size.saturating_sub(1)));
+    let len = if size == 0 { 0 } else { end - start + 1 };
+    let fetched = match crate::remote::fetch(&ctx.db, &m, rid, Some(start), Some(len)) {
+        Ok(f) => f,
+        Err(e) => {
+            let _ = req.respond(plain(502, &format!("{e:#}")));
+            return;
+        }
+    };
+    let name = names::nfc(&fetched.name()).into_owned();
+    let mut headers = file_headers(&name);
+    headers.push(header("Accept-Ranges", "bytes"));
+    let mut resp = Response::new(
+        StatusCode(if range.is_some() && size > 0 {
+            206
+        } else {
+            200
+        }),
+        headers,
+        Box::new(fetched) as Box<dyn Read + Send>,
+        Some(len as usize),
+        None,
+    );
+    if range.is_some() && size > 0 {
+        resp.add_header(header(
+            "Content-Range",
+            &format!("bytes {start}-{end}/{size}"),
+        ));
+    }
+    if download {
+        resp.add_header(header("Content-Disposition", &disposition(&name)));
+    }
+    let _ = req.respond(resp);
+}
+
 fn content(ctx: &Ctx, req: Request, id: Option<&str>, range: Option<&str>, download: bool) {
     let result = (|| -> Result<(PathBuf, u64)> {
         let db = ro_db(ctx)?;
@@ -1753,8 +1839,21 @@ fn content(ctx: &Ctx, req: Request, id: Option<&str>, range: Option<&str>, downl
             return;
         }
     };
+    serve_file(req, &path, size, None, range, download)
+}
+
+/// Bytes of a file here, with ranges, as `/api/content` always has; `shown_as` names it when
+/// the file on disk is a cached copy with another name.
+fn serve_file(
+    req: Request,
+    path: &Path,
+    size: u64,
+    shown_as: Option<&str>,
+    range: Option<&str>,
+    download: bool,
+) {
     // verbatim on Windows (long paths), with backup semantics when elevated
-    let mut file = match paths::open_read(&path) {
+    let mut file = match paths::open_read(path) {
         Ok(f) => f,
         Err(e) => {
             let _ = req.respond(plain(404, &e.to_string()));
@@ -1767,10 +1866,13 @@ fn content(ctx: &Ctx, req: Request, id: Option<&str>, range: Option<&str>, downl
         let _ = req.respond(plain(500, "seek failed"));
         return;
     }
-    let name = path
-        .file_name()
-        .map(|n| names::nfc(&n.to_string_lossy()).into_owned())
-        .unwrap_or_default();
+    let name = shown_as
+        .map(|n| names::nfc(n).into_owned())
+        .unwrap_or_else(|| {
+            path.file_name()
+                .map(|n| names::nfc(&n.to_string_lossy()).into_owned())
+                .unwrap_or_default()
+        });
     let mut headers = file_headers(&name);
     headers.push(header("Accept-Ranges", "bytes"));
     let mut resp = Response::new(
@@ -1865,12 +1967,29 @@ const RUNNABLE: &[&str] = &[
 
 /// POST /api/open?id=<file>|dir=<key>[&reveal=1]: open a file with its default app, or show a file
 /// or folder in the file manager. Only indexed things that are still on disk.
-fn open_on_desktop(ctx: &Ctx, id: Option<&str>, dir: Option<&str>, reveal: bool) -> Result<Value> {
+fn open_on_desktop(
+    ctx: &Ctx,
+    machine: Option<&str>,
+    id: Option<&str>,
+    dir: Option<&str>,
+    reveal: bool,
+) -> Result<Value> {
     if !ctx.desktop {
         bail!("the system-wide BackDown service has no desktop to open things on");
     }
     let db = ro_db(ctx)?;
     let (path, is_dir) = match (id, dir) {
+        // a file on another machine: brought into the cache first, then opened like any other
+        (Some(id), _) if machine.is_some() => {
+            let m =
+                backdown_core::remote::get(&db, machine.unwrap_or("").parse().context("bad m")?)?;
+            if let Some(why) = crate::remote::blocker(ctx.desktop) {
+                bail!("{why}");
+            }
+            let (path, _) =
+                crate::remote::fetch_cached(&ctx.db, &m, id.parse().context("bad id")?)?;
+            (path, false)
+        }
         (Some(id), _) => {
             let (path, _) = browse::resolve_content(&db, id.parse().context("bad id")?)?
                 .context("this version isn't on any connected drive any more")?;

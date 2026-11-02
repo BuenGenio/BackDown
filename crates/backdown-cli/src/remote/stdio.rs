@@ -148,6 +148,42 @@ pub fn run(db: Option<PathBuf>) -> Result<ExitCode> {
         if writeln!(out, "{answer}").and_then(|_| out.flush()).is_err() {
             break; // the other side went away
         }
+        // a `get` that was answered with a plan: exactly `len` raw bytes follow the line
+        if let (Some(l), Ok(db)) = (&line, &opened)
+            && let (_, Ok(serve::Request::Get { file, from, len })) = serve::parse(l)
+            && let Ok(v) = serde_json::from_str::<serde_json::Value>(&answer)
+            && v["ok"] == true
+            && let Ok(plan) = serve::get_plan(db, file, from, len)
+            && !stream_bytes(&mut out, &plan)
+        {
+            break; // the bytes stopped short: the promise can't be kept, so the conversation ends
+        }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// Write the planned bytes to `out`; false when the file didn't give them all (it changed, or
+/// couldn't be read), in which case the other end sees a short stream and knows.
+fn stream_bytes(out: &mut impl Write, plan: &serve::GetPlan) -> bool {
+    use std::io::{Seek, SeekFrom};
+    let Ok(mut f) = backdown_core::paths::open_read(&plan.path) else {
+        return false;
+    };
+    if f.seek(SeekFrom::Start(plan.from)).is_err() {
+        return false;
+    }
+    let mut left = plan.len;
+    let mut buf = vec![0u8; 256 << 10];
+    while left > 0 {
+        let want = buf.len().min(left as usize);
+        let n = match f.read(&mut buf[..want]) {
+            Ok(0) | Err(_) => return false,
+            Ok(n) => n,
+        };
+        if out.write_all(&buf[..n]).is_err() {
+            return false;
+        }
+        left -= n as u64;
+    }
+    out.flush().is_ok()
 }
