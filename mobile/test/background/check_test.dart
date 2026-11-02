@@ -147,6 +147,18 @@ void main() {
       expect(r.notices.map((n) => n.title), ['Done: Free up (plan 3)']);
     });
 
+    test('removing a big drive from the index is news; a small one isn\'t', () {
+      final r = _check(
+        seen,
+        daemon: _daemon([
+          _job(4, 'forget', 'done', path: '/', took: 420, summary: '/ removed from the index: 3,104,220 file versions'),
+          _job(5, 'forget', 'done', path: '/media/sam/Stick', took: 8),
+        ]),
+      );
+      expect(r.notices.map((n) => n.title), ['Done: Remove / from the index']);
+      expect(r.notices.single.body, '/ removed from the index: 3,104,220 file versions · took 7 min');
+    });
+
     test('stopped jobs aren\'t news', () {
       expect(_check(seen, daemon: _daemon([_job(4, 'hash', 'stopped', took: 900)])).notices, isEmpty);
     });

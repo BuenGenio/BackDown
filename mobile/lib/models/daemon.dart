@@ -34,7 +34,7 @@ class Job {
   final int id;
 
   /// "index", "hash", "entities", "remote-sync", "apply", "wipe", "rescue", "dedup", "mail-merge",
-  /// "mirror-sync", "mirror-verify", "attest", "indexes", …
+  /// "mirror-sync", "mirror-verify", "attest", "indexes", "forget" (removing a drive from the index), …
   final String kind;
   final String? path;
 
