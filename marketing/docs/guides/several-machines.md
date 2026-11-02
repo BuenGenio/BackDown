@@ -6,7 +6,7 @@ order: 5
 
 Your archive may be on a NAS, and old drives plugged into a different computer. BackDown on this computer can read another machine's BackDown index over ssh, so files there count as copies: for duplicates, for overlaps, for `check`, and for freeing up drives here; and its drives' health is gathered here too, so a warning on the NAS reaches you. Nothing on the other machine is ever changed, and no file's contents are sent: only its index entries, its drives' health as it last read them, and, when asked, SHA-256 hashes.
 
-Several machines is marked **Pro**; in this beta everything is unlocked ([Free and Pro](/docs/guides/settings-and-licences/#free-and-pro)).
+Several machines is free: it's what [the swarm](/docs/guides/the-swarm/) is built on, which also shows every machine's drives and free space, finds a file on any of them, and pours drives into shared pool folders.
 
 ## Before you start
 
@@ -131,3 +131,7 @@ To forget a machine: `backdown remote remove nas` (or **Remove…**). Nothing on
 ## Not yet
 
 Windows computers can't be the other end yet (they can be this end).
+
+## Further
+
+[The swarm and the pool](/docs/guides/the-swarm/): the machines as one, where a file is across all of them, and filing drives into pool folders on any of them.

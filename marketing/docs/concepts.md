@@ -183,6 +183,10 @@ It's stopped safely at any point: jobs commit as they go and carry on where they
 
 While a daemon is running, it owns the index. `index`, `hash`, `dupes`, `check`, `scans`, `status`, `health`, `remote sync` and `apply --go` are handed to it, and your terminal follows the progress; `wipe`, `dedup` and `mail merge` check first, then hand the work to it. `--local` makes a command use the index directly. On Windows, terminal commands always use the index directly: the browser is how you talk to the service there.
 
+## The swarm {#the-swarm}
+
+The machines this BackDown reaches over ssh, plus itself, work as one: each machine's drives and free space, where a file is across all of them, and pool folders on any of them that drives are filed into, one copy of each file. There's no coordinator and nothing new listens on the network; each machine's index stays the authority on its own files. [The swarm and the pool](/docs/guides/the-swarm/) explains it; [Several machines](/docs/guides/several-machines/) the ssh side.
+
 ## Drive health {#drive-health}
 
 Drives say how they're doing, through SMART: sectors they've had to replace or can't read, cable errors, wear on SSDs, temperature, and their own verdict. BackDown reads what each physical drive will tell an ordinary account: through udisks on Linux (and `smartctl` where your account may use it), `diskutil` (and `smartctl` if it's installed) on macOS, and Windows' storage cmdlets, which share their counters only with an administrator. A drive's verdict is **ok**, **warning**, **failing** or **unknown** (no health data).

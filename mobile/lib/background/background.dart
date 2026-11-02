@@ -200,7 +200,9 @@ class _NotificationSettingsSectionState extends ConsumerState<NotificationSettin
           ),
           SwitchListTile(
             title: const Text('A long job finished'),
-            subtitle: const Text('Scans, hashing and syncs that took a while; copying, freeing up and rescues'),
+            subtitle: const Text(
+              'Scans, hashing, syncs and drive removals that took a while; copying, freeing up and rescues',
+            ),
             value: s.finished,
             onChanged: (v) => set(s.copyWith(finished: v)),
           ),

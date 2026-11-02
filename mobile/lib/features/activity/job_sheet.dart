@@ -135,7 +135,7 @@ class JobSheet extends ConsumerWidget {
           const SizedBox(height: 8),
           InfoRow('What', stage.isEmpty ? jobKind(j.kind) : '${jobKind(j.kind)} ($stage)'),
           if (j.path != null && j.path!.isNotEmpty)
-            InfoRow(j.kind == 'index' ? 'Drive' : 'For', j.path!, mono: true, copyable: true),
+            InfoRow(j.kind == 'index' || j.kind == 'forget' ? 'Drive' : 'For', j.path!, mono: true, copyable: true),
           InfoRow('Queued', at(j.queuedAt)),
           if (j.startedAt != null) InfoRow('Started', at(j.startedAt)),
           if (j.finishedAt != null) InfoRow(j.state == 'done' ? 'Finished' : 'Ended', at(j.finishedAt)),
