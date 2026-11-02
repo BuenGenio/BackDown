@@ -166,8 +166,8 @@ export async function showSettings(section) {
     soft(api('settings')), soft(api('features')), soft(api('schema')), soft(api('update')), optional('notify-settings'), optional('scan-settings'), optional('machines')]);
   if (!SET.feat.error) { FEAT.data = SET.feat; paintBadges(); }
   if (!SET.upd.error) { UPD.data = SET.upd; paintUpdateBanner(); }
+  if (section) SET.tab = section;
   render();
-  if (section) document.getElementById(`set-${section}`)?.scrollIntoView({ block: 'start' });
 }
 
 function render() {
@@ -184,11 +184,29 @@ function render() {
     ['data', 'Index and data', dataSection()],
     ['about', 'About', aboutSection()],
   ].filter(Boolean);
+  if (!secs.some(([id]) => id === SET.tab)) SET.tab = secs[0][0];
+  const on = id => id === SET.tab;
+  // every panel is rendered (wire() binds them all); only the selected one is shown
   $('#view').innerHTML = `<div class="settings">
-    <nav class="set-nav" aria-label="Settings sections">${secs.map(([id, t]) => `<a href="#set-${id}" data-set-jump="${id}">${esc(t)}</a>`).join('')}</nav>
-    ${secs.map(([id, t, body]) => `<section class="set-sec" id="set-${id}"><h2>${esc(t)}</h2>${body}</section>`).join('')}
+    <div class="set-tabs" role="tablist" aria-label="Settings">${secs.map(([id, t]) =>
+      `<button type="button" class="set-tab" role="tab" id="set-tab-${id}" aria-controls="set-${id}" aria-selected="${on(id)}" tabindex="${on(id) ? 0 : -1}" data-set-tab="${id}">${esc(t)}</button>`).join('')}</div>
+    ${secs.map(([id, , body]) => `<section class="set-sec" id="set-${id}" role="tabpanel" aria-labelledby="set-tab-${id}"${on(id) ? '' : ' hidden'}>${body}</section>`).join('')}
   </div>`;
   wire();
+  $('#view .set-tab[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+
+function selectTab(id, focus) {
+  const v = $('#view');
+  SET.tab = id;
+  v.querySelectorAll('.set-tab').forEach(b => {
+    const sel = b.dataset.setTab === id;
+    b.setAttribute('aria-selected', String(sel));
+    b.tabIndex = sel ? 0 : -1;
+    if (sel) { b.scrollIntoView({ block: 'nearest', inline: 'nearest' }); if (focus) b.focus(); }
+  });
+  v.querySelectorAll('.set-sec').forEach(p => { p.hidden = p.id !== `set-${id}`; });
+  v.scrollTop = 0;
 }
 
 const failed = x => x?.error ? `<p class="set-err">${esc(x.error)}</p>` : '';
@@ -417,10 +435,16 @@ async function saveSetting(params, what) {
 
 function wire() {
   const v = $('#view');
-  v.querySelectorAll('[data-set-jump]').forEach(a => a.addEventListener('click', e => {
+  const tabs = v.querySelector('.set-tabs');
+  tabs?.addEventListener('click', e => { const b = e.target.closest('[data-set-tab]'); if (b) selectTab(b.dataset.setTab); });
+  tabs?.addEventListener('keydown', e => {
+    const all = [...tabs.querySelectorAll('[data-set-tab]')], i = all.indexOf(document.activeElement);
+    if (i < 0) return;
+    const j = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: all.length - 1 }[e.key];
+    if (j === undefined) return;
     e.preventDefault();
-    document.getElementById(`set-${a.dataset.setJump}`)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
-  }));
+    selectTab(all[(j + all.length) % all.length].dataset.setTab, true);
+  });
   v.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => navigator.clipboard?.writeText(b.dataset.copy).then(() => toast('Copied'), () => {})));
   $('#set-key-form')?.addEventListener('submit', async e => {
     e.preventDefault();
