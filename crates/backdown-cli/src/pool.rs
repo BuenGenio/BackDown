@@ -246,6 +246,7 @@ pub fn command(db: Option<PathBuf>, local: bool, cmd: PoolCmd) -> Result<ExitCod
                         &backdown_core::index::Options {
                             one_file_system: true,
                             allow_empty: false,
+                            allow_other_drive: false,
                         },
                         backdown_core::index::Method::Auto,
                         &mut |_| {},

@@ -876,7 +876,7 @@ fn children(conn: &Connection, d: &Path) -> Result<Vec<PathBuf>> {
 }
 
 /// The byte range of every path strictly below `d`.
-fn below(d: &Path) -> (Vec<u8>, Vec<u8>) {
+pub(crate) fn below(d: &Path) -> (Vec<u8>, Vec<u8>) {
     let lo = paths::dir_prefix(d);
     let mut hi = lo.clone();
     // the prefix ends in a separator byte (never 0xFF), so one more than it bounds everything below

@@ -718,6 +718,7 @@ mod tests {
             &crate::index::Options {
                 one_file_system: false,
                 allow_empty: false,
+                allow_other_drive: false,
             },
             &mut |_| {},
         )

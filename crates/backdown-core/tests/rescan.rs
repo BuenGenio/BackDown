@@ -546,6 +546,7 @@ fn opts() -> index::Options {
     index::Options {
         one_file_system: true,
         allow_empty: true,
+        allow_other_drive: false,
     }
 }
 

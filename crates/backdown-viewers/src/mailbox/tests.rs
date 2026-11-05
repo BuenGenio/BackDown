@@ -429,6 +429,7 @@ fn indexed_mbox_and_maildir() {
     let opts = index::Options {
         one_file_system: true,
         allow_empty: false,
+        allow_other_drive: false,
     };
     index::index(&mut db, &drive, &opts, &mut |_| {}).unwrap();
     let root = dunce::canonicalize(&drive).unwrap();

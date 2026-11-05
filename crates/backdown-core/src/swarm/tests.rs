@@ -184,3 +184,224 @@ fn within_gives_up_on_what_hangs() {
     });
     assert_eq!(slow, None);
 }
+
+// ---------- is it the drive it was?
+
+#[test]
+fn a_drive_is_the_one_on_record_by_its_serial_or_its_file_system() {
+    let s = linux_storage();
+    let vault = place(&s, "/media/me/Vault/Archive", None);
+    // the folder a drive is mounted on, with the drive mounted elsewhere: the system disk
+    let stub = place(&s, "/media/me/Big/Archive", None);
+    assert_eq!(stub["disk"]["system"], true);
+    assert_eq!(judge(&vault, &vault), OnDrive::Same);
+    assert_eq!(judge(&vault, &stub), OnDrive::Other);
+    assert_eq!(judge(&stub, &vault), OnDrive::Other);
+    // another USB enclosure reports its own serial; the file system is the one it was
+    let moved = json!({ "disk": { "serial": "ENCLOSURE-77" }, "volume": { "uuid": "vault-uuid" } });
+    assert_eq!(judge(&vault, &moved), OnDrive::Same);
+    // reformatted: a new file system on the same disk
+    let reformatted =
+        json!({ "disk": { "serial": "WD-WXC2D71" }, "volume": { "uuid": "new-uuid" } });
+    assert_eq!(judge(&vault, &reformatted), OnDrive::Same);
+    // serials as the health readings spell them, UUIDs whatever their case
+    let spelt = json!({ "disk": { "serial": " wd wxc2d71 " }, "volume": { "uuid": null } });
+    assert_eq!(judge(&vault, &spelt), OnDrive::Same);
+    let upper = json!({ "disk": {}, "volume": { "uuid": "VAULT-UUID" } });
+    assert_eq!(judge(&vault, &upper), OnDrive::Same);
+    // one thing to compare, and it differs
+    let other_fs = json!({ "disk": { "serial": null }, "volume": { "uuid": "u9" } });
+    assert_eq!(judge(&vault, &other_fs), OnDrive::Other);
+    // nothing to compare: no drive on record, the drive here unknown, a junk serial, or a serial
+    // on one side and only a file system on the other
+    assert_eq!(judge(&Value::Null, &vault), OnDrive::Unknown);
+    assert_eq!(judge(&vault, &Value::Null), OnDrive::Unknown);
+    let junk = json!({ "disk": { "serial": "0000000000" }, "volume": {} });
+    assert_eq!(judge(&vault, &junk), OnDrive::Unknown);
+    let serial_only = json!({ "disk": { "serial": "X1" }, "volume": {} });
+    let uuid_only = json!({ "disk": {}, "volume": { "uuid": "u1" } });
+    assert_eq!(judge(&serial_only, &uuid_only), OnDrive::Unknown);
+}
+
+#[test]
+fn drives_are_named_for_people() {
+    let s = linux_storage();
+    assert_eq!(
+        drive_name(&place(&s, "/media/me/Vault", None)),
+        "WD Elements 2620 (serial WD-WXC2D71), file system \"Vault\""
+    );
+    assert_eq!(
+        drive_name(&place(&s, "/srv/x", None)),
+        "the system disk (Samsung SSD 980, serial S64ANS0T1), file system UUID root-uuid"
+    );
+    assert_eq!(drive_name(&json!({ "disk": {}, "volume": {} })), "a disk");
+}
+
+#[test]
+fn what_the_probe_doesnt_know_isnt_taken_for_the_drive_below() {
+    let mounts = ["/", "/boot/efi", "/media/me/Vault", "/mnt/share", "/tmp"];
+    let here = Here {
+        storage: linux_storage(),
+        mounts: mounts.iter().map(|m| m.to_string()).collect(),
+    };
+    let on = |p: &str| here.drive(Path::new(p));
+    assert_eq!(on("/media/me/Vault/a")["volume"]["label"], "Vault");
+    assert!(
+        on("/media/me/Vault/a").get("present").is_none(),
+        "kept as it's recorded"
+    );
+    assert_eq!(on("/media/me/Big")["volume"]["uuid"], "root-uuid");
+    // a network share, a tmpfs: mounted, but on nothing the probe knows
+    assert!(on("/mnt/share/docs").is_null());
+    assert!(on("/tmp/x").is_null());
+    // a drive with nothing to know it by
+    let bare = json!({ "os": "linux", "disks": [{ "name": "sdz", "volumes": [{ "device": "/dev/sdz1",
+        "mounts": [{ "path": "/mnt/bare", "read_only": false }], "indexed": [], "holders": [] }] }] });
+    let here = Here {
+        storage: bare,
+        mounts: vec!["/".into(), "/mnt/bare".into()],
+    };
+    assert!(here.drive(Path::new("/mnt/bare/x")).is_null());
+}
+
+/// A machine with a system disk (mounted at /) and a USB drive mounted at `usb_at`, if anywhere.
+fn machine(usb_at: Option<&Path>) -> Value {
+    let mounts = |p: Option<&Path>| match p {
+        Some(p) => json!([{ "path": p.display().to_string(), "read_only": false }]),
+        None => json!([]),
+    };
+    let root = json!({ "device": "/dev/nvme0n1p2", "fs": "ext4", "uuid": "root-uuid", "state": "system",
+        "mounts": mounts(Some(Path::new("/"))), "indexed": [], "holders": [] });
+    let big = json!({ "device": "/dev/sdb1", "fs": "ext4", "label": "BIG", "uuid": "big-uuid",
+        "state": "mounted", "mounts": mounts(usb_at), "indexed": [], "holders": [] });
+    json!({ "os": "linux", "disks": [
+        { "name": "nvme0n1", "model": "Samsung SSD 980", "serial": "S64ANS0T1", "system": true, "volumes": [root] },
+        { "name": "sdb", "model": "WDC WD180EDGZ", "serial": "2BG0ABCD", "transport": "usb", "volumes": [big] },
+    ] })
+}
+
+/// What `Here::probe` finds from now on, on this thread.
+fn probed(storage: Value) {
+    PROBED.with(|p| *p.borrow_mut() = Some(storage));
+}
+
+fn scan(db: &mut Db, root: &Path, allow_other_drive: bool) -> Result<crate::index::Stats> {
+    let opts = crate::index::Options {
+        one_file_system: true,
+        allow_empty: false,
+        allow_other_drive,
+    };
+    crate::index::scan(db, root, &opts, crate::index::Method::Walk, &mut |_| {})
+}
+
+fn count(db: &Db, sql: &str) -> i64 {
+    db.conn.query_row(sql, [], |r| r.get(0)).unwrap()
+}
+
+/// A drive with three files at `tmp/media/me/BIG`, indexed and its drive remembered while it's
+/// mounted there: the index, the drive's folder and its root id.
+fn indexed_drive(tmp: &Path) -> (Db, std::path::PathBuf, i64) {
+    let drive = tmp.join("media/me/BIG");
+    for f in ["Archive/2019/a.jpg", "Archive/2019/b.jpg", "notes.txt"] {
+        std::fs::create_dir_all(drive.join(f).parent().unwrap()).unwrap();
+        std::fs::write(drive.join(f), f.as_bytes()).unwrap();
+    }
+    let drive = std::fs::canonicalize(&drive).unwrap();
+    let mut db = Db::open(&tmp.join("idx.db")).unwrap();
+    probed(machine(Some(&drive)));
+    assert_eq!(scan(&mut db, &drive, false).unwrap().files, 3);
+    let root = crate::forget::root_id(&db, &drive).unwrap().unwrap();
+    assert!(remember_drive(&db, root, &drive, false).unwrap());
+    assert_eq!(
+        recorded_drive(&db, root).unwrap().unwrap()["disk"]["serial"],
+        "2BG0ABCD"
+    );
+    (db, drive, root)
+}
+
+/// What a reboot did to a user's server: something made folders at the drive's path, on the
+/// system disk, before the drive was mounted, so the drive was mounted elsewhere. What's there
+/// isn't empty (nor free of files).
+fn stub_in_its_place(tmp: &Path, drive: &Path) {
+    probed(machine(Some(&tmp.join("media/me/BIG1"))));
+    std::fs::remove_dir_all(drive).unwrap();
+    for d in ["Archive/_stalwart/etc", "Archive/_stalwart/data"] {
+        std::fs::create_dir_all(drive.join(d)).unwrap();
+    }
+    std::fs::write(drive.join("Archive/_stalwart/etc/config.toml"), b"x").unwrap();
+}
+
+#[test]
+fn a_scan_of_a_folder_on_another_drive_is_refused_and_records_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (mut db, drive, root) = indexed_drive(tmp.path());
+    stub_in_its_place(tmp.path(), &drive);
+
+    let scans = count(&db, "SELECT COUNT(*) FROM scans");
+    let err = scan(&mut db, &drive, false).unwrap_err();
+    let refused = err
+        .downcast_ref::<crate::index::Refused>()
+        .expect("refused");
+    assert_eq!(refused.why, crate::index::Refusal::OtherDrive);
+    let msg = err.to_string();
+    for part in [
+        "isn't on the drive it was last scanned on",
+        "WDC WD180EDGZ (serial 2BG0ABCD), file system \"BIG\"",
+        "the system disk (Samsung SSD 980, serial S64ANS0T1)",
+        "(mounted at /)",
+        "--allow-other-drive",
+        "backdown forget",
+    ] {
+        assert!(msg.contains(part), "{part:?} in {msg}");
+    }
+    let current = "SELECT COUNT(*) FROM files WHERE current = 1";
+    assert_eq!(count(&db, current), 3, "nothing recorded as gone");
+    assert_eq!(
+        count(&db, "SELECT COUNT(*) FROM scans"),
+        scans,
+        "not even an unfinished scan"
+    );
+    // the change log and file table ways are refused alike
+    let opts = crate::index::Options {
+        one_file_system: true,
+        allow_empty: false,
+        allow_other_drive: false,
+    };
+    let auto = crate::index::scan(
+        &mut db,
+        &drive,
+        &opts,
+        crate::index::Method::Auto,
+        &mut |_| {},
+    );
+    assert!(auto.unwrap_err().is::<crate::index::Refused>());
+
+    // whatever was scanned at the path, the drive on record stays the one it was
+    assert!(!remember_drive(&db, root, &drive, false).unwrap());
+    assert_eq!(
+        recorded_drive(&db, root).unwrap().unwrap()["disk"]["serial"],
+        "2BG0ABCD"
+    );
+
+    // told it really is the drive now (a new one in its place): recorded, and from then on
+    // remembered as the drive
+    let st = scan(&mut db, &drive, true).unwrap();
+    assert_eq!((st.files, st.removed), (1, 3));
+    assert!(remember_drive(&db, root, &drive, true).unwrap());
+    assert_eq!(
+        recorded_drive(&db, root).unwrap().unwrap()["disk"]["system"],
+        true
+    );
+    assert_eq!(scan(&mut db, &drive, false).unwrap().files, 1);
+}
+
+#[test]
+fn where_the_drive_cant_be_told_the_other_guards_decide() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (mut db, drive, _) = indexed_drive(tmp.path());
+    stub_in_its_place(tmp.path(), &drive);
+    // the probe failed, or the folder is on a network share
+    probed(json!({ "os": "linux", "disks": [] }));
+    let st = scan(&mut db, &drive, false).unwrap();
+    assert_eq!((st.files, st.removed), (1, 3));
+}

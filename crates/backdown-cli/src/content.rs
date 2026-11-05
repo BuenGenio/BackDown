@@ -2107,6 +2107,7 @@ mod build_tests {
             &index::Options {
                 one_file_system: true,
                 allow_empty: false,
+                allow_other_drive: false,
             },
             &mut |_| {},
         )
@@ -2257,6 +2258,7 @@ mod build_tests {
             &index::Options {
                 one_file_system: true,
                 allow_empty: false,
+                allow_other_drive: false,
             },
             &mut |_| {},
         )
