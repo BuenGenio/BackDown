@@ -141,7 +141,11 @@ EXAMPLES = {
 
 NOTES = {
     'index': 'A drive that is suddenly empty although its last scan held files (usually an unplugged drive’s leftover '
-             'mount point) is refused and nothing is recorded; pass `--allow-empty` if it really was emptied. Symbolic '
+             'mount point) is refused and nothing is recorded; pass `--allow-empty` if it really was emptied. {preview} '
+             'So is one that holds folders but no files at all, and one whose folder is now on another drive than the '
+             'one it was last scanned on (folders made where a drive is mounted, with the drive mounted elsewhere or '
+             'not at all); pass `--allow-other-drive` for a new or reformatted drive in its place. A folder that can’t '
+             'be read keeps what the index had of it instead of having it recorded as gone. Symbolic '
              'links are not followed. When a daemon is running, the scan is handed to it and it hashes the new files next. '
              'With `--method auto`, a rescan reads the drive’s change log where there is one (the USN journal of NTFS '
              'drives on Windows, the change history of APFS and HFS+ drives on macOS), or NTFS’s file table (on Windows as '

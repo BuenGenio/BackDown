@@ -50,7 +50,7 @@ A renamed or moved file counts as gone at the old path and new at the new one. A
 
 Because every version is kept, the browser can show any folder as it was at any scan: that's the *time slider* at the bottom of a drive with two scans or more. An old version can be opened while its exact bytes still exist somewhere indexed, either the file itself, unchanged, or an identical copy (same SHA-256) on an indexed drive. Otherwise the index still remembers its size, dates and hash, but the bytes are gone. Hashing after each scan keeps that fingerprint; the background service does it for you.
 
-If a drive that held files is suddenly empty, `index` refuses to record it: usually the drive isn't plugged in and you're looking at its empty mount point. If it really was emptied, pass `--allow-empty`.
+If a drive that held files is suddenly empty, `index` refuses to record it: usually the drive isn't plugged in and you're looking at its empty mount point. If it really was emptied, pass `--allow-empty`. {preview} It also refuses a drive's folder that holds no files at all, and one that's now on another physical drive than the one it was last scanned on (folders made where the drive is mounted, with the drive mounted elsewhere); pass `--allow-other-drive` for a new or reformatted drive in its place. A folder that can't be read keeps what the index had of it rather than being recorded as gone.
 
 ### Fast rescans
 

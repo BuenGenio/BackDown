@@ -114,6 +114,8 @@ Notes for the beta
   as its own file for now.
 - An index refuses to record a drive that is suddenly empty after holding
   files (usually an unplugged drive's leftover mount point); pass
-  --allow-empty if it really was emptied.
+  --allow-empty if it really was emptied. It also refuses one whose folder
+  is now on another physical drive than its last scan; pass
+  --allow-other-drive for a new or reformatted drive in its place.
 - Provided as-is, without warranty, for evaluation. Verify before you wipe.
 - Third-party licences: THIRD-PARTY-NOTICES.txt.
