@@ -24,6 +24,7 @@ fn scan_all(db: &mut Db, drives: &[&Path]) {
             &index::Options {
                 one_file_system: true,
                 allow_empty: false,
+                allow_other_drive: false,
             },
             &mut |_| {},
         )

@@ -30,6 +30,7 @@ fn places_that_one_drive_takes_for_one() {
             &index::Options {
                 one_file_system: true,
                 allow_empty: false,
+                allow_other_drive: false,
             },
             &mut |_| {},
         )

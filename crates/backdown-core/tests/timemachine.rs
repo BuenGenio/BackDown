@@ -151,6 +151,7 @@ fn every_time_machine_layout() {
         &index::Options {
             one_file_system: true,
             allow_empty: false,
+            allow_other_drive: false,
         },
         &mut |_| {},
     )

@@ -66,10 +66,15 @@ enum Cmd {
         /// Also descend into other filesystems mounted below PATH
         #[arg(long)]
         cross_filesystems: bool,
-        /// Record PATH even if it's now empty although it held files (normally refused: an empty
-        /// mount point usually means the drive is unplugged)
+        /// Record PATH even if it's now empty, or holds no files at all, although it held files
+        /// (normally refused: an empty mount point usually means the drive is unplugged)
         #[arg(long)]
         allow_empty: bool,
+        /// Record PATH even if it's now on another drive than the one it was last scanned on, for
+        /// a new or reformatted drive in its place (normally refused: it's usually the folder a
+        /// drive is mounted on, or one made there, with the drive itself elsewhere)
+        #[arg(long)]
+        allow_other_drive: bool,
         /// How to find what's there: auto (the drive's change log if it's intact, else NTFS's
         /// file table where the device can be read, else a walk; and a walk every so often),
         /// walk (every folder), journal or table (that way or fail, saying why)
@@ -894,6 +899,7 @@ fn local(db_path: &Path, cmd: Cmd, use_daemon: bool) -> Result<ExitCode> {
             paths,
             cross_filesystems,
             allow_empty,
+            allow_other_drive,
             method,
         } => {
             let method: index::Method = method.parse()?;
@@ -901,6 +907,7 @@ fn local(db_path: &Path, cmd: Cmd, use_daemon: bool) -> Result<ExitCode> {
                 let opts = index::Options {
                     one_file_system: !cross_filesystems,
                     allow_empty,
+                    allow_other_drive,
                 };
                 let st = index::scan(&mut db, &path, &opts, method, &mut |s| {
                     live(&format!(
@@ -910,7 +917,7 @@ fn local(db_path: &Path, cmd: Cmd, use_daemon: bool) -> Result<ExitCode> {
                         fmt::bytes(s.bytes)
                     ))
                 })?;
-                backdown_core::swarm::remember_scanned(&db, st.scan, &st.root);
+                backdown_core::swarm::remember_scanned(&db, st.scan, &st.root, allow_other_drive);
                 let _ = backdown_core::pool::receive::adopt(&db);
                 done(&format!(
                     "{}: {} files, {} (new {}, changed {}, gone {}) · scan {}\n  {}",
@@ -928,6 +935,12 @@ fn local(db_path: &Path, cmd: Cmd, use_daemon: bool) -> Result<ExitCode> {
                     for e in st.first_errors.iter().take(5) {
                         eprintln!("    {e}");
                     }
+                }
+                if st.kept > 0 {
+                    eprintln!(
+                        "  {} files in folders that couldn't be read are kept as the last scan had them, not recorded as gone",
+                        fmt::count(st.kept)
+                    );
                 }
             }
         }
@@ -1199,12 +1212,13 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
             paths,
             cross_filesystems,
             allow_empty,
+            allow_other_drive,
             method,
         } => {
             for path in paths {
                 let abs = backdown_core::paths::canonical(&path)
                     .with_context(|| format!("can't open {}", path.display()))?;
-                let r = c.request(&json!({ "cmd": "enqueue", "kind": "index", "path": abs.display().to_string(), "cross_filesystems": cross_filesystems, "allow_empty": allow_empty, "method": method }))?;
+                let r = c.request(&json!({ "cmd": "enqueue", "kind": "index", "path": abs.display().to_string(), "cross_filesystems": cross_filesystems, "allow_empty": allow_empty, "allow_other_drive": allow_other_drive, "method": method }))?;
                 let summary = follow(
                     &mut c,
                     r["job"].as_u64().unwrap_or(0),

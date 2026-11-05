@@ -153,6 +153,7 @@ fn recognises_what_things_are() {
         &index::Options {
             one_file_system: true,
             allow_empty: false,
+            allow_other_drive: false,
         },
         &mut |_| {},
     )
@@ -302,6 +303,7 @@ fn recognises_what_things_are() {
         &index::Options {
             one_file_system: true,
             allow_empty: false,
+            allow_other_drive: false,
         },
         &mut |_| {},
     )
@@ -321,6 +323,7 @@ fn without_the_drive_it_still_recognises_but_says_less() {
         &index::Options {
             one_file_system: true,
             allow_empty: false,
+            allow_other_drive: false,
         },
         &mut |_| {},
     )
@@ -467,6 +470,7 @@ fn mail_stores_in_depth() {
         &index::Options {
             one_file_system: true,
             allow_empty: false,
+            allow_other_drive: false,
         },
         &mut |_| {},
     )
@@ -604,6 +608,7 @@ fn overlaps_and_the_report() {
             &index::Options {
                 one_file_system: true,
                 allow_empty: false,
+                allow_other_drive: false,
             },
             &mut |_| {},
         )
@@ -806,6 +811,7 @@ fn databases_and_who_things_are_about() {
         &index::Options {
             one_file_system: true,
             allow_empty: false,
+            allow_other_drive: false,
         },
         &mut |_| {},
     )

@@ -16,6 +16,7 @@ fn opts() -> index::Options {
     index::Options {
         one_file_system: true,
         allow_empty: false,
+        allow_other_drive: false,
     }
 }
 

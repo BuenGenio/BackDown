@@ -51,6 +51,7 @@ fn added_folder_names_count_as_junk_until_removed() {
     let opts = index::Options {
         one_file_system: true,
         allow_empty: false,
+        allow_other_drive: false,
     };
     index::index(&mut db, &d, &opts, &mut |_| {}).unwrap();
 

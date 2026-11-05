@@ -18,7 +18,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use rusqlite::params;
+use rusqlite::{OptionalExtension, params};
 use serde_json::{Value, json};
 
 use crate::remote::{self, Machine};
@@ -179,13 +179,14 @@ fn depth(mount: &str) -> usize {
     mount.split(['/', '\\']).filter(|c| !c.is_empty()).count()
 }
 
-/// What a drive is, for people and for matching: the disk (model, serial, size, how it's attached)
-/// and the file system (label, UUID, kind, where it's mounted).
+/// What a drive is, for people and for matching: the disk (model, serial, size, how it's attached,
+/// whether the system runs from it) and the file system (label, UUID, kind, where it's mounted).
 fn identity(disk: &Value, vol: &Value, mount: &str) -> Value {
     json!({
         "disk": {
             "name": disk["name"], "model": disk["model"], "serial": disk["serial"], "size": disk["size"],
             "transport": disk["transport"], "rotational": disk["rotational"], "removable": disk["removable"],
+            "system": disk["system"],
         },
         "volume": {
             "device": vol["device"], "label": vol["label"], "uuid": vol["uuid"], "fs": vol["fs"],
@@ -264,20 +265,205 @@ fn known_drives(db: &Db) -> Result<HashMap<i64, Value>> {
     Ok(out)
 }
 
+/// The drive the indexed drive `root_id` was on when it was last scanned (`remember_drive`), if
+/// one was recorded.
+pub fn recorded_drive(db: &Db, root_id: i64) -> Result<Option<Value>> {
+    let has: bool = db.conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'root_drives')",
+        [],
+        |r| r.get(0),
+    )?;
+    if !has {
+        return Ok(None);
+    }
+    let data: Option<String> = db
+        .conn
+        .query_row(
+            "SELECT data FROM root_drives WHERE root_id = ?1",
+            [root_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(data.and_then(|d| serde_json::from_str(&d).ok()))
+}
+
+/// How long the volume probe may take before the drive a path is on counts as unknown (a network
+/// share whose server went away can hang whoever asks how big it is).
+const PROBE_WAIT: Duration = Duration::from_secs(10);
+
+#[cfg(test)]
+thread_local! {
+    /// What `Here::probe` finds, in tests: a storage report, as `storage` makes it.
+    pub(crate) static PROBED: std::cell::RefCell<Option<Value>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// What's mounted where on this machine now, to tell which drive a path is on: the volume probe,
+/// and (on Linux) every mount the kernel lists, so that a path on something the probe doesn't
+/// know (a network share, a FUSE mount, a drive whose device has gone) isn't taken for a path on
+/// the drive below it.
+pub struct Here {
+    storage: Value,
+    mounts: Vec<String>,
+}
+
+impl Here {
+    /// Probe now (at most `PROBE_WAIT`); None when the probe fails or takes too long.
+    pub fn probe() -> Option<Here> {
+        #[cfg(test)]
+        if let Some(storage) = PROBED.with(|p| p.borrow().clone()) {
+            return Some(Here {
+                storage,
+                mounts: Vec::new(),
+            });
+        }
+        within(PROBE_WAIT, || {
+            let storage = serde_json::to_value(volumes::probe().ok()?).ok()?;
+            Some(Here {
+                storage,
+                mounts: mount_points(),
+            })
+        })
+        .flatten()
+    }
+
+    /// The drive `path` is on now (as `place` tells it), or Null when that can't be told: no file
+    /// system the probe knows holds it, the deepest mount above it is one the probe doesn't know,
+    /// or the drive has neither a serial nor a file system UUID to know it by.
+    pub fn drive(&self, path: &Path) -> Value {
+        let p = path.display().to_string();
+        let mut d = place(&self.storage, &p, None);
+        let Some(mount) = d["volume"]["mount"].as_str() else {
+            return Value::Null;
+        };
+        let windows = self.storage["os"] == "windows";
+        if self
+            .mounts
+            .iter()
+            .any(|m| under(&p, m, windows) && depth(m) > depth(mount))
+        {
+            return Value::Null;
+        }
+        if serial_of(&d).is_none() && uuid_of(&d).is_none() {
+            return Value::Null;
+        }
+        if let Some(o) = d.as_object_mut() {
+            o.remove("present");
+        }
+        d
+    }
+}
+
+/// Where the kernel has file systems mounted (Linux; elsewhere the probe is all there is).
+fn mount_points() -> Vec<String> {
+    #[cfg(target_os = "linux")]
+    {
+        volumes::mountinfo::read()
+            .into_iter()
+            .map(|m| m.point.display().to_string())
+            .collect()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Vec::new()
+    }
+}
+
+fn serial_of(d: &Value) -> Option<String> {
+    d["disk"]["serial"]
+        .as_str()
+        .map(|s| health::identity(Some(s), None))
+        .filter(|s| !s.is_empty())
+}
+
+fn uuid_of(d: &Value) -> Option<String> {
+    d["volume"]["uuid"]
+        .as_str()
+        .map(|u| u.trim().to_lowercase())
+        .filter(|u| !u.is_empty())
+}
+
+/// Whether a path is on the drive its indexed drive was last scanned on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OnDrive {
+    /// the same drive: its serial or its file system's UUID matches
+    Same,
+    /// another drive: neither matches
+    Other,
+    /// nothing to compare: no drive recorded, or the one it's on now can't be told
+    Unknown,
+}
+
+/// The drive recorded for an indexed drive and the drive its path is on now (both as `place`
+/// gives them, either may be Null): the same if the disk's serial or the file system's UUID
+/// matches, another if one of them can be compared and neither matches. Either one is enough to
+/// be the same, unlike `same_drive`: a disk moved into another USB enclosure can report the
+/// enclosure's serial, but its file system is the one it was.
+pub fn judge(recorded: &Value, now: &Value) -> OnDrive {
+    let pair = |a: Option<String>, b: Option<String>| a.zip(b).map(|(x, y)| x == y);
+    match (
+        pair(serial_of(recorded), serial_of(now)),
+        pair(uuid_of(recorded), uuid_of(now)),
+    ) {
+        (None, None) => OnDrive::Unknown,
+        (Some(true), _) | (_, Some(true)) => OnDrive::Same,
+        _ => OnDrive::Other,
+    }
+}
+
+/// A drive for people: `the system disk (Samsung SSD 980, serial S64ANS0T1), file system "root"`.
+pub fn drive_name(d: &Value) -> String {
+    let text = |v: &Value| {
+        v.as_str()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+    };
+    let disk = &d["disk"];
+    let model = text(&disk["model"]).or_else(|| text(&disk["name"]));
+    let serial = text(&disk["serial"]);
+    let mut out = if disk["system"] == true {
+        match (model, serial) {
+            (Some(m), Some(s)) => format!("the system disk ({m}, serial {s})"),
+            (Some(x), None) | (None, Some(x)) => format!("the system disk ({x})"),
+            (None, None) => "the system disk".to_string(),
+        }
+    } else {
+        match (model, serial) {
+            (Some(m), Some(s)) => format!("{m} (serial {s})"),
+            (Some(m), None) => m,
+            (None, Some(s)) => format!("a disk with serial {s}"),
+            (None, None) => "a disk".to_string(),
+        }
+    };
+    let vol = &d["volume"];
+    if let Some(l) = text(&vol["label"]) {
+        out.push_str(&format!(", file system \"{l}\""));
+    } else if let Some(u) = text(&vol["uuid"]) {
+        out.push_str(&format!(", file system UUID {u}"));
+    }
+    out
+}
+
 /// Remember which physical drive the indexed drive `root_id` (at `path`) is on now: called after
 /// it's scanned, so it can be named while it's unplugged, or once it has moved to another machine.
-/// Nothing is kept when the drive can't be told (a network share, a probe that failed).
-pub fn remember_drive(db: &Db, root_id: i64, path: &Path) -> Result<bool> {
-    let report = volumes::probe()?;
-    let storage = serde_json::to_value(&report)?;
-    let d = place(&storage, &path.display().to_string(), None);
-    // a folder on the system drive says nothing worth keeping about where a drive went
-    if !d.is_object() || (d["disk"]["serial"].is_null() && d["volume"]["uuid"].is_null()) {
+/// Nothing is kept when the drive can't be told (a network share, a probe that failed). A drive
+/// already on record that this isn't stays on record unless `replace` (the scan was told it's
+/// another drive now): whatever was scanned at its path meanwhile, a folder left where the drive is
+/// mounted, say, mustn't take its place.
+pub fn remember_drive(db: &Db, root_id: i64, path: &Path, replace: bool) -> Result<bool> {
+    let Some(here) = Here::probe() else {
+        return Ok(false);
+    };
+    let d = here.drive(path);
+    if d.is_null() {
         return Ok(false);
     }
-    let mut d = d;
-    if let Some(o) = d.as_object_mut() {
-        o.remove("present");
+    if !replace
+        && let Some(old) = recorded_drive(db, root_id)?
+        && judge(&old, &d) == OnDrive::Other
+    {
+        return Ok(false);
     }
     db.conn.execute(
         "INSERT INTO root_drives(root_id, at, data) VALUES (?1, ?2, ?3)
@@ -288,8 +474,8 @@ pub fn remember_drive(db: &Db, root_id: i64, path: &Path) -> Result<bool> {
 }
 
 /// After scan `scan` of the drive at `root`: remember which physical drive it is (best effort; a
-/// probe that fails costs the scan nothing).
-pub fn remember_scanned(db: &Db, scan: i64, root: &Path) {
+/// probe that fails costs the scan nothing). `replace`: as for `remember_drive`.
+pub fn remember_scanned(db: &Db, scan: i64, root: &Path, replace: bool) {
     let id: Option<i64> = db
         .conn
         .query_row("SELECT root_id FROM scans WHERE id = ?1", [scan], |r| {
@@ -297,7 +483,7 @@ pub fn remember_scanned(db: &Db, scan: i64, root: &Path) {
         })
         .ok();
     if let Some(id) = id {
-        let _ = remember_drive(db, id, root);
+        let _ = remember_drive(db, id, root, replace);
     }
 }
 

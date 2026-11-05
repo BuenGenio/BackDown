@@ -1390,6 +1390,7 @@ mod tests {
         let opts = crate::index::Options {
             one_file_system: true,
             allow_empty: false,
+            allow_other_drive: false,
         };
         let scan = crate::index::index(&mut db, &d, &opts, &mut |_| {})
             .unwrap()

@@ -25,7 +25,17 @@
 //! and it's intact, else the file table, else a walk; and a walk anyway every so often (a setting:
 //! every tenth scan, or after 30 days), so nothing a change log might not know about (a drive
 //! changed on another computer) lasts long. Each scan records how it was made and why.
+//!
+//! A root is known by its path only, so a scan of whatever is at that path would record every
+//! file of the drive that isn't there as deleted. A scan is refused, recording nothing
+//! (`Refused`), where that is far likelier than a drive really emptied: the root's folder is on
+//! another drive than the one its last scan was on (the folder a drive is mounted on, or one made
+//! there while the drive is mounted elsewhere), it's empty, or holds no files at all, though its
+//! last scan found some, or it can't be listed. A folder below it that can't be read (a drive that
+//! stopped answering, no permission) keeps what the index had of it, rather than having it
+//! recorded as gone.
 
+use std::cell::OnceCell;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, UNIX_EPOCH};
@@ -36,7 +46,7 @@ use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
 use crate::clock::now;
-use crate::{Db, find, paths};
+use crate::{Db, find, paths, swarm};
 
 mod changes;
 pub mod fsevents;
@@ -48,6 +58,11 @@ pub use changes::ChangeSet;
 
 const BATCH: u64 = 20_000;
 const MAX_ERRORS_KEPT: usize = 20;
+
+/// The rows `Writer::keep_unread` keeps (?1 the root, ?2 the scan, ?3..?4 a range of paths): found
+/// by path alone. The unary + keeps SQLite off the root's index, which would have it go through
+/// every row the walk hasn't reached yet, for each folder that couldn't be read.
+const KEPT: &str = "current = 1 AND path >= ?3 AND path < ?4 AND +root_id = ?1 AND +last_scan < ?2";
 
 // ---------- stopping a scan part way
 
@@ -96,10 +111,49 @@ fn stop_asked() -> bool {
 pub struct Options {
     /// Stay on the filesystem the root is on (don't descend into other mounts).
     pub one_file_system: bool,
-    /// Record the root even if it is now empty although its last scan found files. Without this,
-    /// an empty root is refused: it is far more likely an unplugged drive's leftover mount point
-    /// than a drive that really was wiped, and recording it would mark every file deleted.
+    /// Record the root even if it is now empty, or holds no files at all, although its last scan
+    /// found files. Without this, such a root is refused: it is far more likely an unplugged
+    /// drive's leftover mount point than a drive that really was wiped, and recording it would
+    /// mark every file deleted.
     pub allow_empty: bool,
+    /// Record the root even if its folder is now on another drive than the one its last scan was
+    /// on (a new or reformatted drive mounted in its place). Without this, that's refused: it's
+    /// far more likely the folder a drive is mounted on, or one made there while the drive is
+    /// mounted elsewhere, and recording it would mark every file deleted.
+    pub allow_other_drive: bool,
+}
+
+/// Why a scan was refused (see `Refused`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Refusal {
+    /// the root's folder is on another drive than the one its last scan was on
+    OtherDrive,
+    /// the root is empty, or holds no files at all, though its last scan found files
+    Empty,
+    /// the root's own folder can't be listed
+    Unreadable,
+}
+
+/// A scan refused because what it would record is very likely wrong: it would mark files deleted
+/// that are only somewhere else (an unplugged drive's mount point, a folder made where a drive is
+/// mounted, a drive that stopped answering). Nothing was recorded; the message says what's wrong
+/// and what to do.
+#[derive(Debug)]
+pub struct Refused {
+    pub why: Refusal,
+    pub message: String,
+}
+
+impl std::fmt::Display for Refused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for Refused {}
+
+fn refused(why: Refusal, message: String) -> anyhow::Error {
+    Refused { why, message }.into()
 }
 
 #[derive(Debug, Default, Clone)]
@@ -113,6 +167,9 @@ pub struct Stats {
     pub removed: u64,
     pub errors: u64,
     pub first_errors: Vec<String>,
+    /// Files in folders that couldn't be read, kept as the previous scan had them (counted in
+    /// `files` and `bytes`) rather than recorded as gone.
+    pub kept: u64,
     /// How the scan was made: "walk", "journal" or "table".
     pub method: &'static str,
     /// Why it was made that way, for people ("the change log was reset").
@@ -384,7 +441,7 @@ pub fn scan(
     progress: &mut dyn FnMut(&Stats),
 ) -> Result<Stats> {
     let t0 = Instant::now();
-    let (root, root_id) = prepare(db, root, opts)?;
+    let Prepared { root, root_id, had } = prepare(db, root, opts)?;
     let settings = settings(db)?;
     let prev = previous(&db.conn, root_id)?;
     // where the change log is now, before anything is read: whatever changes from here on, the
@@ -432,15 +489,17 @@ pub fn scan(
     }
     if walk_why.is_none() && matches!(method, Method::Auto | Method::Table) {
         match table::read(&root, opts, saved.journal.as_ref()) {
-            Ok(t) => match from_table(db, &root, root_id, opts, t, &saved, started, progress) {
-                Ok(mut st) => {
-                    st.took_ms = t0.elapsed().as_millis() as u64;
-                    set_took(&db.conn, st.scan, st.took_ms)?;
-                    return Ok(st);
+            Ok(t) => {
+                match from_table(db, &root, root_id, had, opts, t, &saved, started, progress) {
+                    Ok(mut st) => {
+                        st.took_ms = t0.elapsed().as_millis() as u64;
+                        set_took(&db.conn, st.scan, st.took_ms)?;
+                        return Ok(st);
+                    }
+                    Err(Fallback::Odd(why)) => notes.push(why),
+                    Err(Fallback::Failed(e)) => return Err(e),
                 }
-                Err(Fallback::Odd(why)) => notes.push(why),
-                Err(Fallback::Failed(e)) => return Err(e),
-            },
+            }
             Err(why) => notes.push(why),
         }
         if method == Method::Table {
@@ -452,7 +511,7 @@ pub fn scan(
         }
     }
     let note = walk_why.unwrap_or_else(|| notes.join("; "));
-    let mut st = walk_scan(db, &root, root_id, opts, &note, &saved, progress)?;
+    let mut st = walk_scan(db, &root, root_id, had, opts, &note, &saved, progress)?;
     st.took_ms = t0.elapsed().as_millis() as u64;
     set_took(&db.conn, st.scan, st.took_ms)?;
     Ok(st)
@@ -468,7 +527,7 @@ pub fn scan_changes(
     changes: &ChangeSet,
     progress: &mut dyn FnMut(&Stats),
 ) -> Result<Stats> {
-    let (root, root_id) = prepare(db, root, opts)?;
+    let Prepared { root, root_id, .. } = prepare(db, root, opts)?;
     let prev = previous(&db.conn, root_id)?.context("no earlier scan of this root")?;
     let saved = Saved {
         one_fs: opts.one_file_system,
@@ -496,8 +555,17 @@ impl<E: Into<anyhow::Error>> From<E> for Fallback {
     }
 }
 
-/// The root, canonical, checked and on record.
-fn prepare(db: &mut Db, root: &Path, opts: &Options) -> Result<(PathBuf, i64)> {
+/// A root ready to scan: canonical, checked and on record.
+struct Prepared {
+    root: PathBuf,
+    root_id: i64,
+    /// the files its last scan found
+    had: i64,
+}
+
+/// The root, canonical, checked and on record; refused (`Refused`) where scanning it now would
+/// record its files as deleted though they very likely aren't.
+fn prepare(db: &mut Db, root: &Path, opts: &Options) -> Result<Prepared> {
     let root = paths::canonical(root).with_context(|| format!("can't open {}", root.display()))?;
     if !paths::os(&root).is_dir() {
         bail!("{} is not a directory", root.display());
@@ -520,25 +588,80 @@ fn prepare(db: &mut Db, root: &Path, opts: &Options) -> Result<(PathBuf, i64)> {
             root.display()
         );
     }
-    if !opts.allow_empty {
-        let had: i64 = conn.query_row(
-            "SELECT COALESCE((SELECT files FROM scans WHERE id = r.last_scan), 0) FROM roots r WHERE r.id = ?1",
-            params![root_id],
-            |r| r.get(0),
-        )?;
-        let empty = std::fs::read_dir(paths::os(&root))
-            .with_context(|| format!("can't read {}", root.display()))?
-            .next()
-            .is_none();
-        if had > 0 && empty {
-            bail!(
-                "{} is empty, but held {had} files at its last scan. Is the drive unplugged? \
-                 Nothing was recorded; if it really was emptied, index again with --allow-empty",
-                root.display()
-            );
+    let had: i64 = conn.query_row(
+        "SELECT COALESCE((SELECT files FROM scans WHERE id = r.last_scan), 0) FROM roots r WHERE r.id = ?1",
+        params![root_id],
+        |r| r.get(0),
+    )?;
+    // a folder that can't be listed (a drive that stopped answering, no permission) says nothing
+    // about what's on it
+    let empty = match std::fs::read_dir(paths::os(&root)) {
+        Ok(mut it) => it.next().is_none(),
+        Err(e) => {
+            return Err(refused(
+                Refusal::Unreadable,
+                format!(
+                    "can't list {}: {e}. Is the drive still connected? Nothing was recorded",
+                    root.display()
+                ),
+            ));
         }
+    };
+    if !opts.allow_empty && had > 0 && empty {
+        return Err(refused(
+            Refusal::Empty,
+            format!(
+                "{} is empty, but held {} files at its last scan. Is the drive unplugged? \
+                 Nothing was recorded; if it really was emptied, index again with --allow-empty",
+                root.display(),
+                crate::fmt::count(had as u64)
+            ),
+        ));
     }
-    Ok((root, root_id))
+    if !opts.allow_other_drive
+        && let Some(why) = wrong_drive(db, root_id, &root, &OnceCell::new())?
+    {
+        return Err(refused(Refusal::OtherDrive, why));
+    }
+    Ok(Prepared { root, root_id, had })
+}
+
+/// Why the indexed drive `root_id`, at `root`, mustn't be scanned now: its folder is on another
+/// drive than the one its last scan was on, so it's very likely the folder a drive is mounted on,
+/// or one made there, with the drive itself mounted elsewhere or not at all. None when it's the
+/// same drive, when none was recorded (`swarm::remember_drive`), or when the drive it's on now
+/// can't be told (a network share, a probe that failed). `here` is probed only if a drive was
+/// recorded, and once for however many drives are asked about with it.
+pub fn wrong_drive(
+    db: &Db,
+    root_id: i64,
+    root: &Path,
+    here: &OnceCell<Option<swarm::Here>>,
+) -> Result<Option<String>> {
+    let Some(was) = swarm::recorded_drive(db, root_id)? else {
+        return Ok(None);
+    };
+    let Some(here) = here.get_or_init(swarm::Here::probe) else {
+        return Ok(None);
+    };
+    let now = here.drive(root);
+    if swarm::judge(&was, &now) != swarm::OnDrive::Other {
+        return Ok(None);
+    }
+    let at = now["volume"]["mount"]
+        .as_str()
+        .map(|m| format!(" (mounted at {m})"))
+        .unwrap_or_default();
+    Ok(Some(format!(
+        "{root} isn't on the drive it was last scanned on: that was {was}, and {root} is now on \
+         {now}{at}. It's very likely the folder the drive is mounted on, or one made in its place, \
+         with the drive mounted elsewhere or not at all. Nothing was recorded. Mount the drive at \
+         {root} and index again; if this really is its drive now (a new or reformatted one), index \
+         again with --allow-other-drive, or `backdown forget {root}` and index it afresh",
+        root = root.display(),
+        was = swarm::drive_name(&was),
+        now = swarm::drive_name(&now),
+    )))
 }
 
 fn previous(conn: &Connection, root_id: i64) -> Result<Option<Prev>> {
@@ -628,11 +751,13 @@ fn journal_changes(
     Ok(changes)
 }
 
-/// A walk of the whole root.
+/// A walk of the whole root (`had`: the files its last scan found).
+#[allow(clippy::too_many_arguments)]
 fn walk_scan(
     db: &mut Db,
     root: &Path,
     root_id: i64,
+    had: i64,
     opts: &Options,
     note: &str,
     saved: &Saved,
@@ -641,7 +766,7 @@ fn walk_scan(
     let mut w = Writer::begin(&db.conn, root, root_id)?;
     let items = walk_items(root, opts.one_file_system);
     write_items(&mut w, items, true, None, progress)?;
-    w.close_unseen()?;
+    w.close_unseen(had, opts.allow_empty)?;
     w.finish("walk", note, 0, saved, progress)
 }
 
@@ -651,6 +776,7 @@ fn from_table(
     db: &mut Db,
     root: &Path,
     root_id: i64,
+    had: i64,
     opts: &Options,
     t: table::Table,
     saved: &Saved,
@@ -661,7 +787,7 @@ fn from_table(
     let note = t.note.clone();
     let mut w = Writer::begin(&db.conn, root, root_id)?;
     write_items(&mut w, t.items(root), true, None, progress)?;
-    w.close_unseen()?;
+    w.close_unseen(had, opts.allow_empty)?;
     // on a live volume the table is a moment behind: what changed while (and just before) it was
     // read is taken from the change log, if there is one
     if let Some(catch_up) = &t.catch_up {
@@ -761,6 +887,8 @@ pub(crate) struct Writer<'c> {
     last: Instant,
     /// in a transaction (until `finish` commits it)
     open: bool,
+    /// a batch was committed: rows of this scan are in the index, finished or not
+    committed: bool,
     /// notes the alternate streams of files as they're recorded (Windows: streams.rs)
     streams: crate::streams::Recorder<'c>,
     /// every file of the root was looked at (a walk or the file table, not the change log): only
@@ -770,10 +898,17 @@ pub(crate) struct Writer<'c> {
 
 impl Drop for Writer<'_> {
     /// A scan that fails part way keeps what earlier batches committed (the next scan carries
-    /// on from there) and drops the batch it was in, so the connection is left usable.
+    /// on from there) and drops the batch it was in, so the connection is left usable. One that
+    /// fails (or is refused) before any batch was committed leaves no trace at all.
     fn drop(&mut self) {
         if self.open {
             let _ = self.conn.execute_batch("ROLLBACK");
+            if !self.committed {
+                let _ = self.conn.execute(
+                    "DELETE FROM scans WHERE id = ?1 AND finished_at IS NULL",
+                    params![self.scan],
+                );
+            }
         }
     }
 }
@@ -799,6 +934,7 @@ impl<'c> Writer<'c> {
             pending: 0,
             last: Instant::now(),
             open: true,
+            committed: false,
             streams: crate::streams::Recorder::new(conn, root_id)?,
             whole: false,
         })
@@ -927,6 +1063,7 @@ impl<'c> Writer<'c> {
         if self.pending >= BATCH {
             self.conn.execute_batch("COMMIT; BEGIN")?;
             self.pending = 0;
+            self.committed = true;
         }
         if stop_asked() {
             self.conn.execute_batch("COMMIT")?;
@@ -945,8 +1082,69 @@ impl<'c> Writer<'c> {
         note_error(&mut self.st, msg);
     }
 
-    /// After a walk of the whole root: anything of this root it didn't see is gone.
-    fn close_unseen(&mut self) -> Result<()> {
+    /// What the index has at or below `p` that this scan hasn't seen, kept as it was rather than
+    /// recorded as gone, because `p` (a folder, or a file) couldn't be read. Their ids go in
+    /// `seen` (a walk of one folder, which closes by id what it didn't see). Returns the totals of
+    /// the files kept, for the folder above.
+    fn keep_unread(&mut self, p: &Path, mut seen: Option<&mut Seen>) -> Result<Totals> {
+        // `p` itself (from it to it followed by a NUL there's only it), and what's below it
+        let own = paths::to_bytes(p);
+        let mut past = own.clone();
+        past.push(0);
+        let mut t = Totals::default();
+        for (lo, hi) in [(own, past), changes::below(p)] {
+            let args = params![self.root_id, self.scan, lo, hi];
+            let (files, bytes, newest): (i64, i64, i64) = self
+                .conn
+                .prepare_cached(&format!(
+                    "SELECT COUNT(*), COALESCE(SUM(size), 0), COALESCE(MAX(mtime), 0) FROM files WHERE {KEPT}"
+                ))?
+                .query_row(args, |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+            t.add(Totals {
+                files: files as u64,
+                bytes: bytes as u64,
+                newest,
+            });
+            if let Some(s) = seen.as_deref_mut() {
+                for (table, into) in [("files", &mut s.files), ("dirs", &mut s.dirs)] {
+                    let mut stmt = self
+                        .conn
+                        .prepare_cached(&format!("SELECT id FROM {table} WHERE {KEPT}"))?;
+                    for id in stmt.query_map(args, |r| r.get::<_, i64>(0))? {
+                        into.insert(id?);
+                    }
+                }
+            }
+            for table in ["files", "dirs"] {
+                self.pending += self
+                    .conn
+                    .prepare_cached(&format!("UPDATE {table} SET last_scan = ?2 WHERE {KEPT}"))?
+                    .execute(args)? as u64;
+            }
+        }
+        self.st.kept += t.files;
+        self.st.files += t.files;
+        self.st.bytes += t.bytes;
+        Ok(t)
+    }
+
+    /// After a walk of the whole root: anything of this root it didn't see is gone. Unless it
+    /// found no files at all where the last scan found `had`, and that isn't allowed: then the
+    /// scan is refused (a drive's mount point with a few empty folders in it, or folders made in
+    /// its place, is far likelier than a drive emptied by hand).
+    fn close_unseen(&mut self, had: i64, allow_empty: bool) -> Result<()> {
+        if self.st.files == 0 && had > 0 && !allow_empty {
+            return Err(refused(
+                Refusal::Empty,
+                format!(
+                    "{} holds no files at all, but held {} files at its last scan. Is the drive \
+                     mounted? What's there may be folders made where it's mounted. Nothing was \
+                     recorded; if it really was emptied, index again with --allow-empty",
+                    self.st.root.display(),
+                    crate::fmt::count(had as u64)
+                ),
+            ));
+        }
         self.whole = true;
         self.st.removed += self.conn.execute(
             "UPDATE files SET current = 0 WHERE root_id = ?1 AND current = 1 AND last_scan < ?2",
@@ -1019,6 +1217,15 @@ pub(crate) enum Item {
         links: u64,
     },
     Error(String),
+    /// A folder that couldn't be listed (whole, or past some point), or a file that couldn't be
+    /// looked at: an I/O error on a drive that stopped answering, no permission. What the index
+    /// has at or below it that the scan hasn't seen is kept, not recorded as gone; the root
+    /// itself (depth 0) failing fails the scan.
+    Unreadable {
+        path: PathBuf,
+        depth: usize,
+        msg: String,
+    },
 }
 
 /// The rows a walk of one folder wrote, so what it no longer holds can be closed, and the files
@@ -1051,6 +1258,29 @@ pub(crate) fn write_items(
     for item in items {
         match item {
             Item::Error(e) => w.note_error(e),
+            Item::Unreadable { path, depth, msg } => {
+                if depth == 0 && top_is_root {
+                    return Err(refused(
+                        Refusal::Unreadable,
+                        format!(
+                            "can't list {}: {msg}. Is the drive still connected? Nothing was recorded",
+                            w.st.root.display()
+                        ),
+                    ));
+                }
+                w.note_error(msg);
+                // what's kept counts in the folder it's in, or in itself if it's the folder open
+                while stack.len() > depth + 1
+                    || (stack.len() == depth + 1 && stack.last().is_some_and(|d| d.path != path))
+                {
+                    close_top(w, &mut stack, seen.as_deref_mut())?;
+                }
+                let kept = w.keep_unread(&path, seen.as_deref_mut())?;
+                if let Some(top) = stack.last_mut() {
+                    top.totals.add(kept);
+                }
+                w.tick(progress)?;
+            }
             Item::Dir {
                 path,
                 depth,
@@ -1122,20 +1352,26 @@ fn close_top(w: &mut Writer, stack: &mut Vec<OpenDir>, seen: Option<&mut Seen>) 
 /// Walks `top` (not following symlinks, staying on its filesystem if `one_fs`). Opened verbatim on
 /// Windows (long paths, names ending in a dot); the paths it yields are in normal form, as stored.
 pub(crate) fn walk_items(top: &Path, one_fs: bool) -> impl Iterator<Item = Item> + use<> {
+    // the folder last met at each depth: the one being listed, when a listing breaks off part way
+    // (that error doesn't say where)
+    let mut open: Vec<PathBuf> = Vec::new();
     WalkDir::new(paths::os(top))
         .follow_links(false)
         .same_file_system(one_fs)
         .into_iter()
-        .filter_map(|entry| {
+        .filter_map(move |entry| {
             let entry = match entry {
                 Ok(e) => e,
-                Err(e) => return Some(Item::Error(e.to_string())),
+                Err(e) => return Some(unreadable(e, &open)),
             };
             let depth = entry.depth();
             if entry.file_type().is_dir() {
                 let (dev, ino) = dir_identity(entry.path());
+                let path = paths::normal(entry.path()).into_owned();
+                open.truncate(depth);
+                open.push(path.clone());
                 return Some(Item::Dir {
-                    path: paths::normal(entry.path()).into_owned(),
+                    path,
                     depth,
                     dev,
                     ino,
@@ -1157,9 +1393,33 @@ pub(crate) fn walk_items(top: &Path, one_fs: bool) -> impl Iterator<Item = Item>
                         links: links_of(&meta),
                     })
                 }
-                Err(e) => Some(Item::Error(e.to_string())),
+                Err(e) => Some(unreadable(e, &open)),
             }
         })
+}
+
+/// A walk's error as an item: what couldn't be read (`open`: the folder at each depth, for a
+/// listing that broke off, whose error names no path), or a plain error for what was deleted
+/// while the walk went by (that is gone).
+fn unreadable(e: walkdir::Error, open: &[PathBuf]) -> Item {
+    let msg = e.to_string();
+    if e.io_error()
+        .is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound)
+    {
+        return Item::Error(msg);
+    }
+    let at = match e.path() {
+        Some(p) => Some((paths::normal(p).into_owned(), e.depth())),
+        // a listing at this depth broke off: its folder is the one above
+        None => e
+            .depth()
+            .checked_sub(1)
+            .and_then(|d| Some((open.get(d)?.clone(), d))),
+    };
+    match at {
+        Some((path, depth)) => Item::Unreadable { path, depth, msg },
+        None => Item::Error(msg),
+    }
 }
 
 pub(crate) fn mtime_of(meta: &std::fs::Metadata) -> i64 {
@@ -1244,8 +1504,9 @@ pub(crate) fn dir_identity(_: &Path) -> (Option<i64>, Option<i64>) {
     (None, None)
 }
 
-/// The device the root is on (unix only: elsewhere, None).
-pub(crate) fn device_of(path: &Path) -> Option<u64> {
+/// The device the root is on (on Windows, its volume's serial; elsewhere, None). It changes when
+/// something is mounted there, and can when a drive is plugged in again.
+pub fn device_of(path: &Path) -> Option<u64> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
@@ -1299,5 +1560,161 @@ mod tests {
                 .all(|m| m.parse::<Method>().is_ok())
         );
         assert!("everything".parse::<Method>().is_err());
+    }
+
+    /// What's kept below a folder that couldn't be read is found by path, not by going through
+    /// the root's rows (millions, on a big drive) once for each such folder.
+    #[test]
+    fn what_is_kept_is_found_by_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = Db::open(&tmp.path().join("idx.db")).unwrap();
+        for table in ["files", "dirs"] {
+            let plan: Vec<String> = db
+                .conn
+                .prepare(&format!(
+                    "EXPLAIN QUERY PLAN SELECT id FROM {table} WHERE {KEPT}"
+                ))
+                .unwrap()
+                .query_map(params![1, 2, b"/a".to_vec(), b"/b".to_vec()], |r| {
+                    r.get::<_, String>(3)
+                })
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect();
+            let plan = plan.join("; ");
+            assert!(
+                plan.contains("INDEX") && plan.contains("(path>? AND path<?)"),
+                "{table}: {plan}"
+            );
+            assert!(!plan.contains("_root"), "{table}: {plan}");
+        }
+    }
+
+    /// A folder whose listing breaks off part way (an I/O error on a drive that stopped
+    /// answering), and a file that can't be looked at: what the walk didn't get to is kept, the
+    /// folders' totals still count it, and only what really went is closed.
+    #[test]
+    fn what_a_broken_listing_didnt_get_to_is_kept() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("drive");
+        for f in ["d/x1", "d/x2", "d/sub/x3", "y", "z"] {
+            std::fs::create_dir_all(root.join(f).parent().unwrap()).unwrap();
+            std::fs::write(root.join(f), f.as_bytes()).unwrap();
+        }
+        let root = paths::canonical(&root).unwrap();
+        let mut db = Db::open(&tmp.path().join("idx.db")).unwrap();
+        let opts = Options {
+            one_file_system: true,
+            allow_empty: false,
+            allow_other_drive: false,
+        };
+        let first = index(&mut db, &root, &opts, &mut |_| {}).unwrap();
+        assert_eq!(first.files, 5);
+        let root_id = crate::forget::root_id(&db, &root).unwrap().unwrap();
+
+        // the second walk: d's listing breaks off after x1, y can't be looked at, z is gone
+        let file = |p: &str, depth| Item::File {
+            path: root.join(p),
+            depth,
+            size: p.len() as u64,
+            mtime: mtime_of(&std::fs::metadata(root.join(p)).unwrap()),
+            dev: None,
+            ino: None,
+            links: 1,
+        };
+        let dir = |p: &str, depth| Item::Dir {
+            path: if p.is_empty() {
+                root.clone()
+            } else {
+                root.join(p)
+            },
+            depth,
+            dev: None,
+            ino: None,
+        };
+        let items = vec![
+            dir("", 0),
+            dir("d", 1),
+            file("d/x1", 2),
+            Item::Unreadable {
+                path: root.join("d"),
+                depth: 1,
+                msg: "d: Input/output error".into(),
+            },
+            Item::Unreadable {
+                path: root.join("y"),
+                depth: 1,
+                msg: "y: Input/output error".into(),
+            },
+        ];
+        let mut w = Writer::begin(&db.conn, &root, root_id).unwrap();
+        let mut seen = Seen::default();
+        write_items(
+            &mut w,
+            items.into_iter(),
+            true,
+            Some(&mut seen),
+            &mut |_| {},
+        )
+        .unwrap();
+        w.close_unseen(first.files as i64, false).unwrap();
+        let st = w
+            .finish("walk", "", 0, &Saved::default(), &mut |_| {})
+            .unwrap();
+        assert_eq!((st.files, st.kept, st.removed, st.errors), (4, 3, 1, 2));
+        assert_eq!(
+            seen.files.len(),
+            4,
+            "kept files count as seen, in a walk of one folder"
+        );
+        let current: Vec<String> = db
+            .conn
+            .prepare("SELECT path FROM files WHERE current = 1 AND last_scan = ?1 ORDER BY path")
+            .unwrap()
+            .query_map([st.scan], |r| r.get::<_, Vec<u8>>(0))
+            .unwrap()
+            .map(|p| {
+                let p = paths::from_bytes(&p.unwrap());
+                p.strip_prefix(&root).unwrap().display().to_string()
+            })
+            .collect();
+        assert_eq!(current, ["d/sub/x3", "d/x1", "d/x2", "y"]);
+        let totals = |p: &Path| -> (i64, i64) {
+            db.conn
+                .query_row(
+                    "SELECT files, last_scan FROM dirs WHERE path = ?1 AND current = 1",
+                    [paths::to_bytes(p)],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .unwrap()
+        };
+        assert_eq!(totals(&root.join("d")), (3, st.scan));
+        assert_eq!(totals(&root.join("d/sub")), (1, st.scan));
+        assert_eq!(totals(&root), (4, st.scan));
+
+        // the root itself breaking off fails the scan, and leaves no trace
+        let scans = |db: &Db| -> i64 {
+            db.conn
+                .query_row("SELECT COUNT(*) FROM scans", [], |r| r.get(0))
+                .unwrap()
+        };
+        let before = scans(&db);
+        let mut w = Writer::begin(&db.conn, &root, root_id).unwrap();
+        let items = vec![
+            dir("", 0),
+            Item::Unreadable {
+                path: root.clone(),
+                depth: 0,
+                msg: "Input/output error".into(),
+            },
+        ];
+        let err = write_items(&mut w, items.into_iter(), true, None, &mut |_| {}).unwrap_err();
+        drop(w);
+        assert_eq!(
+            err.downcast_ref::<Refused>().map(|r| r.why),
+            Some(Refusal::Unreadable)
+        );
+        assert_eq!(scans(&db), before);
+        assert!(db.conn.is_autocommit());
     }
 }

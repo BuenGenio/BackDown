@@ -23,6 +23,7 @@ fn scan(db: &mut Db, root: &Path) -> index::Stats {
         &index::Options {
             one_file_system: true,
             allow_empty: false,
+            allow_other_drive: false,
         },
         &mut |_| {},
     )
@@ -225,7 +226,8 @@ fn rescans_keep_history_and_hashes() {
             tmp.path(),
             &index::Options {
                 one_file_system: true,
-                allow_empty: false
+                allow_empty: false,
+                allow_other_drive: false,
             },
             &mut |_| {}
         )
@@ -249,6 +251,7 @@ fn an_emptied_root_is_refused_unless_allowed() {
         &index::Options {
             one_file_system: true,
             allow_empty: false,
+            allow_other_drive: false,
         },
         &mut |_| {},
     )
@@ -268,11 +271,175 @@ fn an_emptied_root_is_refused_unless_allowed() {
         &index::Options {
             one_file_system: true,
             allow_empty: true,
+            allow_other_drive: false,
         },
         &mut |_| {},
     )
     .unwrap();
     assert_eq!(st.removed, 1);
+}
+
+fn opts(allow_empty: bool) -> index::Options {
+    index::Options {
+        one_file_system: true,
+        allow_empty,
+        allow_other_drive: false,
+    }
+}
+
+fn count(db: &Db, sql: &str) -> i64 {
+    db.conn.query_row(sql, [], |r| r.get(0)).unwrap()
+}
+
+const CURRENT: &str = "SELECT COUNT(*) FROM files WHERE current = 1";
+const SCANS: &str = "SELECT COUNT(*) FROM scans";
+
+#[test]
+fn a_root_holding_folders_but_no_files_is_refused_unless_allowed() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = tmp.path().join("media/me/BIG");
+    write(&d.join("Archive/2019/a.jpg"), &big(5, 1000));
+    write(&d.join("Archive/2019/b.jpg"), &big(6, 1000));
+    let mut db = Db::open(&tmp.path().join("idx.db")).unwrap();
+    scan(&mut db, &d);
+
+    // the drive isn't mounted, and something made empty folders where it should be (a container
+    // runtime making its bind mounts, say): not empty, but no files at all
+    fs::remove_dir_all(d.join("Archive")).unwrap();
+    for sub in ["etc", "data", "certs"] {
+        fs::create_dir_all(d.join("Archive/_stalwart").join(sub)).unwrap();
+    }
+    let scans = count(&db, SCANS);
+    for method in [index::Method::Walk, index::Method::Auto] {
+        let err = index::scan(&mut db, &d, &opts(false), method, &mut |_| {}).unwrap_err();
+        assert_eq!(
+            err.downcast_ref::<index::Refused>().map(|r| r.why),
+            Some(index::Refusal::Empty),
+            "{err:#}"
+        );
+        let msg = err.to_string();
+        assert!(msg.contains("holds no files at all") && msg.contains("--allow-empty"));
+    }
+    assert_eq!(count(&db, CURRENT), 2, "nothing was recorded as deleted");
+    assert_eq!(count(&db, SCANS), scans, "nor any scan begun");
+    assert!(db.conn.is_autocommit());
+
+    // told explicitly that it really was emptied
+    let st = index::index(&mut db, &d, &opts(true), &mut |_| {}).unwrap();
+    assert_eq!((st.files, st.removed), (0, 2));
+}
+
+/// Makes `p` unreadable until dropped. None when that doesn't keep this process out (running as
+/// root): the test has nothing to show then.
+#[cfg(unix)]
+struct Locked(std::path::PathBuf);
+
+#[cfg(unix)]
+impl Locked {
+    fn new(p: &Path) -> Option<Locked> {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(p, fs::Permissions::from_mode(0o000)).unwrap();
+        let l = Locked(p.to_path_buf());
+        if fs::read_dir(p).is_ok() {
+            eprintln!("skipped: permissions don't keep this user out (root?)");
+            return None;
+        }
+        Some(l)
+    }
+}
+
+#[cfg(unix)]
+impl Drop for Locked {
+    fn drop(&mut self) {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&self.0, fs::Permissions::from_mode(0o755));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_root_that_cant_be_listed_records_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = tmp.path().join("usb");
+    write(&d.join("photos/a.jpg"), &big(5, 1000));
+    write(&d.join("b.txt"), b"b");
+    let mut db = Db::open(&tmp.path().join("idx.db")).unwrap();
+    scan(&mut db, &d);
+    let scans = count(&db, SCANS);
+    let Some(_locked) = Locked::new(&d) else {
+        return;
+    };
+    // not even when told it may be empty: a folder that can't be read says nothing of what's in it
+    for allow_empty in [false, true] {
+        let err = index::index(&mut db, &d, &opts(allow_empty), &mut |_| {}).unwrap_err();
+        assert_eq!(
+            err.downcast_ref::<index::Refused>().map(|r| r.why),
+            Some(index::Refusal::Unreadable),
+            "{err:#}"
+        );
+        assert!(err.to_string().contains("can't list"), "{err:#}");
+    }
+    assert_eq!(count(&db, CURRENT), 2);
+    assert_eq!(count(&db, SCANS), scans);
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unreadable_folder_keeps_what_it_held() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = tmp.path().join("usb");
+    write(&d.join("ok/a.txt"), b"a");
+    write(&d.join("ok/gone.txt"), b"deleted later");
+    write(&d.join("locked/b.txt"), b"bb");
+    write(&d.join("locked/sub/c.txt"), b"ccc");
+    let mut db = Db::open(&tmp.path().join("idx.db")).unwrap();
+    let first = scan(&mut db, &d);
+    assert_eq!(first.files, 4);
+
+    fs::remove_file(d.join("ok/gone.txt")).unwrap();
+    let Some(locked) = Locked::new(&d.join("locked")) else {
+        return;
+    };
+    let st = scan(&mut db, &d);
+    assert_eq!(
+        (st.files, st.kept, st.removed),
+        (3, 2, 1),
+        "only what really went is gone: {st:?}"
+    );
+    assert!(st.errors >= 1, "the folder that couldn't be read is noted");
+    assert!(
+        st.first_errors.iter().any(|e| e.contains("locked")),
+        "{:?}",
+        st.first_errors
+    );
+    let kept: Vec<String> = db
+        .conn
+        .prepare("SELECT path FROM files WHERE current = 1 AND last_scan = ?1 ORDER BY path")
+        .unwrap()
+        .query_map([st.scan], |r| r.get::<_, Vec<u8>>(0))
+        .unwrap()
+        .map(|p| String::from_utf8(p.unwrap()).unwrap())
+        .filter(|p| p.contains("/locked/"))
+        .collect();
+    assert_eq!(kept.len(), 2, "{kept:?}");
+    // the folders' totals still count what's in it
+    let files_in = |p: &Path| -> i64 {
+        let p = fs::canonicalize(p).unwrap();
+        db.conn
+            .query_row(
+                "SELECT files FROM dirs WHERE path = ?1 AND current = 1",
+                [p.to_string_lossy().as_bytes()],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(files_in(&d.join("locked")), 2);
+    assert_eq!(files_in(&d), 3);
+
+    // readable again: the next scan sees it all, and nothing changed
+    drop(locked);
+    let st = scan(&mut db, &d);
+    assert_eq!((st.files, st.kept, st.new, st.removed), (3, 0, 0, 0));
 }
 
 #[test]

@@ -85,12 +85,30 @@ pub struct Drive {
     pub bytes: u64,
     /// how its last scan was made: the method (walk | journal | table), and for people
     pub how: Option<(String, String)>,
+    /// why it counts as away although its folder is there (see `Held`)
+    pub why_away: Option<String>,
 }
+
+/// A drive the scheduler leaves alone although its folder is there: it's on another drive than
+/// its last scan, or its last scan was refused (index::Refused). Held while the device number of
+/// its folder stays what it was (mounting something there changes it), and looked at again
+/// after `HOLD_FOR` regardless.
+#[derive(Clone, Debug)]
+struct Held {
+    dev: Option<u64>,
+    why: String,
+    since: Instant,
+}
+
+const HOLD_FOR: Duration = Duration::from_secs(3600);
 
 #[derive(Clone, Debug, Default)]
 pub struct JobOpts {
     pub cross_filesystems: bool,
     pub allow_empty: bool,
+    /// index: record the drive though its folder is on another drive than its last scan. Only
+    /// ever asked for (`backdown index --allow-other-drive`): the daemon's own scans never do
+    pub allow_other_drive: bool,
     pub jobs_per_device: usize,
     pub retry_errors: bool,
     /// apply: the plan to carry out
@@ -136,6 +154,8 @@ struct State {
     version: u64,
     progress_bumped: Option<Instant>,
     drives: Vec<Drive>,
+    /// drives left alone although their folders are there, by path
+    held: HashMap<String, Held>,
     checked_at: Option<i64>,
     /// a scan just finished: the scheduler rereads the drives now rather than at its next check
     recheck: bool,
@@ -182,12 +202,14 @@ impl Daemon {
     ) -> u64 {
         let auto = reason != "requested";
         let mut st = self.state.lock().unwrap();
-        // the same job still waiting to run covers this request
+        // the same job still waiting to run covers this request (and what it was told to allow)
         if let Some(j) = st
             .jobs
-            .iter()
+            .iter_mut()
             .find(|j| j.state == "queued" && j.kind == kind && j.path == path)
         {
+            j.opts.allow_empty |= opts.allow_empty;
+            j.opts.allow_other_drive |= opts.allow_other_drive;
             return j.id;
         }
         st.next += 1;
@@ -365,6 +387,35 @@ impl Daemon {
         st.drives.iter().find(|d| d.path == path).cloned()
     }
 
+    /// Leave the drive at `path` alone (see `Held`) while its folder's device stays `dev`. Returns
+    /// whether that's news (it wasn't held, or for another reason).
+    fn hold(&self, path: &str, dev: Option<u64>, why: &str) -> bool {
+        let mut st = self.state.lock().unwrap();
+        let held = Held {
+            dev,
+            why: why.to_string(),
+            since: Instant::now(),
+        };
+        st.held
+            .insert(path.to_string(), held)
+            .is_none_or(|old| old.why != why)
+    }
+
+    /// Why the drive at `path` is still left alone, now that its folder's device is `dev`: None
+    /// once what's mounted there has changed, or the hold has lasted `HOLD_FOR` (the hold is
+    /// kept, so a reason found again isn't news).
+    fn held(&self, path: &str, dev: Option<u64>) -> Option<String> {
+        let st = self.state.lock().unwrap();
+        st.held
+            .get(path)
+            .filter(|h| h.dev == dev && h.since.elapsed() < HOLD_FOR)
+            .map(|h| h.why.clone())
+    }
+
+    fn unhold(&self, path: &str) {
+        self.state.lock().unwrap().held.remove(path);
+    }
+
     /// A job of `kind` for `path` is waiting or running.
     pub fn pending(&self, kind: &str, path: &str) -> bool {
         self.state.lock().unwrap().jobs.iter().any(|j| {
@@ -480,6 +531,7 @@ impl Daemon {
                 };
                 json!({ "path": d.path, "present": d.present, "last_scan_at": d.last_scan_at,
                         "files": d.files, "bytes": d.bytes, "next_at": next_at, "state": state,
+                        "why_away": d.why_away,
                         "last_method": d.how.as_ref().map(|h| &h.0),
                         "last_how": d.how.as_ref().map(|h| &h.1) })
             })
@@ -809,8 +861,15 @@ fn worker(d: &Daemon) {
                 });
             }
             Err(e) => {
+                // a scan refused to keep a drive's files from being recorded as deleted
+                // (index::Refused) says why, and what to do, in plain words
                 eprintln!(
-                    "failed: {} {}: {e:#}",
+                    "{}: {} {}: {e:#}",
+                    if e.is::<index::Refused>() {
+                        "refused"
+                    } else {
+                        "failed"
+                    },
                     job.kind,
                     job.path.as_deref().unwrap_or("")
                 );
@@ -1598,6 +1657,7 @@ fn run_index(d: &Daemon, db: &mut Db, job: &Job, stop: &Arc<AtomicBool>) -> Resu
     let opts = index::Options {
         one_file_system: !job.opts.cross_filesystems,
         allow_empty: job.opts.allow_empty,
+        allow_other_drive: job.opts.allow_other_drive,
     };
     // the drive's previous scan is the best guess at how far this one has to go
     let before = d.drive(&path.display().to_string());
@@ -1626,14 +1686,24 @@ fn run_index(d: &Daemon, db: &mut Db, job: &Job, stop: &Arc<AtomicBool>) -> Resu
                 fmt::bytes(seen.1)
             ));
         }
+        // on another drive, or holding no files: the scheduler leaves it alone until what's
+        // mounted there changes, rather than trying again every half minute
+        Err(e) if e.is::<index::Refused>() => {
+            let key = job.path.as_deref().unwrap_or_default();
+            d.hold(key, index::device_of(&path), &e.to_string());
+            // the drives list says so now, not at the scheduler's next look
+            d.state.lock().unwrap().recheck = true;
+            return Err(e);
+        }
         r => r?,
     };
+    d.unhold(job.path.as_deref().unwrap_or_default());
     // which physical drive it is, so it can be named while unplugged or elsewhere (swarm.rs)
-    backdown_core::swarm::remember_scanned(db, st.scan, &st.root);
+    backdown_core::swarm::remember_scanned(db, st.scan, &st.root, job.opts.allow_other_drive);
     // files received into a pool folder here: their hashes, verified on arrival (pool/receive.rs)
     let _ = backdown_core::pool::receive::adopt(db);
     Ok(format!(
-        "{}: {} · {} files, {} (new {}, changed {}, gone {}) · scan {}{}",
+        "{}: {} · {} files, {} (new {}, changed {}, gone {}) · scan {}{}{}",
         st.root.display(),
         st.how(),
         fmt::count(st.files),
@@ -1644,6 +1714,14 @@ fn run_index(d: &Daemon, db: &mut Db, job: &Job, stop: &Arc<AtomicBool>) -> Resu
         st.scan,
         if st.errors > 0 {
             format!(" · {} unreadable entries", st.errors)
+        } else {
+            String::new()
+        },
+        if st.kept > 0 {
+            format!(
+                " · {} files in unreadable folders kept as they were",
+                fmt::count(st.kept)
+            )
         } else {
             String::new()
         }
@@ -1749,11 +1827,15 @@ fn scheduler(d: &Daemon) {
 
 /// Queue a scan of each drive that is due (per `rescan_every`) or has just come back. A root whose
 /// folder is there but empty, after holding files, counts as away: it's an unplugged drive's
-/// leftover mount point, and scanning it would record every file as deleted.
+/// leftover mount point, and scanning it would record every file as deleted. So does one whose
+/// folder is on another drive than its last scan (a folder made where the drive is mounted, with
+/// the drive mounted elsewhere), and one whose last scan was refused for that or for holding no
+/// files: until what's mounted there changes (`Held`). Which drive a folder is on is only asked
+/// when a scan is about to be queued, with one probe for all the drives that need it.
 fn check_roots(d: &Daemon, present: &mut HashMap<String, bool>) -> Result<()> {
     let db = Db::open_read_only(&d.db)?;
     let mut stmt = db.conn.prepare(
-        "SELECT r.path, s.finished_at, COALESCE(s.files, 0), COALESCE(s.bytes, 0), s.id FROM roots r LEFT JOIN scans s ON s.id = r.last_scan",
+        "SELECT r.path, s.finished_at, COALESCE(s.files, 0), COALESCE(s.bytes, 0), s.id, r.id FROM roots r LEFT JOIN scans s ON s.id = r.last_scan",
     )?;
     let rows = stmt.query_map([], |r| {
         Ok((
@@ -1762,8 +1844,11 @@ fn check_roots(d: &Daemon, present: &mut HashMap<String, bool>) -> Result<()> {
             r.get::<_, i64>(2)?,
             r.get::<_, i64>(3)?,
             r.get::<_, Option<i64>>(4)?,
+            r.get::<_, i64>(5)?,
         ))
     })?;
+    // what's mounted where, probed once, and only if a drive about to be scanned needs it
+    let here = std::cell::OnceCell::new();
     let now = now();
     let mut drives = Vec::new();
     // drives being removed are left out, and a removal that was interrupted (the daemon stopped
@@ -1779,14 +1864,37 @@ fn check_roots(d: &Daemon, present: &mut HashMap<String, bool>) -> Result<()> {
         }
     }
     for row in rows {
-        let (path, last, files, bytes, scan) = row?;
+        let (path, last, files, bytes, scan, root_id) = row?;
         let p = paths::from_bytes(&path);
         let key = p.display().to_string();
         if removing.contains(&key) {
             continue;
         }
-        let here = p.is_dir()
+        let there = p.is_dir()
             && (files == 0 || std::fs::read_dir(&p).is_ok_and(|mut it| it.next().is_some()));
+        let due = d
+            .rescan_every()
+            .is_some_and(|every| last.is_none_or(|t| now - t >= every.as_secs() as i64));
+        let was = present.get(&key).copied();
+        let mut why_away = None;
+        let mut told = false;
+        if there {
+            let dev = index::device_of(&p);
+            why_away = d.held(&key, dev);
+            // about to be scanned: is it the drive it was?
+            if why_away.is_none()
+                && (was == Some(false) || due)
+                && !d.pending_index(&key)
+                && let Ok(Some(why)) = index::wrong_drive(&db, root_id, &p, &here)
+            {
+                if d.hold(&key, dev, &why) {
+                    eprintln!("{key} is there, but isn't scanned: {why}");
+                    told = true;
+                }
+                why_away = Some(why);
+            }
+        }
+        let here = there && why_away.is_none();
         let how = scan
             .and_then(|s| index::how(&db, &[s]).ok())
             .and_then(|h| h.first().map(|h| (h.method.clone(), h.phrase())));
@@ -1797,18 +1905,19 @@ fn check_roots(d: &Daemon, present: &mut HashMap<String, bool>) -> Result<()> {
             files: files as u64,
             bytes: bytes as u64,
             how,
+            why_away: why_away.clone(),
         });
-        let was = present.insert(key.clone(), here);
+        present.insert(key.clone(), here);
         if !here {
-            if was == Some(true) {
-                eprintln!("{key} went away");
+            if was == Some(true) && !told {
+                match &why_away {
+                    Some(why) => eprintln!("{key} is left alone: {why}"),
+                    None => eprintln!("{key} went away"),
+                }
             }
             continue;
         }
         let back = was == Some(false);
-        let due = d
-            .rescan_every()
-            .is_some_and(|every| last.is_none_or(|t| now - t >= every.as_secs() as i64));
         if (back || due) && !d.pending_index(&key) {
             if back {
                 eprintln!("{key} is back");
@@ -1970,6 +2079,7 @@ pub fn respond(d: &Daemon, req: &Value) -> Result<Value> {
             let opts = JobOpts {
                 cross_filesystems: req["cross_filesystems"].as_bool().unwrap_or(false),
                 allow_empty: req["allow_empty"].as_bool().unwrap_or(false),
+                allow_other_drive: req["allow_other_drive"].as_bool().unwrap_or(false),
                 jobs_per_device: req["jobs"].as_u64().unwrap_or(1) as usize,
                 retry_errors: req["retry_errors"].as_bool().unwrap_or(false),
                 plan,
