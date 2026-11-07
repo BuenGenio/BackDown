@@ -16,6 +16,7 @@ pub mod custody;
 pub mod db;
 pub mod dedup;
 pub mod dovecot;
+pub mod exif;
 pub mod extras;
 pub mod fastcopy;
 pub mod find;
