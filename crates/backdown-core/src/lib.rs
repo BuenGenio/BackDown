@@ -24,6 +24,7 @@ pub mod fmt;
 pub mod forget;
 pub mod fsread;
 pub mod fts;
+pub mod geo;
 pub mod hash;
 pub mod health;
 pub mod index;

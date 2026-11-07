@@ -2,11 +2,12 @@
 //! items) and relationship edges — over the index (`backdown_core::tags`). Short, direct writes to
 //! the index, like `manifest`. See docs/MODEL.md and docs/TAGGING.md.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Result, bail};
-use backdown_core::{Db, exif, fmt, paths, tags};
+use backdown_core::{Db, exif, fmt, geo, paths, tags};
 use clap::Subcommand;
 use rusqlite::OptionalExtension;
 
@@ -69,6 +70,18 @@ pub enum TagCmd {
         /// Where the derived tags are recorded as coming from
         #[arg(long, default_value = "exif")]
         source: String,
+    },
+    /// Derive country, region, city and nearest-airport tags from the `location` tags already on
+    /// content (attach those first with `tag exif`). Offline, from embedded reference data.
+    Geo {
+        /// Limit to these content items (content:<sha256hex>); with none, every located item
+        targets: Vec<String>,
+        /// Where the derived tags are recorded as coming from
+        #[arg(long, default_value = "geo")]
+        source: String,
+        /// Print the embedded dataset sizes and data attribution, then exit
+        #[arg(long)]
+        about: bool,
     },
 }
 
@@ -187,6 +200,14 @@ fn sha256_hex_of(conn: &rusqlite::Connection, path: &Path) -> Result<Option<Stri
 }
 
 pub fn tag(db: Option<PathBuf>, action: TagCmd) -> Result<ExitCode> {
+    // `geo --about` only reads embedded data, so answer it without touching the index.
+    if let TagCmd::Geo { about: true, .. } = &action {
+        let g = geo::GeoRef::embedded()?;
+        let (places, airports) = g.counts();
+        println!("{places} places, {airports} airports embedded");
+        println!("{}", geo::CREDIT);
+        return Ok(ExitCode::SUCCESS);
+    }
     let db = open(db)?;
     match action {
         TagCmd::Add {
@@ -263,6 +284,37 @@ pub fn tag(db: Option<PathBuf>, action: TagCmd) -> Result<ExitCode> {
                         }
                     }
                 }
+            }
+        }
+        TagCmd::Geo {
+            targets,
+            source,
+            about: _, // handled before the index is opened
+        } => {
+            let geo = geo::GeoRef::embedded()?;
+            let mut located = geo::content_locations(&db.conn)?;
+            if !targets.is_empty() {
+                let mut want = HashSet::new();
+                for t in &targets {
+                    let (ty, key) = target(t)?;
+                    if ty != tags::TARGET_CONTENT {
+                        bail!("tag geo works on content: targets; got {t}");
+                    }
+                    want.insert(key);
+                }
+                located.retain(|(k, _, _)| want.contains(k));
+            }
+            if located.is_empty() {
+                println!("no content carries a location tag — run `backdown tag exif` first");
+            }
+            for (key, lat, lon) in located {
+                let applied = geo::derive_into(&db.conn, geo, &key, lat, lon, &source)?;
+                let what = if applied.is_empty() {
+                    "no match".to_string()
+                } else {
+                    applied.join(", ")
+                };
+                println!("content:{key}: {what}");
             }
         }
     }

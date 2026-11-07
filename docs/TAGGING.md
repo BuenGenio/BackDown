@@ -30,7 +30,8 @@ Never a bare path — paths are versions (`files_current_path`, `db.rs:66`). Reu
 | `owner` / person | subject | derived + you | `person:email:alice@…` (mine vs not-mine is a flag, §5) |
 | `kind` | content / entity | derived | photo, music, video (from `Entity.kind`) |
 | `location` | content | exif | `lat,lon` |
-| `country`, `city` | content | reference | HK, Hong Kong |
+| `country`, `city` | content | geo (derived) | United States, Fort Lauderdale |
+| `region` | content | geo (derived) | Florida (GeoNames admin-1) |
 | `place` | content | you / POI | Foreign Correspondents Club |
 | `airport` | content | reference | HKG, CDG, FLL |
 | `event` / `trip` | content | cluster + you | FLIBS 2019, Colombia 2019 |
@@ -39,17 +40,17 @@ Never a bare path — paths are versions (`files_current_path`, `db.rs:66`). Reu
 
 ## 4. Deriving tags (honest about effort)
 
-| tag | from | effort |
+| tag | from | status |
 |---|---|---|
-| date / year | EXIF `DateTimeOriginal`, else `mtime` | easy (`kamadak-exif`) |
-| location (coords) | EXIF GPS | easy |
-| country / city | reverse-geocode coords against a bundled offline dataset (GeoNames CC-BY / Natural Earth PD) | medium — ship the data, look up via R-tree/SpatiaLite |
-| airport | nearest airport from the OurAirports CSV (public domain) within N km | easy |
+| date / year | EXIF `DateTimeOriginal` / QuickTime `CreateDate` | **shipped** — `nom-exif`, `src/exif.rs`, `backdown tag exif` |
+| location (coords) | EXIF GPS / QuickTime ISO-6709 | **shipped** — `src/exif.rs` |
+| country / region / city | reverse-geocode coords against embedded GeoNames (`cities1000` + country/admin-1 names), nearest populated place by great-circle distance | **shipped** — `src/geo.rs`, `backdown tag geo` |
+| airport | nearest OurAirports IATA airport within 120 km | **shipped** — `src/geo.rs` |
 | trip / event | cluster photos in time + space (DBSCAN-style), propose a grouping; **you name it** | medium; the naming is yours |
 | place (named POI) | OSM/Overpass, or your assertion | hard — default to user-asserted, optionally POI-assisted |
 | owner / person | from `Subject` (mail / nextcloud / home folders, `subjects.rs:390-555`); you confirm mine/not-mine | reuse subjects; the call is yours |
 
-Coords, date and airport are mechanical; country/city need the bundled reference data; place and event need you (optionally assisted). "Florida resolving anywhere from Fort Lauderdale to Port Orange" is a `country`→region hierarchy plus a time+space cluster that becomes one named `trip`.
+Coords, date, country/region/city and airport are now mechanical and offline — no network, no SpatiaLite/R-tree: the reference tables (GeoNames CC-BY, OurAirports public domain) are zstd-compressed and embedded in the binary (`data/geo/`, see `SOURCES.md`), decoded once per process, and the nearest point is found by a pruned Haversine scan. They never touch a user's index. Place and event still need you (optionally assisted). Confidence falls with distance and is stored per tagging. "Florida resolving anywhere from Fort Lauderdale to Port Orange" is the `country`→`region`→`city` hierarchy these tags form, plus a time+space cluster that becomes one named `trip`.
 
 ## 5. Flags
 
