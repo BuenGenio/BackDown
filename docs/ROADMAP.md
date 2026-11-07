@@ -110,6 +110,15 @@ A Flutter app in `mobile/` (its README says how to build and test it), a client 
 
 **Status, 1 Nov 2026:** built and tested: widget tests and screenshots against the demo, the real app headless against a real service (`integration_test/`), release APKs on an Android 15 emulator. Not yet: an iOS build (it needs a Mac), a release signing key, store listings, and a decision on whether paired phones may do more than look.
 
+## Tags, flags and places (started 6 Nov 2026)
+
+The model layer designed in [`MODEL.md`](MODEL.md) and [`TAGGING.md`](TAGGING.md): **tags** (facts: owner, kind, place, country, region, city, airport, event, date), **flags** (decisions: canonical, duplicate, keep, drop, reviewed, mine / not-mine) and **edges** (named relationships), attached by stable key, so a tag on a file's content (`content:<sha256>`) is on every copy of it. Additive tables, no schema version bump (`tags.rs`); `backdown tag|flag|edge` (`tagging.rs`).
+
+- `tag exif` (#85): capture date and GPS position from JPEG/HEIC/TIFF and MOV/MP4 (`nom-exif`, `exif.rs`), tagged on the content as year → date and location. Hashes a file `hash` left alone (unique size) if it's unchanged since its scan (#89).
+- `tag geo` (#86): country → region → city (nearest GeoNames place of 1,000+ people) and nearest IATA airport within 120 km, offline, from ~2.6 MB of zstd-compressed reference data embedded in the binary (GeoNames CC BY 4.0, credited in `tag geo --about` and THIRD-PARTY-NOTICES.txt; OurAirports public domain). Confidence falls with distance.
+
+**Status, 7 Nov 2026:** built for `v1.0.0-beta.6`, command line only; the docs mark it as the next preview until that's published. Getting it built needed the notices regenerated (#87) and, because chrono's local time zone links CoreFoundation on macOS, a CoreFoundation `.tbd` stub for zig's cross-link (#88, `scripts/macos-stubs`). Not yet: the app and browser views, running `tag exif`/`geo` after each scan, journaling authored tags and flags in the custody chain, reconcile acting on flags, filing placeholders (`{country}`, `{place}`, `{event}`), trips and events clustered in time and space, named places (POIs), and leaving heliports out of the airport data.
+
 ## Later / ideas
 
 - Mail-aware merging: union two maildir snapshots by Message-ID; export to mbox/EML; Thunderbird import helper (merging and mbox export built 29 Sep; EML export and the import helper not yet)
