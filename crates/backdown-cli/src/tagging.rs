@@ -2,12 +2,13 @@
 //! items) and relationship edges — over the index (`backdown_core::tags`). Short, direct writes to
 //! the index, like `manifest`. See docs/MODEL.md and docs/TAGGING.md.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Result, bail};
-use backdown_core::{Db, tags};
+use backdown_core::{Db, exif, fmt, paths, tags};
 use clap::Subcommand;
+use rusqlite::OptionalExtension;
 
 use crate::{client, locations};
 
@@ -59,6 +60,15 @@ pub enum TagCmd {
         target: String,
         #[arg(long)]
         json: bool,
+    },
+    /// Read a photo or video's own metadata (EXIF / QuickTime) and attach date and location tags
+    Exif {
+        /// The files to read (each must be indexed and hashed, so its content is known)
+        #[arg(required = true)]
+        paths: Vec<PathBuf>,
+        /// Where the derived tags are recorded as coming from
+        #[arg(long, default_value = "exif")]
+        source: String,
     },
 }
 
@@ -161,6 +171,21 @@ fn open(db: Option<PathBuf>) -> Result<Db> {
     Db::open(&index_path(db))
 }
 
+/// The content hash (hex) of a file as the index has it, if it's there and hashed.
+fn sha256_hex_of(conn: &rusqlite::Connection, path: &Path) -> Result<Option<String>> {
+    let canon = paths::canonical(path)
+        .unwrap_or_else(|_| std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()));
+    let key = paths::to_bytes(&canon);
+    let sha: Option<Option<Vec<u8>>> = conn
+        .query_row(
+            "SELECT sha256 FROM files WHERE path = ?1 AND current = 1",
+            rusqlite::params![key],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(sha.flatten().map(|b| fmt::hex(&b)))
+}
+
 pub fn tag(db: Option<PathBuf>, action: TagCmd) -> Result<ExitCode> {
     let db = open(db)?;
     match action {
@@ -218,6 +243,25 @@ pub fn tag(db: Option<PathBuf>, action: TagCmd) -> Result<ExitCode> {
                         String::new()
                     };
                     println!("{:<9} {}  [{}{conf}]", g.tag.kind, g.tag.value, g.source);
+                }
+            }
+        }
+        TagCmd::Exif { paths, source } => {
+            for p in &paths {
+                match sha256_hex_of(&db.conn, p)? {
+                    None => eprintln!(
+                        "{}: not hashed in the index (run `backdown hash` first) — skipped",
+                        p.display()
+                    ),
+                    Some(hex) => {
+                        let meta = exif::read_meta(p);
+                        if meta.is_empty() {
+                            println!("{}: no date or location in its metadata", p.display());
+                        } else {
+                            let applied = exif::derive_into(&db.conn, &hex, &meta, &source)?;
+                            println!("{}: {}", p.display(), applied.join(", "));
+                        }
+                    }
                 }
             }
         }

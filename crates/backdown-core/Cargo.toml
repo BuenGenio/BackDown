@@ -21,6 +21,7 @@ sha2 = "0.11.0"
 getrandom = "0.4.3"
 unicode-normalization = "0.1.25"
 walkdir = "2.5.0"
+nom-exif = "3.8.0"
 
 # clones (FICLONE, FIDEDUPERANGE, clonefile), copy_file_range and extended attributes: fastcopy.rs, dedup.rs;
 # statfs for the FSEvents history (index/fsevents.rs)
