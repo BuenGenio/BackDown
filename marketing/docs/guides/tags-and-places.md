@@ -3,7 +3,6 @@ title: Tag photos by date and place
 description: Read the date and position a photo or video recorded, turn the position into country, region, city and nearest airport without going online, and add tags, flags and links of your own. Tags follow a file's content to every copy of it.
 order: 9.8
 nav: Tags and places
-preview: yes
 ---
 
 Most photos and videos record when and where they were taken. BackDown reads that from the files themselves and turns the position into a country, a region, a city and the nearest airport, from place data built into BackDown: nothing is looked up online. You can add tags of your own (an event, a trip, who it belongs to), mark decisions with flags, and link things together.

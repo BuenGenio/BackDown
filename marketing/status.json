@@ -185,7 +185,7 @@
       }
     },
     {
-      "state": "doing",
+      "state": "done",
       "text": {
         "en": "Tags that follow a file to every copy of it, and a photo's date and place read from the photo itself, then turned into country, region, city and nearest airport without going online",
         "es": "Etiquetas que siguen a un archivo en todas sus copias, y la fecha y el lugar de una foto leídos de la propia foto, convertidos sin conexión en país, región, ciudad y aeropuerto más cercano",
@@ -423,6 +423,20 @@
     }
   ],
   "shipped": [
+    {
+      "date": "2026-11-07",
+      "version": "v1.0.0-beta.6",
+      "text": {
+        "en": "Tags that follow a file's content to every copy of it, flags for decisions (keep, drop, canonical, duplicate) and named links between things (<code>backdown tag</code>, <code>flag</code>, <code>edge</code>). A photo's or video's date and GPS position read from the file itself (<code>tag exif</code>), then turned into country, region, city and nearest airport offline, from place data built in (<code>tag geo</code>). Scans now refuse to record a drive's folder when another drive, or none, is mounted there, instead of marking its files as gone.",
+        "es": "Etiquetas que siguen al contenido de un archivo en todas sus copias, marcas para las decisiones (conservar, descartar, original, duplicado) y vínculos con nombre entre cosas (<code>backdown tag</code>, <code>flag</code>, <code>edge</code>). La fecha y la posición GPS de una foto o un vídeo, leídas del propio archivo (<code>tag exif</code>) y convertidas sin conexión en país, región, ciudad y aeropuerto más cercano con los datos de lugares incluidos (<code>tag geo</code>). Los escaneos se niegan ahora a registrar la carpeta de un disco cuando hay otro disco montado en su lugar, o ninguno, en vez de dar sus archivos por desaparecidos.",
+        "pt-br": "Etiquetas que acompanham o conteúdo de um arquivo em todas as suas cópias, marcações para decisões (manter, descartar, original, duplicata) e ligações nomeadas entre coisas (<code>backdown tag</code>, <code>flag</code>, <code>edge</code>). A data e a posição GPS de uma foto ou vídeo, lidas do próprio arquivo (<code>tag exif</code>) e convertidas sem internet em país, região, cidade e aeroporto mais próximo com os dados de lugares embutidos (<code>tag geo</code>). As varreduras agora se recusam a registrar a pasta de um disco quando outro disco, ou nenhum, está montado ali, em vez de marcar os arquivos como removidos.",
+        "de": "Tags, die dem Inhalt einer Datei in jede Kopie folgen, Markierungen für Entscheidungen (behalten, verwerfen, Original, Duplikat) und benannte Verknüpfungen zwischen Dingen (<code>backdown tag</code>, <code>flag</code>, <code>edge</code>). Datum und GPS-Position eines Fotos oder Videos, aus der Datei selbst gelesen (<code>tag exif</code>) und offline mit eingebauten Ortsdaten in Land, Region, Stadt und nächsten Flughafen übersetzt (<code>tag geo</code>). Scans weigern sich jetzt, den Ordner eines Laufwerks zu erfassen, wenn dort ein anderes Laufwerk oder gar keines eingehängt ist, statt seine Dateien als verschwunden zu verbuchen.",
+        "pl": "Tagi, które idą za zawartością pliku do każdej jego kopii, flagi dla decyzji (zachowaj, usuń, oryginał, duplikat) i nazwane powiązania między rzeczami (<code>backdown tag</code>, <code>flag</code>, <code>edge</code>). Data i pozycja GPS zdjęcia lub filmu odczytane z samego pliku (<code>tag exif</code>) i zamienione bez internetu, z wbudowanych danych o miejscach, na kraj, region, miasto i najbliższe lotnisko (<code>tag geo</code>). Skanowanie odmawia teraz zapisania folderu dysku, gdy zamontowany jest tam inny dysk albo żaden, zamiast oznaczać jego pliki jako usunięte.",
+        "cs": "Štítky, které jdou s obsahem souboru do každé jeho kopie, příznaky pro rozhodnutí (ponechat, zahodit, originál, duplikát) a pojmenované vazby mezi věcmi (<code>backdown tag</code>, <code>flag</code>, <code>edge</code>). Datum a poloha GPS fotky nebo videa přečtené přímo ze souboru (<code>tag exif</code>) a bez internetu, z vestavěných údajů o místech, převedené na zemi, region, město a nejbližší letiště (<code>tag geo</code>). Skenování teď odmítne zaznamenat složku disku, když je na jejím místě připojený jiný disk nebo žádný, místo aby jeho soubory označilo za zmizelé.",
+        "sk": "Štítky, ktoré idú s obsahom súboru do každej jeho kópie, príznaky pre rozhodnutia (ponechať, zahodiť, originál, duplikát) a pomenované väzby medzi vecami (<code>backdown tag</code>, <code>flag</code>, <code>edge</code>). Dátum a poloha GPS fotky alebo videa prečítané priamo zo súboru (<code>tag exif</code>) a bez internetu, zo vstavaných údajov o miestach, prevedené na krajinu, región, mesto a najbližšie letisko (<code>tag geo</code>). Skenovanie teraz odmietne zaznamenať priečinok disku, keď je na jeho mieste pripojený iný disk alebo žiadny, namiesto toho, aby jeho súbory označilo za zmiznuté.",
+        "uk": "Теги, що йдуть за вмістом файлу до кожної його копії, позначки для рішень (залишити, видалити, оригінал, дублікат) і названі зв'язки між речами (<code>backdown tag</code>, <code>flag</code>, <code>edge</code>). Дата й GPS-позиція фото чи відео, прочитані з самого файлу (<code>tag exif</code>) і без інтернету, з вбудованих даних про місця, перетворені на країну, регіон, місто й найближчий аеропорт (<code>tag geo</code>). Сканування тепер відмовляється записувати теку диска, коли на її місці змонтовано інший диск або жодного, замість позначати його файли як зниклі."
+      }
+    },
     {
       "date": "2026-11-02",
       "version": "v1.0.0-beta.5",

@@ -50,7 +50,7 @@ A renamed or moved file counts as gone at the old path and new at the new one. A
 
 Because every version is kept, the browser can show any folder as it was at any scan: that's the *time slider* at the bottom of a drive with two scans or more. An old version can be opened while its exact bytes still exist somewhere indexed, either the file itself, unchanged, or an identical copy (same SHA-256) on an indexed drive. Otherwise the index still remembers its size, dates and hash, but the bytes are gone. Hashing after each scan keeps that fingerprint; the background service does it for you.
 
-If a drive that held files is suddenly empty, `index` refuses to record it: usually the drive isn't plugged in and you're looking at its empty mount point. If it really was emptied, pass `--allow-empty`. {preview} It also refuses a drive's folder that holds no files at all, and one that's now on another physical drive than the one it was last scanned on (folders made where the drive is mounted, with the drive mounted elsewhere); pass `--allow-other-drive` for a new or reformatted drive in its place. A folder that can't be read keeps what the index had of it rather than being recorded as gone.
+If a drive that held files is suddenly empty, `index` refuses to record it: usually the drive isn't plugged in and you're looking at its empty mount point. If it really was emptied, pass `--allow-empty`. It also refuses a drive's folder that holds no files at all, and one that's now on another physical drive than the one it was last scanned on (folders made where the drive is mounted, with the drive mounted elsewhere); pass `--allow-other-drive` for a new or reformatted drive in its place. A folder that can't be read keeps what the index had of it rather than being recorded as gone.
 
 ### Fast rescans
 
@@ -164,7 +164,7 @@ Depth is a setting (`backdown search --depth off|headers|full`, `headers` by def
 
 ## Tags, flags and links {#tags}
 
-{preview} A **tag** is a fact about something: the year and place a photo was taken, the event it's from, who it belongs to. A **flag** is a decision: keep, drop, canonical, a duplicate of another copy, reviewed. A **link** connects two things with a relationship you name.
+A **tag** is a fact about something: the year and place a photo was taken, the event it's from, who it belongs to. A **flag** is a decision: keep, drop, canonical, a duplicate of another copy, reviewed. A **link** connects two things with a relationship you name.
 
 Tags and flags on a file go on its content, its SHA-256, so every copy of it on any drive carries them, and they survive moves, renames and deduplication. Some come from the files themselves (a photo's date and GPS position, then its country, region, city and nearest airport, from place data built into BackDown), and you add the rest. Each remembers where it came from and when; derived tags can be made again, yours are kept. Tags and flags never move or delete anything themselves. See [Tag photos by date and place](/docs/guides/tags-and-places/).
 
