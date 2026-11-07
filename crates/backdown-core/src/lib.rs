@@ -48,6 +48,7 @@ pub mod streams;
 pub mod subjects;
 pub mod summary;
 pub mod swarm;
+pub mod tags;
 pub mod timemachine;
 pub mod volumes;
 #[cfg(windows)]

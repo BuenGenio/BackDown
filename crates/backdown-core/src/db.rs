@@ -460,6 +460,8 @@ impl Db {
         conn.execute_batch(crate::pool::plan::SCHEMA)?;
         conn.execute_batch(crate::pool::receive::SCHEMA)?;
         conn.execute_batch(crate::pool::send::SCHEMA)?;
+        // tags, flags and relationship edges (tags.rs): the model layer, the same additive way
+        conn.execute_batch(crate::tags::SCHEMA)?;
         add_column(&conn, "journal", "note", "TEXT")?;
         // counted once per sync instead of on every look at the machines (remote::overview):
         // a big machine's cache is millions of rows

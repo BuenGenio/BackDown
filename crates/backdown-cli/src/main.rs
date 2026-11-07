@@ -36,6 +36,7 @@ mod service;
 mod settings;
 mod sqldump;
 mod swarm;
+mod tagging;
 mod tidy;
 mod tiers;
 mod update;
@@ -501,6 +502,22 @@ enum Cmd {
         #[command(subcommand)]
         action: manifesting::ManifestCmd,
     },
+    /// Tags: facts about content — person, place, kind, event, date. Create them and attach them
+    /// to content, people or places
+    Tag {
+        #[command(subcommand)]
+        action: tagging::TagCmd,
+    },
+    /// Flags: a decision about an item — canonical, duplicate, keep, drop, reviewed
+    Flag {
+        #[command(subcommand)]
+        action: tagging::FlagCmd,
+    },
+    /// Relationship edges between content, people and places (the model's graph)
+    Edge {
+        #[command(subcommand)]
+        action: tagging::EdgeCmd,
+    },
 }
 
 #[derive(Subcommand)]
@@ -807,6 +824,10 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Custody { action } => return custody::command(cli.db, action),
         // the index directly, like `entities` (a manifest adds one row); checking needs none
         Cmd::Manifest { action } => return manifesting::run(cli.db, cli.local, action),
+        // the model layer (tags.rs): short, direct writes to the index, like `manifest`
+        Cmd::Tag { action } => return tagging::tag(cli.db, action),
+        Cmd::Flag { action } => return tagging::flag(cli.db, action),
+        Cmd::Edge { action } => return tagging::edge(cli.db, action),
         _ => {}
     }
     // a running daemon owns the index: hand the work to it (unless told not to)
@@ -1155,7 +1176,10 @@ fn local(db_path: &Path, cmd: Cmd, use_daemon: bool) -> Result<ExitCode> {
         | Cmd::SwarmStdio
         | Cmd::Mount { .. }
         | Cmd::Unmount { .. }
-        | Cmd::Custody { .. } => {
+        | Cmd::Custody { .. }
+        | Cmd::Tag { .. }
+        | Cmd::Flag { .. }
+        | Cmd::Edge { .. } => {
             unreachable!("handled in run")
         }
     }
@@ -1332,7 +1356,10 @@ fn via_daemon(mut c: client::Client, cmd: Cmd) -> Result<ExitCode> {
         | Cmd::SwarmStdio
         | Cmd::Mount { .. }
         | Cmd::Unmount { .. }
-        | Cmd::Custody { .. } => {
+        | Cmd::Custody { .. }
+        | Cmd::Tag { .. }
+        | Cmd::Flag { .. }
+        | Cmd::Edge { .. } => {
             unreachable!("handled in run")
         }
     }
