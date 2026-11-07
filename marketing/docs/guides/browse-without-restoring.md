@@ -34,7 +34,9 @@ A file's old version opens if its bytes still exist: the file itself, unchanged,
 
 <kbd>Ctrl+F</kbd> searches the folder you're in and everything below it; <kbd>Ctrl+Shift+F</kbd> searches every indexed drive. It matches file and folder names, not their contents, ignoring case and accents; with several words, a name must contain all of them. Exact names come first, then names that start with what you typed, then the rest, newest first.
 
-Tick "Earlier versions" to find files that were there at earlier scans but aren't now; opening one shows its folder as it was when it was last seen. The first 200 matches show, and "Show more" goes up to 2,000.
+With other machines added, **Everywhere** means them too: this computer's matches show first, and under them each machine's, at once from what was last synced of it, then replaced by its own answer as soon as it gives one. Opening a match on another machine opens its folder there. {preview}
+
+Tick "Earlier versions" to find files that were there at earlier scans but aren't now; opening one shows its folder as it was when it was last seen. The first 200 matches show, and "Show more" goes up to 2,000. A word in a great many names (an extension, say) shows the best matches found within a few seconds and says there are more. {preview}
 
 ## What opens in the browser
 

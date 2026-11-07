@@ -929,6 +929,9 @@ pub fn cached_find(
         return Ok((Vec::new(), 0, true));
     }
     let until = Instant::now() + budget;
+    if crate::name_index::ready(&db.conn, crate::name_index::REMOTE)? {
+        return cached_by_names(db, m, &terms, limit, until);
+    }
     let os = m.os();
     let mut stmt = db.conn.prepare_cached(
         "SELECT f.rid, f.root_id, f.path, f.size, f.mtime, rr.display, rr.path, rr.seen_at
@@ -981,6 +984,179 @@ pub fn cached_find(
         if hits.len() > limit * 4 {
             hits.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
             hits.truncate(limit);
+        }
+    }
+    hits.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
+    hits.truncate(limit);
+    Ok((hits.into_iter().map(|h| h.2).collect(), total, complete))
+}
+
+/// A cached file or folder of machine `m` as a where-is hit, shaped like find.rs's.
+#[allow(clippy::too_many_arguments)]
+fn cached_hit(
+    os: remote::Os,
+    dir: bool,
+    id: Option<i64>,
+    raw: &[u8],
+    size: i64,
+    mtime: i64,
+    root: i64,
+    top: Option<&[u8]>,
+    seen: Option<i64>,
+    rank: u8,
+) -> Value {
+    let parent = remote::parent(os, raw);
+    // the folder as a path inside its drive ("" at its top), as find.rs gives it
+    let folder = top
+        .map(|t| {
+            let (d, top) = (remote::display(os, parent), remote::display(os, t));
+            d.strip_prefix(&top)
+                .unwrap_or(&d)
+                .trim_start_matches(['/', '\\'])
+                .to_string()
+        })
+        .unwrap_or_default();
+    json!({
+        "kind": if dir { "dir" } else { "file" }, "id": id, "name": remote::name_of(os, raw),
+        "path": remote::display(os, raw), "key": browse::key_bytes(raw), "dir_key": browse::key_bytes(parent),
+        "size": size, "mtime": mtime, "root": root, "drive": top.map(|t| remote::name_of(os, t)),
+        "folder": folder, "rank": rank, "gone": false, "seen": seen, "cached": true,
+    })
+}
+
+/// `cached_find` through the names index (name_index.rs): the names that match, ranked, then the
+/// cached files and folders with each name, best names first, until `limit` are found and the rest
+/// are counted, or `until` passes. A folder is worked out from cached files' paths, so it's only
+/// given while some cached file is still in it.
+fn cached_by_names(
+    db: &Db,
+    m: &Machine,
+    terms: &[String],
+    limit: usize,
+    until: Instant,
+) -> Result<(Vec<Value>, u64, bool)> {
+    use crate::name_index::{REMOTE_DIRS, REMOTE_FILES};
+    let os = m.os();
+    let conn = &db.conn;
+    let refs: Vec<&str> = terms.iter().map(String::as_str).collect();
+    let mut tiers: [Vec<(String, i64)>; 5] = Default::default();
+    for (name, has) in crate::name_index::matching(conn, &refs, REMOTE_FILES | REMOTE_DIRS)? {
+        tiers[usize::from(rank(&name, terms))].push((name, has));
+    }
+    let mut files = conn.prepare_cached(
+        "SELECT f.rid, f.root_id, f.path, f.size, f.mtime, rr.path, rr.seen_at
+         FROM remote_files f INDEXED BY remote_files_lname
+         LEFT JOIN remote_roots rr ON rr.remote_id = f.remote_id AND rr.root_id = f.root_id
+         WHERE f.lname = ?1 AND f.remote_id = ?2 ORDER BY f.mtime DESC LIMIT ?3",
+    )?;
+    let mut count_files = conn.prepare_cached(
+        "SELECT COUNT(*) FROM remote_files INDEXED BY remote_files_lname WHERE lname = ?1 AND remote_id = ?2",
+    )?;
+    let mut dirs = conn.prepare_cached(
+        "SELECT d.root_id, d.path, d.newest, rr.path, rr.seen_at
+         FROM remote_dirs d INDEXED BY remote_dirs_lname
+         LEFT JOIN remote_roots rr ON rr.remote_id = d.remote_id AND rr.root_id = d.root_id
+         WHERE d.lname = ?1 AND d.remote_id = ?2 ORDER BY d.newest DESC LIMIT ?3",
+    )?;
+    let mut count_dirs = conn.prepare_cached(
+        "SELECT COUNT(*) FROM remote_dirs INDEXED BY remote_dirs_lname WHERE lname = ?1 AND remote_id = ?2",
+    )?;
+    let mut holds = conn.prepare_cached(
+        "SELECT EXISTS (SELECT 1 FROM remote_files INDEXED BY remote_files_path
+         WHERE remote_id = ?1 AND path >= ?2 AND path < ?3)",
+    )?;
+    let sep: &[u8] = match os {
+        remote::Os::Unix => b"/",
+        remote::Os::Windows => b"\\\0",
+    };
+    let keep = limit as i64 + 1;
+    let mut hits: Vec<(u8, i64, Value)> = Vec::new();
+    let (mut total, mut complete) = (0u64, true);
+    'tiers: for rank in (1..=4u8).rev() {
+        let collect = hits.len() < limit;
+        for (name, has) in &tiers[usize::from(rank)] {
+            if Instant::now() > until {
+                complete = false;
+                break 'tiers;
+            }
+            if has & REMOTE_FILES != 0 {
+                if collect {
+                    let mut rows = files.query(params![name, m.id, keep])?;
+                    let mut n = 0;
+                    while let Some(r) = rows.next()? {
+                        n += 1;
+                        let raw: Vec<u8> = r.get(2)?;
+                        let top: Option<Vec<u8>> = r.get(5)?;
+                        let mtime: i64 = r.get(4)?;
+                        hits.push((
+                            rank,
+                            mtime,
+                            cached_hit(
+                                os,
+                                false,
+                                Some(r.get(0)?),
+                                &raw,
+                                r.get(3)?,
+                                mtime,
+                                r.get(1)?,
+                                top.as_deref(),
+                                r.get(6)?,
+                                rank,
+                            ),
+                        ));
+                    }
+                    total += if n >= keep {
+                        count_files.query_row(params![name, m.id], |r| r.get::<_, i64>(0))? as u64
+                    } else {
+                        n as u64
+                    };
+                } else {
+                    total +=
+                        count_files.query_row(params![name, m.id], |r| r.get::<_, i64>(0))? as u64;
+                }
+            }
+            if has & REMOTE_DIRS != 0 {
+                if collect {
+                    let mut rows = dirs.query(params![name, m.id, keep])?;
+                    while let Some(r) = rows.next()? {
+                        let raw: Vec<u8> = r.get(1)?;
+                        let lo = [raw.as_slice(), sep].concat();
+                        let mut hi = lo.clone();
+                        if let Some(b) = hi.last_mut() {
+                            *b += 1; // a separator's last byte is never 0xFF
+                        }
+                        if !holds.query_row(params![m.id, lo, hi], |r| r.get::<_, bool>(0))? {
+                            continue; // nothing cached in it any more
+                        }
+                        total += 1;
+                        let top: Option<Vec<u8>> = r.get(3)?;
+                        let newest: i64 = r.get(2)?;
+                        hits.push((
+                            rank,
+                            newest,
+                            cached_hit(
+                                os,
+                                true,
+                                None,
+                                &raw,
+                                0,
+                                newest,
+                                r.get(0)?,
+                                top.as_deref(),
+                                r.get(4)?,
+                                rank,
+                            ),
+                        ));
+                    }
+                } else {
+                    total +=
+                        count_dirs.query_row(params![name, m.id], |r| r.get::<_, i64>(0))? as u64;
+                }
+            }
+            if hits.len() > limit * 4 {
+                hits.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
+                hits.truncate(limit);
+            }
         }
     }
     hits.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));

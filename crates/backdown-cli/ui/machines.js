@@ -47,6 +47,8 @@ export async function loadMachines() {
 }
 
 const machine = id => M.data?.machines?.find(m => m.id === id);
+// the other machines, for the search box's "Everywhere" (search.js)
+export const machineList = () => M.data?.machines || [];
 const busy = m => m?.job && ['queued', 'running'].includes(m.job.state);
 
 // ---------- the sidebar

@@ -6,6 +6,7 @@ use std::path::Path;
 use std::time::{Duration, SystemTime};
 
 use backdown_core::find::{self, Found, Query};
+use backdown_core::name_index;
 use backdown_core::{Db, index};
 
 fn write(path: &Path, bytes: &[u8], age_days: u64) {
@@ -179,10 +180,15 @@ fn earlier_versions_say_when_they_were_last_seen() {
 fn indexes_made_before_names_are_named_when_opened() {
     let (tmp, db) = drives();
     let path = tmp.path().join("idx.db");
-    // an index as 0.2.0-alpha.4 left it: no names, no index on them
+    // an index as 0.2.0-alpha.4 left it: no names, no index on them, no names index
     db.conn
         .execute_batch(
-            "DROP INDEX files_lname; DROP INDEX dirs_lname;
+            "DROP TRIGGER files_name_add; DROP TRIGGER files_name_set;
+             DROP TRIGGER dirs_name_add; DROP TRIGGER dirs_name_set;
+             DROP TRIGGER remote_files_name_add; DROP TRIGGER remote_files_name_set;
+             DROP TRIGGER remote_dirs_name_add; DROP TRIGGER names_fts_add;
+             DROP TABLE names_fts; DROP TABLE names; DROP TABLE names_filled;
+             DROP INDEX files_lname; DROP INDEX dirs_lname;
              ALTER TABLE files DROP COLUMN lname; ALTER TABLE dirs DROP COLUMN lname;",
         )
         .unwrap();
@@ -204,6 +210,14 @@ fn indexes_made_before_names_are_named_when_opened() {
         })
         .unwrap();
     assert_eq!(unnamed, 0);
+    // the names index isn't filled yet (that's the daemon's job): found through the names column
+    assert!(!name_index::ready(&db.conn, name_index::LOCAL).unwrap());
+    assert_eq!(search(&db, "report", None, false, 50).total, 5);
+    // filled: the same, through the names index
+    assert!(db.missing_later_indexes().unwrap().contains(&"names"));
+    db.build_later_indexes(&mut |_| {}).unwrap();
+    assert!(name_index::ready(&db.conn, name_index::LOCAL).unwrap());
+    assert!(db.missing_later_indexes().unwrap().is_empty());
     assert_eq!(search(&db, "report", None, false, 50).total, 5);
 
     // rows an older BackDown writes after that (no name) are still found
@@ -225,4 +239,52 @@ fn indexes_made_before_names_are_named_when_opened() {
         })
         .unwrap();
     assert_eq!(unnamed, 0, "filled in on the next open");
+}
+
+#[test]
+fn the_names_index_answers_as_reading_every_name_does() {
+    let (tmp, mut db) = drives();
+    // a file added after the names index was ready: named by the trigger as it's written
+    write(&tmp.path().join("Laptop/new/report-final.txt"), b"new", 1);
+    scan(&mut db, &tmp.path().join("Laptop"));
+    assert!(name_index::ready(&db.conn, name_index::LOCAL).unwrap());
+    let laptop = tmp.path().join("Laptop");
+    let queries = [
+        "report",
+        "REPORT",
+        "rep",
+        "re",
+        "o",
+        "2019 annual",
+        "résumé",
+        "gone",
+        "pdf",
+        "final",
+        "nothing like this",
+        "q1",
+    ];
+    let scopes = [(None, false), (None, true), (Some(laptop.as_path()), false)];
+    let answers = |db: &Db| {
+        let mut v = Vec::new();
+        for q in queries {
+            for (within, earlier) in scopes {
+                let f = search(db, q, within, earlier, 50);
+                assert!(!f.more);
+                v.push((q, within.is_some(), earlier, names(&f), f.total, f.gone));
+            }
+        }
+        v
+    };
+    let through_names = answers(&db);
+    assert!(
+        through_names
+            .iter()
+            .any(|a| a.0 == "final" && a.3 == ["Laptop/report-final.txt"])
+    );
+    // the same searches reading every name, as before the names index
+    db.conn
+        .execute("UPDATE names_filled SET done = 0", [])
+        .unwrap();
+    assert!(!name_index::ready(&db.conn, name_index::LOCAL).unwrap());
+    assert_eq!(answers(&db), through_names);
 }

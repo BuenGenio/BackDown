@@ -87,6 +87,22 @@ fn tag(mut hit: Value, m: Option<&Machine>, storage: Option<&Value>) -> Value {
     swarm::with_place(hit, storage)
 }
 
+/// Files and folders named like `q` on one other machine (the search box asks each machine on its
+/// own, so this machine's answer and each other one's show as they come): asked live (with `ask`)
+/// or from its cached files.
+pub fn where_one(db_path: &Path, q: &str, id: i64, limit: usize, ask: bool) -> Result<Value> {
+    if swarm::terms(q).is_empty() {
+        bail!("find what? Give some letters of the name");
+    }
+    let limit = limit.clamp(1, 500);
+    let db = Db::open_read_only(db_path)?;
+    let Some(m) = core::list(&db)?.into_iter().find(|m| m.id == id) else {
+        bail!("there's no machine {id}");
+    };
+    let (info, hits) = search_one(db_path, &m, q, limit, ask && remote::allowed());
+    Ok(json!({ "q": q, "hits": hits, "machines": [info] }))
+}
+
 /// Files and folders named like `q` on every machine: this one's index, each other machine's
 /// asked live (with `ask`), or its cached files when it can't be; the best `limit` of them all,
 /// each with its machine and drive, and how each machine was searched.
@@ -110,7 +126,7 @@ pub fn where_is(db_path: &Path, q: &str, limit: usize, ask: bool) -> Result<Valu
     )?;
     searched.push(
         json!({ "name": here_name(), "id": null, "here": true, "how": "here",
-                          "total": found.total, "complete": true, "ms": found.ms }),
+                          "total": found.total, "complete": !found.more, "ms": found.ms }),
     );
     hits.extend(
         found
@@ -187,7 +203,7 @@ fn search_one(
                     .collect();
                 return (
                     json!({ "name": m.name, "id": m.id, "here": false, "how": "live",
-                            "total": found["total"], "complete": true, "ms": found["ms"] }),
+                            "total": found["total"], "complete": found["more"] != true, "ms": found["ms"] }),
                     hits,
                 );
             }
@@ -632,7 +648,17 @@ pub fn get(
         "/api/swarm-where" => {
             let q = param("q").unwrap_or_default();
             let limit = param("limit").and_then(|v| v.parse().ok()).unwrap_or(200);
-            where_is(db_path, &q, limit, blocker.is_none())?
+            // one machine (`m`), asked live or (`ask=0`) from what's cached of it
+            match param("m").and_then(|v| v.parse::<i64>().ok()) {
+                Some(id) => where_one(
+                    db_path,
+                    &q,
+                    id,
+                    limit,
+                    blocker.is_none() && param("ask").as_deref() != Some("0"),
+                )?,
+                None => where_is(db_path, &q, limit, blocker.is_none())?,
+            }
         }
         _ => bail!("no such endpoint"),
     })

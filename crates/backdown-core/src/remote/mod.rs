@@ -27,7 +27,7 @@
 //! first sight of a machine's drives never does. A BackDown there from before the `health`
 //! request is noted ("update BackDown on nas to see its drive health"), and its sync goes on.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -439,6 +439,8 @@ pub fn remove(db: &Db, id: i64) -> Result<()> {
     let r = (|| -> Result<()> {
         db.conn
             .execute("DELETE FROM remote_files WHERE remote_id = ?1", [id])?;
+        db.conn
+            .execute("DELETE FROM remote_dirs WHERE remote_id = ?1", [id])?;
         db.conn
             .execute("DELETE FROM remote_roots WHERE remote_id = ?1", [id])?;
         db.conn
@@ -1155,6 +1157,8 @@ pub fn sync(
         db.conn
             .execute("DELETE FROM remote_files WHERE remote_id = ?1", [m.id])?;
         db.conn
+            .execute("DELETE FROM remote_dirs WHERE remote_id = ?1", [m.id])?;
+        db.conn
             .execute("DELETE FROM remote_roots WHERE remote_id = ?1", [m.id])?;
     }
     let mut st = SyncStats::default();
@@ -1179,6 +1183,10 @@ pub fn sync(
         for id in cached.into_iter().filter(|id| !have.contains(id)) {
             db.conn.execute(
                 "DELETE FROM remote_files WHERE remote_id = ?1 AND root_id = ?2",
+                params![m.id, id],
+            )?;
+            db.conn.execute(
+                "DELETE FROM remote_dirs WHERE remote_id = ?1 AND root_id = ?2",
                 params![m.id, id],
             )?;
             db.conn.execute(
@@ -1219,6 +1227,10 @@ pub fn sync(
                 "DELETE FROM remote_files WHERE remote_id = ?1 AND root_id = ?2",
                 params![m.id, r.id],
             )?;
+            db.conn.execute(
+                "DELETE FROM remote_dirs WHERE remote_id = ?1 AND root_id = ?2",
+                params![m.id, r.id],
+            )?;
             since = 0;
         }
         if since == upto {
@@ -1255,6 +1267,7 @@ pub fn sync(
         }
         // what's new or changed there, up to the scan it had finished when we asked
         let mut after = 0i64;
+        let mut folders = HashSet::new();
         loop {
             if stopped(opts) {
                 return Ok(st);
@@ -1270,9 +1283,11 @@ pub fn sync(
             let tx = Tx::begin(&db.conn, Lock::Deferred)?;
             {
                 let mut put = db.conn.prepare_cached(
-                    "INSERT OR REPLACE INTO remote_files(remote_id, rid, root_id, path, size, mtime, sample, sha256, error, hashed_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL)",
+                    "INSERT OR REPLACE INTO remote_files(remote_id, rid, root_id, path, size, mtime, sample, sha256, error, hashed_at, lname)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, ?10)",
                 )?;
+                let os = m.os();
+                let mut page = Vec::with_capacity(rows.len());
                 for (rid, key, size, mtime, sample, sha, err) in &rows {
                     let path = URL_SAFE_NO_PAD.decode(key).context("a file's path")?;
                     let sample = sample.as_deref().filter(|_| samples_ok).and_then(unhex);
@@ -1281,14 +1296,25 @@ pub fn sync(
                         m.id,
                         rid,
                         r.id,
-                        path,
+                        &path,
                         size,
                         mtime,
                         sample,
                         sha,
-                        i64::from(*err != 0)
+                        i64::from(*err != 0),
+                        crate::name_index::remote_lname(os, &path),
                     ])?;
+                    page.push((path, *mtime));
                 }
+                // their folders, for finding them by name (folders aren't synced themselves)
+                crate::name_index::add_folders(
+                    &db.conn,
+                    m.id,
+                    os,
+                    page.iter()
+                        .map(|(p, t)| (r.id, Some(raw.as_slice()), p.as_slice(), *t)),
+                    &mut folders,
+                )?;
             }
             tx.commit()?;
             st.added += rows.len() as u64;

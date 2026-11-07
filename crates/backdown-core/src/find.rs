@@ -14,13 +14,14 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use rusqlite::{Connection, OptionalExtension, ToSql, params, params_from_iter};
 use serde::Serialize;
 
 use crate::db::{Lock, Tx};
+use crate::name_index::{self, DIRS, FILES};
 use crate::{Db, browse, paths};
 
 /// Rows named per transaction while filling in names.
@@ -28,6 +29,10 @@ const FILL_BATCH: i64 = 50_000;
 /// A folder with fewer files than this is searched through its paths, a bigger one through names.
 const SMALL_FOLDER: i64 = 200_000;
 const MAX_TERMS: usize = 8;
+/// How long a search through the names index may spend looking up the rows of the names it found:
+/// past it, it answers with the best of what it has and says there's more (`Found::more`). A
+/// word in hundreds of thousands of names ("jpg") would otherwise take a lookup for each.
+const BUDGET: Duration = Duration::from_millis(3000);
 
 /// A name as search compares it: lowercase, without accents (é and e + a combining accent both
 /// become e, ß becomes ss).
@@ -201,6 +206,8 @@ pub struct Found {
     /// all matches (hits are the best `limit` of them), and how many of those are gone
     pub total: u64,
     pub gone: u64,
+    /// there were more matches than there was time to count: `total` is how many were counted
+    pub more: bool,
     pub ms: u64,
 }
 
@@ -222,6 +229,7 @@ pub fn find(db: &Db, q: &Query) -> Result<Found> {
             hits: Vec::new(),
             total: 0,
             gone: 0,
+            more: false,
             ms: 0,
         });
     }
@@ -238,8 +246,13 @@ pub fn find(db: &Db, q: &Query) -> Result<Found> {
     let conn = &db.conn;
     let named = index_exists(conn, "files_lname")? && index_exists(conn, "dirs_lname")?;
     let mut cands = Vec::new();
-    let (mut total, mut gone) = (0u64, 0u64);
-    if named {
+    let (mut total, mut gone, mut more) = (0u64, 0u64, false);
+    // through the names index when it's ready: every drive, one drive, or a big folder (a small
+    // folder is quicker through its paths)
+    if named && !small_folder(conn, q)? && name_index::ready(conn, name_index::LOCAL)? {
+        (cands, total, gone, more) =
+            by_names(conn, &terms, &phrase, &range, q, limit, t0 + BUDGET)?;
+    } else if named {
         for dir in [false, true] {
             let (c, n, g) = ranked(conn, dir, &terms, &phrase, &range, q, limit)?;
             cands.extend(c);
@@ -250,7 +263,20 @@ pub fn find(db: &Db, q: &Query) -> Result<Found> {
     let (c, n) = unnamed(conn, &terms, &phrase, &range, named, limit)?;
     cands.extend(c);
     total += n;
-    // best rank first; there, what's still there first, then the newest
+    best_first(&mut cands);
+    cands.truncate(limit);
+    let hits = describe(conn, &cands)?;
+    Ok(Found {
+        hits,
+        total,
+        gone,
+        more,
+        ms: t0.elapsed().as_millis() as u64,
+    })
+}
+
+/// Best rank first; there, what's still there first, then the newest.
+fn best_first(cands: &mut [Cand]) {
     cands.sort_by(|a, b| {
         b.rank
             .cmp(&a.rank)
@@ -259,14 +285,153 @@ pub fn find(db: &Db, q: &Query) -> Result<Found> {
             .then(a.dir.cmp(&b.dir))
             .then(a.id.cmp(&b.id))
     });
-    cands.truncate(limit);
-    let hits = describe(conn, &cands)?;
-    Ok(Found {
-        hits,
-        total,
-        gone,
-        ms: t0.elapsed().as_millis() as u64,
-    })
+}
+
+/// Whether the search is of a folder (not a whole drive) small enough to read through its paths.
+fn small_folder(conn: &Connection, q: &Query) -> Result<bool> {
+    let Some(w) = q.within else {
+        return Ok(false);
+    };
+    let at = paths::to_bytes(w);
+    let drive: bool = conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM roots WHERE path = ?1)",
+        [&at],
+        |r| r.get(0),
+    )?;
+    if drive {
+        return Ok(false);
+    }
+    Ok(conn
+        .query_row(
+            "SELECT files FROM dirs WHERE path = ?1 AND current = 1",
+            [&at],
+            |r| r.get::<_, i64>(0),
+        )
+        .optional()?
+        .is_none_or(|n| n < SMALL_FOLDER))
+}
+
+/// The rows of a file that's gone count too when no current row has its path and no later one
+/// does either (the same file isn't listed twice).
+const ALIVE_EARLIER: &str =
+    "(f.current = 1 OR (NOT EXISTS (SELECT 1 FROM files c WHERE c.path = f.path AND c.current = 1)
+       AND NOT EXISTS (SELECT 1 FROM files n WHERE n.path = f.path AND n.last_scan > f.last_scan)))";
+
+/// The best matches through the names index (name_index.rs): the names that match, ranked, then
+/// each one's rows from its table's own name index, best names first, until `limit` are found and
+/// the rest are counted, or `until` passes. (candidates, matches, gone matches, more than counted)
+fn by_names(
+    conn: &Connection,
+    terms: &[&str],
+    phrase: &str,
+    range: &Option<(Vec<u8>, Vec<u8>)>,
+    q: &Query,
+    limit: usize,
+    until: Instant,
+) -> Result<(Vec<Cand>, u64, u64, bool)> {
+    let mut tiers: [Vec<(String, i64)>; 5] = Default::default();
+    for (name, has) in name_index::matching(conn, terms, FILES | DIRS)? {
+        tiers[usize::from(rank_of(&name, phrase))].push((name, has));
+    }
+    let drive: Option<i64> = match q.within {
+        Some(w) => conn
+            .query_row(
+                "SELECT id FROM roots WHERE path = ?1",
+                [paths::to_bytes(w)],
+                |r| r.get(0),
+            )
+            .optional()?,
+        None => None,
+    };
+    // per table: whether it's folders, its bit in names.has, the rows of a name (?1, then the
+    // scope, then the limit), how many there are, and the scope's values
+    let mut tables = Vec::new();
+    for (dir, table, time, bit) in [
+        (false, "files", "mtime", FILES),
+        (true, "dirs", "newest", DIRS),
+    ] {
+        let alive = if q.earlier && !dir {
+            ALIVE_EARLIER
+        } else {
+            "f.current = 1"
+        };
+        let mut scope: Vec<Box<dyn ToSql>> = Vec::new();
+        let within = if let Some(root) = drive {
+            scope.push(Box::new(root));
+            " AND f.root_id = ?2"
+        } else if let Some((lo, hi)) = range {
+            scope.push(Box::new(lo.clone()));
+            scope.push(Box::new(hi.clone()));
+            " AND f.path >= ?2 AND f.path < ?3"
+        } else {
+            ""
+        };
+        let rows = conn.prepare(&format!(
+            "SELECT id, current, {time} FROM {table} f INDEXED BY {table}_lname
+             WHERE f.lname = ?1 AND {alive}{within} ORDER BY current DESC, {time} DESC LIMIT ?{}",
+            scope.len() + 2
+        ))?;
+        let count = conn.prepare(&format!(
+            "SELECT COUNT(*), COALESCE(SUM(current = 0), 0) FROM {table} f INDEXED BY {table}_lname
+             WHERE f.lname = ?1 AND {alive}{within}"
+        ))?;
+        tables.push((dir, bit, rows, count, scope));
+    }
+    let keep = limit as i64 + 1;
+    let (mut cands, mut total, mut gone, mut more) = (Vec::new(), 0u64, 0u64, false);
+    'tiers: for rank in (1..=4u8).rev() {
+        // a worse rank only adds to the count once there are enough of the better ones
+        let collect = cands.len() < limit;
+        for (name, has) in &tiers[usize::from(rank)] {
+            if Instant::now() > until {
+                more = true;
+                break 'tiers;
+            }
+            for (dir, bit, rows, count, scope) in &mut tables {
+                if *has & *bit == 0 {
+                    continue;
+                }
+                let mut args: Vec<&dyn ToSql> = vec![name];
+                args.extend(scope.iter().map(|a| a.as_ref() as &dyn ToSql));
+                let mut counted = |args: &[&dyn ToSql]| -> Result<()> {
+                    let (n, g): (i64, i64) =
+                        count.query_row(params_from_iter(args), |r| Ok((r.get(0)?, r.get(1)?)))?;
+                    total += n as u64;
+                    gone += g as u64;
+                    Ok(())
+                };
+                if !collect {
+                    counted(&args)?;
+                    continue;
+                }
+                let mut with_limit = args.clone();
+                with_limit.push(&keep);
+                let found: Vec<Cand> = rows
+                    .query_map(params_from_iter(with_limit), |r| {
+                        Ok(Cand {
+                            dir: *dir,
+                            id: r.get(0)?,
+                            current: r.get(1)?,
+                            time: r.get(2)?,
+                            rank,
+                        })
+                    })?
+                    .collect::<rusqlite::Result<_>>()?;
+                if found.len() as i64 >= keep {
+                    counted(&args)?; // more of this name than are kept: count them all
+                } else {
+                    total += found.len() as u64;
+                    gone += found.iter().filter(|c| !c.current).count() as u64;
+                }
+                cands.extend(found);
+            }
+            if cands.len() > limit * 4 {
+                best_first(&mut cands);
+                cands.truncate(limit);
+            }
+        }
+    }
+    Ok((cands, total, gone, more))
 }
 
 /// The rank of a folded name, as `ranked` computes it in SQL (for rows matched outside SQL).
@@ -367,8 +532,7 @@ fn ranked(
         }
     }
     let alive = if earlier {
-        "(f.current = 1 OR (NOT EXISTS (SELECT 1 FROM files c WHERE c.path = f.path AND c.current = 1)
-           AND NOT EXISTS (SELECT 1 FROM files n WHERE n.path = f.path AND n.last_scan > f.last_scan)))"
+        ALIVE_EARLIER
     } else {
         "f.current = 1"
     };

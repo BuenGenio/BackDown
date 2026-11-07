@@ -1382,3 +1382,92 @@ fn where_is_it_searches_a_machines_cached_files_when_it_cant_be_asked() {
         assert!(hit["place"]["volume"]["mount"].is_string(), "{hit}");
     }
 }
+
+#[test]
+fn where_is_it_finds_cached_folders_too_and_an_older_cache_is_filled_in() {
+    use crate::{name_index, swarm};
+    let tmp = scratch();
+    let vol = tmp.path().join("nas/volume1");
+    write(&vol.join("Music/Moretts/01 Intro.flac"), &blob(1, 500));
+    write(&vol.join("Music/Moretts/02 Outro.flac"), &blob(2, 600));
+    write(&vol.join("Backups/Moretts.tar"), &blob(3, 700));
+    write(&vol.join("Backups/old/Moretts/notes.txt"), &blob(4, 800));
+    let nas_db = tmp.path().join("nas.db");
+    let mut there = Db::open(&nas_db).unwrap();
+    scan(&mut there, &vol);
+    let db = Db::open(&tmp.path().join("local.db")).unwrap();
+    let m = add(&db, "nas", "ssh://nas.example.org", None, None).unwrap();
+    let mut peer = Local {
+        db: nas_db.clone(),
+        calls: Vec::new(),
+    };
+    sync(&db, &m, &mut peer, &SyncOptions::default(), &mut |_| {}).unwrap();
+    let m = get(&db, m.id).unwrap();
+    let find = |q: &str| swarm::cached_find(&db, &m, q, 10, Duration::from_secs(5)).unwrap();
+    let described = |hits: &[Value]| -> Vec<String> {
+        let mut v: Vec<String> = hits
+            .iter()
+            .map(|h| {
+                format!(
+                    "{} {}/{}",
+                    h["kind"].as_str().unwrap(),
+                    h["folder"].as_str().unwrap(),
+                    h["name"].as_str().unwrap()
+                )
+            })
+            .collect();
+        v.sort();
+        v
+    };
+    assert!(name_index::ready(&db.conn, name_index::REMOTE).unwrap());
+    let (hits, total, complete) = find("moretts");
+    assert!(complete);
+    assert_eq!(
+        described(&hits),
+        [
+            "dir Backups/old/Moretts",
+            "dir Music/Moretts",
+            "file Backups/Moretts.tar",
+        ]
+    );
+    assert_eq!(total, 3);
+    // a folder the search finds is opened at its own path there
+    let dir = hits
+        .iter()
+        .find(|h| h["kind"] == "dir" && h["folder"] == "Music")
+        .unwrap();
+    assert!(
+        dir["path"].as_str().unwrap().ends_with("/Music/Moretts"),
+        "{dir}"
+    );
+    assert_eq!(dir["drive"], "volume1");
+    // the folders above a file are there too, and the drive's own top isn't
+    assert_eq!(described(&find("music").0), ["dir /Music"]);
+    assert!(find("volume1").0.is_empty());
+
+    // a cache synced by an older BackDown: no names, no folders. Searched file by file until the
+    // daemon fills them in, then through the names index again, folders and all
+    db.conn
+        .execute_batch(
+            "UPDATE remote_files SET lname = NULL; DELETE FROM remote_dirs;
+             DROP INDEX remote_files_lname;
+             UPDATE names_filled SET done = 0, after = NULL WHERE what IN ('remote_files', 'remote_dirs');",
+        )
+        .unwrap();
+    assert!(!name_index::ready(&db.conn, name_index::REMOTE).unwrap());
+    assert_eq!(described(&find("moretts").0), ["file Backups/Moretts.tar"]);
+    assert!(db.missing_later_indexes().unwrap().contains(&"names"));
+    db.build_later_indexes(&mut |_| {}).unwrap();
+    assert!(name_index::ready(&db.conn, name_index::REMOTE).unwrap());
+    assert_eq!(described(&find("moretts").0).len(), 3);
+    assert_eq!(find("moretts").1, 3);
+
+    // the files of a folder all gone there: the folder isn't given any more
+    fs::remove_dir_all(vol.join("Backups/old")).unwrap();
+    scan(&mut there, &vol);
+    sync(&db, &m, &mut peer, &SyncOptions::default(), &mut |_| {}).unwrap();
+    assert_eq!(
+        described(&find("moretts").0),
+        ["dir Music/Moretts", "file Backups/Moretts.tar"]
+    );
+}
