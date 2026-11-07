@@ -1,6 +1,6 @@
 {
   "_comment": "The /status/ page's roadmap and changelog. Text fields are {lang: text}; a missing language falls back to English (marked lang=en), so English can be updated first. Keep it public-safe: no real paths, hosts or drive names.",
-  "updated": "2026-11-02",
+  "updated": "2026-11-07",
   "now": [
     {
       "state": "done",
@@ -182,6 +182,19 @@
         "cs": "Aplikace pro Android a iOS a soubory otevřené nebo stažené z kteréhokoli počítače, který je má",
         "sk": "Aplikácia pre Android a iOS a súbory otvorené alebo stiahnuté z ktoréhokoľvek počítača, ktorý ich má",
         "uk": "Застосунок для Android та iOS і файли, відкриті чи отримані з тієї машини, де вони є"
+      }
+    },
+    {
+      "state": "doing",
+      "text": {
+        "en": "Tags that follow a file to every copy of it, and a photo's date and place read from the photo itself, then turned into country, region, city and nearest airport without going online",
+        "es": "Etiquetas que siguen a un archivo en todas sus copias, y la fecha y el lugar de una foto leídos de la propia foto, convertidos sin conexión en país, región, ciudad y aeropuerto más cercano",
+        "pt-br": "Etiquetas que acompanham um arquivo em todas as suas cópias, e a data e o local de uma foto lidos da própria foto, convertidos sem internet em país, região, cidade e aeroporto mais próximo",
+        "de": "Tags, die einer Datei in jede Kopie folgen, und Datum und Ort eines Fotos, aus dem Foto selbst gelesen und offline in Land, Region, Stadt und nächsten Flughafen übersetzt",
+        "pl": "Tagi, które idą za plikiem do każdej jego kopii, oraz data i miejsce zdjęcia odczytane z samego zdjęcia i zamienione bez internetu na kraj, region, miasto i najbliższe lotnisko",
+        "cs": "Štítky, které jdou se souborem do každé jeho kopie, a datum a místo fotky přečtené přímo z fotky a bez internetu převedené na zemi, region, město a nejbližší letiště",
+        "sk": "Štítky, ktoré idú so súborom do každej jeho kópie, a dátum a miesto fotky prečítané priamo z fotky a bez internetu prevedené na krajinu, región, mesto a najbližšie letisko",
+        "uk": "Теги, що йдуть за файлом до кожної його копії, а також дата й місце фото, прочитані з самого фото й без інтернету перетворені на країну, регіон, місто й найближчий аеропорт"
       }
     },
     {

@@ -1,6 +1,6 @@
 ---
 title: Concepts
-description: Drives and scans, fast rescans, the time slider, hashes and proof, what "safe to wipe" means, copies across file systems, recognised things and where they came from, the background service, and drive health.
+description: Drives and scans, fast rescans, the time slider, hashes and proof, what "safe to wipe" means, copies across file systems, recognised things and where they came from, tags and flags, the background service, and drive health.
 order: 2
 group: start
 ---
@@ -161,6 +161,12 @@ BackDown reuses the indexes already there before reading anything itself:
 - **What a dump says it indexed.** A table's `FULLTEXT KEY` in a MySQL or MariaDB dump names the columns the database itself indexed for search; they're listed with the table. (The engine's own index files in a data directory aren't readable outside the server.)
 
 Depth is a setting (`backdown search --depth off|headers|full`, `headers` by default): headers and schemas are enough to find a message or a table and cost little; `full` indexes the text of rows (text-typed columns only, up to 64 MiB a file) and grows with the data. The index keeps no copy of the text, only where each hit is, so a hit shows the subject, who and when, not a snippet. The background service indexes after each recognition, only what was scanned since; `backdown search --build` does it now.
+
+## Tags, flags and links {#tags}
+
+{preview} A **tag** is a fact about something: the year and place a photo was taken, the event it's from, who it belongs to. A **flag** is a decision: keep, drop, canonical, a duplicate of another copy, reviewed. A **link** connects two things with a relationship you name.
+
+Tags and flags on a file go on its content, its SHA-256, so every copy of it on any drive carries them, and they survive moves, renames and deduplication. Some come from the files themselves (a photo's date and GPS position, then its country, region, city and nearest airport, from place data built into BackDown), and you add the rest. Each remembers where it came from and when; derived tags can be made again, yours are kept. Tags and flags never move or delete anything themselves. See [Tag photos by date and place](/docs/guides/tags-and-places/).
 
 ## Overlaps
 
