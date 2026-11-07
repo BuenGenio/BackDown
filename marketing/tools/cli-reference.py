@@ -30,7 +30,6 @@ MARKETING = Path(__file__).resolve().parent.parent
 REPO = MARKETING.parent
 OUT = MARKETING / 'docs' / 'cli'
 MAIN_RS = 'crates/backdown-cli/src/main.rs'
-RESCUE_RS = 'crates/backdown-cli/src/rescuing.rs'
 
 # ---------- what clap can't say (keep true to the code)
 
@@ -141,7 +140,7 @@ EXAMPLES = {
 
 NOTES = {
     'index': 'A drive that is suddenly empty although its last scan held files (usually an unplugged drive’s leftover '
-             'mount point) is refused and nothing is recorded; pass `--allow-empty` if it really was emptied. {preview} '
+             'mount point) is refused and nothing is recorded; pass `--allow-empty` if it really was emptied. '
              'So is one that holds folders but no files at all, and one whose folder is now on another drive than the '
              'one it was last scanned on (folders made where a drive is mounted, with the drive mounted elsewhere or '
              'not at all); pass `--allow-other-drive` for a new or reformatted drive in its place. A folder that can’t '
@@ -463,12 +462,18 @@ def long_flag(term):
 # ---------- what the released version has
 
 def released_source(tag):
+    def show(f):
+        return subprocess.run(['git', '-C', str(REPO), 'show', f'{tag}:{f}'], capture_output=True, text=True,
+                              check=True).stdout
     try:
-        return ''.join(subprocess.run(['git', '-C', str(REPO), 'show', f'{tag}:{f}'], capture_output=True, text=True,
-                                      check=True).stdout for f in (MAIN_RS,)) + \
-            subprocess.run(['git', '-C', str(REPO), 'show', f'{tag}:{RESCUE_RS}'], capture_output=True, text=True).stdout
+        main = show(MAIN_RS)
     except subprocess.CalledProcessError:
         sys.exit(f"can't read {MAIN_RS} at {tag}: is it a tag in this repository? (--released)")
+    # Options are declared all over the CLI crate (pool.rs, manifest.rs, rescuing.rs, ...), not only in main.rs:
+    # read every source file the tag has there, main.rs first so `enum Cmd` is found in it.
+    files = subprocess.run(['git', '-C', str(REPO), 'ls-tree', '-r', '--name-only', tag, '--',
+                            str(Path(MAIN_RS).parent)], capture_output=True, text=True, check=True).stdout.split()
+    return main + ''.join(show(f) for f in files if f.endswith('.rs') and f != MAIN_RS)
 
 
 def released_commands(src):

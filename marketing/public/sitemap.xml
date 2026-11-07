@@ -730,7 +730,7 @@
   </url>
   <url>
     <loc>https://backdown.io/docs/</loc>
-    <lastmod>2026-11-02</lastmod>
+    <lastmod>2026-11-07</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
     <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/"/>
@@ -898,7 +898,7 @@
   </url>
   <url>
     <loc>https://backdown.io/docs/cli/backdown-index/</loc>
-    <lastmod>2026-11-05</lastmod>
+    <lastmod>2026-11-07</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
     <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-index/"/>
@@ -1042,7 +1042,7 @@
   </url>
   <url>
     <loc>https://backdown.io/docs/cli/backdown-desktop/</loc>
-    <lastmod>2026-11-02</lastmod>
+    <lastmod>2026-11-07</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
     <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-desktop/"/>
@@ -1170,7 +1170,7 @@
   </url>
   <url>
     <loc>https://backdown.io/docs/cli/backdown-remote/</loc>
-    <lastmod>2026-11-02</lastmod>
+    <lastmod>2026-11-07</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
     <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-remote/"/>
@@ -1178,7 +1178,7 @@
   </url>
   <url>
     <loc>https://backdown.io/docs/cli/backdown-pool/</loc>
-    <lastmod>2026-11-02</lastmod>
+    <lastmod>2026-11-07</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
     <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-pool/"/>
@@ -1218,7 +1218,7 @@
   </url>
   <url>
     <loc>https://backdown.io/docs/cli/backdown-manifest/</loc>
-    <lastmod>2026-11-02</lastmod>
+    <lastmod>2026-11-07</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
     <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/cli/backdown-manifest/"/>
@@ -1250,7 +1250,7 @@
   </url>
   <url>
     <loc>https://backdown.io/docs/troubleshooting/</loc>
-    <lastmod>2026-11-05</lastmod>
+    <lastmod>2026-11-07</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
     <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/troubleshooting/"/>

@@ -25,7 +25,7 @@ backdown index [OPTIONS] <PATHS>...
 `--allow-empty`
 : Record PATH even if it's now empty, or holds no files at all, although it held files (normally refused: an empty mount point usually means the drive is unplugged).
 
-`--allow-other-drive` {preview}
+`--allow-other-drive`
 : Record PATH even if it's now on another drive than the one it was last scanned on, for a new or reformatted drive in its place (normally refused: it's usually the folder a drive is mounted on, or one made there, with the drive itself elsewhere).
 
 `--method <METHOD>`
@@ -35,7 +35,7 @@ Also takes the [global options](/docs/cli/#global-options) `--db` and `--local`.
 
 ## Good to know
 
-A drive that is suddenly empty although its last scan held files (usually an unplugged drive's leftover mount point) is refused and nothing is recorded; pass `--allow-empty` if it really was emptied. {preview} So is one that holds folders but no files at all, and one whose folder is now on another drive than the one it was last scanned on (folders made where a drive is mounted, with the drive mounted elsewhere or not at all); pass `--allow-other-drive` for a new or reformatted drive in its place. A folder that can't be read keeps what the index had of it instead of having it recorded as gone. Symbolic links are not followed. When a daemon is running, the scan is handed to it and it hashes the new files next. With `--method auto`, a rescan reads the drive's change log where there is one (the USN journal of NTFS drives on Windows, the change history of APFS and HFS+ drives on macOS), or NTFS's file table (on Windows as administrator, on Linux for ntfs-3g mounts whose device your account can read), and walks every folder whenever either can't vouch for every file, and anyway every tenth scan or after 30 days (Settings > Scanning). Linux keeps no change log for drives. Each drive's line says how it was scanned and, for a walk, why. `--method journal` or `table` stops with the reason instead of walking.
+A drive that is suddenly empty although its last scan held files (usually an unplugged drive's leftover mount point) is refused and nothing is recorded; pass `--allow-empty` if it really was emptied. So is one that holds folders but no files at all, and one whose folder is now on another drive than the one it was last scanned on (folders made where a drive is mounted, with the drive mounted elsewhere or not at all); pass `--allow-other-drive` for a new or reformatted drive in its place. A folder that can't be read keeps what the index had of it instead of having it recorded as gone. Symbolic links are not followed. When a daemon is running, the scan is handed to it and it hashes the new files next. With `--method auto`, a rescan reads the drive's change log where there is one (the USN journal of NTFS drives on Windows, the change history of APFS and HFS+ drives on macOS), or NTFS's file table (on Windows as administrator, on Linux for ntfs-3g mounts whose device your account can read), and walks every folder whenever either can't vouch for every file, and anyway every tenth scan or after 30 days (Settings > Scanning). Linux keeps no change log for drives. Each drive's line says how it was scanned and, for a walk, why. `--method journal` or `table` stops with the reason instead of walking.
 
 ## Examples
 

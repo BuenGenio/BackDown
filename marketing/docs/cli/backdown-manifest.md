@@ -54,7 +54,7 @@ backdown manifest verify [OPTIONS] <FILE>...
 `--list <FILE>`
 : The manifest's listing (with one manifest).
 
-`--against-index` {preview}
+`--against-index`
 : Also compare it with the index now: what was added, removed or changed on the drive since (with one manifest).
 
 `--json`

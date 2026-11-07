@@ -22,7 +22,7 @@ backdown desktop install [OPTIONS]
 
 ### Options
 
-`--autostart` {preview}
+`--autostart`
 : Also start BackDown's background service when you log in (on macOS, the login item `backdown service install` makes).
 
 ## backdown desktop uninstall {#uninstall}
