@@ -1040,7 +1040,11 @@ fn cached_by_names(
     let conn = &db.conn;
     let refs: Vec<&str> = terms.iter().map(String::as_str).collect();
     let mut tiers: [Vec<(String, i64)>; 5] = Default::default();
-    for (name, has) in crate::name_index::matching(conn, &refs, REMOTE_FILES | REMOTE_DIRS)? {
+    // reading every name (a term too short for trigrams) gets a third of the time, the rows the rest
+    let part = Instant::now() + until.saturating_duration_since(Instant::now()) / 3;
+    let (names, all_names) =
+        crate::name_index::matching(conn, &refs, REMOTE_FILES | REMOTE_DIRS, part)?;
+    for (name, has) in names {
         tiers[usize::from(rank(&name, terms))].push((name, has));
     }
     let mut files = conn.prepare_cached(
@@ -1071,11 +1075,12 @@ fn cached_by_names(
     };
     let keep = limit as i64 + 1;
     let mut hits: Vec<(u8, i64, Value)> = Vec::new();
-    let (mut total, mut complete) = (0u64, true);
+    let (mut total, mut complete) = (0u64, all_names);
     'tiers: for rank in (1..=4u8).rev() {
         let collect = hits.len() < limit;
         for (name, has) in &tiers[usize::from(rank)] {
-            if Instant::now() > until {
+            let now = Instant::now();
+            if now > until && (!hits.is_empty() || now > until + find::GRACE) {
                 complete = false;
                 break 'tiers;
             }

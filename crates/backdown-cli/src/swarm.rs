@@ -19,8 +19,10 @@ use serde_json::{Value, json};
 use crate::daemon::Daemon;
 use crate::remote;
 
-/// How long the cached files of a machine that can't be asked are searched, at most.
-const CACHED_SEARCH: Duration = Duration::from_secs(5);
+/// How long the cached files of a machine that can't be asked are searched, at most (through the
+/// names index a search of 27 million cached files takes well under a second, unless a word is in
+/// a great many names). The search box shows what's cached as soon as it's there.
+const CACHED_SEARCH: Duration = Duration::from_secs(3);
 
 #[derive(Subcommand)]
 pub enum SwarmCmd {

@@ -159,8 +159,10 @@ export function machinesHtml(q) {
     const n = info.total ?? hits.length;
     const how = st.live ? `asked now${info.ms >= 100 ? ` · ${(info.ms / 1000).toFixed(1)} s` : ''}`
       : st.res ? `as synced ${ago(info.synced_at)}${info.complete === false ? ', only some of its files in the time there was' : ''}` : '';
+    // it couldn't be asked (unreachable, or it gave up): say why, under what was synced of it
+    const why = st.live ? '' : st.error || info.error;
     const state = st.asking ? `<span class="dim">${st.res ? 'asking it now…' : 'asking…'}</span>`
-      : st.error && !st.live ? `<span class="dim">couldn’t be asked: ${esc(st.error)}</span>` : '';
+      : why ? `<span class="dim" title="${esc(why)}">couldn’t be asked just now: ${esc(why.length > 90 ? why.slice(0, 90) + '…' : why)}</span>` : '';
     const count = st.res ? `<b>${num(n)}</b>${info.complete === false ? '+' : ''} ${n === 1 ? 'match' : 'matches'}` : '';
     const bar = `<div class="find-bar find-machine" role="status"><span><span class="sw-where">${esc(st.name)}</span>${count ? ` · ${count}` : ''}${how ? ` <span class="dim">· ${how}</span>` : ''}</span>${state}</div>`;
     if (!hits.length) return bar;

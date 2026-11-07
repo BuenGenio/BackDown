@@ -22,6 +22,7 @@
 //! (`ready`).
 
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
 use anyhow::Result;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -61,7 +62,8 @@ CREATE TABLE IF NOT EXISTS remote_dirs (
     newest    INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (remote_id, path)
 ) WITHOUT ROWID;
-CREATE INDEX IF NOT EXISTS remote_dirs_lname ON remote_dirs(lname, remote_id);
+-- with the time, so a name's newest folders come straight from the index
+CREATE INDEX IF NOT EXISTS remote_dirs_lname ON remote_dirs(lname, remote_id, newest);
 CREATE TRIGGER IF NOT EXISTS files_name_add AFTER INSERT ON files WHEN new.lname IS NOT NULL BEGIN
     INSERT INTO names(lname, has) VALUES (new.lname, 1)
     ON CONFLICT(lname) DO UPDATE SET has = has | 1 WHERE (has & 1) = 0;
@@ -93,9 +95,11 @@ END;
 ";
 
 /// The index on cached files' names: built once their names are filled in (`fill`), since
-/// building it afterwards is much quicker than keeping it up through 27 million updates.
+/// building it afterwards is much quicker than keeping it up through 27 million updates. With the
+/// time, so a name's newest files come straight from the index: a name with hundreds of thousands
+/// of copies there (README.md) would otherwise read them all to sort them.
 const REMOTE_FILES_LNAME: &str =
-    "CREATE INDEX IF NOT EXISTS remote_files_lname ON remote_files(lname, remote_id)";
+    "CREATE INDEX IF NOT EXISTS remote_files_lname ON remote_files(lname, remote_id, mtime)";
 
 /// This machine's own tables, and the ones cached from other machines.
 pub const LOCAL: &[&str] = &["files", "dirs"];
@@ -122,6 +126,12 @@ const ALL: &[&str] = &["files", "dirs", "remote_files", "remote_dirs"];
 const BATCH: i64 = 20_000;
 /// Terms shorter than this can't use the trigram index.
 const TRIGRAM: usize = 3;
+/// Names read per block when every name is read (a term too short for trigrams).
+const SCAN_BLOCK: i64 = 65_536;
+/// At most this many names for a term too short for trigrams: a single letter is in most names,
+/// and ranking millions of them would leave no time to find their files. The ones that start
+/// with it come first, so they're among them.
+const SHORT_NAMES: usize = 100_000;
 
 /// Whether every name of these tables is in (a search may use the names index for them). False on
 /// an index that hasn't got the names index at all, which is what a reader sees before the first
@@ -195,9 +205,16 @@ fn index_exists(conn: &Connection, name: &str) -> Result<bool> {
 }
 
 /// The distinct names containing every term (already folded) that any of the tables in `has`
-/// (the bits above) has, each with who has it. Terms of 3 characters or more are looked up in the
-/// trigram index; when there are none, every name is read.
-pub fn matching(conn: &Connection, terms: &[&str], has: i64) -> Result<Vec<(String, i64)>> {
+/// (the bits above) has, each with who has it, and whether that's all of them. Terms of 3
+/// characters or more are looked up in the trigram index. Without one, the names that start with
+/// what was typed come first, from the names' own index (they rank best), then every name is read
+/// until `until`.
+pub fn matching(
+    conn: &Connection,
+    terms: &[&str],
+    has: i64,
+    until: Instant,
+) -> Result<(Vec<(String, i64)>, bool)> {
     let keep = |name: &str| terms.iter().all(|t| name.contains(t));
     // each trigram of each term, all of them required (detail=none can't check they're next to
     // each other, so the names it gives are checked here)
@@ -213,35 +230,71 @@ pub fn matching(conn: &Connection, terms: &[&str], has: i64) -> Result<Vec<(Stri
     grams.sort();
     grams.dedup();
     let mut out = Vec::new();
-    let mut push = |r: &rusqlite::Row| -> rusqlite::Result<()> {
+    if grams.is_empty() {
+        let phrase = terms.join(" ");
+        let mut first = conn.prepare_cached(
+            "SELECT lname, has FROM names WHERE lname >= ?1 AND lname < ?2 AND (has & ?3) != 0",
+        )?;
+        let mut rows = first.query(params![phrase, format!("{phrase}\u{10ffff}"), has])?;
+        let mut n = 0u64;
+        while let Some(r) = rows.next()? {
+            n += 1;
+            if n.is_multiple_of(8192) && (Instant::now() > until || out.len() >= SHORT_NAMES) {
+                return Ok((out, false));
+            }
+            let (name, who): (String, i64) = (r.get(0)?, r.get(1)?);
+            if keep(&name) {
+                out.push((name, who));
+            }
+        }
+
+        // the rest, a block of ids at a time with the terms checked by SQLite, so that the time is
+        // looked at even through long stretches of names nobody here has (another machine's)
+        let mut sql = "SELECT lname, has FROM names WHERE id > ?1 AND id <= ?2 AND (has & ?3) != 0"
+            .to_string();
+        for i in 0..terms.len() {
+            sql.push_str(&format!(" AND instr(lname, ?{}) > 0", i + 4));
+        }
+        let mut block = conn.prepare_cached(&sql)?;
+        let last: i64 =
+            conn.query_row("SELECT COALESCE(MAX(id), 0) FROM names", [], |r| r.get(0))?;
+        let mut at = 0i64;
+        while at < last {
+            if Instant::now() > until || out.len() >= SHORT_NAMES {
+                return Ok((out, false));
+            }
+            let mut args: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(terms.len() + 3);
+            let end = at + SCAN_BLOCK;
+            args.extend([&at as &dyn rusqlite::ToSql, &end, &has]);
+            args.extend(terms.iter().map(|t| t as &dyn rusqlite::ToSql));
+            let mut rows = block.query(rusqlite::params_from_iter(args))?;
+            while let Some(r) = rows.next()? {
+                let name: String = r.get(0)?;
+                if !name.starts_with(&phrase) {
+                    out.push((name, r.get(1)?));
+                }
+            }
+            at = end;
+        }
+        return Ok((out, true));
+    }
+    let expr = grams
+        .iter()
+        .map(|g| format!("\"{}\"", g.replace('"', "\"\"")))
+        .collect::<Vec<_>>()
+        .join(" AND ");
+    let mut stmt = conn.prepare_cached(
+        "SELECT n.lname, n.has FROM names_fts JOIN names n ON n.id = names_fts.rowid
+         WHERE names_fts MATCH ?1 AND (n.has & ?2) != 0",
+    )?;
+    let mut rows = stmt.query(params![expr, has])?;
+    while let Some(r) = rows.next()? {
         let (name, who): (String, i64) = (r.get(0)?, r.get(1)?);
         if keep(&name) {
             out.push((name, who));
         }
-        Ok(())
-    };
-    if grams.is_empty() {
-        let mut stmt = conn.prepare_cached("SELECT lname, has FROM names WHERE (has & ?1) != 0")?;
-        let mut rows = stmt.query([has])?;
-        while let Some(r) = rows.next()? {
-            push(r)?;
-        }
-    } else {
-        let expr = grams
-            .iter()
-            .map(|g| format!("\"{}\"", g.replace('"', "\"\"")))
-            .collect::<Vec<_>>()
-            .join(" AND ");
-        let mut stmt = conn.prepare_cached(
-            "SELECT n.lname, n.has FROM names_fts JOIN names n ON n.id = names_fts.rowid
-             WHERE names_fts MATCH ?1 AND (n.has & ?2) != 0",
-        )?;
-        let mut rows = stmt.query(params![expr, has])?;
-        while let Some(r) = rows.next()? {
-            push(r)?;
-        }
     }
-    Ok(out)
+    Ok((out, true))
 }
 
 /// Fill in what isn't there yet, saying which part is under way: this machine's names, then the

@@ -33,6 +33,9 @@ const MAX_TERMS: usize = 8;
 /// past it, it answers with the best of what it has and says there's more (`Found::more`). A
 /// word in hundreds of thousands of names ("jpg") would otherwise take a lookup for each.
 const BUDGET: Duration = Duration::from_millis(3000);
+/// A little longer when nothing's been found yet (a single letter's names take a while to rank),
+/// so that it answers with its best matches rather than none.
+pub const GRACE: Duration = Duration::from_millis(1000);
 
 /// A name as search compares it: lowercase, without accents (é and e + a combining accent both
 /// become e, ß becomes ss).
@@ -330,7 +333,10 @@ fn by_names(
     until: Instant,
 ) -> Result<(Vec<Cand>, u64, u64, bool)> {
     let mut tiers: [Vec<(String, i64)>; 5] = Default::default();
-    for (name, has) in name_index::matching(conn, terms, FILES | DIRS)? {
+    // reading every name (a term too short for trigrams) gets a third of the time, the rows the rest
+    let part = Instant::now() + until.saturating_duration_since(Instant::now()) / 3;
+    let (names, all_names) = name_index::matching(conn, terms, FILES | DIRS, part)?;
+    for (name, has) in names {
         tiers[usize::from(rank_of(&name, phrase))].push((name, has));
     }
     let drive: Option<i64> = match q.within {
@@ -378,12 +384,13 @@ fn by_names(
         tables.push((dir, bit, rows, count, scope));
     }
     let keep = limit as i64 + 1;
-    let (mut cands, mut total, mut gone, mut more) = (Vec::new(), 0u64, 0u64, false);
+    let (mut cands, mut total, mut gone, mut more) = (Vec::new(), 0u64, 0u64, !all_names);
     'tiers: for rank in (1..=4u8).rev() {
         // a worse rank only adds to the count once there are enough of the better ones
         let collect = cands.len() < limit;
         for (name, has) in &tiers[usize::from(rank)] {
-            if Instant::now() > until {
+            let now = Instant::now();
+            if now > until && (!cands.is_empty() || now > until + GRACE) {
                 more = true;
                 break 'tiers;
             }
@@ -444,9 +451,9 @@ fn rank_of(name: &str, phrase: &str) -> u8 {
         4
     } else if name.starts_with(phrase) {
         3
-    } else if [' ', '_', '-', '.']
-        .iter()
-        .any(|c| name.contains(&format!("{c}{phrase}")))
+    } else if name
+        .match_indices(phrase)
+        .any(|(i, _)| i > 0 && matches!(name.as_bytes()[i - 1], b' ' | b'_' | b'-' | b'.'))
     {
         2
     } else {
