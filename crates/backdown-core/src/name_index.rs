@@ -151,8 +151,15 @@ pub fn open(conn: &Connection) -> Result<()> {
         if known.query_row([table], |r| r.get::<_, bool>(0))? {
             continue;
         }
+        // other machines' folders come from their cached files: nothing to fill only when there
+        // are none of those either
+        let from = if *table == "remote_dirs" {
+            "remote_files"
+        } else {
+            table
+        };
         let empty: bool = conn.query_row(
-            &format!("SELECT NOT EXISTS (SELECT 1 FROM {table})"),
+            &format!("SELECT NOT EXISTS (SELECT 1 FROM {from})"),
             [],
             |r| r.get(0),
         )?;

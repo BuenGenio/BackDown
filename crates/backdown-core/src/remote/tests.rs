@@ -1445,16 +1445,23 @@ fn where_is_it_finds_cached_folders_too_and_an_older_cache_is_filled_in() {
     assert_eq!(described(&find("music").0), ["dir /Music"]);
     assert!(find("volume1").0.is_empty());
 
-    // a cache synced by an older BackDown: no names, no folders. Searched file by file until the
-    // daemon fills them in, then through the names index again, folders and all
+    // a cache synced by an older BackDown, opened by this one: no names, no folders, no names
+    // index. Searched file by file until the daemon fills them in, then through the names index
+    // again, folders and all
     db.conn
         .execute_batch(
-            "UPDATE remote_files SET lname = NULL; DELETE FROM remote_dirs;
-             DROP INDEX remote_files_lname;
-             UPDATE names_filled SET done = 0, after = NULL WHERE what IN ('remote_files', 'remote_dirs');",
+            "UPDATE remote_files SET lname = NULL;
+             DROP TRIGGER remote_dirs_name_add; DROP TABLE remote_dirs;
+             DROP INDEX remote_files_lname; DROP TABLE names_filled;",
         )
         .unwrap();
-    assert!(!name_index::ready(&db.conn, name_index::REMOTE).unwrap());
+    let db = Db::open(&tmp.path().join("local.db")).unwrap();
+    let find = |q: &str| swarm::cached_find(&db, &m, q, 10, Duration::from_secs(5)).unwrap();
+    assert!(!name_index::ready(&db.conn, &["remote_files"]).unwrap());
+    assert!(
+        !name_index::ready(&db.conn, &["remote_dirs"]).unwrap(),
+        "an empty table of folders isn't ready while there are cached files to work them out from"
+    );
     assert_eq!(described(&find("moretts").0), ["file Backups/Moretts.tar"]);
     assert!(db.missing_later_indexes().unwrap().contains(&"names"));
     db.build_later_indexes(&mut |_| {}).unwrap();
