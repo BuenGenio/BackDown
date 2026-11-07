@@ -21,6 +21,9 @@ OUT = os.path.join(ROOT, "crates", "backdown-cli", "THIRD-PARTY-NOTICES.txt")
 PERMISSIVE = {"MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Zlib", "0BSD",
               "Unicode-3.0", "Unicode-DFS-2016", "CC0-1.0", "Unlicense", "BSL-1.0",
               "Apache-2.0 WITH LLVM-exception", "MIT-0", "bzip2-1.0.6"}
+# Crates that ship a licence file instead of an SPDX `license` field, read by hand. Keyed by version,
+# so an upgrade is flagged again until someone rereads the new file.
+LICENSE_FILE = {("nom-exif", "3.8.0"): "MIT"}
 
 RUNTIME = """Runtime libraries linked into the release builds
 ------------------------------------------------
@@ -70,7 +73,8 @@ def crates():
         name, _, ver = pkg.partition(" v")
         # the path of a workspace crate after its version: drop it
         ver = ver.split(" ")[0]
-        seen[(name, ver)] = lic.strip() or "see the crate's own licence file"
+        seen[(name, ver)] = (lic.strip() or LICENSE_FILE.get((name, ver))
+                             or "see the crate's own licence file")
     return sorted(seen.items(), key=lambda kv: (kv[0][0].lower(), kv[0][1]))
 
 
