@@ -312,6 +312,19 @@ pub fn sample_of(path: &Path, size: u64) -> Result<(Vec<u8>, Option<Vec<u8>>), S
     sample(path, size, &mut buf)
 }
 
+/// One indexed file's full SHA-256, read now, exactly as `hash` computes it: for a command that
+/// needs one file's content (`tag exif`) when `hash` has left it alone, as it does every file whose
+/// size no other file shares. `size` and `mtime` are the index's; if the file doesn't match them
+/// any more, this fails rather than give a hash for content the index never scanned.
+pub fn full_of(path: &Path, size: u64, mtime: i64) -> Result<Vec<u8>, String> {
+    let m = std::fs::metadata(path).map_err(|e| e.to_string())?;
+    if m.len() != size || crate::index::mtime_of(&m) != mtime {
+        return Err(changed());
+    }
+    let mut buf = vec![0u8; READ_BUF];
+    full(path, size, &mut buf)
+}
+
 fn sample(path: &Path, size: u64, buf: &mut [u8]) -> Outcome {
     if size <= SMALL {
         let h = full(path, size, buf)?;
@@ -356,4 +369,26 @@ fn full(path: &Path, size: u64, buf: &mut [u8]) -> Result<Vec<u8>, String> {
 
 fn changed() -> String {
     "changed since it was indexed; run `backdown index` again".into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn full_of_hashes_one_file_and_refuses_a_changed_one() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("IMG_0001.jpg");
+        std::fs::write(&p, b"a photo nobody else has").unwrap();
+        let m = std::fs::metadata(&p).unwrap();
+        let (size, mtime) = (m.len(), crate::index::mtime_of(&m));
+
+        let h = full_of(&p, size, mtime).unwrap();
+        assert_eq!(h, Sha256::digest(b"a photo nobody else has").to_vec());
+
+        // not what the index scanned: another size, or another modification time
+        assert_eq!(full_of(&p, size + 1, mtime), Err(changed()));
+        assert_eq!(full_of(&p, size, mtime - 60), Err(changed()));
+        assert!(full_of(&tmp.path().join("gone.jpg"), size, mtime).is_err());
+    }
 }

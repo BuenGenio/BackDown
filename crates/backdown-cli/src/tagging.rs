@@ -64,7 +64,7 @@ pub enum TagCmd {
     },
     /// Read a photo or video's own metadata (EXIF / QuickTime) and attach date and location tags
     Exif {
-        /// The files to read (each must be indexed and hashed, so its content is known)
+        /// The files to read (each must be indexed; one `backdown hash` hasn't read is hashed now)
         #[arg(required = true)]
         paths: Vec<PathBuf>,
         /// Where the derived tags are recorded as coming from
@@ -184,19 +184,39 @@ fn open(db: Option<PathBuf>) -> Result<Db> {
     Db::open(&index_path(db))
 }
 
-/// The content hash (hex) of a file as the index has it, if it's there and hashed.
-fn sha256_hex_of(conn: &rusqlite::Connection, path: &Path) -> Result<Option<String>> {
+/// The content hash (hex) of an indexed file, or why there isn't one. `backdown hash` never reads a
+/// file whose size no other file shares, which is most photos, so when the index has no hash this
+/// reads the file now (it must still be as the index scanned it) and records the hash as `hash`
+/// would, so the tags have content to attach to.
+fn content_of(conn: &rusqlite::Connection, path: &Path) -> Result<Result<String, String>> {
     let canon = paths::canonical(path)
         .unwrap_or_else(|_| std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()));
     let key = paths::to_bytes(&canon);
-    let sha: Option<Option<Vec<u8>>> = conn
+    let row: Option<(i64, i64, i64, Option<Vec<u8>>)> = conn
         .query_row(
-            "SELECT sha256 FROM files WHERE path = ?1 AND current = 1",
+            "SELECT id, size, mtime, sha256 FROM files WHERE path = ?1 AND current = 1",
             rusqlite::params![key],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
         .optional()?;
-    Ok(sha.flatten().map(|b| fmt::hex(&b)))
+    let Some((id, size, mtime, sha)) = row else {
+        return Ok(Err(
+            "not in the index (run `backdown index` on its drive first)".into(),
+        ));
+    };
+    if let Some(sha) = sha {
+        return Ok(Ok(fmt::hex(&sha)));
+    }
+    match backdown_core::hash::full_of(path, size as u64, mtime) {
+        Ok(sha) => {
+            conn.execute(
+                "UPDATE files SET sha256 = ?1 WHERE id = ?2",
+                rusqlite::params![sha, id],
+            )?;
+            Ok(Ok(fmt::hex(&sha)))
+        }
+        Err(why) => Ok(Err(why)),
+    }
 }
 
 pub fn tag(db: Option<PathBuf>, action: TagCmd) -> Result<ExitCode> {
@@ -269,12 +289,9 @@ pub fn tag(db: Option<PathBuf>, action: TagCmd) -> Result<ExitCode> {
         }
         TagCmd::Exif { paths, source } => {
             for p in &paths {
-                match sha256_hex_of(&db.conn, p)? {
-                    None => eprintln!(
-                        "{}: not hashed in the index (run `backdown hash` first) — skipped",
-                        p.display()
-                    ),
-                    Some(hex) => {
+                match content_of(&db.conn, p)? {
+                    Err(why) => eprintln!("{}: {why} — skipped", p.display()),
+                    Ok(hex) => {
                         let meta = exif::read_meta(p);
                         if meta.is_empty() {
                             println!("{}: no date or location in its metadata", p.display());
