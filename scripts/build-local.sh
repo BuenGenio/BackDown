@@ -141,6 +141,8 @@ stage linux-arm64 target/aarch64-unknown-linux-musl/release/backdown
 # give zig the versioned target instead (cargo-zigbuild keeps a C compiler or linker set in the environment).
 # When linking they also leave header room for the code signature, which zig writes for arm64 only; without
 # it rcodesign can't sign the x86-64 slice ("insufficient room to write code signature load command").
+# And they give zig scripts/macos-stubs (-F), link-time stubs of the Apple frameworks the build needs, since
+# there's no macOS SDK here: CoreFoundation, for chrono's local time zone (nom-exif reads video dates with it).
 macos_min=11.0
 zigbuild=$(command -v cargo-zigbuild)
 (
@@ -149,7 +151,7 @@ zigbuild=$(command -v cargo-zigbuild)
     wrapper=$(cat <<EOF
 #!/bin/sh
 # zig cc for $arch macOS $macos_min+, written by scripts/build-local.sh
-case " \$* " in *" -c "*) ;; *) set -- -Wl,-headerpad_max_install_names "\$@" ;; esac
+case " \$* " in *" -c "*) ;; *) set -- -Wl,-headerpad_max_install_names -F$root/scripts/macos-stubs "\$@" ;; esac
 exec "$zigbuild" zig cc -- -g -fno-sanitize=all -target $arch-macos.$macos_min-none "\$@"
 EOF
 )

@@ -10,6 +10,13 @@ highlight.js 11.12.0 (BSD-3-Clause). Their license texts follow the Rust crate l
 
 SQLite (public domain) is compiled in via rusqlite's bundled build.
 
+Reference data (embedded for `backdown tag geo`)
+------------------------------------------------
+Place, country and region names and coordinates are derived from GeoNames (https://www.geonames.org/),
+licensed under Creative Commons Attribution 4.0 (https://creativecommons.org/licenses/by/4.0/), trimmed
+to the fields BackDown uses. Airport names, codes and coordinates come from OurAirports
+(https://ourairports.com/data/), public domain.
+
 Runtime libraries linked into the release builds
 ------------------------------------------------
 Linux builds are static: they include musl libc (MIT; its licence text follows the Rust crate list).
