@@ -11,6 +11,6 @@ BackDown indexes your drives, finds what's duplicated across all of them, and te
 New here? Start with [Getting started](/docs/getting-started/): install it, open it, index two drives, see what's duplicated, and ask whether a drive is safe to wipe. [Concepts](/docs/concepts/) explains the ideas the rest of the docs rely on.
 
 > [!NOTE]
-> These docs describe BackDown 1.0.0-beta.5: the desktop app, its background service and the `backdown` command, on Linux, macOS and Windows. It's a beta, so some things will change before 1.0; the [status page](/status/) has what's released and what's next.
+> These docs describe BackDown 1.0.0-beta.6: the desktop app, its background service and the `backdown` command, on Linux, macOS and Windows. It's a beta, so some things will change before 1.0; the [status page](/status/) has what's released and what's next.
 
 <!-- cards -->

@@ -27,10 +27,10 @@ backdown pool add [OPTIONS] <PATH>
 
 ### Options
 
-`--reserve <SIZE|PCT>` {preview}
+`--reserve <SIZE|PCT>`
 : Room to keep free on its drive: a size (50G) or a share (5%); 5 % of the drive, at least 20 GB, unless said.
 
-`--takes <PLACES>` {preview}
+`--takes <PLACES>`
 : The top-level places it takes, like Mail,Media (unless said, anything).
 
 ## backdown pool list {#list}
@@ -61,10 +61,10 @@ backdown pool set [OPTIONS] <FOLDER>
 
 ### Options
 
-`--reserve <SIZE|PCT>` {preview}
+`--reserve <SIZE|PCT>`
 : &nbsp;
 
-`--takes <PLACES>` {preview}
+`--takes <PLACES>`
 : The top-level places it takes (an empty value: anything).
 
 ## backdown pool remove {#remove}

@@ -30,13 +30,13 @@ backdown remote add [OPTIONS] <NAME> <URL>
 
 ### Options
 
-`--remote-db <PATH>` {preview}
+`--remote-db <PATH>`
 : Its index there, if not its default (or the one its BackDown service uses). (The global --db is this machine's index).
 
 `--backdown <PATH>`
 : Where backdown is there, if not on the PATH ssh sessions get.
 
-`--no-test` {preview}
+`--no-test`
 : Don't try to reach it now.
 
 ## backdown remote list {#list}
@@ -125,7 +125,7 @@ backdown remote settings [OPTIONS]
 `--proof-days <PROOF_DAYS>`
 : Days (1–90; 7 unless changed).
 
-`--sync-hours <SYNC_HOURS>` {preview}
+`--sync-hours <SYNC_HOURS>`
 : Hours between syncs (6 unless changed).
 
 All of them also take the [global options](/docs/cli/#global-options) `--db` and `--local`.
