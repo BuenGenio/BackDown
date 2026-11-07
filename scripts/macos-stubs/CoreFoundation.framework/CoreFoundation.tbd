@@ -1,0 +1,16 @@
+--- !tapi-tbd
+# A link-time stub of macOS's CoreFoundation, so zig can cross-link the macOS build on Linux without Apple's SDK
+# (scripts/build-local.sh passes this folder to zig with -F). The binary loads the real framework, which every
+# Mac has, from install-name; dyld only checks that its compatibility version is at least the one below.
+# List only what the build links: today iana-time-zone (via chrono, via nom-exif) reading the system time zone.
+# If a link fails with "undefined symbol: _CF…", add that symbol here.
+tbd-version:           4
+targets:               [ x86_64-macos, arm64-macos ]
+install-name:          '/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation'
+current-version:       1770.106
+compatibility-version: 150
+exports:
+  - targets:           [ x86_64-macos, arm64-macos ]
+    symbols:           [ _CFRelease, _CFStringGetBytes, _CFStringGetCStringPtr, _CFStringGetLength,
+                         _CFTimeZoneCopySystem, _CFTimeZoneGetName, _CFTimeZoneResetSystem ]
+...
