@@ -1385,7 +1385,14 @@ fn open_sqlite_ro(path: &Path) -> Result<rusqlite::Connection> {
 /// UTF-8 keep their exact bytes. A path starting `//` would read as an authority, so its second
 /// slash is encoded too.
 fn sqlite_uri(path: &Path) -> String {
+    // SQLite's URI is UTF-8. On Unix a path's raw bytes are its text, so use them (a name that
+    // isn't UTF-8 keeps its exact bytes). On Windows the OS path is UTF-16, so use its UTF-8 form:
+    // `paths::to_bytes` there is UTF-16 and would put a NUL after every character, leaving SQLite
+    // unable to open the file at all.
+    #[cfg(unix)]
     let raw = paths::to_bytes(path);
+    #[cfg(windows)]
+    let raw = path.to_string_lossy().into_owned().into_bytes();
     let mut uri = String::from("file:");
     for (i, &b) in raw.iter().enumerate() {
         let plain = b.is_ascii_alphanumeric() || b"/-._~:\\".contains(&b);
