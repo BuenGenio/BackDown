@@ -342,6 +342,9 @@ fn a_manifest_needs_a_finished_scan_of_its_drive() {
 }
 
 #[cfg(unix)]
+// a file whose name isn't valid UTF-8 can only exist on a file system that allows it (Linux);
+// APFS rejects the name outright
+#[cfg(target_os = "linux")]
 #[test]
 fn names_that_arent_utf8_still_verify() {
     use std::ffi::OsStr;
