@@ -31,7 +31,7 @@ jobs:
           key: ${{ matrix.name }}
       - name: Test (native)
         if: matrix.name != 'linux-arm64'
-        run: cargo test --locked --release
+        run: cargo test --locked --release --no-fail-fast
 
       - uses: taiki-e/install-action@v2
         if: runner.os == 'Linux'
