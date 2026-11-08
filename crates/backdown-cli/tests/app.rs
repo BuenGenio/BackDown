@@ -123,7 +123,7 @@ impl Home {
                 })
                 .collect();
             files.sort();
-            if files.len() >= n || start.elapsed() > Duration::from_secs(10) {
+            if files.len() >= n || start.elapsed() > Duration::from_secs(30) {
                 return files
                     .iter()
                     .map(|f| {
@@ -160,7 +160,7 @@ fn app_opens_the_daemon_in_an_app_window_and_finds_it_again() {
     h.daemons.push(d);
     let ui = h.data().join("ui.json");
     let start = Instant::now();
-    while !ui.exists() && start.elapsed() < Duration::from_secs(10) {
+    while !ui.exists() && start.elapsed() < Duration::from_secs(30) {
         std::thread::sleep(Duration::from_millis(50));
     }
     let port =

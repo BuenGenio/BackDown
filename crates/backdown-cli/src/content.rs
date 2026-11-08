@@ -1385,18 +1385,27 @@ fn open_sqlite_ro(path: &Path) -> Result<rusqlite::Connection> {
 /// UTF-8 keep their exact bytes. A path starting `//` would read as an authority, so its second
 /// slash is encoded too.
 fn sqlite_uri(path: &Path) -> String {
-    // SQLite's URI is UTF-8. On Unix a path's raw bytes are its text, so use them (a name that
-    // isn't UTF-8 keeps its exact bytes). On Windows the OS path is UTF-16, so use its UTF-8 form:
-    // `paths::to_bytes` there is UTF-16 and would put a NUL after every character, leaving SQLite
-    // unable to open the file at all.
+    // SQLite's URI filename is UTF-8. On Unix a path's raw bytes are its text (a name that isn't
+    // UTF-8 keeps its exact bytes), and the form is `file:` + path. On Windows the OS path is
+    // UTF-16, so use its UTF-8 text with forward slashes and the `file:///C:/…` form SQLite's VFS
+    // opens: `paths::to_bytes` there is UTF-16 and would put a NUL after every character, and
+    // `file:C:\…` (backslashes, no leading slash) opens nothing.
     #[cfg(unix)]
-    let raw = paths::to_bytes(path);
+    let (prefix, raw, guard_authority) = ("file:", paths::to_bytes(path), true);
     #[cfg(windows)]
-    let raw = path.to_string_lossy().into_owned().into_bytes();
-    let mut uri = String::from("file:");
+    let (prefix, raw, guard_authority): (&str, Vec<u8>, bool) = {
+        let s = path.to_string_lossy().replace('\\', "/");
+        let s = if s.starts_with('/') {
+            s
+        } else {
+            format!("/{s}")
+        };
+        ("file://", s.into_bytes(), false)
+    };
+    let mut uri = String::from(prefix);
     for (i, &b) in raw.iter().enumerate() {
         let plain = b.is_ascii_alphanumeric() || b"/-._~:\\".contains(&b);
-        if plain && !(i == 1 && b == b'/' && raw[0] == b'/') {
+        if plain && !(guard_authority && i == 1 && b == b'/' && raw[0] == b'/') {
             uri.push(b as char);
         } else {
             uri.push_str(&format!("%{b:02X}"));
@@ -1799,17 +1808,27 @@ mod tests {
 
     #[test]
     fn a_sqlite_file_opens_by_its_exact_name() {
+        #[cfg(unix)]
+        {
+            assert_eq!(
+                sqlite_uri(Path::new("/d/a%2F..%2Fb.db")),
+                "file:/d/a%252F..%252Fb.db?immutable=1"
+            );
+            assert_eq!(
+                sqlite_uri(Path::new("/d/x?y#z.sqlite")),
+                "file:/d/x%3Fy%23z.sqlite?immutable=1"
+            );
+            // a path starting // would read as an authority, so its second slash is encoded
+            assert_eq!(
+                sqlite_uri(Path::new("//srv/d.db")),
+                "file:/%2Fsrv/d.db?immutable=1"
+            );
+        }
+        // Windows: UTF-8, forward slashes, the file:///C:/… form SQLite opens
+        #[cfg(windows)]
         assert_eq!(
-            sqlite_uri(Path::new("/d/a%2F..%2Fb.db")),
-            "file:/d/a%252F..%252Fb.db?immutable=1"
-        );
-        assert_eq!(
-            sqlite_uri(Path::new("/d/x?y#z.sqlite")),
-            "file:/d/x%3Fy%23z.sqlite?immutable=1"
-        );
-        assert_eq!(
-            sqlite_uri(Path::new("//srv/d.db")),
-            "file:/%2Fsrv/d.db?immutable=1"
+            sqlite_uri(Path::new(r"C:\d\a%2F..%2Fb.db")),
+            "file:///C:/d/a%252F..%252Fb.db?immutable=1"
         );
         // and it opens: a database named with %, ?, # and a space, beside a decoy it must not open
         let t = tempfile::tempdir().unwrap();

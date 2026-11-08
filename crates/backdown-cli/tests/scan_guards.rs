@@ -2,7 +2,7 @@
 //! why and what to do, whether it works on the index itself or through the daemon; the daemon
 //! shows the reason in its job and leaves the drive alone after it; and an explicit
 //! `--allow-empty` still records a drive that really was emptied.
-#![cfg(unix)]
+#![cfg(target_os = "linux")] // Linux daemon + Unix-socket integration: the socket lives under $XDG_RUNTIME_DIR, which only Linux honors
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
