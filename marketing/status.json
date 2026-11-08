@@ -1,6 +1,6 @@
 {
   "_comment": "The /status/ page's roadmap and changelog. Text fields are {lang: text}; a missing language falls back to English (marked lang=en), so English can be updated first. Keep it public-safe: no real paths, hosts or drive names.",
-  "updated": "2026-11-07",
+  "updated": "2026-11-08",
   "now": [
     {
       "state": "done",
@@ -423,6 +423,13 @@
     }
   ],
   "shipped": [
+    {
+      "date": "2026-11-08",
+      "version": "v1.0.0-beta.8",
+      "text": {
+        "en": "The date and place tags from beta.6 come to the app: a <strong>Places</strong> view with an offline map of where your photos were taken (no tiles, nothing fetched), search by place, tag counts to narrow by, and tagging in bulk. <code>backdown tag find</code> finds them from the command line — within a distance of an airport, a town or a position, filtered by tags and a date range. <code>tag exif</code> now reads whole folders and names the country, city and airport in the same pass (<code>--geo</code>). And beta.7's seconds-fast search by name across every machine: a name is found in a fraction of a second however big the index, and <strong>Everywhere</strong> covers your other machines too."
+      }
+    },
     {
       "date": "2026-11-07",
       "version": "v1.0.0-beta.6",
