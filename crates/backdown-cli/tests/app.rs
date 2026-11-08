@@ -89,10 +89,9 @@ impl Home {
             .env("BACKDOWN_NO_UPDATE_CHECK", "1")
             .env("BACKDOWN_PORT", "0")
             .env("FAKE_LOG", self.root.join("browser"));
-        if !cfg!(target_os = "linux") {
-            // elsewhere browsers are found in /Applications or Program Files, not on PATH
-            c.env("BACKDOWN_BROWSER", self.root.join("bin/google-chrome"));
-        }
+        // pin the browser to our fake one on every platform, so a real Chrome a CI runner has
+        // installed (found via the standard locations, not just PATH) can't stand in for it
+        c.env("BACKDOWN_BROWSER", self.root.join("bin/google-chrome"));
         c
     }
 

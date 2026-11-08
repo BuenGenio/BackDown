@@ -359,7 +359,13 @@ impl Place {
     }
 
     fn data(&self) -> PathBuf {
-        self.root.join("home/.local/share/backdown")
+        // where the daemon/CLI keep state, mirroring locations::state_dir()
+        let home = self.root.join("home");
+        if cfg!(target_os = "macos") {
+            home.join("Library/Application Support/BackDown")
+        } else {
+            home.join(".local/share/backdown")
+        }
     }
 
     fn installed(&self) -> Vec<u8> {

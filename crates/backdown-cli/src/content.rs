@@ -1830,15 +1830,13 @@ mod tests {
             sqlite_uri(Path::new(r"C:\d\a%2F..%2Fb.db")),
             "file:///C:/d/a%252F..%252Fb.db?immutable=1"
         );
-        // and it opens: a database named with %, ?, # and a space, beside a decoy it must not open
+        // it opens a plainly-named file on any platform: the URI round-trips through SQLite
         let t = tempfile::tempdir().unwrap();
-        let name = t.path().join("we%2Fird ?#.db");
-        let decoy = t.path().join("we/ird ?#.db");
-        let made = rusqlite::Connection::open(&name).unwrap();
-        made.execute_batch("CREATE TABLE real_one(x)").unwrap();
-        drop(made);
-        assert!(!decoy.exists());
-        let c = open_sqlite_ro(&name).unwrap();
+        {
+            let made = rusqlite::Connection::open(t.path().join("plain.db")).unwrap();
+            made.execute_batch("CREATE TABLE real_one(x)").unwrap();
+        }
+        let c = open_sqlite_ro(&t.path().join("plain.db")).unwrap();
         let n: i64 = c
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_master WHERE name = 'real_one'",
@@ -1847,6 +1845,26 @@ mod tests {
             )
             .unwrap();
         assert_eq!(n, 1);
+        // and on Unix, a database named with %, ?, # and a space (all illegal in a Windows file
+        // name), beside a decoy one folder up that the exact-name URI must not open
+        #[cfg(unix)]
+        {
+            let name = t.path().join("we%2Fird ?#.db");
+            let decoy = t.path().join("we/ird ?#.db");
+            let made = rusqlite::Connection::open(&name).unwrap();
+            made.execute_batch("CREATE TABLE real_one(x)").unwrap();
+            drop(made);
+            assert!(!decoy.exists());
+            let c = open_sqlite_ro(&name).unwrap();
+            let n: i64 = c
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE name = 'real_one'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(n, 1);
+        }
     }
 
     #[test]
@@ -2082,6 +2100,9 @@ mod build_tests {
 
     /// A drive with a Maildir, a dump and a SQLite file with a full-text table; indexed and
     /// recognised, then its contents indexed and searched.
+    // maildir names the message files with a `:info` suffix, which a Windows file system forbids,
+    // so the fixture can only be built on Unix.
+    #[cfg(unix)]
     #[test]
     fn indexes_mail_dumps_and_sqlite_then_finds() {
         let tmp = tempfile::tempdir().unwrap();
