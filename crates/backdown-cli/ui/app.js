@@ -3,7 +3,7 @@ import { fileIcon, folderIcon, driveIcon, kindOf } from './icons.js';
 import { mountDupes, showDupes, renderDupes, dupesSortItems } from './dupes.js';
 import { openViewer, openDiff, openGit, openMaildir, previewInto } from './viewers.js';
 import { squarify, compareListings, menu, closeMenu, menuOpen, toast } from './extras.js';
-import { mountFind, find, foundHtml, setScope, setEarlier, more as findMore } from './search.js';
+import { mountFind, find, foundHtml, setScope, setEarlier, more as findMore, findOnMachines, machinesHtml } from './search.js';
 import { showSettings, proGate, loadFeatures, checkUpdates } from './settings.js';
 import { tidyCard, wireTidy, mergeButton, mergeSources } from './tidy.js';
 import { mountHealth, daemonChanged, healthOfDisk, healthOfPath, pill, dot, mirrorNote, healthHead, notesSection, machinesSection } from './health.js';
@@ -967,6 +967,11 @@ async function runSearch(q) {
   renderPath(); $('#banner').hidden = true;
   $('#view').innerHTML = foundHtml(res, q);
   $('#view').scrollTop = keep;
+  // the other machines' answers, each as it comes (search.js)
+  findOnMachines(q, () => {
+    const el = $('#find-machines');
+    if (el && S.mode === 'search' && $('#q').value === q) el.innerHTML = machinesHtml(q);
+  });
 }
 const rerunSearch = () => { if (!$('#searchbox').hidden && $('#q').value.trim()) runSearch($('#q').value); };
 
@@ -2297,6 +2302,8 @@ document.addEventListener('click', e => {
         .then(async r => { if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText); toast('Indexing contents: it shows in Activity; search again when it’s done'); if (!polling) pollDaemon(true); })
         .catch(toastError);
     }
+  const mhit = t.closest('[data-hit-machine]');
+  if (mhit) return showMachine(+mhit.dataset.hitMachine, mhit.dataset.hitMdir, mhit.dataset.hitMsel || null);
   const hit = t.closest('[data-hit-dir]');
   if (hit) return go(hit.dataset.hitDir, { select: hit.dataset.hitSel || null, scan: hit.dataset.hitScan ? +hit.dataset.hitScan : null });
   const item = t.closest('#view [data-key]');

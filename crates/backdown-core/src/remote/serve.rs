@@ -206,6 +206,8 @@ impl Request {
             Request::Hash { budget, .. } => budget.unwrap_or(60).clamp(1, MAX_BUDGET) + 5,
             // the answer line is quick; the bytes after it take as long as the link allows
             Request::Get { .. } => 30,
+            // a search of a big index without its names index yet reads every name (name_index.rs)
+            Request::Find { .. } => 115,
             _ => 30,
         }
     }

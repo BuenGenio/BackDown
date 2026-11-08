@@ -408,15 +408,28 @@ impl SshPeer {
     }
 }
 
+/// The other machine answered, with an error: the conversation itself is fine (it can be kept,
+/// and asking again afresh wouldn't change the answer).
+#[derive(Debug)]
+pub struct Answered(pub String);
+
+impl std::fmt::Display for Answered {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for Answered {}
+
 impl Peer for SshPeer {
     fn call(&mut self, op: &str, args: Value, timeout: Duration) -> Result<Value> {
         let v = self.exchange(op, args, None, timeout)?;
         if v["ok"] != true {
-            bail!(
+            return Err(anyhow::Error::new(Answered(format!(
                 "{}: {}",
                 self.name,
                 v["error"].as_str().unwrap_or("it refused the request")
-            );
+            ))));
         }
         Ok(v["data"].clone())
     }

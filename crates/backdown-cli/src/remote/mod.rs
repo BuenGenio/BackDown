@@ -600,23 +600,38 @@ pub(crate) fn live(db_path: &Path, m: &Machine, op: &str, args: Value) -> Result
             }
         }
     };
-    match peer.call(op, args.clone(), Duration::from_secs(30)) {
-        Ok(v) => {
-            POOL.lock().unwrap().insert(
-                m.id,
-                Pooled {
-                    peer,
-                    used: Instant::now(),
-                },
-            );
-            Ok(v)
-        }
-        // a conversation left open may have died meanwhile: once more, afresh
-        Err(_) if !fresh => {
-            drop(peer);
-            live(db_path, m, op, args)
-        }
-        Err(e) => Err(e),
+    let asked = Instant::now();
+    let r = peer.call(op, args.clone(), wait_for(op));
+    let answered = r
+        .as_ref()
+        .err()
+        .is_none_or(|e| e.downcast_ref::<ssh::Answered>().is_some());
+    if answered {
+        // an answer, even a refusal: the conversation is fine, keep it
+        POOL.lock().unwrap().insert(
+            m.id,
+            Pooled {
+                peer,
+                used: Instant::now(),
+            },
+        );
+        return r;
+    }
+    drop(peer);
+    match r {
+        // a conversation left open may have died meanwhile, which shows at once: again, afresh.
+        // One that was waited on (it didn't answer in time) isn't asked twice
+        Err(_) if !fresh && asked.elapsed() < Duration::from_secs(2) => live(db_path, m, op, args),
+        r => r,
+    }
+}
+
+/// How long to wait for another machine's answer: a search of a big index that hasn't got its
+/// names index yet can take a minute (as long as the phone app waits); anything else is quick.
+fn wait_for(op: &str) -> Duration {
+    match op {
+        "find" => Duration::from_secs(120),
+        _ => Duration::from_secs(30),
     }
 }
 

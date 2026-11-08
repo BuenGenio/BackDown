@@ -31,7 +31,7 @@ A drive is known by its physical identity (model, serial, the volume's UUID), no
 backdown swarm where tax return 2019
 ```
 
-Every machine's name index is asked at once, live where it can be reached and from what was synced where it can't. Each hit says the machine, the drive (label, model, serial), the path, and how fresh that answer is. The Swarm view's search box does the same.
+Every machine's name index is asked at once, live where it can be reached and from what was synced where it can't. Each hit says the machine, the drive (label, model, serial), the path, and how fresh that answer is. The Swarm view's search box does the same, and so does the main search box's **Everywhere**. What was synced of another machine includes its folders too, worked out from its files' paths. {preview}
 
 ## Declare pool folders
 

@@ -35,6 +35,7 @@ pub mod mailstores;
 pub mod manifest;
 pub mod mbox;
 pub mod mirror;
+pub mod name_index;
 pub mod names;
 pub mod overlap;
 pub mod paths;

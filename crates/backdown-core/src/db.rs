@@ -390,6 +390,9 @@ impl Db {
                 v.push(*name);
             }
         }
+        if crate::name_index::unfilled(&self.conn)? {
+            v.push("names");
+        }
         Ok(v)
     }
 
@@ -404,6 +407,8 @@ impl Db {
                 built.push(*what);
             }
         }
+        // the names index: filled in batches that survive an interruption (name_index.rs)
+        built.extend(crate::name_index::fill(&self.conn, doing)?);
         Ok(built)
     }
 
@@ -471,6 +476,12 @@ impl Db {
         // leave them empty on rows they write (and the next open here fills those in)
         crate::find::add_names(&conn)?;
         crate::index::add_columns(&conn)?;
+        // the names index (name_index.rs): cached files get a name like this machine's have, then
+        // the table of every name, its trigram index and the triggers that keep it current. Its
+        // filling on an index made before it is a job (`build_later_indexes`)
+        add_column(&conn, "remote_files", "lname", "TEXT")?;
+        conn.execute_batch(crate::name_index::SCHEMA)?;
+        crate::name_index::open(&conn)?;
         conn.execute_batch(&format!("PRAGMA user_version = {VERSION}"))?;
         Ok(Db { conn })
     }
