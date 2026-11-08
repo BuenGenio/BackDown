@@ -134,8 +134,10 @@ fn accents_match_whichever_way_they_were_written() {
 #[test]
 fn this_folder_only() {
     let (tmp, db) = drives();
-    let docs = tmp.path().join("Laptop/docs");
-    let f = search(&db, "report", Some(&docs), false, 50);
+    // the index resolves the scanned root's symlinks (on macOS /var → /private/var), so a scope
+    // built from the raw tempdir path would match nothing — canonicalise it the same way
+    let root = tmp.path().canonicalize().unwrap();
+    let f = search(&db, "report", Some(&root.join("Laptop/docs")), false, 50);
     assert_eq!(
         names(&f),
         [
@@ -144,8 +146,10 @@ fn this_folder_only() {
             "Laptop/unreported.txt"
         ]
     );
-    let laptop = tmp.path().join("Laptop");
-    assert_eq!(search(&db, "report", Some(&laptop), false, 50).total, 4);
+    assert_eq!(
+        search(&db, "report", Some(&root.join("Laptop")), false, 50).total,
+        4
+    );
 }
 
 #[test]
