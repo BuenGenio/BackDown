@@ -1,7 +1,7 @@
 //! The daemon reading drive health from a sequence of (fake) readings: it keeps them, notices the
 //! drive getting worse, records a notification, shows it on the "desktop" (a fake notify-send
 //! that writes down what it was asked to show), and serves it all to the browser.
-#![cfg(unix)]
+#![cfg(target_os = "linux")] // Linux daemon + Unix-socket integration: the socket lives under $XDG_RUNTIME_DIR, which only Linux honors
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;

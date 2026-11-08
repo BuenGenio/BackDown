@@ -244,7 +244,9 @@ pub fn status(system: bool) -> Result<ExitCode> {
     })
 }
 
-#[cfg(test)]
+// launchd is macOS-only (the code compiles everywhere via cfg!, but only runs on macOS); the test
+// builds paths with Path::join, which uses backslashes on Windows, so it runs off Windows.
+#[cfg(all(test, not(windows)))]
 mod tests {
     use super::*;
 

@@ -1,7 +1,7 @@
 //! Scheduled attestations: with `attest` set to after-scan, the daemon signs a manifest of a drive
 //! once its scan and hashing finish, chains the next one to it, names the job in Activity, and
 //! offers both in the browser to download.
-#![cfg(unix)]
+#![cfg(target_os = "linux")] // Linux daemon + Unix-socket integration: the socket lives under $XDG_RUNTIME_DIR, which only Linux honors
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
