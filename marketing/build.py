@@ -165,7 +165,11 @@ def downloads(t, platforms):
     out = []
     for p in platforms:
         if p['status'] == 'available' and p['files']:
-            badge = f'<span class="tag live">{esc(p["version"])}</span>'
+            when = ''
+            if p.get('date'):
+                d = datetime.date.fromisoformat(p['date'])
+                when = f'<time class="dl-date" datetime="{esc(p["date"])}">{d.strftime("%-d %b %Y")}</time>'
+            badge = f'<span class="dl-ver"><span class="tag live">{esc(p["version"])}</span>{when}</span>'
             act = ''.join(f'<a class="btn {"btn-ghost btn-cli" if f.get("kind") == "cli" else "btn-primary"}" href="{esc(f["url"])}" download>{t["download.cta_download"]} {esc(f["label"])}</a>'
                           f'<details class="sum"><summary>{t["download.checksum"]}</summary><code>{esc(f["sha256"])}</code></details>'
                           for f in p['files'])

@@ -221,6 +221,7 @@ section{padding-block:clamp(40px,6vw,72px)}
 .dls{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
 .dl{padding:24px;display:flex;flex-direction:column;gap:6px}
 .dl-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.dl-ver{display:flex;align-items:baseline;gap:8px}.dl-date{font-size:.8rem;opacity:.65;white-space:nowrap}
 .dl .tag{align-self:center}
 .os-ic{width:46px;height:46px;border-radius:12px;display:grid;place-items:center;background:var(--bg-sunk);color:var(--ink)}
 .os-ic svg{width:24px;height:24px}

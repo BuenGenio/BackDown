@@ -94,7 +94,7 @@ pre=(); [[ $tag == *-* ]] && pre=(--prerelease)
 gh release create "$tag" "$upload"/* --repo "$dst" --title "BackDown $tag" "${pre[@]}" --notes-file "$notes"
 
 python3 - "$tag" "$upload" "$root/marketing/downloads.json" <<'PY'
-import fnmatch, json, sys
+import datetime, fnmatch, json, sys
 from pathlib import Path
 tag, dist, path = sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3])
 sums = {name: digest for digest, name in (l.split() for l in (dist / 'SHA256SUMS.txt').read_text().splitlines())}
@@ -119,9 +119,11 @@ for p in data['platforms']:
         if kind:
             f['kind'] = kind
         out.append(f)
+    if not out:
+        continue  # nothing built for this platform this release — leave its card as it was
     if any('kind' not in f for f in out):
         p['formats'] = formats[p['id']]
-    p.update(status='available', version=tag, files=out)
+    p.update(status='available', version=tag, date=datetime.date.today().isoformat(), files=out)
 path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + '\n')
 print(f'{path}: {sum(len(p["files"]) for p in data["platforms"])} downloads for {tag}')
 PY

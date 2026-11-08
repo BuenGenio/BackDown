@@ -117,7 +117,10 @@ step "unpacking $dist"
 for p in linux-x86_64 linux-arm64 macos-universal; do
   mkdir -p "$work/$p" && tar -xzf "$dist/backdown-$tag-$p.tar.gz" -C "$work/$p"
 done
-mkdir -p "$work/windows-x86_64" && (cd "$work/windows-x86_64" && python3 -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(".")' "$dist/backdown-$tag-windows-x86_64.zip")
+# Windows may be absent (dropped from the release matrix while its port is finished, #94)
+if [ -f "$dist/backdown-$tag-windows-x86_64.zip" ]; then
+  mkdir -p "$work/windows-x86_64" && (cd "$work/windows-x86_64" && python3 -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(".")' "$dist/backdown-$tag-windows-x86_64.zip")
+fi
 case $host_arch in
   aarch64|arm64) host=$work/linux-arm64/backdown; other_qemu=qemu-x86_64 ;;
   x86_64) host=$work/linux-x86_64/backdown; other_qemu=qemu-aarch64 ;;
@@ -314,7 +317,8 @@ else
   skipped+=(".dmg: needs mkfs.hfsplus and libdmg-hfsplus's dmg and hfsplus (scripts/package-local.sh --fetch-tools); the .zip has the same app")
 fi
 
-# ---- Windows: the setup zip, and the .msi
+# ---- Windows: the setup zip, and the .msi (skipped entirely when Windows isn't in this build, #94)
+if [ -d "$work/windows-x86_64" ]; then
 step "Windows setup zip"
 w=$work/win
 mkdir -p "$w"
@@ -359,6 +363,9 @@ if [ -x "$wixl" ]; then
   built+=("$(basename "$msi")")
 else
   skipped+=(".msi: no wixl in $tools (scripts/package-local.sh --fetch-tools); the setup zip does the same install")
+fi
+else
+  skipped+=("Windows installers: Windows isn't in this build (dropped from the matrix, #94)")
 fi
 
 (cd "$out" && sha256sum -- * > SHA256SUMS.txt)
