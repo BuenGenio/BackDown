@@ -61,7 +61,10 @@ fn row(db: &Db, path: &Path) -> (i64, i64, Option<Vec<u8>>) {
 #[test]
 fn a_new_file_never_inherits_a_dead_files_hash_through_a_reused_inode() {
     let tmp = tempfile::tempdir().unwrap();
-    let (old, new) = (tmp.path().join("old"), tmp.path().join("new"));
+    // the index canonicalises the scanned root (on macOS /var → /private/var), so build and look up
+    // paths from the canonical base, or the rows won't be found
+    let base = tmp.path().canonicalize().unwrap();
+    let (old, new) = (base.join("old"), base.join("new"));
     // the old drive: two copies of X, hashed
     let x = blob(1, 40_000);
     write(&old.join("x.bin"), &x);
@@ -106,7 +109,8 @@ fn a_new_file_never_inherits_a_dead_files_hash_through_a_reused_inode() {
 #[test]
 fn hardlinks_still_share_one_hash() {
     let tmp = tempfile::tempdir().unwrap();
-    let d = tmp.path().join("drive");
+    let base = tmp.path().canonicalize().unwrap(); // see above: canonicalise for the row lookups
+    let d = base.join("drive");
     let a = blob(3, 60_000);
     write(&d.join("a.bin"), &a);
     write(&d.join("copy.bin"), &a);
