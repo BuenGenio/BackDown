@@ -1,6 +1,6 @@
 ---
-title: Tag photos by date and place
-description: Read the date and position a photo or video recorded, turn the position into country, region, city and nearest airport without going online, and add tags, flags and links of your own. Tags follow a file's content to every copy of it.
+title: Tag and find photos by date and place
+description: Read the date and position a photo or video recorded, turn the position into country, region, city and nearest airport without going online, find everything taken within a distance of a place, and add tags, flags and links of your own. Tags follow a file's content to every copy of it.
 order: 9.8
 nav: Tags and places
 ---
@@ -9,11 +9,30 @@ Most photos and videos record when and where they were taken. BackDown reads tha
 
 A tag goes on a file's **content**, its SHA-256, not on a path. Every copy of the photo, on any drive, carries the same tags, and moving, renaming or deduplicating copies doesn't lose them.
 
-Tags, flags and links are in the `backdown` command for now; the app doesn't show them yet.
+Then find them again: everything within 120 km of HKG, in Paris in 2019, from an event you named. In the app that's the **Places** view; in a terminal, `backdown tag find`. Links are in the `backdown` command only.
+
+## Read a drive's photos
+
+Index the drive first ([Getting started](/docs/getting-started/)). In the app, open **Places** and choose **Read dates and places…**: every drive, or one. It runs in the background service, shows how far it is in Places and in Activity, and can be stopped; the photos show up as it goes. Each photo is read once: reading a drive again only reads what's new, and nothing on the drive is touched.
+
+In a terminal, give `tag exif` a folder, and `--geo` to name the places too:
+
+```sh
+backdown tag exif /media/photos --geo
+```
+
+```text
+/media/photos/2019/IMG_2041.jpg: year=2019, date=2019-11-02, location=22.289000,113.941000, country=Hong Kong, region=Islands, city=Tung Chung, airport=HKG
+/media/photos/misc/plain.jpg: no date or location in its metadata
+…
+12 photos and videos: 11 with a date or position (10 with a position), 1 with neither
+```
+
+It goes through every indexed photo and video under the folder that wasn't read before (`--again` reads those too). The sections below are the two steps it takes, which can also be run on their own.
 
 ## Date and position from the photo
 
-Index the drive first ([Getting started](/docs/getting-started/)), then:
+`tag exif` also takes single files:
 
 ```sh
 backdown tag exif ~/Pictures/2019/*.jpg
@@ -24,7 +43,7 @@ Photos/IMG_0388.jpg: year=2023, date=2023-04-18, location=22.281000,114.158900
 Photos/IMG_2041.jpg: year=2019, date=2019-11-02, location=26.100300,-80.128100
 ```
 
-It reads JPEG, HEIC and TIFF photos and MOV and MP4 videos: the date and time the picture was taken (EXIF `DateTimeOriginal`, or the video's creation date) and the GPS position, if the camera recorded one. Each becomes a tag: the **year**, the **date** under it, and the **location**.
+It reads JPEG, HEIC, AVIF, PNG, WebP and TIFF photos, the raw formats built on TIFF, CR3, RAF and IIQ, and MP4, MOV, 3GP, MKV and WebM videos: the date and time the picture was taken (EXIF `DateTimeOriginal`, or the video's creation date) and the GPS position, if the camera recorded one. Each becomes a tag: the **year**, the **date** under it, and the **location**.
 
 `backdown hash` only reads files that could be duplicates, so most photos have no hash yet. `tag exif` hashes each one it needs, if the file is still exactly as BackDown indexed it; a file that has changed since is skipped with "changed since it was indexed; run `backdown index` again".
 
@@ -53,6 +72,51 @@ The place data is built into BackDown: about 170,000 places and 9,000 airports. 
 171806 places, 9053 airports embedded
 Place, country and region data © GeoNames (geonames.org), CC BY 4.0 <https://creativecommons.org/licenses/by/4.0/>. Airport data from OurAirports (ourairports.com), public domain.
 ```
+
+## Find photos by place
+
+```sh
+backdown tag find --near HKG
+```
+
+```text
+Within 120 km of HKG (Hong Kong International Airport, Hong Kong): 7 found
+   0.53 km  2019-11-02  Lau Fau Shan, Hong Kong · HKG     /media/photos/2019/IMG_2042.jpg
+   3.69 km  2019-11-02  Tung Chung, Hong Kong · HKG       /media/photos/2019/IMG_2041.jpg
+   25.3 km  2023-04-18  Central, Hong Kong · HHP          /media/photos/2023/IMG_0388.jpg
+   26.5 km  2023-04-19  Tsim Sha Tsui, Hong Kong · HHP    /media/photos/2023/IMG_0390.jpg
+   29.6 km  2023-04-21  Gangxia, China · SZX              /media/photos/2023/IMG_0401.jpg
+   40.2 km  2023-04-23  Macau, Macao · XZM                /media/photos/2023/IMG_0420.jpg
+    113 km  2023-04-25  Guangzhou, China · FUO            /media/photos/2023/IMG_0455.jpg
+```
+
+`--near` takes an airport's three-letter code, a town or city (the most populous of that name; `"Paris, Texas"` or `"Paris, France"` says which), or a position (`22.3089,113.9146`). `--km` is how far from it, 120 unless you say. The nearest come first; `--sort newest` or `oldest` orders by date instead. A photo with copies on several drives is one line, with how many more copies there are.
+
+Searching around HKG isn't the same as looking for the `airport=HKG` tag. A photo's airport tag is the single nearest airport code, and in the middle of Hong Kong that's a heliport (HHP), so the tag finds only photos from Lantau and around the airport; the circle finds all of them.
+
+Tags narrow it down, and dates:
+
+```sh
+backdown tag find --tag country="Hong Kong" --from 2023
+backdown tag find --near "Paris, France" --km 20 --tag event="Boat show 2019"
+```
+
+`--tag` takes `KIND=VALUE` in any case, or a tag's number from `tag list`, and can be given more than once: every one has to be there. A tag stands for the tags under it too, so `--tag year=2019` finds every date in 2019. `--from` and `--to` take a year, a month or a day.
+
+`--paths` prints only the path of every copy, one a line, for other tools; `--json` prints everything, positions and distances included.
+
+## In the app: Places
+
+**Places** in the sidebar is the same search, with a map:
+
+- **The search box** suggests as you type: an airport or town to search around, tags that carry those words, or a year. What you've chosen shows as chips in the box; **within … km** sets the circle, and **from** and **to** the dates.
+- **The map** is drawn from the place data built into BackDown, without going online: every town of 1,000 people or more is a dot, and the names of the biggest show as you zoom. The photos found are numbered clusters; click one to zoom in, and once it's one spot, to search around it. Shift+click searches around any point, and **Search this area** searches what's in view.
+- **Refine** lists what everything found is tagged with (countries, regions, towns, airports, years, your events), with how many of each; click to narrow, click again to undo.
+- **The photos**, nearest or newest first, grouped by distance or by month. Click to choose (Ctrl or Shift for more), double-click to open, and **Copy paths** copies every copy's path.
+- **Choosing photos** shows their tags, where each came from, their copies (**Show in folder** opens the folder in the browser) and **Keep**, **Drop** and **Reviewed**. Add a tag of your own (an event, trip, album, place, memory, or whose they are) to all of them at once, or take one off: the airport a photo got wrong, say.
+- **All tags** lists every tag with how many photos carry it. Your own can be renamed (to a name another tag has, and the two become one) or deleted.
+
+Over the network (`backdown serve --host`), Places shows and searches but doesn't change tags.
 
 ## What a photo carries
 
@@ -114,8 +178,10 @@ backdown edge to path:/photos/2019
 
 ## What it doesn't do yet
 
-- Tags, flags and links don't show in the app or the browser yet.
-- `tag exif` and `tag geo` run when you ask, not after every scan.
+- Links don't show in the app yet, and the browser's folders don't show tags.
+- Reading dates and places runs when you ask, not after every scan.
 - Flags record decisions; nothing acts on them yet. Freeing up a drive still only deletes what has a verified copy elsewhere ([Free up a drive](/docs/guides/free-up-a-drive/)).
 - Places are towns of 1,000 people or more, so a photo from somewhere remote gets the nearest such town. The nearest "airport" can be a heliport that has an airport code.
+- The map has no coastlines or roads: only the towns, which is what's built in.
+- Pictures show for photos the browser can display (JPEG, PNG, WebP, …); a HEIC or raw photo shows its icon, but opens in the viewer where the browser can.
 - Trips and events aren't found for you; name them with `tag add`.

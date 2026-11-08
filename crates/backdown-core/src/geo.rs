@@ -12,7 +12,9 @@ use std::sync::OnceLock;
 
 use anyhow::{Context, Result};
 use rusqlite::Connection;
+use serde::Serialize;
 
+use crate::find::fold;
 use crate::tags::{self, TARGET_CONTENT};
 
 const PLACES_ZST: &[u8] = include_bytes!("../data/geo/places.tsv.zst");
@@ -67,6 +69,43 @@ pub struct GeoRef {
     airports: Vec<Airport>,
     countries: HashMap<String, String>, // "US" -> "United States"
     admin1: HashMap<String, String>,    // "US.FL" -> "Florida"
+    /// place and airport names as search compares them (`find::fold`), worked out on first use
+    folded: OnceLock<(Vec<String>, Vec<String>)>,
+}
+
+/// Where a search is centred: an airport, a populated place, or a coordinate typed as it is.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Centre {
+    /// "airport" | "place" | "point"
+    pub kind: &'static str,
+    /// how it's shown: "HKG", "Paris", "22.308900, 113.914600"
+    pub label: String,
+    /// what it is: "Hong Kong International Airport", "Île-de-France, France"
+    pub detail: String,
+    pub lat: f64,
+    pub lon: f64,
+}
+
+/// A name to draw on a map.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Label {
+    /// "place" | "airport"
+    pub kind: &'static str,
+    pub name: String,
+    pub lat: f64,
+    pub lon: f64,
+    pub population: u64,
+}
+
+/// A coordinate typed as `lat,lon` (or `lat lon`), in range.
+pub fn parse_point(s: &str) -> Option<(f64, f64)> {
+    let s = s.trim();
+    let (a, b) = s
+        .split_once(',')
+        .or_else(|| s.split_once(char::is_whitespace))?;
+    let lat: f64 = a.trim().parse().ok()?;
+    let lon: f64 = b.trim().parse().ok()?;
+    ((-90.0..=90.0).contains(&lat) && (-180.0..=180.0).contains(&lon)).then_some((lat, lon))
 }
 
 /// Great-circle distance in kilometres (Haversine, mean Earth radius).
@@ -183,6 +222,7 @@ impl GeoRef {
             airports: parse_airports(&unzstd(airports)?),
             countries: parse_pairs(&unzstd(countries)?),
             admin1: parse_pairs(&unzstd(admin1)?),
+            folded: OnceLock::new(),
         })
     }
 
@@ -237,6 +277,277 @@ impl GeoRef {
             r.airport_km = km;
         }
         r
+    }
+
+    /// The name of a country by its ISO-3166 code.
+    pub fn country(&self, cc: &str) -> Option<&str> {
+        self.countries.get(cc).map(String::as_str)
+    }
+
+    /// The name of a region by country and GeoNames admin1 code.
+    pub fn region(&self, cc: &str, admin1: &str) -> Option<&str> {
+        if admin1.is_empty() {
+            return None;
+        }
+        self.admin1
+            .get(&format!("{cc}.{admin1}"))
+            .map(String::as_str)
+    }
+
+    /// An airport by its three-letter IATA code, in either case.
+    pub fn airport(&self, code: &str) -> Option<&Airport> {
+        let code = code.trim();
+        if code.len() != 3 || !code.bytes().all(|b| b.is_ascii_alphabetic()) {
+            return None;
+        }
+        self.airports
+            .iter()
+            .find(|a| a.iata.eq_ignore_ascii_case(code))
+    }
+
+    fn folded(&self) -> &(Vec<String>, Vec<String>) {
+        self.folded.get_or_init(|| {
+            (
+                self.places.iter().map(|p| fold(&p.name)).collect(),
+                self.airports.iter().map(|a| fold(&a.name)).collect(),
+            )
+        })
+    }
+
+    /// "Region, Country" for a place, leaving out what repeats its own name (Hong Kong is a city
+    /// in the country Hong Kong).
+    fn where_of(&self, p: &Place) -> String {
+        let mut parts: Vec<&str> = Vec::new();
+        if let Some(r) = self.region(&p.cc, &p.admin1)
+            && r != p.name
+        {
+            parts.push(r);
+        }
+        if let Some(c) = self.country(&p.cc)
+            && c != p.name
+        {
+            parts.push(c);
+        }
+        parts.join(", ")
+    }
+
+    fn place_centre(&self, p: &Place) -> Centre {
+        Centre {
+            kind: "place",
+            label: p.name.clone(),
+            detail: self.where_of(p),
+            lat: p.lat,
+            lon: p.lon,
+        }
+    }
+
+    fn airport_centre(&self, a: &Airport) -> Centre {
+        // airports carry no country of their own: the nearest town's says where it is
+        let country = self
+            .nearest_place(a.lat, a.lon)
+            .and_then(|(p, _)| self.country(&p.cc));
+        Centre {
+            kind: "airport",
+            label: a.iata.clone(),
+            detail: match country {
+                Some(c) if !a.name.is_empty() => format!("{}, {c}", a.name),
+                Some(c) => c.to_string(),
+                None => a.name.clone(),
+            },
+            lat: a.lat,
+            lon: a.lon,
+        }
+    }
+
+    /// What a person typed as the centre of a search: a coordinate (`22.3,113.9`), an airport's
+    /// three-letter code (`HKG`), or a place's name, the most populous one spelt that way. A
+    /// region or country after a comma picks between places of one name (`Paris, Texas`).
+    pub fn resolve(&self, q: &str) -> Option<Centre> {
+        let q = q.trim();
+        if q.is_empty() {
+            return None;
+        }
+        if let Some((lat, lon)) = parse_point(q) {
+            return Some(point_centre(lat, lon));
+        }
+        if let Some(a) = self.airport(q) {
+            return Some(self.airport_centre(a));
+        }
+        let (name, within) = match q.split_once(',') {
+            Some((n, w)) => (fold(n.trim()), Some(fold(w.trim()))),
+            None => (fold(q), None),
+        };
+        let (places, airports) = self.folded();
+        let fits = |p: &Place| {
+            within.as_deref().is_none_or(|w| {
+                w.is_empty()
+                    || p.cc.eq_ignore_ascii_case(w)
+                    || self.country(&p.cc).is_some_and(|c| fold(c).starts_with(w))
+                    || self
+                        .region(&p.cc, &p.admin1)
+                        .is_some_and(|r| fold(r).starts_with(w))
+            })
+        };
+        let best = self
+            .places
+            .iter()
+            .zip(places)
+            .filter(|(p, f)| **f == name && fits(p))
+            .max_by_key(|(p, _)| p.population)
+            .map(|(p, _)| p);
+        if let Some(p) = best {
+            return Some(self.place_centre(p));
+        }
+        // an airport by its whole name ("Heathrow" isn't a town)
+        self.airports
+            .iter()
+            .zip(airports)
+            .find(|(_, f)| **f == name || f.split(' ').any(|w| w == name))
+            .map(|(a, _)| self.airport_centre(a))
+    }
+
+    /// Centres for what's been typed so far: an airport by its code first, then places whose
+    /// name starts with it (most populous first) and airports with a word of their name that
+    /// does. A coordinate is its own one suggestion.
+    pub fn suggest(&self, q: &str, limit: usize) -> Vec<Centre> {
+        let q = q.trim();
+        if q.is_empty() || limit == 0 {
+            return Vec::new();
+        }
+        if let Some((lat, lon)) = parse_point(q) {
+            return vec![point_centre(lat, lon)];
+        }
+        let f = fold(q);
+        let mut out = Vec::new();
+        let code = self.airport(q);
+        if let Some(a) = code {
+            out.push(self.airport_centre(a));
+        }
+        if f.chars().count() < 2 {
+            return out;
+        }
+        let (places, airports) = self.folded();
+        let mut ps: Vec<&Place> = self
+            .places
+            .iter()
+            .zip(places)
+            .filter(|(_, n)| n.starts_with(&f))
+            .map(|(p, _)| p)
+            .collect();
+        ps.sort_by(|a, b| b.population.cmp(&a.population).then(a.name.cmp(&b.name)));
+        // airports whose name starts that way before those with a later word that does, and
+        // international ones first among them
+        let mut air: Vec<(&Airport, &String)> = self
+            .airports
+            .iter()
+            .zip(airports)
+            .filter(|(a, n)| {
+                code.is_none_or(|c| c.iata != a.iata) && n.split(' ').any(|w| w.starts_with(&f))
+            })
+            .collect();
+        air.sort_by_key(|(_, n)| (!n.starts_with(&f), !n.contains("international")));
+        let air: Vec<&Airport> = air.into_iter().map(|(a, _)| a).take(3).collect();
+        // places first, keeping room for a couple of airports
+        let places_room = limit.saturating_sub(out.len() + air.len().min(2));
+        let mut seen = std::collections::HashSet::new();
+        let mut placed = 0;
+        for p in ps {
+            if placed >= places_room {
+                break;
+            }
+            // one "Springfield, Illinois" is enough, but different Springfields stay
+            if seen.insert((p.name.as_str(), p.cc.as_str(), p.admin1.as_str())) {
+                out.push(self.place_centre(p));
+                placed += 1;
+            }
+        }
+        for a in air {
+            if out.len() >= limit {
+                break;
+            }
+            out.push(self.airport_centre(a));
+        }
+        out.truncate(limit);
+        out
+    }
+
+    /// The places (and, zoomed in, the airports) inside a box, most populous first: the names a
+    /// map draws. West may be greater than east, for a box across the antimeridian.
+    pub fn labels(&self, south: f64, west: f64, north: f64, east: f64, limit: usize) -> Vec<Label> {
+        let inside = |lat: f64, lon: f64| {
+            lat >= south
+                && lat <= north
+                && if west <= east {
+                    lon >= west && lon <= east
+                } else {
+                    lon >= west || lon <= east
+                }
+        };
+        let mut ps: Vec<&Place> = self
+            .places
+            .iter()
+            .filter(|p| inside(p.lat, p.lon))
+            .collect();
+        ps.sort_by_key(|p| std::cmp::Reverse(p.population));
+        let mut out: Vec<Label> = ps
+            .into_iter()
+            .take(limit)
+            .map(|p| Label {
+                kind: "place",
+                name: p.name.clone(),
+                lat: p.lat,
+                lon: p.lon,
+                population: p.population,
+            })
+            .collect();
+        // airports only once the box is a region, not a continent
+        if north - south <= 4.0 {
+            out.extend(
+                self.airports
+                    .iter()
+                    .filter(|a| inside(a.lat, a.lon))
+                    .take(limit / 2)
+                    .map(|a| Label {
+                        kind: "airport",
+                        name: a.iata.clone(),
+                        lat: a.lat,
+                        lon: a.lon,
+                        population: 0,
+                    }),
+            );
+        }
+        out
+    }
+
+    /// Every place as a dot for a map drawn without going online: per place, latitude and
+    /// longitude in hundredths of a degree (two little-endian i16) and a size class (u8: under
+    /// 10,000 people, under 100,000, under a million, more).
+    pub fn basemap(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(self.places.len() * 5);
+        for p in &self.places {
+            let lat = (p.lat * 100.0).round().clamp(-9000.0, 9000.0) as i16;
+            let lon = (p.lon * 100.0).round().clamp(-18000.0, 18000.0) as i16;
+            let class = match p.population {
+                0..10_000 => 0u8,
+                10_000..100_000 => 1,
+                100_000..1_000_000 => 2,
+                _ => 3,
+            };
+            out.extend_from_slice(&lat.to_le_bytes());
+            out.extend_from_slice(&lon.to_le_bytes());
+            out.push(class);
+        }
+        out
+    }
+}
+
+fn point_centre(lat: f64, lon: f64) -> Centre {
+    Centre {
+        kind: "point",
+        label: format!("{lat:.6}, {lon:.6}"),
+        detail: String::new(),
+        lat,
+        lon,
     }
 }
 
@@ -387,7 +698,66 @@ mod tests {
                 ("HK".into(), "Hong Kong".into()),
             ]),
             admin1: HashMap::from([("US.FL".into(), "Florida".into())]),
+            folded: OnceLock::new(),
         }
+    }
+
+    #[test]
+    fn points_parse_in_range_only() {
+        assert_eq!(parse_point("22.3089,113.9146"), Some((22.3089, 113.9146)));
+        assert_eq!(parse_point(" 22.3 , 113.9 "), Some((22.3, 113.9)));
+        assert_eq!(parse_point("-33.9 151.2"), Some((-33.9, 151.2)));
+        assert_eq!(parse_point("95,10"), None);
+        assert_eq!(parse_point("Paris, Texas"), None);
+        assert_eq!(parse_point("HKG"), None);
+    }
+
+    #[test]
+    fn resolve_codes_names_and_points() {
+        let g = synthetic();
+        let a = g.resolve("fll").unwrap();
+        assert_eq!((a.kind, a.label.as_str()), ("airport", "FLL"));
+        let p = g.resolve("fort lauderdale").unwrap();
+        assert_eq!(
+            (p.kind, p.detail.as_str()),
+            ("place", "Florida, United States")
+        );
+        // a qualifier after the comma has to fit
+        assert!(g.resolve("Fort Lauderdale, Florida").is_some());
+        assert!(g.resolve("Fort Lauderdale, France").is_none());
+        let pt = g.resolve("22.3,113.9").unwrap();
+        assert_eq!(pt.kind, "point");
+        assert!(g.resolve("Atlantis").is_none());
+    }
+
+    // The real tables: HKG, Hong Kong, and suggestions as someone types.
+    #[test]
+    fn embedded_lookup_finds_hkg_and_suggests() {
+        let g = GeoRef::embedded().unwrap();
+        let hkg = g.resolve("HKG").unwrap();
+        assert_eq!(hkg.kind, "airport");
+        assert!(
+            (hkg.lat - 22.31).abs() < 0.05 && (hkg.lon - 113.92).abs() < 0.05,
+            "{hkg:?}"
+        );
+        assert!(hkg.detail.contains("Hong Kong"), "{hkg:?}");
+        let paris = g.resolve("Paris").unwrap();
+        assert!(paris.detail.ends_with("France"), "{paris:?}");
+        let s = g.suggest("hkg", 8);
+        assert_eq!(s[0].label, "HKG");
+        let s = g.suggest("hong k", 8);
+        assert!(s.iter().any(|c| c.label == "Hong Kong"), "{s:?}");
+        let s = g.suggest("hong", 6);
+        let first_airport = s.iter().find(|c| c.kind == "airport").unwrap();
+        assert_eq!(first_airport.label, "HKG", "{s:?}");
+        // a box around Hong Kong has Hong Kong's places in it, the biggest first, and its airport
+        let l = g.labels(22.1, 113.8, 22.6, 114.4, 20);
+        assert!(
+            l.iter().any(|x| x.kind == "airport" && x.name == "HKG"),
+            "{l:?}"
+        );
+        assert!(l[0].population >= l[1].population);
+        assert_eq!(g.basemap().len(), g.counts().0 * 5);
     }
 
     #[test]

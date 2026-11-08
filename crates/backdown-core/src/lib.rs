@@ -38,6 +38,7 @@ pub mod mirror;
 pub mod names;
 pub mod overlap;
 pub mod paths;
+pub mod places;
 pub mod plan;
 pub mod plist;
 pub mod pool;
