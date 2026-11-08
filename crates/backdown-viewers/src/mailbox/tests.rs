@@ -360,6 +360,9 @@ fn keys(v: &Value) -> Vec<i64> {
         .collect()
 }
 
+// maildir names its message files with a `:info` suffix, which macOS (and Windows) file systems
+// reject, so the maildir half of this fixture can only be built on Linux
+#[cfg(target_os = "linux")]
 #[test]
 fn indexed_mbox_and_maildir() {
     use backdown_core::index;

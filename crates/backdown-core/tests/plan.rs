@@ -82,9 +82,12 @@ fn analyse(db: &Db) -> (Vec<recognise::RootEntities>, Vec<overlap::Overlap>) {
 #[test]
 fn plan_apply_resume_and_prove() {
     let tmp = tempfile::tempdir().unwrap();
-    let laptop = tmp.path().join("laptop");
-    let usb = tmp.path().join("usb");
-    let archive_drive = tmp.path().join("archive");
+    // the index canonicalises the scanned roots (on macOS /var → /private/var); build the drive
+    // paths the same way so the plan recognises the archive's own drive and the path checks match
+    let base = tmp.path().canonicalize().unwrap();
+    let laptop = base.join("laptop");
+    let usb = base.join("usb");
+    let archive_drive = base.join("archive");
     let archive = archive_drive.join("Archive");
 
     mail_store(&laptop.join("srv/vmail"), false);
@@ -363,8 +366,9 @@ fn walk(p: &Path) -> Vec<String> {
 fn mirrors_copy_keep_old_versions_and_notice_rot() {
     use backdown_core::mirror;
     let tmp = tempfile::tempdir().unwrap();
-    let src = tmp.path().join("archive/Mail");
-    let dst = tmp.path().join("mirror-drive/Mail");
+    let base = tmp.path().canonicalize().unwrap(); // canonicalise (macOS /var → /private/var)
+    let src = base.join("archive/Mail");
+    let dst = base.join("mirror-drive/Mail");
     write(&src.join("a/1.eml"), &blob(1, 3000));
     write(&src.join("b/2.eml"), &blob(2, 3000));
     let db = Db::open(&tmp.path().join("i.db")).unwrap();

@@ -1,6 +1,8 @@
 //! End-to-end: names that differ only by case or Unicode form, across drives. The plan must not
 //! let two drives' folders merge unseen on an archive drive that ignores case, nor take the
 //! archive's own drive for a source because its path was typed in the other Unicode form.
+#![cfg(target_os = "linux")] // case- and Unicode-collision fixtures need a case-sensitive,
+// byte-preserving file system (APFS is case-insensitive and normalises Unicode)
 
 use std::fs;
 use std::path::Path;
