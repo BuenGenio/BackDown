@@ -133,7 +133,7 @@ pub struct JobOpts {
 
 /// Jobs in the main lane that can be stopped at their next file (and carried on later: a stopped
 /// scan keeps what it read, and the drive's next scan finishes it).
-const STOPPABLE: &[&str] = &["index", "dedup", "mail-merge", "content"];
+const STOPPABLE: &[&str] = &["index", "dedup", "mail-merge", "content", "places"];
 
 /// Jobs that can run for hours or days and hardly touch the index (copying a failing drive,
 /// searching a card for lost files, syncing another machine over ssh): they go in a lane of their
@@ -822,6 +822,8 @@ fn worker(d: &Daemon) {
             "mail-merge" => crate::tidy::run_merge_job(d, &db, &job, &stop),
             "indexes" => run_indexes(d, &db, &job),
             "attest" => crate::manifesting::run_attest(d, &db, &job),
+            // dates and places from photos' own metadata (places.rs), hashing those `hash` left
+            "places" => crate::places::run_job(d, &db, &job, &stop),
             // it reads whatever is on the drives: a file that trips a bug ends this job, not the
             // worker (the open transaction rolls back as the panic unwinds)
             "content" => std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

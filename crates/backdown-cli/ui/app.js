@@ -10,6 +10,7 @@ import { mountHealth, daemonChanged, healthOfDisk, healthOfPath, pill, dot, mirr
 import { mountMachines, renderMachinesNav, machinesDaemon, machinePath, showMachine, remoteCopiesHtml, dupesRemoteHtml, acrossHtml, wipeRemoteLine } from './machines.js';
 import { mountCell, mountNotice, loadMounts, allowButton, browseFoundBtn, filesBody } from './drives.js';
 import { mountSwarm, showSwarm } from './swarm.js';
+import { mountPlaces, showPlaces, placesDaemon } from './places.js';
 
 const $ = s => document.querySelector(s);
 // names are shown composed (NFC), whichever form the drive stores them in (HFS+ decomposes them)
@@ -113,6 +114,7 @@ function renderPlaces() {
   $('#dupes-btn').setAttribute('aria-current', String(S.mode === 'dupes'));
   $('#activity-btn').setAttribute('aria-current', String(S.mode === 'activity'));
   $('#entities-btn').setAttribute('aria-current', String(S.mode === 'entities'));
+  $('#places-btn').setAttribute('aria-current', String(S.mode === 'places'));
   $('#swarm-btn').setAttribute('aria-current', String(S.mode === 'swarm'));
   $('#plan-btn').setAttribute('aria-current', String(S.mode === 'plan'));
   $('#wipe-btn').setAttribute('aria-current', String(S.mode === 'wipe'));
@@ -203,7 +205,7 @@ function renderPath() {
   if (S.mode === 'machine') { $('#pathbar').innerHTML = machinePath(); return; }
   if (S.mode !== 'browse') {
     $('#f-count').textContent = ''; // the folder's; Duplicates writes its own
-    $('#pathbar').innerHTML = `<span class="crumb" style="cursor:default">${{ dupes: 'Duplicates', activity: 'Activity', entities: 'What’s here', swarm: 'Swarm', plan: 'Plan', wipe: 'Free up', rescue: 'Rescue', settings: 'Settings' }[S.mode] || 'Search'}</span>`;
+    $('#pathbar').innerHTML = `<span class="crumb" style="cursor:default">${{ dupes: 'Duplicates', activity: 'Activity', entities: 'What’s here', places: 'Places', swarm: 'Swarm', plan: 'Plan', wipe: 'Free up', rescue: 'Rescue', settings: 'Settings' }[S.mode] || 'Search'}</span>`;
     return;
   }
   $('#pathbar').innerHTML = S.listing.crumbs.map((c, i) =>
@@ -846,6 +848,7 @@ function tabTitle(t) {
   if (t.mode === 'activity') return 'Activity';
   if (t.mode === 'dupes') return 'Duplicates';
   if (t.mode === 'entities') return 'What’s here';
+  if (t.mode === 'places') return 'Places';
   if (t.mode === 'swarm') return 'Swarm';
   if (t.mode === 'plan') return 'Plan';
   if (t.mode === 'wipe') return 'Free up';
@@ -897,6 +900,7 @@ async function showCurrent() {
   if (S.mode === 'activity') return showActivity();
   if (S.mode === 'dupes') return showDupes();
   if (S.mode === 'entities') return showEntities();
+  if (S.mode === 'places') return showPlaces();
   if (S.mode === 'swarm') return showSwarm();
   if (S.mode === 'plan') return showPlan();
   if (S.mode === 'wipe') return showWipe();
@@ -1860,7 +1864,8 @@ const jobName = j => j.kind === 'index' ? `Scan ${rootName(j.path)}` : j.kind ==
   : j.kind === 'indexes' || j.kind === 'dupes-index' ? 'Prepare the index for speed (once)'
   : j.kind === 'attest' ? `Sign a manifest of ${rootName(j.path)}`
   : j.kind === 'forget' ? `Remove ${rootName(j.path)} from the index`
-  : j.kind === 'content' ? 'Index what’s inside the files' : 'Hash new and changed files';
+  : j.kind === 'content' ? 'Index what’s inside the files'
+  : j.kind === 'places' ? `Read dates and places${j.path ? ` in ${rootName(j.path)}` : ' on every drive'}` : 'Hash new and changed files';
 function rescueJobName(j) {
   const r = RS.list.find(x => `rescue ${x.id}` === j.path);
   return r ? `${RS_TITLE[r.mode] || 'Rescue'}: ${baseName(r.source)}` : 'Rescue';
@@ -1874,6 +1879,7 @@ async function applyDaemon(d) {
   if (d.running) clockSkew = d.now - Date.now() / 1000;
   daemonChanged(d); // drive health or notifications changed: health.js fetches them again
   machinesDaemon(d); // a machine's sync started or ended: machines.js fetches them again
+  placesDaemon(d); // reading photos' dates and places: the Places view shows how far it is
   const st = $('#status-act');
   if (S.daemon) {
     const cur = d.current, q = d.queued.length, c = cur?.counts;
@@ -1998,6 +2004,7 @@ const JOB_ICON = {
   'mirror-verify': '<svg viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"/><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/></svg>',
   wipe: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
   rescue: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="m5.6 5.6 3.6 3.6M14.8 14.8l3.6 3.6M14.8 9.2l3.6-3.6M5.6 18.4l3.6-3.6"/></svg>',
+  places: '<svg viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>',
   attest: '<svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4"/><path d="M14 3v5h5M19 8l-5-5"/><circle cx="17" cy="16" r="3"/><path d="m15.5 18.6-.5 3.4 2-1 2 1-.5-3.4"/></svg>',
 };
 
@@ -2326,6 +2333,7 @@ mountFind(rerunSearch);
 $('#dupes-btn').onclick = showDupes;
 $('#activity-btn').onclick = showActivity;
 $('#entities-btn').onclick = showEntities;
+$('#places-btn').onclick = () => showPlaces();
 $('#swarm-btn').onclick = () => showSwarm();
 $('#plan-btn').onclick = () => showPlan();
 $('#wipe-btn').onclick = () => showWipe();
@@ -2422,6 +2430,14 @@ mountSwarm({
   openMachine: (id, dir, sel) => showMachine(id, dir, sel),
   // the wizard's last step: the drive just copied into the pool, in Free up
   freeUp: r => showWipe([{ key: r.key, path: r.path, label: r.name || r.path }]),
+});
+// Places (places.js): photos by where and when they were taken, and tagging them
+mountPlaces({
+  enter: enterView,
+  isMode: m => S.mode === m,
+  openLocal: (dir, sel) => { $('#timebar').hidden = S.timeline.length < 2; go(dir, { select: sel, scan: null }); },
+  thumb, copyText, toastError,
+  roots: () => S.roots,
 });
 boot().then(restoreTabs).then(() => pollDaemon(true));
 checkUpdates();

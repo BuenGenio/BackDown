@@ -121,6 +121,9 @@ pub fn bind_all(host: &str, port: u16) -> Result<(Vec<Server>, u16)> {
     Ok((vec![here, there], port))
 }
 
+/// The most a Places request's body may hold: a selection of tens of thousands of photos' keys.
+const PLACES_BODY_MAX: u64 = 8 << 20;
+
 /// What a browser on another machine may ask for besides looking (`--host`): queuing a rescan,
 /// which only reads the drives.
 const NETWORK_POSTS: &[&str] = &["/api/rescan"];
@@ -619,6 +622,35 @@ fn handle(ctx: &Ctx, req: Request) {
         let _ = req.respond(resp);
         return;
     }
+    if *req.method() == Method::Post && crate::places::handles(path) {
+        // the Places view: tag, untag and flag photos (a JSON body: a selection can be thousands
+        // of photos), rename or delete tags of one's own, read a drive's photos (places.rs)
+        let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
+        let mut req = req;
+        let resp = if !marked {
+            plain(403, "missing X-BackDown header")
+        } else {
+            let mut body = Vec::new();
+            match std::io::Read::read_to_end(
+                &mut std::io::Read::take(req.as_reader(), PLACES_BODY_MAX + 1),
+                &mut body,
+            ) {
+                Err(e) => plain(400, &format!("couldn't read the request: {e}")),
+                Ok(n) if n as u64 > PLACES_BODY_MAX => plain(413, "too much at once"),
+                Ok(_) => {
+                    match crate::places::post(ctx.daemon.as_deref(), &ctx.db, path, &params, &body)
+                    {
+                        Ok(v) => json_resp(&v),
+                        Err(e) => {
+                            json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(400)
+                        }
+                    }
+                }
+            }
+        };
+        let _ = req.respond(resp);
+        return;
+    }
     if *req.method() == Method::Post && crate::pool::handles(path) {
         // this machine's pool folders: add, change, remove (pool.rs)
         let marked = req.headers().iter().any(|h| h.field.equiv("X-BackDown"));
@@ -781,6 +813,18 @@ fn handle(ctx: &Ctx, req: Request) {
             return remote_content(ctx, req, m, param("id"), range.as_deref(), download);
         }
         return content(ctx, req, param("id"), range.as_deref(), download);
+    }
+    if path == "/api/places-basemap" {
+        // the Places map's dots: the same for every index and every request of this build
+        let resp = match crate::places::basemap() {
+            Ok(b) => Response::from_data(b.to_vec())
+                .with_header(header("Content-Type", "application/octet-stream"))
+                .with_header(header("X-Content-Type-Options", "nosniff"))
+                .with_header(header("Cache-Control", "private, max-age=86400")),
+            Err(e) => json_resp(&json!({ "error": format!("{e:#}") })).with_status_code(500),
+        };
+        let _ = req.respond(resp);
+        return;
     }
     if path == "/api/entry" || path == "/api/attachment" {
         return inner(ctx, req, path, &params);
@@ -1377,6 +1421,10 @@ fn api(ctx: &Ctx, path: &str, params: &[(String, String)]) -> Result<Value> {
         // other machines, as cached and live over ssh (remote/)
         let p = |k: &str| param(k).map(str::to_string);
         return crate::remote::get(ctx.daemon.as_deref(), ctx.desktop, &ctx.db, path, &p);
+    }
+    if crate::places::handles(path) {
+        // photos by where they were taken and what they're tagged with (places.rs)
+        return crate::places::get(&ctx.db, path, params);
     }
     if crate::pool::handles(path) {
         // the pool's plans (pool.rs)
@@ -2415,6 +2463,8 @@ fn ui_asset(name: &str) -> Option<(&'static [u8], &'static str)> {
         "fsbrowse.js" => "text/javascript; charset=utf-8",
         "drives.js" => "text/javascript; charset=utf-8",
         "dupes.js" => "text/javascript; charset=utf-8",
+        "places.js" => "text/javascript; charset=utf-8",
+        "geomap.js" => "text/javascript; charset=utf-8",
         "favicon.svg" => "image/svg+xml",
         "vendor/pdf.min.mjs" => "text/javascript; charset=utf-8",
         "vendor/pdf.worker.min.mjs" => "text/javascript; charset=utf-8",

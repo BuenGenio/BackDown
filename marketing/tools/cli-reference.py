@@ -57,6 +57,17 @@ ARGS = {
 FALLBACK = {'--json': 'Print it as JSON, for scripts.'}
 
 EXAMPLES = {
+    'tag': ['# read the dates and positions of every indexed photo and video under a folder, and name their places',
+            'backdown tag exif ~/Pictures --geo',
+            '# everything within 120 km of Hong Kong’s airport, nearest first',
+            'backdown tag find --near HKG',
+            '# a town (the most populous of that name, or say which), closer in, in one year',
+            'backdown tag find --near "Paris, France" --km 20 --from 2019 --to 2019',
+            '# by tags: all of them must be there',
+            'backdown tag find --tag country="Hong Kong" --tag event="Boat show 2019"',
+            '# just the paths, for other tools',
+            'backdown tag find --near 22.3089,113.9146 --km 5 --paths | xargs -d \'\\n\' ls -l',
+            'backdown tag add --kind event --value "Boat show 2019" --to content:<sha256>'],
     'index': ['backdown index /media/old-drive /media/archive',
               '# a NAS share with other file systems mounted inside it',
               'backdown index /mnt/nas --cross-filesystems',
@@ -294,6 +305,7 @@ NOTES = {
 }
 
 SEE_ALSO = {
+    'tag': [('Tag and find photos by date and place', '/docs/guides/tags-and-places/'), ('Tags, flags and links', '/docs/concepts/#tags')],
     'index': [('Getting started', '/docs/getting-started/'), ('Scans and the time slider', '/docs/concepts/#scans-and-the-time-slider'),
               ('Fast rescans', '/docs/concepts/#fast-rescans'), ('When a rescan walks', '/docs/troubleshooting/#when-a-rescan-walks')],
     'hash': [('Hashes and proof', '/docs/concepts/#hashes-and-proof')],

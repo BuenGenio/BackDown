@@ -166,7 +166,7 @@ Depth is a setting (`backdown search --depth off|headers|full`, `headers` by def
 
 A **tag** is a fact about something: the year and place a photo was taken, the event it's from, who it belongs to. A **flag** is a decision: keep, drop, canonical, a duplicate of another copy, reviewed. A **link** connects two things with a relationship you name.
 
-Tags and flags on a file go on its content, its SHA-256, so every copy of it on any drive carries them, and they survive moves, renames and deduplication. Some come from the files themselves (a photo's date and GPS position, then its country, region, city and nearest airport, from place data built into BackDown), and you add the rest. Each remembers where it came from and when; derived tags can be made again, yours are kept. Tags and flags never move or delete anything themselves. See [Tag photos by date and place](/docs/guides/tags-and-places/).
+Tags and flags on a file go on its content, its SHA-256, so every copy of it on any drive carries them, and they survive moves, renames and deduplication. Some come from the files themselves (a photo's date and GPS position, then its country, region, city and nearest airport, from place data built into BackDown), and you add the rest. Each remembers where it came from and when; derived tags can be made again, yours are kept. Tags and flags never move or delete anything themselves. Photos can then be found by place (everything within a distance of an airport, a town or a point), by tag and by date, in the app's **Places** view or with `backdown tag find`. See [Tag and find photos by date and place](/docs/guides/tags-and-places/).
 
 ## Overlaps
 

@@ -104,12 +104,55 @@ backdown tag exif [OPTIONS] <PATHS>...
 ### Arguments
 
 `<PATHS>...`
-: The files to read (each must be indexed; one `backdown hash` hasn't read is hashed now).
+: The files to read, or folders: every indexed photo and video under them (each must be indexed; one `backdown hash` hasn't read is hashed now).
 
 ### Options
 
+`--geo`
+: Also tag the country, region, city and nearest airport of each position, as `tag geo` does.
+
+`--again`
+: In folders, read again what was read before (named files always are).
+
 `--source <SOURCE>`
 : Where the derived tags are recorded as coming from. Default: `exif`.
+
+## backdown tag find {#find}
+
+Find content by where it was taken and what it's tagged with: everything within a distance of a place, carrying tags, taken between dates.
+
+```text
+backdown tag find [OPTIONS]
+```
+
+### Options
+
+`--near <PLACE>`
+: Around a place: an airport's code (HKG), a town or city (Paris, or "Paris, Texas"), or a position (22.3089,113.9146).
+
+`--km <KM>`
+: How far from it, in km. Default: `120`.
+
+`--tag <KIND=VALUE>`
+: A tag it must carry: KIND=VALUE (airport=HKG, country=Hong Kong, event=Boat show 2019) or a tag id from `tag list`. Repeat it for more; all must be there.
+
+`--from <DATE>`
+: Taken on or after: YYYY, YYYY-MM or YYYY-MM-DD.
+
+`--to <DATE>`
+: Taken on or before: YYYY, YYYY-MM or YYYY-MM-DD.
+
+`--sort <SORT>`
+: nearest (the default around a place), newest (otherwise) or oldest.
+
+`--limit <LIMIT>`
+: Show at most this many (0: all of them). Default: `0`.
+
+`--paths`
+: Print only the path of every copy, one per line, for scripts (`| xargs …`).
+
+`--json`
+: Print it as JSON, for scripts.
 
 ## backdown tag geo {#geo}
 
@@ -133,3 +176,24 @@ backdown tag geo [OPTIONS] [TARGETS]...
 : Print the embedded dataset sizes and data attribution, then exit.
 
 All of them also take the [global options](/docs/cli/#global-options) `--db` and `--local`.
+
+## Examples
+
+```sh
+# read the dates and positions of every indexed photo and video under a folder, and name their places
+backdown tag exif ~/Pictures --geo
+# everything within 120 km of Hong Kong's airport, nearest first
+backdown tag find --near HKG
+# a town (the most populous of that name, or say which), closer in, in one year
+backdown tag find --near "Paris, France" --km 20 --from 2019 --to 2019
+# by tags: all of them must be there
+backdown tag find --tag country="Hong Kong" --tag event="Boat show 2019"
+# just the paths, for other tools
+backdown tag find --near 22.3089,113.9146 --km 5 --paths | xargs -d '\n' ls -l
+backdown tag add --kind event --value "Boat show 2019" --to content:<sha256>
+```
+
+## See also
+
+- [Tag and find photos by date and place](/docs/guides/tags-and-places/)
+- [Tags, flags and links](/docs/concepts/#tags)

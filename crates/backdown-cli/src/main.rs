@@ -28,6 +28,7 @@ mod manifesting;
 mod mounting;
 mod notifier;
 mod peek;
+mod places;
 mod pool;
 mod remote;
 mod rescuing;
