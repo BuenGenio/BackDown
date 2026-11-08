@@ -1,7 +1,8 @@
-# On a version tag (v*): test on every OS, build the `backdown` CLI for Linux (static, x86-64 + ARM64),
-# macOS (one universal binary, Apple silicon + Intel) and Windows (x86-64), and bundle them with
-# SHA256SUMS.txt as the `release` artifact. scripts/publish-release.sh then publishes that artifact
-# to the public BuenGenio/backdown-releases repo, so no token for it lives in this repo.
+# On a version tag (v*): test on every OS, build the `backdown` CLI for Linux (static, x86-64 + ARM64)
+# and macOS (one universal binary, Apple silicon + Intel), and bundle them with SHA256SUMS.txt as the
+# `release` artifact. scripts/publish-release.sh then publishes that artifact to the public
+# BuenGenio/backdown-releases repo, so no token for it lives in this repo.
+# Windows is temporarily out of the matrix while its port is finished (see the Windows tracking issue).
 name: release
 on:
   push:
@@ -19,7 +20,6 @@ jobs:
           - { name: linux-x86_64, os: ubuntu-latest, targets: x86_64-unknown-linux-musl }
           - { name: linux-arm64, os: ubuntu-latest, targets: aarch64-unknown-linux-musl }
           - { name: macos-universal, os: macos-latest, targets: 'aarch64-apple-darwin x86_64-apple-darwin' }
-          - { name: windows-x86_64, os: windows-latest, targets: x86_64-pc-windows-msvc }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7

@@ -640,6 +640,9 @@ mod tests {
         assert!(!within(Path::new("/media/old"), a));
     }
 
+    // fixtures with case-colliding and special names need a case-sensitive, byte-preserving file
+    // system; APFS is case-insensitive and normalises Unicode, so run these on Linux
+    #[cfg(target_os = "linux")]
     #[test]
     fn the_renamer_reads_each_folder_once() {
         let dir = tempfile::tempdir().unwrap();
@@ -731,6 +734,7 @@ mod tests {
         windows: true,
     };
 
+    #[cfg(target_os = "linux")] // see the_renamer_reads_each_folder_once: needs a case-sensitive FS
     #[test]
     fn apply_keeps_colliding_names_apart() {
         let dir = tempfile::tempdir().unwrap();
@@ -797,6 +801,7 @@ mod tests {
         ASSUME.with(|a| a.set(None));
     }
 
+    #[cfg(target_os = "linux")] // see the_renamer_reads_each_folder_once: needs a case-sensitive FS
     #[test]
     fn mirrors_keep_colliding_names_apart() {
         let dir = tempfile::tempdir().unwrap();

@@ -1374,6 +1374,9 @@ mod tests {
         assert_eq!(again.root(), m.root());
     }
 
+    // the fixture includes names a case-insensitive / normalising file system (APFS) can't keep
+    // distinct, so run it on Linux
+    #[cfg(target_os = "linux")]
     #[test]
     fn sorting_the_leaves_here_gives_the_order_they_stream_in() {
         // Windows sorts the leaves itself; elsewhere they come in the index's own order
