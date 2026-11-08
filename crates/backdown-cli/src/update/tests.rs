@@ -296,6 +296,8 @@ fn a_bundle_lists_plain_names_of_one_release() {
     assert_eq!(bundle_tag(&listed("")).unwrap(), None);
 }
 
+// a Unix scenario: a package-managed /usr/bin/backdown and an apt/.deb hint, with Unix paths
+#[cfg(unix)]
 #[test]
 fn package_managed_copies_are_told_what_to_do_with_the_carried_files() {
     if std::env::var_os("APPIMAGE").is_some() {

@@ -48,16 +48,24 @@ fn home() -> Home {
     script(&root.join("bin/systemctl"), "#!/bin/sh\nexit 1\n");
     // Chrome, as far as BackDown can tell: it records its arguments, takes the profile lock the
     // way Chromium does (a symlink "host-pid"), and stays up a while
+    // records its arguments to browser.NNNN (a sequence, so launches stay in order without the
+    // GNU-only `date +%s%N`), takes the profile lock the way Chromium does, and stays up a while.
+    // The in-progress file is "browser-writing.*", which the launches() filter ignores.
     script(
         &root.join("bin/google-chrome"),
-        "#!/bin/sh\nfor a in \"$@\"; do echo \"$a\"; done > \"$FAKE_LOG.$$\"\nmv \"$FAKE_LOG.$$\" \"$FAKE_LOG.$(date +%s%N)\"\n\
+        "#!/bin/sh\ntmp=\"$FAKE_LOG-writing.$$\"\nfor a in \"$@\"; do echo \"$a\"; done > \"$tmp\"\n\
+         n=$(ls -1 \"$FAKE_LOG\".* 2>/dev/null | grep -cE '\\.[0-9]+$')\n\
+         mv \"$tmp\" \"$(printf '%s.%04d' \"$FAKE_LOG\" \"$n\")\"\n\
          for a in \"$@\"; do case $a in --user-data-dir=*) d=${a#--user-data-dir=}; mkdir -p \"$d\"; ln -sfn \"testhost-$$\" \"$d/SingletonLock\";; esac; done\n\
          sleep 20\n",
     );
-    script(
-        &root.join("bin/xdg-open"),
-        "#!/bin/sh\necho \"$1\" > \"$FAKE_LOG.opened\"\n",
-    );
+    // the default-browser fallback: xdg-open on Linux, `open` on macOS — fake both
+    for opener in ["bin/xdg-open", "bin/open"] {
+        script(
+            &root.join(opener),
+            "#!/bin/sh\necho \"$1\" > \"$FAKE_LOG.opened\"\n",
+        );
+    }
     Home {
         _dir: dir,
         root,
@@ -93,7 +101,13 @@ impl Home {
     }
 
     fn data(&self) -> PathBuf {
-        self.root.join("home/.local/share/backdown")
+        // where the daemon keeps its state, mirroring locations::state_dir()
+        let home = self.root.join("home");
+        if cfg!(target_os = "macos") {
+            home.join("Library/Application Support/BackDown")
+        } else {
+            home.join(".local/share/backdown")
+        }
     }
 
     /// Each browser launch's arguments, oldest first (waits for `n` of them).
