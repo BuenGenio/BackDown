@@ -739,6 +739,8 @@ fn side_worker(d: &Daemon) {
             };
             // what it added to the chain of custody is sealed now
             crate::custody::seal_new(&db);
+            // and the WAL is reclaimed, as the worker does between its jobs
+            db.checkpoint();
             r
         });
         d.state.lock().unwrap().stops.remove(&id);

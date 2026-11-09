@@ -126,6 +126,98 @@ fn forgetting_cached_files_keeps_the_wal_small() {
     assert!(db.conn.is_autocommit());
 }
 
+/// A sync of a big drive is hours of pages, each committed on its own. Before, nothing reclaimed
+/// the WAL between them: any reader that outlasted a page (a status count, a report) held the
+/// backfill off meanwhile, and the file then kept the longest such stretch as its size for the
+/// rest of the sync (1 GB on a 17 M-file drive, 9 Nov 2026). Each page's commit reclaims it now.
+#[test]
+fn a_sync_of_many_pages_keeps_the_wal_small() {
+    let tmp = scratch();
+    let vol = tmp.path().join("nas/volume1");
+    fs::create_dir_all(&vol).unwrap();
+    // 60,000 files on one drive there, as a finished scan leaves them (no hashes: nothing to ask for)
+    let nas_db = tmp.path().join("nas.db");
+    let there = Db::open(&nas_db).unwrap();
+    there
+        .conn
+        .execute(
+            "INSERT INTO roots(path) VALUES (?1)",
+            [crate::paths::to_bytes(&vol)],
+        )
+        .unwrap();
+    let root_id = there.conn.last_insert_rowid();
+    there
+        .conn
+        .execute(
+            "INSERT INTO scans(root_id, started_at, finished_at, files, bytes) VALUES (?1, 1, 2, 60000, 60000)",
+            [root_id],
+        )
+        .unwrap();
+    let scan_id = there.conn.last_insert_rowid();
+    there
+        .conn
+        .execute(
+            "UPDATE roots SET last_scan = ?2 WHERE id = ?1",
+            params![root_id, scan_id],
+        )
+        .unwrap();
+    there.conn.execute_batch("BEGIN").unwrap();
+    {
+        let mut put = there
+            .conn
+            .prepare(
+                "INSERT INTO files (root_id, path, dir, size, mtime, dev, ino, first_scan, last_scan, current, lname)
+                 VALUES (?1, ?2, ?3, ?4, 1, 1, ?5, ?6, ?6, 1, ?7)",
+            )
+            .unwrap();
+        for i in 0..60_000i64 {
+            let dir = vol.join(format!("d{}", i % 100));
+            let name = format!("f{i}");
+            put.execute(params![
+                root_id,
+                crate::paths::to_bytes(&dir.join(&name)),
+                crate::paths::to_bytes(&dir),
+                i + 1,
+                i + 1,
+                scan_id,
+                name
+            ])
+            .unwrap();
+        }
+    }
+    there.conn.execute_batch("COMMIT").unwrap();
+    drop(there);
+
+    let path = tmp.path().join("local.db");
+    let db = Db::open(&path).unwrap();
+    let m = add(&db, "nas", "ssh://nas.example.org", None, None).unwrap();
+    let mut peer = Local {
+        db: nas_db,
+        calls: Vec::new(),
+    };
+    let opts = SyncOptions {
+        page: 5000,
+        hash_budget: Duration::ZERO,
+        health: false,
+        ..SyncOptions::default()
+    };
+    let st = sync(&db, &m, &mut peer, &opts, &mut |_| {}).unwrap();
+    assert_eq!(st.added, 60_000);
+    assert!(
+        peer.calls.iter().filter(|c| *c == "changes").count() >= 12,
+        "60,000 files in pages of 5,000 take at least 12 pages: {:?}",
+        peer.calls
+    );
+    let wal = fs::metadata(path.with_extension("db-wal"))
+        .map(|m| m.len())
+        .unwrap_or(0);
+    assert!(
+        wal < 2 << 20,
+        "syncing 60,000 files in pages left a {wal}-byte WAL: each page's commit should reclaim it"
+    );
+    assert!(db.conn.is_autocommit());
+}
+
 /// The other machine, in-process: its read-only index answering through the real protocol.
 struct Local {
     db: PathBuf,
