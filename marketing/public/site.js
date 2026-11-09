@@ -247,7 +247,9 @@ if (order) {
 }
 
 // Copy buttons: code blocks in the docs, and the press kit's texts (data-copy points at what to copy). They're in
-// the page hidden, so there's no dead button without JS.
+// the page hidden, so there's no dead button without JS. The docs page (.dsearch) carries the labels in its own
+// language; the press kit (English only) falls back to the defaults.
+const copyLabels = document.querySelector('.dsearch')?.dataset ?? {};
 document.querySelectorAll('.cbtn, button[data-copy]:not(.order [data-copy])').forEach(btn => {
   btn.hidden = false;
   btn.addEventListener('click', async () => {
@@ -262,7 +264,7 @@ document.querySelectorAll('.cbtn, button[data-copy]:not(.order [data-copy])').fo
       area.remove();
     }
     btn.dataset.label ||= btn.textContent;
-    btn.textContent = ok ? 'Copied' : 'Select and copy';
+    btn.textContent = ok ? (copyLabels.copied || 'Copied') : (copyLabels.select || 'Select and copy');
     btn.classList.toggle('done', ok);
     clearTimeout(btn.timer);
     btn.timer = setTimeout(() => { btn.textContent = btn.dataset.label; btn.classList.remove('done'); }, 1800);
@@ -317,9 +319,10 @@ if (ds) {
       .sort((a, b) => b.score - a.score)
       .filter(({ e }) => (perPage[e.p] = (perPage[e.p] || 0) + 1) <= 3)
       .slice(0, 12);
+    const noneMsg = (ds.dataset.none || 'Nothing in the docs matches “{q}”.').replace('{q}', escHTML(input.value.trim()));
     box.innerHTML = hits.length
       ? hits.map(({ e }, k) => `<a href="${escHTML(e.u)}" role="option" id="dr${k}" aria-selected="false">${e.h ? `<small>${hi(e.p, re)}</small><b>${hi(e.h, re)}</b>` : `<b>${hi(e.p, re)}</b>`}${hi(snippet(e.x, terms), re)}</a>`).join('')
-      : `<p class="none">Nothing in the docs matches “${escHTML(input.value.trim())}”.</p>`;
+      : `<p class="none">${noneMsg}</p>`;
     show(true);
     select(hits.length ? 0 : -1);
   };
