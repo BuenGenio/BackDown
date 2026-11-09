@@ -458,6 +458,10 @@ h2:hover>.hash,h3:hover>.hash,h4:hover>.hash{opacity:1}
 .doc-body figure{margin-inline:0}
 .doc-body figure img{display:block;width:100%;height:auto;border-radius:var(--radius-sm);border:1px solid var(--glass-line);background:var(--bg-sunk)}
 .doc-body figcaption{font-size:.86rem;color:var(--ink-3);margin-top:8px}
+.doc-body figure.demo .demo-frame{position:relative;aspect-ratio:4/3;min-height:540px;border:1px solid var(--glass-line);border-radius:var(--radius-sm);overflow:hidden;background:var(--bg-sunk)}
+.doc-body figure.demo iframe{position:absolute;inset:0;width:100%;height:100%;border:0;background:transparent}
+.doc-body figure.demo .demo-tag{display:inline-block;font-family:var(--font-mono);font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);border:1px solid var(--glass-line);border-radius:5px;padding:1px 6px;vertical-align:middle}
+@media (max-width:720px){.doc-body figure.demo .demo-frame{aspect-ratio:3/4;min-height:480px}}
 .code{position:relative}
 .doc-body pre{font-size:.84rem;line-height:1.6}
 .cbtn{position:absolute;top:7px;right:7px;height:28px;padding:0 10px;border-radius:7px;border:1px solid var(--glass-line);background:var(--bg-elev);color:var(--ink-2);font:inherit;font-size:.75rem;font-weight:600;cursor:pointer;opacity:.9}

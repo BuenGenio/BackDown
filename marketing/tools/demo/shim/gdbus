@@ -1,0 +1,3 @@
+#!/bin/sh
+# the demo daemon runs as the person at the screen; its notifications must not reach the real desktop
+exit 0

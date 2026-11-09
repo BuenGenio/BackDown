@@ -52,6 +52,8 @@ Because every version is kept, the browser can show any folder as it was at any 
 
 If a drive that held files is suddenly empty, `index` refuses to record it: usually the drive isn't plugged in and you're looking at its empty mount point. If it really was emptied, pass `--allow-empty`. It also refuses a drive's folder that holds no files at all, and one that's now on another physical drive than the one it was last scanned on (folders made where the drive is mounted, with the drive mounted elsewhere); pass `--allow-other-drive` for a new or reformatted drive in its place. A folder that can't be read keeps what the index had of it rather than being recorded as gone.
 
+<figure class="demo" data-dir="/media/alex/Old Laptop/home/alex/Documents" data-mode="list" data-caption="A folder scanned twice: the time bar at the bottom steps back to the earlier scan, and Compare shows what changed."></figure>
+
 ### Fast rescans
 
 A scan doesn't always have to open every folder. There are three ways to make one:
@@ -140,6 +142,8 @@ It also works out where things came from, and when, by reading small files on co
 | Sync markers | Kept in sync by Syncthing, Resilio Sync, Dropbox, Nextcloud or ownCloud |
 
 Only small files are read (scripts up to 256 KiB, plists up to 8 MiB), and only on drives that are connected. `backdown entities` lists what's recognised; the background service recognises each drive again after it's been scanned and hashed.
+
+<figure class="demo" data-view="entities" data-caption="What BackDown recognised on the demo drives: a Time Machine set, an iPhone backup, mailboxes, a Nextcloud data folder, a WordPress site, database dumps, libraries."></figure>
 
 ## People and databases {#people-and-databases}
 

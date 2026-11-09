@@ -51,6 +51,8 @@ A manifest is only made of a scan no manifest covers yet: a drive that hasn't be
 
 The machine-wide service ([Settings](/docs/guides/settings-and-licences/#a-machine-wide-service)) signs with a key of its own, kept in `/var/lib/backdown` and readable only by its `backdown` user, not with yours; Settings shows which key it is. If it can't keep a key there, it doesn't sign, and its log says why.
 
+<figure class="demo" data-view="settings" data-tab="Attestations" data-caption="Settings › Attestations: how often the service signs a manifest of each drive, and this installation’s signing key."></figure>
+
 ## List them, and get one out
 
 ```sh

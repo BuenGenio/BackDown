@@ -117,6 +117,8 @@ backdown tag find --near "Paris, France" --km 20 --tag event="Boat show 2019"
 
 Через мережу (`backdown serve --host`) Places показує й шукає, але не змінює теги.
 
+<figure class="demo" data-view="places" data-caption="Місця: карта, намальована з даних, вбудованих у BackDown, список уточнень і фото — найближчі або найновіші спершу."></figure>
+
 ## Що несе фото
 
 Ключ вмісту фото — це `content:` і його SHA-256, який дасть будь-який інструмент SHA-256: `sha256sum` у Linux, `shasum -a 256` у macOS, `Get-FileHash` у PowerShell.

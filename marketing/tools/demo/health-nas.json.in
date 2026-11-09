@@ -1,0 +1,53 @@
+{
+ "drives": [
+  {
+   "device": "/dev/sata1",
+   "name": "sata1",
+   "model": "WDC WD80EFZZ-68BTXN0",
+   "serial": "VDEMONAS0001",
+   "transport": "sata",
+   "rotational": true,
+   "size": 8001563222016,
+   "protocol": "ATA",
+   "reported": "ok",
+   "temperature": 37,
+   "power_on_hours": 14210,
+   "power_cycles": 61,
+   "reallocated": 0,
+   "pending": 0,
+   "uncorrectable": 0,
+   "crc_errors": 0,
+   "mounts": [
+    "@D@/nas/volume1"
+   ],
+   "source": "demo readings",
+   "id": "",
+   "read_at": 0
+  },
+  {
+   "device": "/dev/sata2",
+   "name": "sata2",
+   "model": "Seagate IronWolf ST4000VN006",
+   "serial": "ZDEMONAS0002",
+   "transport": "sata",
+   "rotational": true,
+   "size": 4000787030016,
+   "protocol": "ATA",
+   "reported": "ok",
+   "temperature": 40,
+   "power_on_hours": 22870,
+   "power_cycles": 58,
+   "reallocated": 8,
+   "pending": 0,
+   "uncorrectable": 0,
+   "crc_errors": 0,
+   "mounts": [
+    "@D@/nas/volume2"
+   ],
+   "source": "demo readings",
+   "id": "",
+   "read_at": 0
+  }
+ ],
+ "notes": []
+}

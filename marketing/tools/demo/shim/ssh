@@ -1,0 +1,10 @@
+#!/bin/sh
+# Stand-in for ssh in the docs demo: whatever host is asked for, run the "other machine's" end of BackDown here,
+# against the NAS's own index and data folder (env.sh sets D, BD and DEMO_RUN). The last argument is the remote
+# command: 'backdown' 'serve-stdio' or 'swarm-stdio' [...].
+for last; do :; done
+end=serve-stdio
+case "$last" in *swarm-stdio*) end=swarm-stdio;; esac
+export XDG_DATA_HOME="$D/nas-xdg/data" XDG_RUNTIME_DIR="$DEMO_RUN/nas" BACKDOWN_NO_UPDATE_CHECK=1
+export BACKDOWN_FAKE_VOLUMES="$D/volumes-nas.json" BACKDOWN_FAKE_HEALTH="$D/health-nas.json" BACKDOWN_HOSTNAME=nas
+exec "$BD" $end --db "$D/nas-xdg/data/backdown/index.db"

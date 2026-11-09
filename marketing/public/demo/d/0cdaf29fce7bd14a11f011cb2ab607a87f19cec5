@@ -1,0 +1,183 @@
+# BackDown report
+
+Generated 2026-11-09 · 5 drives · 9.2 K files · 14.0 GB · 99% hashed
+
+## Drives
+
+| Drive | Files | Size | Last scan | Elsewhere | Verdict |
+|---|---:|---:|---|---:|---|
+| Archive (/media/alex/Archive) | 4.3 K | 6.0 GB | 2026-11-09 | 100% | Safe to wipe |
+| Backup 2021 (/media/alex/Backup 2021) | 2.5 K | 2.4 GB | 2026-11-09 | 100% | Safe to wipe |
+| Camera cards (/media/alex/Camera cards) | 137 | 265 MB | 2026-11-09 | 100% | Safe to wipe |
+| Mirror (/media/alex/Mirror) | 634 | 2.1 GB | 2026-11-09 | 100% | Safe to wipe |
+| Old Laptop (/media/alex/Old Laptop) | 1.7 K | 3.3 GB | 2026-11-09 | 100% | Safe to wipe |
+
+## Archive
+
+`/media/alex/Archive` · 4.3 K files · 6.0 GB · scanned 2026-11-09
+
+**Verdict.** Safe to wipe: every file on it has a SHA-256-identical copy on another drive.
+
+**Copies elsewhere.** 100% of this drive exists elsewhere: 90% on Old Laptop, 73% on Backup 2021, 67% on Mirror, 49% on the machine nas, 4% on Camera cards.
+
+### What's on it
+
+| What | Where | Size | Years | Notes |
+|---|---|---:|---|---|
+| **Nextcloud data**: 1 user | `Servers/Backup 2021/Nextcloud data` | 2 MB | 2016–2021 | 270 KB of it is regenerable (Nextcloud previews) |
+| **iPhone or iPad backup**: backup of Alex's iPhone | `Phones/Alex's iPhone/2021` | 184 MB | 2020–2021 | Backed up from Alex's iPhone (iPhone12,1) on 12 Mar 2021. |
+| **Mac home folder**: user alex | `Machines/Alex's MacBook Air/Time Machine/Alex's MacBook Air/2021-03-14-093011/Macintosh HD/Users/alex` | 5 MB | 2015–2024 |  |
+| **Mac home folder**: user alex | `Machines/Alex's MacBook Air/Time Machine/Alex's MacBook Air/2021-02-14-093011/Macintosh HD/Users/alex` | 3 MB | 2015–2024 |  |
+| **Mac home folder**: user alex | `Machines/Alex's MacBook Air/Time Machine/Alex's MacBook Air/2021-01-10-201512/Macintosh HD/Users/alex` | 2 MB | 2015–2024 |  |
+| **Linux home folder**: user Old Laptop | `People/alex/Old Laptop` | 3.3 GB | 2010–2026 | 4 MB of it is regenerable (application caches, thumbnail cache) |
+| **Website**: WordPress site gallery | `Servers/Websites/gallery` | 485 KB | 2018–2019 |  |
+| **Git repository**: gallery-site | `People/alex/Old Laptop/Projects/gallery-site` | 305 KB | 2018 | 273 KB of it is regenerable (npm packages (reinstallable)) |
+| **Database dump**: 12 database dumps | `Servers/Databases/dumps` | 28 KB | 2019 |  |
+| **SQLite database**: gallery.sqlite | `Servers/Databases/gallery.sqlite` | 12 KB | 2021 |  |
+| **Photo library**: 414 photos | `Media/Photos` | 643 MB | 2015–2024 |  |
+| **Music library**: 220 tracks | `Media/Music` | 1.5 GB | 2010–2019 |  |
+
+### Folders
+
+| Folder | Size | Elsewhere | Mostly also in |
+|---|---:|---:|---|
+| `People` | 3.3 GB | 100% | `ssh://alex@nas.local` |
+| `Media` | 2.1 GB | 100% | `ssh://alex@nas.local` |
+| `Unsorted` | 295 MB | 100% | `/media/alex/Backup 2021/Videos` |
+| `Phones` | 184 MB | 100% | `/media/alex/Backup 2021/iPhone backup/74537b034e452b07c1a963a2342d4d8367b22af4` |
+| `Machines` | 10 MB | 100% | `/media/alex/Backup 2021/Backups.backupdb` |
+| `Servers` | 2 MB | 100% | `/media/alex/Backup 2021/Nextcloud data` |
+| `Mail` | 1 MB | 100% | `/media/alex/Backup 2021/Laptop copy 2020/Mail` |
+
+**Regenerable data.** 4 MB of caches, previews, build output and trash.
+
+## Backup 2021
+
+`/media/alex/Backup 2021` · 2.5 K files · 2.4 GB · scanned 2026-11-09
+
+**Verdict.** Safe to wipe: every file on it has a SHA-256-identical copy on another drive.
+
+**Copies elsewhere.** 100% of this drive exists elsewhere: 100% on Archive, 86% on Old Laptop, 79% on Mirror, 63% on the machine nas, <1% on Camera cards.
+
+### What's on it
+
+| What | Where | Size | Years | Notes |
+|---|---|---:|---|---|
+| **Mailbox (Maildir)**: 4 folders | `Laptop copy 2020/Mail` | 1 MB | 2016–2021 |  |
+| **Nextcloud data**: 1 user | `Nextcloud data` | 2 MB | 2016–2021 | 270 KB of it is regenerable (Nextcloud previews) |
+| **Time Machine backup**: 3 snapshots from Alex's MacBook Air | `Backups.backupdb` | 10 MB | 2015–2024 | Backed up by Time Machine from Alex's MacBook Air, last on 14 Mar 2021. |
+| **iPhone or iPad backup**: backup of Alex's iPhone | `iPhone backup/74537b034e452b07c1a963a2342d4d8367b22af4` | 184 MB | 2020–2021 | Backed up from Alex's iPhone (iPhone12,1) on 12 Mar 2021. |
+| **Website**: WordPress site gallery | `Server/www/gallery` | 485 KB | 2018–2019 |  |
+| **Database dump**: 12 database dumps | `Server/dumps` | 28 KB | 2019 |  |
+| **SQLite database**: gallery.sqlite | `Server/gallery.sqlite` | 12 KB | 2021 |  |
+| **Photo library**: 361 photos | `Laptop copy 2020/Pictures` | 379 MB | 2015–2024 |  |
+| **Music library**: 220 tracks | `Laptop copy 2020/Music` | 1.5 GB | 2010–2019 |  |
+
+### Folders
+
+| Folder | Size | Elsewhere | Mostly also in |
+|---|---:|---:|---|
+| `Laptop copy 2020` | 1.9 GB | 100% | `ssh://alex@nas.local` |
+| `Videos` | 294 MB | 100% | `/media/alex/Archive/Unsorted` |
+| `iPhone backup` | 184 MB | 100% | `/media/alex/Archive/Phones/Alex's iPhone/2021` |
+| `Backups.backupdb` | 10 MB | 100% | `/media/alex/Archive/Machines/Alex's MacBook Air/Time Machine/Alex's MacBook Air/2021-03-14-093011/Macintosh HD/Users/alex` |
+| `Nextcloud data` | 2 MB | 100% | `/media/alex/Archive/Servers/Backup 2021/Nextcloud data` |
+| `Server` | 526 KB | 100% | `/media/alex/Archive/Servers/Websites/gallery` |
+
+**Regenerable data.** 270 KB of caches, previews, build output and trash.
+
+## Camera cards
+
+`/media/alex/Camera cards` · 137 files · 265 MB · scanned 2026-11-09
+
+**Verdict.** Safe to wipe: every file on it has a SHA-256-identical copy on another drive.
+
+**Copies elsewhere.** 100% of this drive exists elsewhere: 100% on Archive, 100% on Mirror, <1% on Backup 2021, <1% on Old Laptop, <1% on the machine nas.
+
+### What's on it
+
+| What | Where | Size | Years | Notes |
+|---|---|---:|---|---|
+| **Photo library**: camera or phone photos (DCIM) | `Kyoto 2023/DCIM` | 264 MB | 2023 |  |
+| **Photo library**: camera or phone photos (DCIM) | `Paris 2019/DCIM` | 646 KB | 2019 |  |
+| **Photo library**: camera or phone photos (DCIM) | `Lisbon 2017/DCIM` | 490 KB | 2017 |  |
+
+### Folders
+
+| Folder | Size | Elsewhere | Mostly also in |
+|---|---:|---:|---|
+| `Kyoto 2023` | 264 MB | 100% | `/media/alex/Archive/Media/Photos` |
+| `Paris 2019` | 646 KB | 100% | `/media/alex/Archive/Machines/Alex's MacBook Air/Time Machine/Alex's MacBook Air/2021-03-14-093011/Macintosh HD/Users/alex` |
+| `Lisbon 2017` | 490 KB | 100% | `/media/alex/Archive/Machines/Alex's MacBook Air/Time Machine/Alex's MacBook Air/2021-03-14-093011/Macintosh HD/Users/alex` |
+
+
+## Mirror
+
+`/media/alex/Mirror` · 634 files · 2.1 GB · scanned 2026-11-09
+
+**Verdict.** Safe to wipe: every file on it has a SHA-256-identical copy on another drive.
+
+**Copies elsewhere.** 100% of this drive exists elsewhere: 100% on Archive, 87% on Backup 2021, 87% on Old Laptop, 69% on the machine nas, 12% on Camera cards.
+
+### What's on it
+
+| What | Where | Size | Years | Notes |
+|---|---|---:|---|---|
+| **Photo library**: 414 photos | `Media/Photos` | 643 MB | 2015–2024 |  |
+| **Music library**: 220 tracks | `Media/Music` | 1.5 GB | 2010–2019 |  |
+
+### Folders
+
+| Folder | Size | Elsewhere | Mostly also in |
+|---|---:|---:|---|
+| `Media` | 2.1 GB | 100% | `ssh://alex@nas.local` |
+
+
+## Old Laptop
+
+`/media/alex/Old Laptop` · 1.7 K files · 3.3 GB · scanned 2026-11-09
+
+**Verdict.** Safe to wipe: every file on it has a SHA-256-identical copy on another drive.
+
+**Copies elsewhere.** 100% of this drive exists elsewhere: 100% on Archive, 60% on Backup 2021, 55% on Mirror, 44% on the machine nas, <1% on Camera cards.
+
+### What's on it
+
+| What | Where | Size | Years | Notes |
+|---|---|---:|---|---|
+| **Linux home folder**: user alex | `home/alex` | 3.3 GB | 2010–2026 | 4 MB of it is regenerable (thumbnail cache, application caches) |
+| **Git repository**: gallery-site | `home/alex/Projects/gallery-site` | 305 KB | 2018 | 273 KB of it is regenerable (npm packages (reinstallable)) |
+
+### Folders
+
+| Folder | Size | Elsewhere | Mostly also in |
+|---|---:|---:|---|
+| `home` | 3.3 GB | 100% | `ssh://alex@nas.local` |
+| `etc` | 249 B | 100% | `/media/alex/Archive/Unsorted` |
+
+**Regenerable data.** 4 MB of caches, previews, build output and trash.
+
+## Duplicates
+
+256 groups of identical files (1 MB and up); 9.9 GB could be freed.
+
+| Copies | Each | Reclaimable | Where |
+|---:|---:|---:|---|
+| 4 | 168 MB | 503 MB | `/media/alex/Archive/People/alex/Old Laptop/Videos/Lisbon walk 2017.mp4`<br>`/media/alex/Archive/Unsorted/Backup 2021/Videos/Lisbon walk 2017.mp4`<br>`/media/alex/Backup 2021/Videos/Lisbon walk 2017.mp4` |
+| 5 | 72 MB | 289 MB | `/media/alex/Archive/Media/Photos/Pictures (Backup 2021)/Panoramas/pano-2021.tif`<br>`/media/alex/Archive/People/alex/Old Laptop/Pictures/Panoramas/pano-2021.tif`<br>`/media/alex/Backup 2021/Laptop copy 2020/Pictures/Panoramas/pano-2021.tif` |
+| 5 | 67 MB | 268 MB | `/media/alex/Archive/Media/Photos/Pictures (Backup 2021)/Panoramas/pano-2019.tif`<br>`/media/alex/Archive/People/alex/Old Laptop/Pictures/Panoramas/pano-2019.tif`<br>`/media/alex/Backup 2021/Laptop copy 2020/Pictures/Panoramas/pano-2019.tif` |
+| 5 | 65 MB | 260 MB | `/media/alex/Archive/Media/Photos/Pictures (Backup 2021)/Panoramas/pano-2016.tif`<br>`/media/alex/Archive/People/alex/Old Laptop/Pictures/Panoramas/pano-2016.tif`<br>`/media/alex/Backup 2021/Laptop copy 2020/Pictures/Panoramas/pano-2016.tif` |
+| 5 | 65 MB | 260 MB | `/media/alex/Archive/Media/Photos/Pictures (Backup 2021)/Panoramas/pano-2018.tif`<br>`/media/alex/Archive/People/alex/Old Laptop/Pictures/Panoramas/pano-2018.tif`<br>`/media/alex/Backup 2021/Laptop copy 2020/Pictures/Panoramas/pano-2018.tif` |
+| 5 | 57 MB | 226 MB | `/media/alex/Archive/Media/Photos/Pictures (Backup 2021)/Panoramas/pano-2017.tif`<br>`/media/alex/Archive/People/alex/Old Laptop/Pictures/Panoramas/pano-2017.tif`<br>`/media/alex/Backup 2021/Laptop copy 2020/Pictures/Panoramas/pano-2017.tif` |
+| 2 | 199 MB | 199 MB | `/media/alex/Archive/People/alex/Old Laptop/Videos/Paris boat trip.mp4`<br>`/media/alex/Old Laptop/home/alex/Videos/Paris boat trip.mp4` |
+| 5 | 48 MB | 193 MB | `/media/alex/Archive/Media/Photos/Pictures (Backup 2021)/Panoramas/pano-2020.tif`<br>`/media/alex/Archive/People/alex/Old Laptop/Pictures/Panoramas/pano-2020.tif`<br>`/media/alex/Backup 2021/Laptop copy 2020/Pictures/Panoramas/pano-2020.tif` |
+| 2 | 128 MB | 128 MB | `/media/alex/Archive/People/alex/Old Laptop/Downloads/darktable-4.2.1.dmg`<br>`/media/alex/Old Laptop/home/alex/Downloads/darktable-4.2.1.dmg` |
+| 2 | 126 MB | 126 MB | `/media/alex/Archive/Unsorted/Backup 2021/Videos/Family dinner 2016.mp4`<br>`/media/alex/Backup 2021/Videos/Family dinner 2016.mp4` |
+| 2 | 122 MB | 122 MB | `/media/alex/Archive/People/alex/Old Laptop/Downloads/club-site-backup-2018.zip`<br>`/media/alex/Old Laptop/home/alex/Downloads/club-site-backup-2018.zip` |
+| 2 | 122 MB | 122 MB | `/media/alex/Archive/People/alex/Old Laptop/Downloads/node-v16.20.0-linux-x64.tar.xz`<br>`/media/alex/Old Laptop/home/alex/Downloads/node-v16.20.0-linux-x64.tar.xz` |
+| 2 | 112 MB | 112 MB | `/media/alex/Archive/People/alex/Old Laptop/Downloads/rawtherapee-5.9.AppImage`<br>`/media/alex/Old Laptop/home/alex/Downloads/rawtherapee-5.9.AppImage` |
+| 2 | 94 MB | 94 MB | `/media/alex/Archive/People/alex/Old Laptop/Videos/Club exhibition opening.mp4`<br>`/media/alex/Old Laptop/home/alex/Videos/Club exhibition opening.mp4` |
+| 2 | 91 MB | 91 MB | `/media/alex/Archive/People/alex/Old Laptop/Downloads/firefox-115.0.tar.bz2`<br>`/media/alex/Old Laptop/home/alex/Downloads/firefox-115.0.tar.bz2` |
+
+---
+Made by BackDown · every "elsewhere" and verdict is backed by SHA-256; files without a hash count as unique: usually no other file has their size, or hashing hasn't reached them yet.

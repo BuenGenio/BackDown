@@ -25,6 +25,8 @@ backdown swarm --cached     # don't ask the other machines now
 
 A drive is known by its physical identity (model, serial, the volume's UUID), not its mount path, so a drive that moves between machines is the same drive: "indexed on tomahawk last week, now on the NAS".
 
+<figure class="demo" data-view="swarm" data-caption="The Swarm view: every machine’s drives, how full they are, what’s indexed on them, and the pool folders."></figure>
+
 ## Find a file wherever it is
 
 ```sh

@@ -19,7 +19,7 @@
 use std::path::Path;
 
 use anyhow::Result;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{Db, browse};
 
@@ -43,7 +43,8 @@ pub struct Report {
 }
 
 /// A physical disk: the unit BackDown schedules reads by.
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Disk {
     /// The whole-disk device: `/dev/sda`, `/dev/disk4`, `\\.\PHYSICALDRIVE1`.
     pub device: String,
@@ -73,7 +74,8 @@ pub struct Disk {
 
 /// A partition, a filesystem that fills a whole disk, or something stacked on one of those (an
 /// unlocked LUKS mapping, an LVM logical volume, an md array, an APFS volume).
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Volume {
     pub device: String,
     pub name: String,
@@ -104,7 +106,8 @@ pub struct Volume {
     /// helper knows the file system); left out where it isn't known.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mountable_here: Option<bool>,
-    /// Indexed roots on this volume (or that it lies inside).
+    /// Indexed roots on this volume (or that it lies inside); filled in by `mark_indexed`, never read from a file.
+    #[serde(skip_deserializing)]
     pub indexed: Vec<Indexed>,
     /// What's stacked on it: the readable side of an encrypted or member volume.
     pub holders: Vec<Volume>,
@@ -148,13 +151,13 @@ pub(crate) struct Hint {
     pub uuid_sub: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Mount {
     pub path: String,
     pub read_only: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Encryption {
     /// LUKS1, LUKS2, BitLocker, FileVault, APFS.
     pub scheme: String,
@@ -178,7 +181,7 @@ pub struct Indexed {
 }
 
 /// What BackDown can do with a volume.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum State {
     /// Belongs to the running system: /, /boot, /home, swap in use, macOS's system and data
@@ -221,7 +224,29 @@ impl State {
 /// /sys, no diskutil, no PowerShell) or on an operating system BackDown doesn't probe yet.
 pub fn probe() -> Result<Report> {
     #[allow(unused_mut)]
-    let (mut disks, notes) = platform()?;
+    let (mut disks, notes) = match std::env::var_os("BACKDOWN_FAKE_VOLUMES") {
+        // for tests and demos (like BACKDOWN_FAKE_HEALTH): the disks from a JSON file, a list of
+        // `Disk`s as GET /api/volumes shows them, instead of this machine's; nothing else changes
+        Some(f) if !f.is_empty() => {
+            let bytes = std::fs::read(&f).map_err(|e| {
+                anyhow::anyhow!(
+                    "can't read {} (BACKDOWN_FAKE_VOLUMES): {e}",
+                    Path::new(&f).display()
+                )
+            })?;
+            let disks: Vec<Disk> = serde_json::from_slice(&bytes).map_err(|e| {
+                anyhow::anyhow!("{} isn't a list of disks: {e}", Path::new(&f).display())
+            })?;
+            (
+                disks,
+                vec![format!(
+                    "volumes read from {} instead of the drives (BACKDOWN_FAKE_VOLUMES)",
+                    Path::new(&f).display()
+                )],
+            )
+        }
+        _ => platform()?,
+    };
     // offering "Mount" only makes sense where the mount can work (APFS on Linux usually can't)
     #[cfg(target_os = "linux")]
     {
@@ -238,7 +263,7 @@ pub fn probe() -> Result<Report> {
     }
     // each mounted file system's size and free space (the swarm's "how much room")
     fn room(v: &mut Volume) {
-        if let Some(m) = v.mounts.first() {
+        if let (Some(m), None) = (v.mounts.first(), v.space) {
             v.space = space_at(Path::new(&m.path));
         }
         v.holders.iter_mut().for_each(room);

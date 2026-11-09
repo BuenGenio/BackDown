@@ -1,0 +1,1 @@
+{"allow":true,"device":true,"fix":"sudo setfacl -m u:alex:r /dev/nvme0n1","granted":false,"path":"/dev/nvme0n1","readable":false,"size":null,"why":"reading a whole drive directly needs permission your user account doesn't have"}

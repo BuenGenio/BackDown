@@ -93,6 +93,8 @@ It makes no network request at all. `backdown update --rollback` puts back the v
 
 Releases before v1.0.0-beta.4 weren't signed, so updating from one of those needs `--allow-unsigned`.
 
+<figure class="demo" data-view="settings" data-tab="Updates" data-caption="Settings › Updates: the version running, the channel, and installing from a folder carried over."></figure>
+
 ### Installed from a package
 
 A copy of BackDown installed from a package can't replace itself, so `backdown update --from` says what to do with the carried files instead, and checks the package against `SHA256SUMS.txt` first. For the `.deb`:

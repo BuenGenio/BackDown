@@ -32,6 +32,7 @@ import subprocess
 import sys
 import zipfile
 from pathlib import Path
+from urllib.parse import quote
 
 import mdlite
 
@@ -805,6 +806,36 @@ def search_index(docs):
     return json.dumps(entries, ensure_ascii=False, separators=(',', ':'))
 
 
+# The docs' live demo: public/demo/ is BackDown's own web UI answered from recorded responses (made by
+# tools/demo/, see its README). A guide embeds it with one raw block, `<figure class="demo" data-view="places"
+# data-caption="…"></figure>`, which becomes a frame of the demo opened on that view (data-view), folder
+# (data-dir, the fictional machine's path) and layout (data-mode: grid, list, gallery or treemap).
+DEMO_FIGURE = re.compile(r'<figure class="demo"([^>]*)>\s*</figure>')
+DEMO_ATTR = re.compile(r'data-(view|dir|mode|caption)="([^"]*)"')
+
+
+def demo_version():
+    f = ROOT / 'public/demo/d/index.json'
+    return hashlib.sha256(f.read_bytes()).hexdigest()[:10] if f.exists() else 'none'
+
+
+def demo_figures(body, lang, t):
+    if '<figure class="demo"' not in body:
+        return body
+    v = demo_version()
+
+    def figure(m):
+        a = dict(DEMO_ATTR.findall(m.group(1)))
+        params = [('v', v)] + ([('lang', lang)] if lang != 'en' else []) + [(k, a[k]) for k in ('view', 'dir', 'mode') if a.get(k)]
+        src = '/demo/?' + '&amp;'.join(f'{k}={quote(v, safe="")}' for k, v in params)
+        caption = mdlite.inline(html.unescape(a.get('caption', '')))
+        return (f'<figure class="demo"><div class="demo-frame"><iframe src="{src}" title="{t["docs.demo_title"]}" loading="lazy" '
+                f'referrerpolicy="same-origin"></iframe></div>'
+                f'<figcaption>{caption}{" · " if caption else ""}<span class="demo-tag">{t["docs.demo_tag"]}</span> '
+                f'<a href="{src}" target="_blank" rel="noopener">{t["docs.demo_open"]} ↗</a></figcaption></figure>')
+    return DEMO_FIGURE.sub(figure, body)
+
+
 def build_docs(base, docs_template, t, g, lang, docs_raw):
     docs = localize_docs(docs_raw, lang)
     index = search_index(docs)
@@ -832,7 +863,7 @@ def build_docs(base, docs_template, t, g, lang, docs_raw):
         pn = ''.join(f'<a class="pn card {cls}" href="{x["url"]}" rel="{rel}"{mark(x)}><span>{label}</span><b>{esc(text(x["title"]))}</b></a>'
                      for x, cls, rel, label in ((prev, 'prev', 'prev', t['docs.previous']), (nxt, 'next', 'next', t['docs.next'])) if x)
         cards = docs_cards(docs, t) if d['home'] else group_cards(docs, d['group'], t) if d['landing'] else ''
-        body = d['body'].replace('<!-- cards -->', cards)
+        body = demo_figures(d['body'].replace('<!-- cards -->', cards), lang, t)
         nav = docs_nav(docs, d, t)
         here = text(d['title']) if d['home'] or d['landing'] else f'{group_title(t, d["group"])} · {text(d["title"])}'
         computed.update({

@@ -1,0 +1,9 @@
+{
+  "name": "backdown-site-demo",
+  "private": true,
+  "type": "module",
+  "description": "Records BackDown's own UI on invented drives into the static live demo under public/demo/. See README.md.",
+  "devDependencies": {
+    "puppeteer-core": "^25.16.0"
+  }
+}

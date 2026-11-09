@@ -100,6 +100,8 @@ The service does one job at a time, so a command may wait ("waiting for the daem
 
 **The browser says "Open BackDown with `backdown open`".** The link carries a private token. Open it with `backdown open` or `backdown app` (or the link `backdown serve` printed) rather than a bookmark without the token.
 
+<figure class="demo" data-view="activity" data-caption="Activity: what the background service is doing, the connected drives and their health, notifications, mirrors and the chain of custody."></figure>
+
 ## Notifications
 
 Nothing pops up? Check Settings > Notifications ("Show notifications on the desktop", and the kind), and press **Send a test notification**. On Linux, pop-ups need `notify-send` (or a desktop notification service). At most 3 pop-ups show in 10 minutes and 12 a day; the rest are listed in Activity, marked "listed only". The machine-wide service only lists them.

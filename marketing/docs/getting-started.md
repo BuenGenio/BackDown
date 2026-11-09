@@ -118,6 +118,8 @@ On Linux and macOS, a drive that isn't mounted can be mounted from Activity, rea
 
 The background service keeps running after you close the window, rescanning drives when they're due or plugged back in. To have it start whenever you log in, `backdown service install` ([keep it running](#keep-it-running)).
 
+<figure class="demo" data-dir="/media/alex/Old Laptop" data-caption="After indexing: the drives in the sidebar with their size and number of files, and the folders of the one chosen."></figure>
+
 ## The same in a terminal
 
 ### Index two drives
@@ -165,6 +167,8 @@ backdown dupes
 
 `--min-size 100M` leaves out smaller files; `--limit 50` lists more groups. Hardlinks count once, so the reclaimable figure is real.
 
+<figure class="demo" data-view="dupes" data-caption="Duplicates, the largest reclaimable first: each group lists every copy and where it is."></figure>
+
 ### Is the old drive safe to wipe?
 
 ```sh
@@ -192,6 +196,8 @@ SAFE TO WIPE: every file has a SHA-256-identical copy outside /media/old-drive.
 
 `check` exits with 0 when the drive is safe to wipe and 2 when it isn't, so scripts can use it. [What "safe to wipe" means](/docs/concepts/#what-safe-to-wipe-means) has the details, and [Free up a drive](/docs/guides/free-up-a-drive/) goes on from here.
 
+<figure class="demo" data-view="wipe" data-caption="Wipe: tick a drive to see what of it exists elsewhere and what exists only there."></figure>
+
 ### Browse it
 
 ```sh
@@ -205,6 +211,8 @@ BackDown browser for /home/you/.local/share/backdown/index.db at
 ```
 
 `serve` opens the same browser as the app, in your web browser, without the background service: every indexed drive, every folder as it was at any scan, every version and copy of a file, and read-only viewers for photos, PDFs, documents, databases, code and more. It listens on this computer only (unless you [ask for more](/docs/guides/browse-without-restoring/#look-from-your-other-devices)), and the link carries a private token that changes each time. It can't change anything (copying, freeing up, rescues and rescans need the service), and says which command to run instead. [Browse without restoring](/docs/guides/browse-without-restoring/) shows what it can do.
+
+<figure class="demo" data-dir="/media/alex/Old Laptop/home/alex/Pictures/Paris 2019" data-mode="gallery" data-caption="A folder of photos as a gallery; a double click opens the viewer."></figure>
 
 ### Keep it running {#keep-it-running}
 

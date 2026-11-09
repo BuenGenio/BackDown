@@ -14,6 +14,8 @@ backdown serve
 
 `serve` prints a private link and opens it: `http://127.0.0.1:8787/?t=…`. The browser listens on this computer only, answers only that link (the token becomes a cookie for the session), and makes no requests beyond this computer: the viewers are built in. The app's window (`backdown app`) and `backdown open` show the background service's browser instead, which can also start scans, copies and rescues; they open it with a one-time code, so the private token never appears on a command line. `backdown serve --port 8788` runs a second one next to the service's.
 
+<figure class="demo" data-dir="/media/alex/Old Laptop/home/alex" data-caption="An indexed drive in the browser, as it was last scanned."></figure>
+
 ## Find your way
 
 Your indexed drives are in the sidebar, with their size and number of files. Folders open with a double click or <kbd>Enter</kbd>; <kbd>Alt+↑</kbd> goes to the parent, <kbd>Alt+←</kbd> back. Grid (<kbd>Ctrl+1</kbd>) and list (<kbd>Ctrl+2</kbd>) views show the folder; the details pane (<kbd>Ctrl+I</kbd>) shows a file's versions, its copies on other drives, and a preview.
@@ -21,6 +23,8 @@ Your indexed drives are in the sidebar, with their size and number of files. Fol
 There's more: a photo gallery (<kbd>Ctrl+3</kbd>) and a size map (<kbd>Ctrl+4</kbd>), filters by type, size and date, sorting, hidden files (<kbd>Ctrl+H</kbd>), tabs, typing a location (<kbd>Ctrl+L</kbd>, where a drive's name stands for its path), right-click menus, and a dot beside each drive for its [health](/docs/concepts/#drive-health). Press <kbd>?</kbd> for every shortcut.
 
 From the right-click menu, "Open with system app" opens a file in the program your computer uses for it, and "Show in file manager" shows where it is. BackDown never opens programs or scripts that way. "Download a copy" saves a copy through your web browser, from any drive or any scan whose bytes still exist.
+
+<figure class="demo" data-dir="/media/alex/Old Laptop/home/alex/Pictures/Paris 2019" data-mode="gallery" data-caption="The same folders as a gallery (Ctrl+3); the size map is Ctrl+4."></figure>
 
 ## Go back in time
 
@@ -30,6 +34,8 @@ A file's old version opens if its bytes still exist: the file itself, unchanged,
 
 **Compare…** shows what changed in a folder between any two scans: what was added, removed and changed, with a diff for text files. Files count as the same when their SHA-256 hashes match (or, before they're hashed, their size and modification time).
 
+<figure class="demo" data-dir="/media/alex/Old Laptop/home/alex/Documents" data-mode="list" data-caption="Documents at the latest scan; drag the time bar back to see the earlier one, with what was deleted since greyed out."></figure>
+
 ## Search every drive {#search}
 
 <kbd>Ctrl+F</kbd> searches the folder you're in and everything below it; <kbd>Ctrl+Shift+F</kbd> searches every indexed drive. It matches file and folder names, not their contents, ignoring case and accents; with several words, a name must contain all of them. Exact names come first, then names that start with what you typed, then the rest, newest first.
@@ -37,6 +43,8 @@ A file's old version opens if its bytes still exist: the file itself, unchanged,
 With other machines added, **Everywhere** means them too: this computer's matches show first, and under them each machine's, at once from what was last synced of it, then replaced by its own answer as soon as it gives one. Opening a match on another machine opens its folder there.
 
 Tick "Earlier versions" to find files that were there at earlier scans but aren't now; opening one shows its folder as it was when it was last seen. The first 200 matches show, and "Show more" goes up to 2,000. A word in a great many names (an extension, say) shows the best matches found within a few seconds and says there are more.
+
+<figure class="demo" data-view="search" data-caption="Search: this folder, everywhere (the other machines too), or inside things."></figure>
 
 ## What opens in the browser
 
@@ -65,6 +73,8 @@ Mail opens as conversations, threaded by the headers that link replies together.
 
 A message that only has an HTML version is shown as plain text: nothing in it is loaded or run. Very large mailboxes thread their first 250,000 messages.
 
+<figure class="demo" data-dir="/media/alex/Backup 2021/Laptop copy 2020/Mail" data-caption="A Maildir opened in the browser: threads, senders and dates, read from the files as they are."></figure>
+
 ## SQL dumps {#sql-dumps}
 
 A database dump (`.sql`, `.mysql`, `.pgsql`, `.dump`, also compressed with gzip, bzip2, xz or zstd) opens as its schema: which program made it, from which server and database, and when, then every table with its row count, data size, columns, keys, indexes and foreign keys, plus views, triggers and routines. It reads dumps from `mysqldump` and MariaDB, phpMyAdmin, Adminer and HeidiSQL, PostgreSQL's `pg_dump` (plain format), SQLite's `.dump`, and plain SQL scripts. It shows the structure and counts, not the rows; the SQL tab shows the text itself. A dump that looks cut off says so.
@@ -80,6 +90,8 @@ When an image holds file systems BackDown doesn't read itself (XFS, btrfs, HFS+,
 ## Other machines
 
 Drives on [another machine](/docs/guides/several-machines/) are listed under Machines in the sidebar and browse the same way, read-only, with each file's copies here and there. Their files don't open or preview here.
+
+<figure class="demo" data-view="machine" data-caption="A machine in the sidebar: whether it can be reached, when it was synced, its drives, and its folders to browse."></figure>
 
 ## Look from your other devices {#look-from-your-other-devices}
 

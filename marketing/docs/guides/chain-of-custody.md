@@ -34,6 +34,8 @@ A deletion's `dest` is the copy that made it safe: a path on this computer, or `
 
 Not in the log: exporting a Maildir as an mbox file, Rescue's disk images and the files it finds by their content (they have no source file to name), and anything done to your files by other programs.
 
+<figure class="demo" data-view="activity" data-caption="Activity’s Recent, with the Chain of custody button beside it: every copy, move and merge BackDown made, sealed."></figure>
+
 ## Seals
 
 A seal is a signed statement of the log's last event: its number, its hash and the time. BackDown signs it with this installation's own key, an Ed25519 key made the first time one is needed and kept in BackDown's data folder (`signing.key`), readable by your account alone.

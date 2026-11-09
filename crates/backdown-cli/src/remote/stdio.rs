@@ -22,6 +22,10 @@ const IDLE: Duration = Duration::from_secs(15 * 60);
 const MAX_ANSWER: usize = 48 << 20;
 
 pub(crate) fn host_name() -> String {
+    // for tests and demos: what this machine calls itself to the swarm, instead of its hostname
+    if let Some(n) = std::env::var_os("BACKDOWN_HOSTNAME").filter(|n| !n.is_empty()) {
+        return n.to_string_lossy().trim().to_string();
+    }
     for f in ["/proc/sys/kernel/hostname", "/etc/hostname"] {
         if let Ok(s) = std::fs::read_to_string(f)
             && !s.trim().is_empty()
