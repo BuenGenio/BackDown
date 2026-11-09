@@ -2,6 +2,7 @@
 title: Recover deleted files
 description: Open a drive's or card's file system directly, see deleted files with their names and how likely each is intact, and copy them out to another drive, checked. FAT, exFAT and NTFS; ext4 by content instead.
 order: 8
+seo_title: Recover deleted files from FAT, exFAT and NTFS drives
 ---
 
 When a file is deleted, most file systems only mark its entry and its space as free; the bytes stay until something else is written there. BackDown can read a drive's file system itself, without mounting it, list what's deleted with its original name and folder, say how likely each one is to come back whole, and copy what you choose to another drive, checking every copy.

@@ -2,6 +2,7 @@
 title: Chain of custody
 description: Every copy, move, deletion, link and merge BackDown makes, in a hash-chained log sealed with this computer's key. Export it for evidence handling, and let anyone verify it, with BackDown or without.
 order: 9.5
+seo_title: Chain of custody: a signed log of every copy, move, deletion
 ---
 
 Whenever BackDown changes something about your files (it copies a file into the archive, moves one, deletes one whose copy it has just checked, links two identical ones, merges a mailbox), it records it in a log. Each entry is chained to the one before it by its hash, and the log is sealed with a key that belongs to this installation of BackDown. You can export the log as one signed file and hand it to an auditor, a court or a client. They can check it with `backdown custody verify`, or with a few lines of Python and no BackDown at all.

@@ -3,6 +3,7 @@ title: Concepts
 description: Drives and scans, fast rescans, the time slider, hashes and proof, what "safe to wipe" means, copies across file systems, recognised things and where they came from, tags and flags, the background service, and drive health.
 order: 2
 group: start
+seo_title: How BackDown works: scans, hashes and safe-to-wipe proof
 ---
 
 The ideas the rest of the docs rely on. Each section says what BackDown does, and what it doesn't.

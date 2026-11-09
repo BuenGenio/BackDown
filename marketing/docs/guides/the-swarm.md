@@ -2,6 +2,7 @@
 title: The swarm and the pool
 description: Every machine you run BackDown on as one: see each machine's drives and free space, find a file wherever it is, declare pool folders on any of them, and pour an old drive into the pool from any machine, each file copied once and verified, then free the drive.
 order: 5.5
+seo_title: The swarm: every machine's drives as one, with a shared pool
 ---
 
 You have a stack of old drives, a NAS, a server or two, and a desktop. Each runs BackDown and knows its own drives. The **swarm** is those machines working as one: every machine can say which machine and which drive holds a file, how much room there is everywhere, and the **pool**, folders on any of their drives, becomes one filed, indexed archive that any drive can be poured into, from any machine, with each file copied once, read back and compared by SHA-256, and the old drive then freed.

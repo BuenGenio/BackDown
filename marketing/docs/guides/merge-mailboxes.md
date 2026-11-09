@@ -2,6 +2,7 @@
 title: Merge mailboxes
 description: Turn copies of the same mailbox taken at different times into one Maildir, every message once and in the right folder, and export a folder as mbox. The copies are only read.
 order: 3
+seo_title: Merge mailbox copies into one Maildir, every message once
 ---
 
 Old drives often hold the same mailbox several times: a laptop's mail from 2016, a server backup from 2019, Thunderbird's local folders from last year. Each has most of the same messages, and each has a few the others don't. BackDown merges them into one Maildir with every message once, by Message-ID, in the folder the newest copy has it in, with the read, replied and flagged marks of all of them. The copies are only read.

@@ -1,7 +1,7 @@
 ---
 title: BackDown documentation
 nav: Overview
-description: How to install BackDown, how it works, step-by-step guides, and every command.
+description: BackDown documentation: install it on Linux, macOS or Windows, learn how it works, follow step-by-step guides, read every command's reference, try the live demo.
 order: 0
 group: start
 ---

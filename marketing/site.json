@@ -6,6 +6,14 @@
     "site_id": 14
   },
   "contact_email": "",
+  "search": {
+    "_comment": "Search engines. verification: the tokens Google Search Console (HTML tag method) and Bing Webmaster Tools give you; empty = no tag. indexnow_key: the IndexNow key, also served as public/<key>.txt; tools/indexnow.py submits the sitemap's URLs with it after a deploy.",
+    "verification": {
+      "google": "",
+      "bing": ""
+    },
+    "indexnow_key": "7cfdbe49a99abb06916eb78988b94d9c"
+  },
   "preorder": {
     "_comment": "Shows the pre-order box and each paid edition's pre-order button on /pricing/ (each still hidden until /api/preorder reports a live Stripe price for that edition), builds /terms/ and /thanks/. Needs every seller field.",
     "enabled": false,

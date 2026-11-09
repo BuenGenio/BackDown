@@ -1,7 +1,7 @@
 ---
 title: backdown plans
 nav: plans
-description: Plans made so far.
+description: Plans made so far. What `backdown plans` does, its options and examples, from the built-in help.
 order: 30
 ---
 

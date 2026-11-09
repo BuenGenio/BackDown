@@ -2,6 +2,7 @@
 title: Rescue a failing drive
 description: Copy a failing drive or memory card safely, find deleted photos and documents by their contents, and look for lost partitions and the files on them. BackDown only reads the drive.
 order: 7
+seo_title: Rescue a failing drive: image, find files, lost partitions
 ---
 
 Three things can go wrong with a drive or a memory card, and Rescue has an answer for each:

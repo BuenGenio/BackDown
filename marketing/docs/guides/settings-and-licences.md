@@ -3,6 +3,7 @@ title: Settings, updates and licences
 nav: Settings and licences
 description: The Settings view, how often drives are rescanned, updates, notifications, running BackDown for the whole machine, and what's free and what's Pro.
 order: 10
+seo_title: BackDown settings: rescans, hashing, updates and licences
 ---
 
 Most of what you can change is in the **Settings** view, at the bottom of the sidebar. The background service reads it as it goes: a change applies from the next scan, hash, plan or check, without a restart. Some of it can also be given as options on the command line, for one run.

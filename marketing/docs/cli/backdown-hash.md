@@ -1,7 +1,7 @@
 ---
 title: backdown hash
 nav: hash
-description: Hash only what could be a duplicate: size, then a sample, then full SHA-256.
+description: Hash only what could be a duplicate: size, then a sample, then full SHA-256. What `backdown hash` does, its options and examples, from the built-in help.
 order: 4
 ---
 

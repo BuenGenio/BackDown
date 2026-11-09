@@ -1,7 +1,7 @@
 ---
 title: backdown status
 nav: status
-description: What's in the index (and what the daemon is doing).
+description: What's in the index (and what the daemon is doing). What `backdown status` does, its options and examples, from the built-in help.
 order: 14
 ---
 

@@ -2,6 +2,7 @@
 title: Keep a mirror
 description: Keep a folder, usually part of your archive, copied on another drive, with changed files' old copies kept aside and a sample re-read now and then.
 order: 4
+seo_title: Keep a verified mirror of a folder on another drive
 ---
 
 An archive on one drive is one failure away from gone. A mirror keeps a second copy of a folder on another drive and checks it: new and changed files are copied and verified, nothing on the mirror is ever deleted, and a different sample of the mirror is read back regularly to catch copies that went bad.

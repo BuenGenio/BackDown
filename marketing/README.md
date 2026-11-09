@@ -106,6 +106,23 @@ Run from this directory unless noted:
 | Check links before deploying | `python3 tools/check-links.py` |
 | Test the store and the Stripe setup | `node --test tools/store.test.mjs ../scripts/stripe-setup.test.mjs` |
 
+## Search engines
+
+What every page carries is built in: a unique title (≤ 60 characters; docs can set `seo_title:` in their front
+matter, else `title · suffix`) and description (trimmed to whole sentences within 155 characters by `snippet()`),
+canonical and hreflang links with `x-default`, Open Graph and Twitter cards, and JSON-LD (Organization, WebSite,
+SoftwareApplication, TechArticle with `datePublished`/`dateModified` from git, BreadcrumbList). `public/sitemap.xml`
+lists every indexable page with its real last change (git: the template and the language's strings, or the doc's
+file); `/demo/` is `noindex` (meta and `X-Robots-Tag`) and its data paths are disallowed in `public/robots.txt`.
+
+- `site.json` → `search.verification`: paste the tokens Google Search Console (HTML tag method) and Bing Webmaster
+  Tools give you, rebuild, deploy, then press Verify there. Empty means no tag.
+- `python3 tools/indexnow.py` after a deploy tells Bing, Yandex, Seznam and Naver which URLs changed (IndexNow; the
+  key is `search.indexnow_key`, served as `public/<key>.txt`). Google reads the sitemap on its own.
+- `python3 tools/release-notes.py` regenerates `docs/changelog/` from `scripts/release-notes/` after a release ships
+  (fresh, indexable pages per version); `docs/compare/` holds the hand-written comparison pages.
+- `tools/check-links.py` still has the last word before a deploy.
+
 ## The live demo (`tools/demo/`, `public/demo/`)
 
 The guides embed BackDown's own web UI on an invented set of drives: `public/demo/` is the app's UI with its

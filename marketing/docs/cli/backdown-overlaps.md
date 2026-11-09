@@ -1,7 +1,7 @@
 ---
 title: backdown overlaps
 nav: overlaps
-description: How much of each drive, folder and recognised thing already exists elsewhere, and where.
+description: How much of each drive, folder and recognised thing already exists elsewhere, and where. What `backdown overlaps` does, its options and examples, from the built-in help.
 order: 27
 ---
 

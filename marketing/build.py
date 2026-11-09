@@ -69,7 +69,8 @@ PAGES = [
     dict(id='thanks', slug='thanks', nav=False, join=False, og=False, only='preorder', noindex=True),
     dict(id='press', slug='press', nav=False, join=False, og=False, priority='0.4', changefreq='monthly', langs=['en'], card='en-press'),
 ]
-OG_PAGES = [p['id'] for p in PAGES if p['og']]  # read by screenshots/assets.mjs via --list
+OG_PAGES = [p['id'] for p in PAGES if p['og']]
+RELEASES_URL = ''  # downloads.json releases_url, set by main() for the structured data  # read by screenshots/assets.mjs via --list
 # the docs: one section of the site (header tab and footer link "nav.docs"), in English and (docs-uk/) Ukrainian
 DOCS = ROOT / 'docs'
 DOCS_UK = ROOT / 'docs-uk'
@@ -77,7 +78,7 @@ DOCS_URL = '/docs/'
 DOCS_LANGS = ['en', 'uk']
 # sidebar groups, in order: (id, folder under docs/ or None for top-level pages that name it in `group:`); the
 # title is docs.group_<id> in i18n/<lang>.json
-DOC_GROUPS = [('start', None), ('guides', 'guides'), ('cli', 'cli'), ('help', None)]
+DOC_GROUPS = [('start', None), ('guides', 'guides'), ('compare', 'compare'), ('cli', 'cli'), ('changelog', 'changelog'), ('help', None)]
 # markdown render labels (mdlite callouts + the code block's copy button) for each docs language; English keeps
 # mdlite's own defaults
 DOC_LABELS = {'uk': {'NOTE': 'Примітка', 'TIP': 'Порада', 'WARNING': 'Обережно', 'PREVIEW': 'У наступному preview',
@@ -277,7 +278,8 @@ def jsonld(lang, page, t, meta, ctx):
                'screenshot': [f'{SITE}/shots/{lang}/{sid}-light-1600.webp' for sid, _ in SLIDES],
                'offers': {'@type': 'Offer', 'price': '0', 'priceCurrency': 'USD',
                           'availability': 'https://schema.org/' + ('InStock' if available else 'PreOrder')},
-               'publisher': {'@id': f'{SITE}/#org'}}
+               'publisher': {'@id': f'{SITE}/#org'}, 'isAccessibleForFree': True,
+               'softwareHelp': {'@type': 'CreativeWork', 'url': f'{SITE}/docs/'}, 'releaseNotes': f'{SITE}/docs/changelog/'}
         if available:  # a free preview is downloadable
             app['softwareVersion'] = available[0]['version'].lstrip('v')
             app['downloadUrl'] = [f['url'] for p in available for f in p['files']]
@@ -345,6 +347,19 @@ def href_map(lang):
     return href
 
 
+def snippet(s, limit):
+    """a meta description that fits a search result: whole sentences up to `limit` characters, else a clean cut"""
+    s = re.sub(r'\s+', ' ', text(s)).strip()
+    if len(s) <= limit:
+        return s
+    cut = s[:limit]
+    for sep in ('. ', '; ', ': ', ', '):
+        i = cut.rfind(sep)
+        if i >= limit * 0.55:
+            return cut[:i + 1] if sep == '. ' else cut[:i].rstrip(' ,;:') + '…'
+    return cut.rsplit(' ', 1)[0].rstrip(' ,;:') + '…'
+
+
 def shell(lang, page, t, meta, variants, g):
     """what base.html needs on every page: head tags, header, language menu, footer"""
     pid = page['id']
@@ -370,12 +385,16 @@ def shell(lang, page, t, meta, variants, g):
         [f'<link rel="alternate" hreflang="{tag(l)}" href="{SITE}{url_path(l, page)}">' for l in variants]
         + [f'<link rel="alternate" hreflang="x-default" href="{SITE}{url_path("en", page)}">'])
     analytics = g['cfg']['analytics']
+    tokens = g['cfg'].get('search', {}).get('verification', {})
+    verification = '\n'.join(f'<meta name="{n}" content="{esc(v)}">' for n, v in
+                             (('google-site-verification', tokens.get('google', '')), ('msvalidate.01', tokens.get('bing', ''))) if v)
     return {
+        '@verification': verification,
         '@lang': tag(lang), '@page': lang, '@page_id': pid, '@code': lang.split('-')[0].upper(),
         '@url': SITE + url_path(lang, page), '@home': href['home'], '@asset_v': g['version'],
         '@brand_v': BRAND_VERSION, '@brand_mark': BRAND_INLINE,
-        '@title': esc(meta['title']), '@description': esc(text(meta['description'])),
-        '@og_title': esc(text(meta['og_title'])), '@og_description': esc(text(meta['og_description'])),
+        '@title': esc(meta['title']), '@description': esc(snippet(meta['description'], 155)),
+        '@og_title': esc(text(meta['og_title'])), '@og_description': esc(snippet(meta['og_description'], 200)),
         '@og_image': meta['og_image'], '@og_image_alt': esc(text(meta['og_alt'])),
         '@robots': 'noindex, follow' if page.get('noindex') else 'index, follow, max-image-preview:large, max-snippet:-1',
         '@alternates': alternates, '@langmenu': menu, '@flag': flag(lang), '@nav': nav,
@@ -414,7 +433,8 @@ def write_page(here, out, source):
 
 def graph_base():
     return [
-        {'@type': 'Organization', '@id': f'{SITE}/#org', 'name': 'BackDown', 'url': f'{SITE}/', 'logo': f'{SITE}/icon-512.png?v={BRAND_VERSION}'},
+        {'@type': 'Organization', '@id': f'{SITE}/#org', 'name': 'BackDown', 'url': f'{SITE}/', 'logo': f'{SITE}/icon-512.png?v={BRAND_VERSION}',
+         **({'sameAs': [RELEASES_URL]} if RELEASES_URL else {})},
         {'@type': 'WebSite', '@id': f'{SITE}/#website', 'url': f'{SITE}/', 'name': 'BackDown', 'publisher': {'@id': f'{SITE}/#org'},
          'inLanguage': [tag(l) for l in LANGS]},
     ]
@@ -436,6 +456,8 @@ def main():
     check_config(cfg)
     tables = {lang: load(f'i18n/{lang}.json') for lang in LANGS}
     dl = load('downloads.json')
+    global RELEASES_URL
+    RELEASES_URL = dl['releases_url']
     status = load('status.json')
     platforms = dl['platforms']
     pages = pages_for(cfg)
@@ -450,7 +472,7 @@ def main():
     everything = base + JOIN + FORM + preorder + ''.join(templates.values())
     used = {m[1] for m in TOKEN.finditer(everything) if not m[1].startswith('@')}
     used |= {f'slides.{sid}_{f}' for sid, _ in SLIDES for f in ('title', 'body', 'alt')}
-    used |= {'lang.name', 'meta.title', 'meta.description', 'meta.og_title', 'meta.og_description', 'meta.og_image_alt',
+    used |= {'lang.name', 'meta.title', 'meta.description', 'meta.og_title', 'meta.og_description', 'meta.og_image_alt', 'guides.all',
              'slides.goto', 'download.status_early', 'download.status_soon', 'download.cta_early', 'download.cta_notify',
              'download.cta_download', 'download.checksum', 'footer.privacy', 'footer.privacy_analytics', 'footer.privacy_link',
              'footer.terms_link', 'footer.releases', 'footer.press', 'nav.docs', 'policy.analytics_on', 'policy.analytics_off',
@@ -494,6 +516,7 @@ def main():
     g = dict(cfg=cfg, tables=tables, dl=dl, version=version, tracking=tracking)
     press_values = press_kit(tables['en'], cfg, dl, status, latest_version, latest_date) if any(p['id'] == 'press' for p in pages) else {}
 
+    docs = load_docs()
     for page in pages:
         pid = page['id']
         body = templates[pid].replace('{{@join}}', JOIN if page['join'] else '')
@@ -510,6 +533,7 @@ def main():
             email_link = lambda e: f'<a href="mailto:{esc(e)}">{esc(e)}</a>'
             if pid == 'home':
                 computed['@slides'] = slides(lang, t)
+                computed['@guide_cards'] = guide_cards(docs, lang, t)
                 computed['@dots'] = ''.join(f'<button type="button" data-i="{i}" aria-label="{esc(t["slides.goto"])} {i + 1}"></button>'
                                             for i in range(len(SLIDES)))
             if pid == 'download':
@@ -559,7 +583,6 @@ def main():
                     stale.parent.rmdir()
                     print(f'removed {stale.relative_to(ROOT)}')
 
-    docs = load_docs()
     for lang in DOCS_LANGS:
         build_docs(base, docs_template, tables[lang], g, lang, docs)
 
@@ -573,7 +596,10 @@ def main():
     for icon in manifest['icons']:
         icon['src'] = icon['src'].split('?')[0] + f'?v={BRAND_VERSION}'
     manifest_path.write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
-    (ROOT / 'public' / 'sitemap.xml').write_text(sitemap(pages, status, docs), encoding='utf-8')
+    tmpl_dates = git_dates([T / f'{p["id"]}.html' for p in pages])
+    i18n_dates = git_dates([ROOT / 'i18n' / f'{l}.json' for l in LANGS])
+    page_dates = {(p['id'], l): max(tmpl_dates[T / f'{p["id"]}.html'], i18n_dates[ROOT / 'i18n' / f'{l}.json']) for p in pages for l in LANGS}
+    (ROOT / 'public' / 'sitemap.xml').write_text(sitemap(pages, status, docs, page_dates), encoding='utf-8')
     print('sitemap: public/sitemap.xml')
 
 
@@ -582,6 +608,21 @@ def main():
 def front(f):
     meta, body = mdlite.front_matter(f.read_text(encoding='utf-8'))
     return meta, body
+
+
+def git_first_dates(files):
+    """the date each file was first committed (today for a file git doesn't know yet)"""
+    today = datetime.date.today().isoformat()
+    dates = {}
+    for f in files:
+        rel = f.relative_to(ROOT).as_posix()
+        try:
+            out = subprocess.run(['git', '-C', str(ROOT), 'log', '--diff-filter=A', '--follow', '--format=%cs', '--', rel],
+                                 capture_output=True, text=True, timeout=20).stdout.split()
+        except (OSError, subprocess.TimeoutExpired):
+            out = []
+        dates[f] = out[-1] if out else today
+    return dates
 
 
 def git_dates(files):
@@ -622,7 +663,7 @@ def load_doc_translation(path, en_headings):
             body_html = body_html.replace(f'id="{uk_id}"', f'id="{en_id}"', 1).replace(f'href="#{uk_id}"', f'href="#{en_id}"', 1)
         reanchored.append((level, en_id, html_text))
     return dict(title=meta['title'], nav=meta.get('nav') or meta['title'], description=meta['description'],
-                body=body_html, headings=reanchored)
+                seo_title=meta.get('seo_title'), body=body_html, headings=reanchored)
 
 
 def load_docs():
@@ -630,6 +671,7 @@ def load_docs():
     folders = {folder: gid for gid, folder in DOC_GROUPS if folder}
     files = sorted(DOCS.rglob('*.md'))
     dates = git_dates(files)
+    first = git_first_dates(files)
     docs = []
     for f in files:
         rel = f.relative_to(DOCS)
@@ -652,7 +694,8 @@ def load_docs():
             home=rel.as_posix() == 'index.md', landing=rel.stem == 'index' and folder != '.',
             title=meta['title'], nav=meta.get('nav') or meta['title'], description=meta['description'],
             order=float(meta['order']), preview=meta.get('preview') == 'yes', body=body_html, headings=headings,
-            date=dates[f], langs=['en'] + list(i18n), i18n=i18n, join=False, og=False, card='en-docs',
+            date=meta.get('date') or dates[f], published=meta.get('date') or first[f], seo_title=meta.get('seo_title'),
+            langs=['en'] + list(i18n), i18n=i18n, join=False, og=False, card='en-docs',
             priority='0.7' if rel.as_posix() == 'index.md' else '0.6', changefreq='monthly'))
     rank = {gid: i for i, (gid, _) in enumerate(DOC_GROUPS)}
     docs.sort(key=lambda d: (rank[d['group']], not d['home'], not d['landing'], d['order'], d['title']))
@@ -712,8 +755,8 @@ def docs_nav(docs, cur, t):
         members = [d for d in docs if d['group'] == gid]
         landing = next((d for d in members if d['landing']), None)
         entries = ''.join(item(d, cls=' class="mono"' if gid == 'cli' else '') for d in members if not d['landing'])
-        if gid == 'cli':  # long: folded unless you're in it
-            first = item(landing, t['docs.all_commands']) if landing else ''
+        if gid in ('cli', 'changelog'):  # long lists: folded unless you're in them
+            first = item(landing, t['docs.all_commands'] if gid == 'cli' else None) if landing else ''
             out.append(f'<details class="dn-group dn-fold"{" open" if cur["group"] == gid else ""}><summary class="dn-h">{title}</summary>'
                        f'<ul>{first}{entries}</ul></details>')
             continue
@@ -748,6 +791,19 @@ def docs_toc(d, t):
             f'<details class="toc-fold"><summary>{on_this_page}</summary><ul>{items}</ul></details>')
 
 
+def guide_cards(docs, lang, t):
+    """the home page's pick of guides, in the reader's language where the docs have it, else English (marked)"""
+    dl = lang if lang in DOCS_LANGS else 'en'
+    local = localize_docs(docs, dl)
+    guides = sorted((d for d in local if d['group'] == 'guides' and not d['landing']), key=lambda d: d['order'])[:6]
+    landing = next(d for d in local if d['group'] == 'guides' and d['landing'])
+    en = ' hreflang="en"'
+    mark = lambda d: en if dl != lang or d.get('cross_lang') else ''
+    card = lambda d, title: (f'<a class="go card" href="{d["url"]}"{mark(d)}><h3>{title}</h3><p>{esc(snippet(d["description"], 110))}</p>'
+                             '<span class="more" aria-hidden="true">→</span></a>')
+    return ''.join(card(d, mdlite.inline(d['title'])) for d in guides) + card(landing, esc(t['guides.all']))
+
+
 def docs_cards(docs, t):
     """the overview's map of the docs: each group and its pages (the CLI reference as one entry)"""
     mark = lambda d: ' hreflang="en"' if d.get('cross_lang') else ''
@@ -756,7 +812,7 @@ def docs_cards(docs, t):
         title = group_title(t, gid)
         members = [d for d in docs if d['group'] == gid and not d['home']]
         landing = next((d for d in members if d['landing']), None)
-        shown = [landing] if gid == 'cli' else [d for d in members if not d['landing']]
+        shown = [landing] if gid in ('cli', 'changelog') else [d for d in members if not d['landing']]
         label = lambda d: t['docs.all_commands'] if gid == 'cli' else esc(text(d['title']))
         items = ''.join(f'<li><a href="{d["url"]}"{mark(d)}>{label(d)}</a><span>{mdlite.inline(d["description"])}</span></li>'
                         for d in shown)
@@ -782,7 +838,7 @@ def docs_jsonld(docs, d, meta, lang, t):
     kind = 'CollectionPage' if d['home'] or d['landing'] else 'TechArticle'
     page = {'@type': kind, '@id': f'{url}#page', 'url': url, 'name': text(d['title']), 'headline': text(d['title']),
             'description': text(mdlite.inline(d['description'])), 'inLanguage': tag(lang), 'isPartOf': {'@id': f'{SITE}/#website'},
-            'publisher': {'@id': f'{SITE}/#org'}, 'dateModified': d['date'], 'image': meta['og_image'],
+            'publisher': {'@id': f'{SITE}/#org'}, 'dateModified': d['date'], 'datePublished': d.get('published') or d['date'], 'image': meta['og_image'],
             'breadcrumb': {'@id': f'{url}#breadcrumb'}}
     if kind == 'TechArticle':
         page['author'] = {'@id': f'{SITE}/#org'}
@@ -850,7 +906,7 @@ def build_docs(base, docs_template, t, g, lang, docs_raw):
     for n, d in enumerate(docs):
         if not d['translated']:
             continue
-        title = t['docs.title_home'] if d['home'] else f'{text(d["title"])} {t["docs.meta_suffix"]}'
+        title = t['docs.title_home'] if d['home'] else d.get('seo_title') or f'{text(d["title"])} {t["docs.meta_suffix"]}'
         desc = text(mdlite.inline(d['description']))
         meta = dict(title=title, description=desc, og_title=title, og_description=desc, og_alt=t['docs.og_alt'],
                     og_image=f'{SITE}/og/{d["card"]}.png?v={BRAND_VERSION}', crumb=text(d['title']))
@@ -1068,7 +1124,7 @@ def press_kit(t, cfg, dl, status, latest_version, latest_date):
             '@press_zip': f'/{PRESS_ZIP}?v={zip_v}', '@press_zip_size': human_size(len(data))}
 
 
-def sitemap(pages, status, docs):
+def sitemap(pages, status, docs, page_dates):
     today = datetime.date.today().isoformat()
     urls = []
     for page in pages + docs:
@@ -1077,8 +1133,11 @@ def sitemap(pages, status, docs):
         variants = langs_of(page)
         alts = ''.join(f'\n    <xhtml:link rel="alternate" hreflang="{tag(l)}" href="{SITE}{url_path(l, page)}"/>' for l in variants)
         alts += f'\n    <xhtml:link rel="alternate" hreflang="x-default" href="{SITE}{url_path("en", page)}"/>'
-        lastmod = status['updated'] if page['id'] == 'status' else page.get('date', today)
-        urls += [f'\n  <url>\n    <loc>{SITE}{url_path(l, page)}</loc>\n    <lastmod>{lastmod}</lastmod>'
+        def lastmod(l):
+            if page['id'] == 'status':
+                return status['updated']
+            return page.get('date') or page_dates.get((page['id'], l), today)
+        urls += [f'\n  <url>\n    <loc>{SITE}{url_path(l, page)}</loc>\n    <lastmod>{lastmod(l)}</lastmod>'
                  f'\n    <changefreq>{page["changefreq"]}</changefreq>\n    <priority>{page["priority"]}</priority>{alts}\n  </url>'
                  for l in variants]
     return ('<?xml version="1.0" encoding="UTF-8"?>\n'

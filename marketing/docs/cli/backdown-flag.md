@@ -1,7 +1,7 @@
 ---
 title: backdown flag
 nav: flag
-description: Flags: a decision about an item — canonical, duplicate, keep, drop, reviewed.
+description: Flags: a decision about an item — canonical, duplicate, keep, drop, reviewed. What `backdown flag` does, its options and examples, from the built-in help.
 order: 44
 ---
 
