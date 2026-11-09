@@ -882,6 +882,9 @@ fn worker(d: &Daemon) {
                 });
             }
         }
+        // reclaim the WAL between jobs: otherwise this is the one connection that's open for as
+        // long as the daemon runs, and nothing else here ever forces a checkpoint
+        db.checkpoint();
         if ok && job.kind == "index" {
             d.state.lock().unwrap().recheck = true;
             // hash after every scan, so this scan's versions keep a provable fingerprint (with

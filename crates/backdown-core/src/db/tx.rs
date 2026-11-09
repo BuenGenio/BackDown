@@ -66,12 +66,16 @@ impl<'c> Tx<'c> {
     /// Commit what's written so far and go on in a new transaction, for long jobs that keep their
     /// work a batch at a time. If the commit fails, the batch is rolled back when the guard drops.
     /// In a joined transaction it does nothing.
+    ///
+    /// Also reclaims WAL space (`super::checkpoint`) now that the batch is out of the way: left to
+    /// SQLite alone, a long job's own commits can let the WAL grow without bound (see there).
     pub fn checkpoint(&mut self) -> Result<()> {
         if !self.own {
             return Ok(());
         }
         self.conn.execute_batch("COMMIT")?;
         self.open = false;
+        super::checkpoint(self.conn);
         self.conn.execute_batch(self.lock.begin())?;
         self.open = true;
         Ok(())

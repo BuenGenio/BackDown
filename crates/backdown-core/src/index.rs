@@ -1061,7 +1061,11 @@ impl<'c> Writer<'c> {
     /// commits what it has and returns `Stopped`.
     pub fn tick(&mut self, progress: &mut dyn FnMut(&Stats)) -> Result<()> {
         if self.pending >= BATCH {
-            self.conn.execute_batch("COMMIT; BEGIN")?;
+            self.conn.execute_batch("COMMIT")?;
+            // a scan runs for as long as the drive takes to walk, so its own batch commits are
+            // the only chance to reclaim the WAL along the way (crate::db::checkpoint)
+            crate::db::checkpoint(self.conn);
+            self.conn.execute_batch("BEGIN")?;
             self.pending = 0;
             self.committed = true;
         }
@@ -1069,6 +1073,7 @@ impl<'c> Writer<'c> {
             self.conn.execute_batch("COMMIT")?;
             self.open = false;
             self.pending = 0;
+            crate::db::checkpoint(self.conn);
             return Err(Stopped.into());
         }
         if self.last.elapsed() >= Duration::from_millis(250) {
