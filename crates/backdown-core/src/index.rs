@@ -1151,14 +1151,18 @@ impl<'c> Writer<'c> {
             ));
         }
         self.whole = true;
-        self.st.removed += self.conn.execute(
-            "UPDATE files SET current = 0 WHERE root_id = ?1 AND current = 1 AND last_scan < ?2",
-            params![self.root_id, self.scan],
-        )? as u64;
-        self.conn.execute(
-            "UPDATE dirs SET current = 0 WHERE root_id = ?1 AND current = 1 AND last_scan < ?2",
-            params![self.root_id, self.scan],
-        )?;
+        // not one statement inside the scan's transaction: with 1.6 M files gone, that wrote a
+        // WAL bigger than the index (a transaction can't be checkpointed while it runs). A batch
+        // at a time instead, each committed with the WAL reclaimed, like `tick`'s batches: what's
+        // closed is what the walk really didn't see, and a scan that fails part way is carried on
+        // from by the next, as after any batch
+        self.conn.execute_batch("COMMIT")?;
+        self.open = false;
+        self.committed = true;
+        self.st.removed += close_rows(self.conn, "files", self.root_id, self.scan)?;
+        close_rows(self.conn, "dirs", self.root_id, self.scan)?;
+        self.conn.execute_batch("BEGIN")?;
+        self.open = true;
         Ok(())
     }
 
@@ -1200,6 +1204,24 @@ impl<'c> Writer<'c> {
         self.open = false;
         progress(&self.st);
         Ok(std::mem::take(&mut self.st))
+    }
+}
+
+/// Closes the rows of `table` under a root that scan `scan` didn't see, `BATCH` at a time: each
+/// batch its own transaction (none may be open), the WAL reclaimed after it. How many it closed.
+fn close_rows(conn: &Connection, table: &str, root_id: i64, scan: i64) -> Result<u64> {
+    let sql = format!(
+        "UPDATE {table} SET current = 0 WHERE id IN (SELECT id FROM {table}
+           WHERE root_id = ?1 AND current = 1 AND last_scan < ?2 LIMIT {BATCH})"
+    );
+    let mut total = 0;
+    loop {
+        let n = conn.execute(&sql, params![root_id, scan])? as u64;
+        if n == 0 {
+            return Ok(total);
+        }
+        total += n;
+        crate::db::checkpoint(conn);
     }
 }
 
@@ -1721,5 +1743,91 @@ mod tests {
         );
         assert_eq!(scans(&db), before);
         assert!(db.conn.is_autocommit());
+    }
+
+    /// Closing what a scan didn't see on a root that lost most of its files (a drive emptied, a
+    /// big folder moved away) once ran as one statement over the whole root, inside the scan's
+    /// transaction: closing 1.6 M files that way wrote a WAL bigger than the index itself and
+    /// filled the disk (8 Nov 2026). It goes a batch at a time now, the WAL reclaimed between.
+    #[test]
+    fn closing_a_root_that_lost_its_files_keeps_the_wal_small() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("idx.db");
+        let db = Db::open(&path).unwrap();
+        let root = Path::new("/drive");
+        db.conn
+            .execute(
+                "INSERT INTO roots(path) VALUES (?1)",
+                [paths::to_bytes(root)],
+            )
+            .unwrap();
+        let root_id = db.conn.last_insert_rowid();
+        db.conn
+            .execute(
+                "INSERT INTO scans(root_id, started_at, finished_at, files) VALUES (?1, 1, 2, 200000)",
+                [root_id],
+            )
+            .unwrap();
+        let first = db.conn.last_insert_rowid();
+        // 200,000 files as a finished scan leaves them: hashed, with their inodes, so every
+        // partial index on current rows has an entry to lose
+        db.conn.execute_batch("BEGIN").unwrap();
+        {
+            let mut put = db
+                .conn
+                .prepare(
+                    "INSERT INTO files (root_id, path, dir, size, mtime, dev, ino, sample, sha256, first_scan, last_scan, current, lname)
+                     VALUES (?1, ?2, ?3, ?4, 1, 1, ?5, ?6, ?7, ?8, ?8, 1, ?9)",
+                )
+                .unwrap();
+            for i in 0..200_000i64 {
+                let dir = format!("/drive/d{}", i % 1000);
+                let name = format!("f{i}");
+                let mut sha = [0u8; 32];
+                sha[..8].copy_from_slice(&i.to_be_bytes());
+                put.execute(params![
+                    root_id,
+                    format!("{dir}/{name}").as_bytes(),
+                    dir.as_bytes(),
+                    i,
+                    i,
+                    &sha[..16],
+                    &sha[..],
+                    first,
+                    name
+                ])
+                .unwrap();
+            }
+        }
+        db.conn.execute_batch("COMMIT").unwrap();
+        crate::db::checkpoint(&db.conn);
+        let wal = || {
+            std::fs::metadata(path.with_extension("db-wal"))
+                .map(|m| m.len())
+                .unwrap_or(0)
+        };
+        assert_eq!(wal(), 0, "starts with an empty WAL");
+
+        // a scan that finds nothing there
+        let mut w = Writer::begin(&db.conn, root, root_id).unwrap();
+        w.close_unseen(200_000, true).unwrap();
+        let st = w
+            .finish("walk", "", 0, &Saved::default(), &mut |_| {})
+            .unwrap();
+        assert_eq!(st.removed, 200_000);
+        let open: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM files WHERE current = 1", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(open, 0);
+        assert!(db.conn.is_autocommit());
+        let after = wal();
+        assert!(
+            after < 2 << 20,
+            "closing 200,000 files left a {after}-byte WAL: it should go a batch at a time, \
+             reclaimed between batches"
+        );
     }
 }

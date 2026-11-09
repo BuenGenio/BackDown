@@ -54,6 +54,78 @@ fn hash_here(db: &mut Db) {
     .unwrap();
 }
 
+/// Forgetting a machine's cached files — all of them, or one drive's — once ran as one statement
+/// over millions of rows: a transaction that can't be checkpointed while it runs, and a WAL to
+/// match (tomahawk caches 16 M of nextcloud's). It goes a batch at a time now, the WAL reclaimed
+/// between.
+#[test]
+fn forgetting_cached_files_keeps_the_wal_small() {
+    let tmp = scratch();
+    let path = tmp.path().join("local.db");
+    let db = Db::open(&path).unwrap();
+    let m = add(&db, "nas", "ssh://nas.example.org", None, None).unwrap();
+    db.conn.execute_batch("BEGIN").unwrap();
+    {
+        let mut put = db
+            .conn
+            .prepare(
+                "INSERT INTO remote_files(remote_id, rid, root_id, path, size, mtime, sample, sha256, error, hashed_at, lname)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?7, 0, NULL, ?8)",
+            )
+            .unwrap();
+        for i in 0..200_000i64 {
+            let mut sha = [0u8; 32];
+            sha[..8].copy_from_slice(&i.to_be_bytes());
+            put.execute(params![
+                m.id,
+                i,
+                1 + i % 2,
+                format!("/vol/d{}/f{i}", i % 1000).as_bytes(),
+                i,
+                &sha[..16],
+                &sha[..],
+                format!("f{i}")
+            ])
+            .unwrap();
+        }
+    }
+    db.conn.execute_batch("COMMIT").unwrap();
+    crate::db::checkpoint(&db.conn);
+    let wal = || {
+        fs::metadata(path.with_extension("db-wal"))
+            .map(|m| m.len())
+            .unwrap_or(0)
+    };
+    let count = || -> i64 {
+        db.conn
+            .query_row(
+                "SELECT COUNT(*) FROM remote_files WHERE remote_id = ?1",
+                [m.id],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(wal(), 0, "starts with an empty WAL");
+
+    // one drive's files (every other row), then the machine with the rest
+    assert_eq!(forget_files(&db.conn, m.id, Some(1)).unwrap(), 100_000);
+    assert_eq!(count(), 100_000);
+    let after_one = wal();
+    assert!(
+        after_one < 2 << 20,
+        "forgetting one drive's 100,000 cached files left a {after_one}-byte WAL"
+    );
+    remove(&db, m.id).unwrap();
+    assert_eq!(count(), 0);
+    assert!(get(&db, m.id).is_err());
+    let after_all = wal();
+    assert!(
+        after_all < 2 << 20,
+        "forgetting a machine's 100,000 cached files left a {after_all}-byte WAL"
+    );
+    assert!(db.conn.is_autocommit());
+}
+
 /// The other machine, in-process: its read-only index answering through the real protocol.
 struct Local {
     db: PathBuf,
