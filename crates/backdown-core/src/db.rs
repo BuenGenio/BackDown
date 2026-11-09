@@ -519,7 +519,11 @@ impl Db {
         add_column(&conn, "remote_files", "lname", "TEXT")?;
         conn.execute_batch(crate::name_index::SCHEMA)?;
         crate::name_index::open(&conn)?;
-        conn.execute_batch(&format!("PRAGMA user_version = {VERSION}"))?;
+        // setting the version writes page 1 even when it's unchanged: a write transaction, and a
+        // WAL frame, from every command that only came to read
+        if version != VERSION {
+            conn.execute_batch(&format!("PRAGMA user_version = {VERSION}"))?;
+        }
         Ok(Db { conn })
     }
 
