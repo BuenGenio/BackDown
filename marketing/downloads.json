@@ -6,39 +6,39 @@
       "name": "Linux",
       "formats": ".deb · AppImage · CLI",
       "status": "available",
-      "version": "v1.0.0-beta.8",
-      "date": "2026-11-08",
+      "version": "v1.0.0-beta.9",
+      "date": "2026-11-09",
       "files": [
         {
           "label": ".deb · x86-64",
-          "url": "https://github.com/BuenGenio/backdown-releases/releases/download/v1.0.0-beta.8/backdown-io_1.0.0-beta.8_amd64.deb",
-          "sha256": "8db884a3f65364c824491aee37d02a7641f8e2b8726881e5abe2942f4a5621d3"
+          "url": "https://github.com/BuenGenio/backdown-releases/releases/download/v1.0.0-beta.9/backdown-io_1.0.0-beta.9_amd64.deb",
+          "sha256": "dd79bce4ca366c5f3b1beaab982d8e9f6793812977544d3c3725f28c74e71b67"
         },
         {
           "label": ".deb · ARM64",
-          "url": "https://github.com/BuenGenio/backdown-releases/releases/download/v1.0.0-beta.8/backdown-io_1.0.0-beta.8_arm64.deb",
-          "sha256": "25b5834491c3ea1149a943c7781319afa40f3048e4879561914b3faba66c90ed"
+          "url": "https://github.com/BuenGenio/backdown-releases/releases/download/v1.0.0-beta.9/backdown-io_1.0.0-beta.9_arm64.deb",
+          "sha256": "a3e1e1ebaf67dec099fd032c7e492050b522568549c6562a60665da7d1d76c08"
         },
         {
           "label": "AppImage · x86-64",
-          "url": "https://github.com/BuenGenio/backdown-releases/releases/download/v1.0.0-beta.8/BackDown-1.0.0-beta.8-x86_64.AppImage",
-          "sha256": "b6964f2c6a8a94b97e2c5600ab0e1d11fac56668597d678fb5b737969d254b50"
+          "url": "https://github.com/BuenGenio/backdown-releases/releases/download/v1.0.0-beta.9/BackDown-1.0.0-beta.9-x86_64.AppImage",
+          "sha256": "d339d08962a5c665051a80dc3bdde1baa42ca5c382aba9c6268375893aa3a584"
         },
         {
           "label": "AppImage · ARM64",
-          "url": "https://github.com/BuenGenio/backdown-releases/releases/download/v1.0.0-beta.8/BackDown-1.0.0-beta.8-aarch64.AppImage",
-          "sha256": "7bfec54feca6f208ce7933f7ac94e959d6f3cc6e4350efa2f48b361580c1e972"
+          "url": "https://github.com/BuenGenio/backdown-releases/releases/download/v1.0.0-beta.9/BackDown-1.0.0-beta.9-aarch64.AppImage",
+          "sha256": "eb4b4bc482b3ee651e5c26d30ecefc116d3641c72aa466cb0d4b73ca15776eee"
         },
         {
           "label": "CLI · x86-64",
-          "url": "https://github.com/BuenGenio/backdown-releases/releases/download/v1.0.0-beta.8/backdown-v1.0.0-beta.8-linux-x86_64.tar.gz",
-          "sha256": "c193956a09325a67829aeaf5126d238e06f95d2e37a43b2e8a0d1bf7ff16dcbd",
+          "url": "https://github.com/BuenGenio/backdown-releases/releases/download/v1.0.0-beta.9/backdown-v1.0.0-beta.9-linux-x86_64.tar.gz",
+          "sha256": "88adf107f266b9f107acbd9d8d26ea37f5c239b05a68624eb7a2b98e7d7c335e",
           "kind": "cli"
         },
         {
           "label": "CLI · ARM64",
-          "url": "https://github.com/BuenGenio/backdown-releases/releases/download/v1.0.0-beta.8/backdown-v1.0.0-beta.8-linux-arm64.tar.gz",
-          "sha256": "521e879e9685c53f2e3134cfb0dc6e6f4a5603b4df24ea71e31b8a7c66b2c063",
+          "url": "https://github.com/BuenGenio/backdown-releases/releases/download/v1.0.0-beta.9/backdown-v1.0.0-beta.9-linux-arm64.tar.gz",
+          "sha256": "8a4c146487229a39b13ee8112f334016ccfca74594dec8adf55d934c4653ccdd",
           "kind": "cli"
         }
       ],
@@ -49,23 +49,23 @@
       "name": "macOS",
       "formats": ".dmg · CLI · universal",
       "status": "available",
-      "version": "v1.0.0-beta.8",
-      "date": "2026-11-08",
+      "version": "v1.0.0-beta.9",
+      "date": "2026-11-09",
       "files": [
         {
           "label": ".dmg",
-          "url": "https://github.com/BuenGenio/backdown-releases/releases/download/v1.0.0-beta.8/BackDown-1.0.0-beta.8.dmg",
-          "sha256": "2d1f04c609007f0dd1a1f62acd33a38505f23ae46b90219a5845006b9e8b6184"
+          "url": "https://github.com/BuenGenio/backdown-releases/releases/download/v1.0.0-beta.9/BackDown-1.0.0-beta.9.dmg",
+          "sha256": "e26db1a501be9f6b8636aa6134f516860f951a56b97c7cce79e3f42dbc7957de"
         },
         {
           "label": ".app · .zip",
-          "url": "https://github.com/BuenGenio/backdown-releases/releases/download/v1.0.0-beta.8/BackDown-1.0.0-beta.8-macos.zip",
-          "sha256": "59b8baa35b376ab062e174a803141c5e28ea781651aff17f055e1ea956779460"
+          "url": "https://github.com/BuenGenio/backdown-releases/releases/download/v1.0.0-beta.9/BackDown-1.0.0-beta.9-macos.zip",
+          "sha256": "c087ad9d9b72c4c246a03848d8d4bcb5d54169b22c04d28766d7e436d2b45997"
         },
         {
           "label": "CLI",
-          "url": "https://github.com/BuenGenio/backdown-releases/releases/download/v1.0.0-beta.8/backdown-v1.0.0-beta.8-macos-universal.tar.gz",
-          "sha256": "47eb01974dfdc511a0c84129a997dea7c433bf11e7a666a4d9ff7d66fe459312",
+          "url": "https://github.com/BuenGenio/backdown-releases/releases/download/v1.0.0-beta.9/backdown-v1.0.0-beta.9-macos-universal.tar.gz",
+          "sha256": "a9b2875db9dbe791f227c45ed627d4c23b74905ebdff5b6fecb49f43161600a4",
           "kind": "cli"
         }
       ],
