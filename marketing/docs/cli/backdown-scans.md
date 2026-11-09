@@ -1,7 +1,7 @@
 ---
 title: backdown scans
 nav: scans
-description: Finished scans, oldest first.
+description: Finished scans, oldest first. What `backdown scans` does, its options and examples, from the built-in help.
 order: 12
 ---
 

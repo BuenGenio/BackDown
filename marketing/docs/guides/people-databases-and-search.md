@@ -2,6 +2,7 @@
 title: People, databases, and searching inside things
 description: See everyone and every database your drives hold, gathered across drives from mail stores, Nextcloud data, home folders, site configs and dumps; then search inside mail and databases, reusing the indexes already there.
 order: 9.7
+seo_title: Find people, databases and mail on old drives, search inside
 ---
 
 A drawer of old drives holds the same people and the same databases many times over: Alice's mailbox in the mail server's store, her Nextcloud account on a later backup, her home folder in a system image; the shop's database dumped every night for years, its live data directory in a server backup, and the WordPress site that used it. BackDown gathers each into one **person** and one **database**, across drives, and lets you search inside the mail and the databases themselves.

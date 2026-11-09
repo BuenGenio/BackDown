@@ -2,6 +2,7 @@
 title: File your old drives into one archive
 description: Let BackDown propose where everything on your old drives goes in one archive, and why, then copy it there with every file verified. Nothing is deleted.
 order: 2
+seo_title: File old drives into one archive, with a plan and a dry run
 ---
 
 You have several old drives and want everything on them in one archive, sorted into something sensible, with nothing lost and nothing copied twice. BackDown does it in two steps: a **plan** that says where each thing goes and why, which you can read and change, then **apply**, which copies, reads every copy back to check it, and keeps a journal. Neither step deletes anything. Once the archive is indexed, the old drives can be [freed up](/docs/guides/free-up-a-drive/). Afterwards, identical files inside the archive can share their storage ([tidy the archive](#tidy-the-archive)).

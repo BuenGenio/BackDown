@@ -2,6 +2,7 @@
 title: Browse without restoring
 description: Open any file on any indexed drive as it was at any scan, read mailboxes as conversations, see SQL dumps as schemas, look inside disk images, and search every drive at once.
 order: 9
+seo_title: Browse old backups without restoring: any folder, any scan
 ---
 
 The file browser shows everything in the index the way a file manager would, with history: every drive, every folder as it was at any scan, and a viewer for most files, without copying anything back first. It only reads.

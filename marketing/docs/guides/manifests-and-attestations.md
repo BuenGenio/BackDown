@@ -3,6 +3,7 @@ title: Signed manifests and attestations
 nav: Manifests and attestations
 description: Sign a statement of exactly what a drive held at a scan that anyone can check wasn't changed, have the service sign one after each scan or on a schedule, and check one on another computer, with BackDown or without it.
 order: 11
+seo_title: Signed manifests: prove what a drive held, verify anywhere
 ---
 
 A **manifest** is a signed statement of exactly what one drive held at one scan: every file's path, size and hash, sealed into a single fingerprint (a Merkle root) and signed with your BackDown's own key. Change anything in it afterwards, a name, a size, a hash, a date or a count, and it no longer checks. Each drive's manifests are chained, every one naming the one before it, so one left out or two swapped shows too.

@@ -1,5 +1,8 @@
 User-agent: *
 Allow: /
 Disallow: /api/
+# the docs' live demo: an app shell and its recorded answers, not pages to index (the frames carry noindex)
+Disallow: /demo/api/
+Disallow: /demo/d/
 
 Sitemap: https://backdown.io/sitemap.xml

@@ -1,7 +1,7 @@
 ---
 title: backdown open
 nav: open
-description: Open the running daemon's web UI in your browser.
+description: Open the running daemon's web UI in your browser. What `backdown open` does, its options and examples, from the built-in help.
 order: 16
 ---
 

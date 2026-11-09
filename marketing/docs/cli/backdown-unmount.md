@@ -1,7 +1,7 @@
 ---
 title: backdown unmount
 nav: unmount
-description: Unmount a partition, or detach a disk image, that BackDown mounted (nothing else).
+description: Unmount a partition, or detach a disk image, that BackDown mounted (nothing else). What `backdown unmount` does, its options and examples, from the built-in help.
 order: 11
 ---
 

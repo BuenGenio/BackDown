@@ -2,6 +2,7 @@
 title: Free up a drive
 description: Delete only what has a verified copy elsewhere, move what exists only on the drive first, and see exactly what will happen before anything does.
 order: 1
+seo_title: Free up an old drive safely: delete only verified duplicates
 ---
 
 Freeing up a drive is the one thing BackDown deletes, and only when you ask. The rule is simple: a file is deleted only when an identical copy exists outside what you're freeing, and both have just been read again and compared. What exists only on the drive can be moved somewhere first, or left where it is.

@@ -1,7 +1,7 @@
 ---
 title: backdown desktop
 nav: desktop
-description: Add BackDown to your applications menu, ~/Applications or the Start menu (or remove it).
+description: Add BackDown to your applications menu, ~/Applications or the Start menu (or remove it). What `backdown desktop` does, its options and examples, from the built-in help.
 order: 20
 ---
 

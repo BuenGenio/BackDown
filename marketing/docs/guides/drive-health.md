@@ -2,6 +2,7 @@
 title: Drive health
 description: What each drive says about itself, what BackDown can read of it on Linux, macOS and Windows, the warnings and trends it keeps, notifications, other machines' drives gathered here, and what to do when a drive is failing.
 order: 6
+seo_title: Drive health: SMART verdicts, trends and failure warnings
 ---
 
 Drives keep a record of how they're doing: sectors they've had to replace, sectors they can't read, errors on the cable, how much of an SSD's write endurance is used, temperature, and their own overall verdict (SMART). BackDown reads it for every physical drive, keeps a history of it, and tells you when a drive gets worse, so that you copy what's on it while it still reads.

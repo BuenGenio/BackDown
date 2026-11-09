@@ -1,7 +1,7 @@
 ---
 title: backdown dupes
 nav: dupes
-description: List duplicated content, largest reclaimable space first (runs `hash` first).
+description: List duplicated content, largest reclaimable space first (runs `hash` first). What `backdown dupes` does, its options and examples, from the built-in help.
 order: 5
 ---
 

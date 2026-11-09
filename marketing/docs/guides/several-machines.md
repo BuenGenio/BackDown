@@ -2,6 +2,7 @@
 title: Several machines
 description: Let copies on a NAS or another computer count, reached over ssh with your own keys: add a machine, sync it, browse it, gather its drive-health warnings here, and free up drives here against copies there.
 order: 5
+seo_title: Use BackDown across several machines: copies on a NAS count
 ---
 
 Your archive may be on a NAS, and old drives plugged into a different computer. BackDown on this computer can read another machine's BackDown index over ssh, so files there count as copies: for duplicates, for overlaps, for `check`, and for freeing up drives here; and its drives' health is gathered here too, so a warning on the NAS reaches you. Nothing on the other machine is ever changed, and no file's contents are sent: only its index entries, its drives' health as it last read them, and, when asked, SHA-256 hashes.

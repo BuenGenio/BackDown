@@ -1,7 +1,7 @@
 ---
 title: backdown mail
 nav: mail
-description: Mailboxes: merge copies of one into a single Maildir, or export a Maildir folder as mbox.
+description: Mailboxes: merge copies of one into a single Maildir, or export a Maildir folder as mbox. What `backdown mail` does, its options and examples, from the built-in help.
 order: 40
 ---
 

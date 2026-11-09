@@ -92,7 +92,8 @@ for (const name of UI) {
     let t = body.toString('utf8')
       .replace(/(href|src)="\/(app\.css|app\.js|favicon\.svg|vendor\/[^"]+)"/g, '$1="/demo/$2"')
       .replace('<script type="module" src="/demo/app.js"', '<script src="/demo/demo.js"></script>\n<script type="module" src="/demo/app.js"')
-      .replace(/<title>[^<]*<\/title>/, '<title>BackDown demo</title>');
+      .replace(/<title>[^<]*<\/title>/, '<title>BackDown demo</title>')
+      .replace('<meta charset="utf-8">', '<meta charset="utf-8">\n<meta name="robots" content="noindex">'); // an app shell, not a page to index
     if (!t.includes('/demo/demo.js')) throw new Error("index.html: couldn't place demo.js");
     body = Buffer.from(t);
   }

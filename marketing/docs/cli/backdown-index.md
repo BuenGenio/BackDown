@@ -1,7 +1,7 @@
 ---
 title: backdown index
 nav: index
-description: Index every file under each PATH as a new scan (read-only; re-run to update).
+description: Index every file under each PATH as a new scan (read-only; re-run to update). What `backdown index` does, its options and examples, from the built-in help.
 order: 2
 ---
 

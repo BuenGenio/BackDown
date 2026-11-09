@@ -1,7 +1,7 @@
 ---
 title: backdown license
 nav: license
-description: Your BackDown Pro licence: add a key, or show the one you have.
+description: Your BackDown Pro licence: add a key, or show the one you have. What `backdown license` does, its options and examples, from the built-in help.
 order: 35
 ---
 

@@ -3,6 +3,7 @@ title: Air-gapped machines
 nav: Air-gapped machines
 description: BackDown on a computer with no network: a checklist, licences checked offline, and updates carried over on a drive, their signature checked before they're installed.
 order: 11
+seo_title: BackDown on air-gapped machines: install and update offline
 ---
 
 BackDown does its work without a network: indexing, hashing, duplicates, checks, browsing, freeing up drives, rescue and drive health all happen on the computer it runs on. That makes it suitable for a machine that's kept off every network, such as an evidence workstation or a lab computer. A licence is checked on the computer itself, and updates can come on a drive you carry over, checked against BackDown's signature before anything is installed.

@@ -3,6 +3,7 @@ title: Getting started
 description: Install BackDown, open it, index your drives, see what's duplicated, and find out whether a drive is safe to wipe, in the app or in a terminal.
 order: 1
 group: start
+seo_title: BackDown quick start: install, index drives, find duplicates
 ---
 
 A first session: install BackDown, open it, index two drives, see what's duplicated, and ask whether one of them is safe to wipe. Everything can be done in the app's window or in a terminal; this page shows both. The examples use an old drive mounted at `/media/old-drive` and an archive drive at `/media/archive`. Use your own paths; on Windows, drive letters such as `E:\`.

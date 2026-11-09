@@ -1,7 +1,7 @@
 ---
 title: backdown edge
 nav: edge
-description: Relationship edges between content, people and places (the model's graph).
+description: Relationship edges between content, people and places (the model's graph). What `backdown edge` does, its options and examples, from the built-in help.
 order: 45
 ---
 

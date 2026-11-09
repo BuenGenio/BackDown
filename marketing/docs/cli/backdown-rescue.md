@@ -1,7 +1,7 @@
 ---
 title: backdown rescue
 nav: rescue
-description: Get files back from a failing, formatted or emptied drive or card (only reads it).
+description: Get files back from a failing, formatted or emptied drive or card (only reads it). What `backdown rescue` does, its options and examples, from the built-in help.
 order: 32
 ---
 

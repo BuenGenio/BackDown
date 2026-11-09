@@ -3,6 +3,7 @@ title: Troubleshooting and FAQ
 description: Files BackDown can't read, drives that don't show up, rescans that walk, the app and the background service, updates, where the index lives, uninstalling, and common questions.
 order: 1
 group: help
+seo_title: BackDown troubleshooting: drives, service, updates, FAQ
 ---
 
 > [!NOTE]

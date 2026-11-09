@@ -1,9 +1,10 @@
 ---
 title: Privacy and safety principles
 nav: Principles
-description: The five rules BackDown is built on, and how the program keeps them.
+description: What BackDown promises about your data: it runs on your computer, only reads your drives unless you ask it to copy or wipe, and backs every claim with a hash.
 order: 2
 group: help
+seo_title: BackDown privacy and safety principles: read-only by default
 ---
 
 Five rules don't change from one version to the next. This page says what each one means in practice, in the program you can download.
