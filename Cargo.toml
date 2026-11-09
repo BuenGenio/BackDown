@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/backdown-core", "crates/backdown-viewers", "crates/backdown-cli"]
 
 [workspace.package]
-version = "1.0.0-beta.11"
+version = "1.0.0-beta.12"
 edition = "2024"
 rust-version = "1.91"
 authors = ["Yevgen Trotsan"]
