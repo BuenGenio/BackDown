@@ -353,9 +353,25 @@ fn add_column(conn: &Connection, table: &str, column: &str, decl: &str) -> Resul
 /// meant to give back. A blocking reader makes this call itself do nothing (`TRUNCATE` can be
 /// held off the same way), so it's not a guarantee — it's what makes reclaiming possible as soon
 /// as nothing's in the way, instead of never.
+///
+/// It waits `CHECKPOINT_WAIT` for readers, not the connection's `BUSY_TIMEOUT`: `TRUNCATE` calls
+/// the busy handler while it waits for the writer and then the readers, and a reader stuck on an
+/// old snapshot would otherwise hold a scan for 30 s at every batch, and every CLI command for
+/// 30 s as it opens — in just the situation this is for. Given up on, SQLite checkpoints what it
+/// can (as `PASSIVE` would) and returns at once.
 pub(crate) fn checkpoint(conn: &Connection) {
+    let _ = conn.busy_timeout(CHECKPOINT_WAIT);
     let _ = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
+    let _ = conn.busy_timeout(BUSY_TIMEOUT);
 }
+
+/// How long a writer waits for its turn: a second writer (a CLI command saving results while the
+/// daemon works) waits this long rather than failing.
+const BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// How long `checkpoint` waits for readers: long enough for a request in flight to finish, far
+/// too short to stall anything behind a slow one.
+const CHECKPOINT_WAIT: std::time::Duration = std::time::Duration::from_millis(250);
 
 /// The duplicates report's covering index (report::dupes): current, hashed files by sha256 with
 /// their size and inode, so grouping them and collapsing hardlinks is answered from the index
@@ -455,8 +471,7 @@ impl Db {
         conn.execute_batch(
             "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;",
         )?;
-        // a second writer (a CLI command saving results while the daemon works) waits its turn
-        conn.busy_timeout(std::time::Duration::from_secs(30))?;
+        conn.busy_timeout(BUSY_TIMEOUT)?;
         // a WAL left big by an earlier run (a long scan whose batches never got to checkpoint,
         // a crash) is reclaimed now, while nothing else holds this file open yet
         checkpoint(&conn);
@@ -504,7 +519,11 @@ impl Db {
         add_column(&conn, "remote_files", "lname", "TEXT")?;
         conn.execute_batch(crate::name_index::SCHEMA)?;
         crate::name_index::open(&conn)?;
-        conn.execute_batch(&format!("PRAGMA user_version = {VERSION}"))?;
+        // setting the version writes page 1 even when it's unchanged: a write transaction, and a
+        // WAL frame, from every command that only came to read
+        if version != VERSION {
+            conn.execute_batch(&format!("PRAGMA user_version = {VERSION}"))?;
+        }
         Ok(Db { conn })
     }
 
@@ -607,7 +626,14 @@ mod checkpoint_tests {
         db.conn
             .execute("INSERT INTO roots(path) VALUES (?1)", [b"/one".as_slice()])
             .unwrap();
+        let started = std::time::Instant::now();
         db.checkpoint();
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "a blocking reader must not hold the checkpoint for the connection's busy timeout \
+             (took {:?})",
+            started.elapsed()
+        );
         assert!(
             wal_len(&path) > 0,
             "a blocking reader should leave the WAL unreclaimed, not erase the bug"
@@ -643,7 +669,15 @@ mod checkpoint_tests {
             .query_row("SELECT COUNT(*) FROM roots", [], |r| r.get(0))
             .unwrap();
         {
+            // every CLI command opens this way, so opening behind a stuck reader must not wait
+            // out the busy timeout either
+            let started = std::time::Instant::now();
             let db = Db::open(&path).unwrap();
+            assert!(
+                started.elapsed() < std::time::Duration::from_secs(5),
+                "opening behind a blocking reader must not stall (took {:?})",
+                started.elapsed()
+            );
             for i in 0..50_000 {
                 db.conn
                     .execute("INSERT INTO roots(path) VALUES (?1)", [format!("/{i}")])
