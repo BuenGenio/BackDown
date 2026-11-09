@@ -1285,6 +1285,7 @@ pub fn sync(
                     }
                 }
                 tx.commit()?;
+                crate::db::checkpoint(&db.conn);
                 match page["next"].as_i64() {
                     Some(n) => after = n,
                     None => break,
@@ -1343,6 +1344,9 @@ pub fn sync(
                 )?;
             }
             tx.commit()?;
+            // a sync of a big drive is hours of pages: each one's commit is the chance to reclaim
+            // the WAL, as a scan's batches are (`db::checkpoint`)
+            crate::db::checkpoint(&db.conn);
             st.added += rows.len() as u64;
             if !rows.is_empty() {
                 st.changed = true;
@@ -1557,6 +1561,7 @@ fn hash_there(
                 }
             }
             tx.commit()?;
+            crate::db::checkpoint(&db.conn);
             if !results.is_empty() {
                 st.changed = true;
             }
