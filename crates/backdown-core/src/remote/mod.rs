@@ -435,10 +435,11 @@ pub fn list(db: &Db) -> Result<Vec<Machine>> {
 
 /// Forget a machine and everything cached about it (nothing there is touched).
 pub fn remove(db: &Db, id: i64) -> Result<()> {
+    // its files first, a batch at a time (millions, for a NAS); the rest together. Failing in
+    // between leaves the machine with fewer files cached, which its next sync refills
+    forget_files(&db.conn, id, None)?;
     db.conn.execute_batch("BEGIN")?;
     let r = (|| -> Result<()> {
-        db.conn
-            .execute("DELETE FROM remote_files WHERE remote_id = ?1", [id])?;
         db.conn
             .execute("DELETE FROM remote_dirs WHERE remote_id = ?1", [id])?;
         db.conn
@@ -457,6 +458,38 @@ pub fn remove(db: &Db, id: i64) -> Result<()> {
     db.conn
         .execute_batch(if r.is_ok() { "COMMIT" } else { "ROLLBACK" })?;
     r
+}
+
+/// Rows dropped per transaction by `forget_files`.
+const FORGET_BATCH: i64 = 20_000;
+
+/// Drops the cached files of a machine, or of one drive of it (`root_id`), `FORGET_BATCH` at a
+/// time with the WAL reclaimed between batches: as one statement over millions of rows it's a
+/// transaction too big to checkpoint while it runs. Batches are ranges of `rid`, so each is a
+/// walk of the primary key however the drive's files are spread across it. No transaction may
+/// be open. How many it dropped.
+fn forget_files(conn: &rusqlite::Connection, remote_id: i64, root_id: Option<i64>) -> Result<u64> {
+    let mut after = i64::MIN;
+    let mut total = 0;
+    loop {
+        let last: Option<i64> = conn.query_row(
+            "SELECT MAX(rid) FROM (SELECT rid FROM remote_files
+               WHERE remote_id = ?1 AND rid > ?2 AND (?3 IS NULL OR root_id = ?3)
+               ORDER BY rid LIMIT ?4)",
+            params![remote_id, after, root_id, FORGET_BATCH],
+            |r| r.get(0),
+        )?;
+        let Some(last) = last else {
+            return Ok(total);
+        };
+        total += conn.execute(
+            "DELETE FROM remote_files WHERE remote_id = ?1 AND rid > ?2 AND rid <= ?3
+               AND (?4 IS NULL OR root_id = ?4)",
+            params![remote_id, after, last, root_id],
+        )? as u64;
+        crate::db::checkpoint(conn);
+        after = last;
+    }
 }
 
 /// Note an attempt to reach a machine: when, and what went wrong (None: it answered).
@@ -1154,8 +1187,7 @@ pub fn sync(
     let ident = info["ident"].as_str().unwrap_or("").to_string();
     if m.info["ident"].as_str().is_some_and(|old| old != ident) {
         progress(&format!("{}'s index changed: starting afresh", m.name));
-        db.conn
-            .execute("DELETE FROM remote_files WHERE remote_id = ?1", [m.id])?;
+        forget_files(&db.conn, m.id, None)?;
         db.conn
             .execute("DELETE FROM remote_dirs WHERE remote_id = ?1", [m.id])?;
         db.conn
@@ -1181,10 +1213,7 @@ pub fn sync(
             .query_map([m.id], |r| r.get(0))?
             .collect::<rusqlite::Result<_>>()?;
         for id in cached.into_iter().filter(|id| !have.contains(id)) {
-            db.conn.execute(
-                "DELETE FROM remote_files WHERE remote_id = ?1 AND root_id = ?2",
-                params![m.id, id],
-            )?;
+            forget_files(&db.conn, m.id, Some(id))?;
             db.conn.execute(
                 "DELETE FROM remote_dirs WHERE remote_id = ?1 AND root_id = ?2",
                 params![m.id, id],
@@ -1223,10 +1252,7 @@ pub fn sync(
             .unwrap_or(0);
         if since > upto {
             // its scans went backwards: an older copy of its index. Start this drive afresh
-            db.conn.execute(
-                "DELETE FROM remote_files WHERE remote_id = ?1 AND root_id = ?2",
-                params![m.id, r.id],
-            )?;
+            forget_files(&db.conn, m.id, Some(r.id))?;
             db.conn.execute(
                 "DELETE FROM remote_dirs WHERE remote_id = ?1 AND root_id = ?2",
                 params![m.id, r.id],
