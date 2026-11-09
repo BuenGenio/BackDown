@@ -341,6 +341,22 @@ fn add_column(conn: &Connection, table: &str, column: &str, decl: &str) -> Resul
     Ok(())
 }
 
+/// Reclaims WAL space now: best-effort, never fails the caller. SQLite's own auto-checkpoint
+/// after a commit is `PASSIVE` and silently does nothing at all if any reader (even one just
+/// sitting on an old snapshot, not actively querying) holds it back — and nothing else in
+/// BackDown ever forces one. Left alone, a long write (a full-disk scan, a names-index backfill)
+/// batches its own commits correctly and still lets the WAL file grow without bound for as long
+/// as a reader keeps blocking it, which is what filled a disk during a beta.8 `index` run.
+///
+/// `TRUNCATE`, not `RESTART`: a passive auto-checkpoint (and `RESTART`) resets the WAL logically
+/// but keeps the file at its high-water mark on disk, which is exactly the disk space this is
+/// meant to give back. A blocking reader makes this call itself do nothing (`TRUNCATE` can be
+/// held off the same way), so it's not a guarantee — it's what makes reclaiming possible as soon
+/// as nothing's in the way, instead of never.
+pub(crate) fn checkpoint(conn: &Connection) {
+    let _ = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
+}
+
 /// The duplicates report's covering index (report::dupes): current, hashed files by sha256 with
 /// their size and inode, so grouping them and collapsing hardlinks is answered from the index
 /// alone, without a table lookup per row. Partial, so it holds only rows the report can use.
@@ -404,6 +420,9 @@ impl Db {
             if !self.has_index(name)? {
                 doing(what);
                 self.conn.execute_batch(sql)?;
+                // each CREATE INDEX is one transaction SQLite can't split into batches, so a
+                // big table can leave a lot of WAL behind it; reclaimed before the next one
+                checkpoint(&self.conn);
                 built.push(*what);
             }
         }
@@ -438,6 +457,9 @@ impl Db {
         )?;
         // a second writer (a CLI command saving results while the daemon works) waits its turn
         conn.busy_timeout(std::time::Duration::from_secs(30))?;
+        // a WAL left big by an earlier run (a long scan whose batches never got to checkpoint,
+        // a crash) is reclaimed now, while nothing else holds this file open yet
+        checkpoint(&conn);
         let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         if version > VERSION {
             anyhow::bail!(
@@ -484,6 +506,13 @@ impl Db {
         crate::name_index::open(&conn)?;
         conn.execute_batch(&format!("PRAGMA user_version = {VERSION}"))?;
         Ok(Db { conn })
+    }
+
+    /// Reclaims WAL space now, if nothing's holding it back (see the free `checkpoint`). The
+    /// daemon calls this once a job's done and again when it's about to sit idle, since that's
+    /// otherwise the only chance between one job's commits and the next's.
+    pub fn checkpoint(&self) {
+        checkpoint(&self.conn);
     }
 
     /// A read-only connection, for readers alongside the one writer (daemon, UI, reports).
@@ -543,5 +572,100 @@ impl Db {
             unreadable,
             versions,
         })
+    }
+}
+
+#[cfg(test)]
+mod checkpoint_tests {
+    use super::*;
+
+    fn wal_len(path: &Path) -> u64 {
+        std::fs::metadata(path.with_extension("db-wal"))
+            .map(|m| m.len())
+            .unwrap_or(0)
+    }
+
+    /// A reader that opened a transaction and never committed or rolled it back blocks SQLite's
+    /// own auto-checkpoint on every one of a writer's commits (a real-world match: a slow report,
+    /// or a stuck handler) — this is what let the WAL grow to 47G during a beta.8 `index` run.
+    /// `checkpoint` can't do anything about that (nothing can, short of ending the read), but it
+    /// must reclaim the space the moment the reader lets go, rather than leaving it as a
+    /// high-water mark forever, which is the gap that let it happen with no way back short of a
+    /// manual `PRAGMA wal_checkpoint`.
+    #[test]
+    fn reclaims_the_wal_once_a_blocking_reader_lets_go() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("index.db");
+        let db = Db::open(&path).unwrap();
+
+        let reader = Connection::open(&path).unwrap();
+        reader.execute_batch("BEGIN").unwrap();
+        let _: i64 = reader
+            .query_row("SELECT COUNT(*) FROM roots", [], |r| r.get(0))
+            .unwrap();
+
+        db.conn
+            .execute("INSERT INTO roots(path) VALUES (?1)", [b"/one".as_slice()])
+            .unwrap();
+        db.checkpoint();
+        assert!(
+            wal_len(&path) > 0,
+            "a blocking reader should leave the WAL unreclaimed, not erase the bug"
+        );
+
+        reader.execute_batch("COMMIT").unwrap();
+        db.conn
+            .execute("INSERT INTO roots(path) VALUES (?1)", [b"/two".as_slice()])
+            .unwrap();
+        db.checkpoint();
+        assert_eq!(
+            wal_len(&path),
+            0,
+            "once nothing blocks it, checkpoint must reclaim the WAL, not just at the next \
+             auto-checkpoint threshold"
+        );
+    }
+
+    /// `Db::open` reclaims whatever an earlier run (or a crash) left in the WAL, so a machine that
+    /// hit this bug once doesn't carry an ever-growing file into every later run.
+    #[test]
+    fn open_reclaims_a_wal_left_big_by_an_earlier_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("index.db");
+        Db::open(&path).unwrap(); // just to create the file and schema
+
+        // a reader left blocking the checkpoint (as in the test above) while a run writes, then
+        // everything closes without one ever landing — a crash, or just a reader that outlived
+        // the run, leaves exactly this
+        let reader = Connection::open(&path).unwrap();
+        reader.execute_batch("BEGIN").unwrap();
+        let _: i64 = reader
+            .query_row("SELECT COUNT(*) FROM roots", [], |r| r.get(0))
+            .unwrap();
+        {
+            let db = Db::open(&path).unwrap();
+            for i in 0..50_000 {
+                db.conn
+                    .execute("INSERT INTO roots(path) VALUES (?1)", [format!("/{i}")])
+                    .unwrap();
+            }
+        }
+        let left_behind = wal_len(&path);
+        assert!(
+            left_behind > 100_000,
+            "blocked by the reader, the WAL should have grown"
+        );
+        drop(reader);
+
+        // open() does its own bit of schema housekeeping after reclaiming the inherited WAL
+        // (all no-ops here, but each is still a small write), so this checks it's reclaimed, not
+        // that nothing is ever written again
+        let _db = Db::open(&path).unwrap();
+        assert!(
+            wal_len(&path) < left_behind / 10,
+            "opening should reclaim almost all of a WAL an earlier run left behind, not carry \
+             it forward: was {left_behind}, now {}",
+            wal_len(&path)
+        );
     }
 }

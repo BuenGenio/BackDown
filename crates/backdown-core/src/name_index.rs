@@ -384,10 +384,13 @@ fn fill_local(conn: &Connection, table: &str) -> Result<()> {
                 after.clone_from(last);
                 save(conn, table, Some(after.as_bytes()), false)?;
                 tx.commit()?;
+                // this can run against 27M existing rows in one go; reclaim the WAL as it goes
+                crate::db::checkpoint(conn);
             }
             None => {
                 save(conn, table, Some(after.as_bytes()), true)?;
                 tx.commit()?;
+                crate::db::checkpoint(conn);
                 return Ok(());
             }
         }
@@ -467,6 +470,7 @@ fn fill_remote_files(conn: &Connection) -> Result<()> {
             at.extend_from_slice(&rid_at.to_be_bytes());
             save(conn, "remote_files", Some(&at), false)?;
             tx.commit()?;
+            crate::db::checkpoint(conn);
         }
     }
     save(conn, "remote_files", None, true)?;
@@ -522,6 +526,7 @@ fn fill_remote_dirs(conn: &Connection) -> Result<()> {
             at.extend_from_slice(&path_at);
             save(conn, "remote_dirs", Some(&at), false)?;
             tx.commit()?;
+            crate::db::checkpoint(conn);
             // folders already written stay written; only the recent ones are worth remembering
             if seen.len() > 100_000 {
                 seen.clear();
