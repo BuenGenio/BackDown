@@ -19,9 +19,19 @@ TABLE_SEP = re.compile(r'^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$')
 HR = re.compile(r'^(-{3,}|\*{3,})\s*$')
 
 
+# a heading's id, for the Ukrainian docs too: transliterated so #на-цій-сторінці reads as #na-tsii-storintsi
+CYRILLIC = str.maketrans({
+    'а': 'a', 'б': 'b', 'в': 'v', 'г': 'h', 'ґ': 'g', 'д': 'd', 'е': 'e', 'є': 'ie', 'ж': 'zh', 'з': 'z',
+    'и': 'y', 'і': 'i', 'ї': 'i', 'й': 'i', 'к': 'k', 'л': 'l', 'м': 'm', 'н': 'n', 'о': 'o', 'п': 'p',
+    'р': 'r', 'с': 's', 'т': 't', 'у': 'u', 'ф': 'f', 'х': 'kh', 'ц': 'ts', 'ч': 'ch', 'ш': 'sh', 'щ': 'shch',
+    'ю': 'iu', 'я': 'ia', 'ь': '', 'ъ': '', 'ы': 'y', 'э': 'e',
+})
+
+
 def slugify(text):
     s = html.unescape(re.sub(r'<[^>]+>', '', text)).lower()
     s = re.sub(r"['’]", '', s)  # "can't" -> "cant"
+    s = s.translate(CYRILLIC)
     s = re.sub(r'[^a-z0-9]+', '-', s).strip('-')
     return s or 'section'
 
@@ -76,20 +86,21 @@ def dim_comments(line):
     return html.escape(line, quote=False)
 
 
-def code_block(code, lang):
+def code_block(code, lang, copy_label):
     body = '\n'.join(dim_comments(l) for l in code.split('\n')) if lang in ('sh', 'shell', 'bash', 'toml', 'powershell') \
         else html.escape(code, quote=False)
     cls = f' class="lang-{lang}"' if lang else ''
     return (f'<div class="code"><pre><code{cls}>{body}</code></pre>'
-            '<button class="cbtn" type="button" hidden>Copy</button></div>')
+            f'<button class="cbtn" type="button" hidden>{html.escape(copy_label, quote=False)}</button></div>')
 
 
 # ---------- blocks
 
 class Renderer:
-    def __init__(self):
+    def __init__(self, labels=None):
         self.headings = []  # (level, id, html)
         self.ids = set()
+        self.labels = {**CALLOUTS, 'copy': 'Copy', **(labels or {})}
 
     def unique(self, base):
         i, n = base, 2
@@ -109,7 +120,7 @@ class Renderer:
                 j = i + 1
                 while j < len(lines) and not lines[j].startswith(m[1]):
                     j += 1
-                out.append(code_block('\n'.join(lines[i + 1:j]), m[2].lower()))
+                out.append(code_block('\n'.join(lines[i + 1:j]), m[2].lower(), self.labels['copy']))
                 i = j + 1
                 continue
             if m := HEADING.match(line):
@@ -176,7 +187,7 @@ class Renderer:
         inner = self.blocks(lines)
         if not kind:
             return f'<blockquote>{inner}</blockquote>'
-        return f'<div class="callout {kind.lower()}" role="note"><p class="callout-t">{CALLOUTS[kind]}</p>{inner}</div>'
+        return f'<div class="callout {kind.lower()}" role="note"><p class="callout-t">{self.labels[kind]}</p>{inner}</div>'
 
     def table(self, head, sep, rows):
         cells = lambda l: [c.strip() for c in l.strip().strip('|').split('|')]
@@ -270,8 +281,9 @@ def front_matter(text):
     return meta, text
 
 
-def render(markdown):
-    """(html, headings) for a Markdown body; headings are (level, id, inner html)"""
-    r = Renderer()
+def render(markdown, labels=None):
+    """(html, headings) for a Markdown body; headings are (level, id, inner html). `labels` overrides the
+    callouts' titles and the code block's copy button, for a non-English docs tree."""
+    r = Renderer(labels)
     body = r.blocks(markdown.replace('\r\n', '\n').replace('\t', '    ').split('\n'))
     return body, r.headings
