@@ -21,6 +21,8 @@ This is done in the app (Rescue needs the background service); there's no termin
 
 A disk image on an indexed drive (a raw image, or a fixed-size VHD or VDI) works the same way: open it in the browser, and each partition has **Browse files**.
 
+<figure class="demo" data-view="rescue" data-caption="Rescue, step 1: every disk, partition and image file, and whether BackDown can read it."></figure>
+
 ## 2. Show what was deleted
 
 **Browse files** opens the file system as it is now, read-only, with its folders, names, sizes and dates. Tick **Show deleted files** to add what was deleted, greyed, with a label:

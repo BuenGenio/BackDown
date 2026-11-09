@@ -1,0 +1,319 @@
+[
+ {
+  "device": "/dev/nvme0n1",
+  "name": "nvme0n1",
+  "size": 1000204886016,
+  "model": "Samsung SSD 980 PRO 1TB",
+  "serial": "S5GXNF0R123456D",
+  "transport": "nvme",
+  "rotational": false,
+  "removable": false,
+  "read_only": false,
+  "partition_table": "gpt",
+  "system": true,
+  "backing_file": null,
+  "health": null,
+  "volumes": [
+   {
+    "device": "/dev/nvme0n1p1",
+    "name": "nvme0n1p1",
+    "size": 536870912,
+    "partition": 1,
+    "part_type": "c12a7328-f81f-11d2-ba4b-00a0c93ec93b",
+    "part_label": null,
+    "fs": "vfat",
+    "fs_name": "FAT",
+    "label": "EFI",
+    "uuid": "7A3B-11C2",
+    "mounts": [
+     {
+      "path": "/boot/efi",
+      "read_only": false
+     }
+    ],
+    "state": "system",
+    "read_only": false,
+    "encryption": null,
+    "note": null,
+    "indexed": [],
+    "holders": [],
+    "space": {
+     "total": 528817848,
+     "free": 480000000
+    }
+   },
+   {
+    "device": "/dev/nvme0n1p2",
+    "name": "nvme0n1p2",
+    "size": 999000000000,
+    "partition": 2,
+    "part_type": "0fc63daf-8483-4772-8e79-3d69d8477de4",
+    "part_label": null,
+    "fs": "ext4",
+    "fs_name": "ext4",
+    "label": null,
+    "uuid": "3f0c2a9e-1111-4b2b-9c1a-demo00000001",
+    "mounts": [
+     {
+      "path": "/",
+      "read_only": false
+     }
+    ],
+    "state": "system",
+    "read_only": false,
+    "encryption": null,
+    "note": null,
+    "indexed": [],
+    "holders": [],
+    "space": {
+     "total": 984015000000,
+     "free": 412000000000
+    }
+   }
+  ]
+ },
+ {
+  "device": "/dev/sda",
+  "name": "sda",
+  "size": 2000398934016,
+  "model": "WD Elements 25A3",
+  "serial": "WX11DEMO0A3B",
+  "transport": "usb",
+  "rotational": true,
+  "removable": false,
+  "read_only": false,
+  "partition_table": "gpt",
+  "system": false,
+  "backing_file": null,
+  "health": null,
+  "volumes": [
+   {
+    "device": "/dev/sda1",
+    "name": "sda1",
+    "size": 2000000000000,
+    "partition": 1,
+    "part_type": "0fc63daf-8483-4772-8e79-3d69d8477de4",
+    "part_label": null,
+    "fs": "exfat",
+    "fs_name": "exFAT",
+    "label": "Backup 2021",
+    "uuid": "5E2A-9C01",
+    "mounts": [
+     {
+      "path": "@D@/drives/Backup 2021",
+      "read_only": false
+     }
+    ],
+    "state": "mounted",
+    "read_only": false,
+    "encryption": null,
+    "note": null,
+    "indexed": [],
+    "holders": [],
+    "space": {
+     "total": 1970000000000,
+     "free": 1217000000000
+    }
+   }
+  ]
+ },
+ {
+  "device": "/dev/sdb",
+  "name": "sdb",
+  "size": 2000398934016,
+  "model": "Samsung PSSD T7 2TB",
+  "serial": "S6WDEMO0T7001",
+  "transport": "usb",
+  "rotational": false,
+  "removable": false,
+  "read_only": false,
+  "partition_table": "gpt",
+  "system": false,
+  "backing_file": null,
+  "health": null,
+  "volumes": [
+   {
+    "device": "/dev/sdb1",
+    "name": "sdb1",
+    "size": 2000000000000,
+    "partition": 1,
+    "part_type": "0fc63daf-8483-4772-8e79-3d69d8477de4",
+    "part_label": null,
+    "fs": "ext4",
+    "fs_name": "ext4",
+    "label": "Archive",
+    "uuid": "9a1d7e55-2222-4c3c-8d2b-demo00000002",
+    "mounts": [
+     {
+      "path": "@D@/drives/Archive",
+      "read_only": false
+     }
+    ],
+    "state": "mounted",
+    "read_only": false,
+    "encryption": null,
+    "note": null,
+    "indexed": [],
+    "holders": [],
+    "space": {
+     "total": 1970000000000,
+     "free": 1795000000000
+    }
+   }
+  ]
+ },
+ {
+  "device": "/dev/sdc",
+  "name": "sdc",
+  "size": 1000204886016,
+  "model": "ST1000LM035-1RK172",
+  "serial": "WDEMO1LM035",
+  "transport": "usb",
+  "rotational": true,
+  "removable": false,
+  "read_only": false,
+  "partition_table": "gpt",
+  "system": false,
+  "backing_file": null,
+  "health": null,
+  "volumes": [
+   {
+    "device": "/dev/sdc1",
+    "name": "sdc1",
+    "size": 536870912,
+    "partition": 1,
+    "part_type": "c12a7328-f81f-11d2-ba4b-00a0c93ec93b",
+    "part_label": null,
+    "fs": "vfat",
+    "fs_name": "FAT",
+    "label": "EFI",
+    "uuid": "1B2C-3D4E",
+    "mounts": [],
+    "state": "mountable",
+    "read_only": null,
+    "encryption": null,
+    "note": null,
+    "indexed": [],
+    "holders": []
+   },
+   {
+    "device": "/dev/sdc2",
+    "name": "sdc2",
+    "size": 999000000000,
+    "partition": 2,
+    "part_type": "0fc63daf-8483-4772-8e79-3d69d8477de4",
+    "part_label": null,
+    "fs": "ext4",
+    "fs_name": "ext4",
+    "label": "Old Laptop",
+    "uuid": "c0ffee00-3333-4d4d-9e3c-demo00000003",
+    "mounts": [
+     {
+      "path": "@D@/drives/Old Laptop",
+      "read_only": false
+     }
+    ],
+    "state": "mounted",
+    "read_only": false,
+    "encryption": null,
+    "note": null,
+    "indexed": [],
+    "holders": [],
+    "space": {
+     "total": 984015000000,
+     "free": 742000000000
+    }
+   }
+  ]
+ },
+ {
+  "device": "/dev/sdd",
+  "name": "sdd",
+  "size": 128043712512,
+  "model": "Generic USB SD Reader",
+  "serial": null,
+  "transport": "usb",
+  "rotational": false,
+  "removable": true,
+  "read_only": false,
+  "partition_table": "dos",
+  "system": false,
+  "backing_file": null,
+  "health": null,
+  "volumes": [
+   {
+    "device": "/dev/sdd1",
+    "name": "sdd1",
+    "size": 128000000000,
+    "partition": 1,
+    "part_type": "0x7",
+    "part_label": null,
+    "fs": "exfat",
+    "fs_name": "exFAT",
+    "label": "CAMERA",
+    "uuid": "0C2A-4F11",
+    "mounts": [
+     {
+      "path": "@D@/drives/Camera cards",
+      "read_only": false
+     }
+    ],
+    "state": "mounted",
+    "read_only": false,
+    "encryption": null,
+    "note": null,
+    "indexed": [],
+    "holders": [],
+    "space": {
+     "total": 126080000000,
+     "free": 126079999999
+    }
+   }
+  ]
+ },
+ {
+  "device": "/dev/sde",
+  "name": "sde",
+  "size": 4000787030016,
+  "model": "WDC WD40EFAX-68JH4N1",
+  "serial": "WDEMO4EFAX001",
+  "transport": "usb",
+  "rotational": true,
+  "removable": false,
+  "read_only": false,
+  "partition_table": "gpt",
+  "system": false,
+  "backing_file": null,
+  "health": null,
+  "volumes": [
+   {
+    "device": "/dev/sde1",
+    "name": "sde1",
+    "size": 4000000000000,
+    "partition": 1,
+    "part_type": "0fc63daf-8483-4772-8e79-3d69d8477de4",
+    "part_label": null,
+    "fs": "ext4",
+    "fs_name": "ext4",
+    "label": "Mirror",
+    "uuid": "d00d1e55-4444-4e5e-af4d-demo00000004",
+    "mounts": [
+     {
+      "path": "@D@/drives/Mirror",
+      "read_only": false
+     }
+    ],
+    "state": "mounted",
+    "read_only": false,
+    "encryption": null,
+    "note": null,
+    "indexed": [],
+    "holders": [],
+    "space": {
+     "total": 3940000000000,
+     "free": 3939999999999
+    }
+   }
+  ]
+ }
+]

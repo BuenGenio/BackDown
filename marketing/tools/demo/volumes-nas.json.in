@@ -1,0 +1,120 @@
+[
+ {
+  "device": "/dev/sata1",
+  "name": "sata1",
+  "size": 8001563222016,
+  "model": "WDC WD80EFZZ-68BTXN0",
+  "serial": "VDEMONAS0001",
+  "transport": "sata",
+  "rotational": true,
+  "removable": false,
+  "read_only": false,
+  "partition_table": "gpt",
+  "system": true,
+  "backing_file": null,
+  "health": null,
+  "volumes": [
+   {
+    "device": "/dev/sata1p1",
+    "name": "sata1p1",
+    "size": 8000000000,
+    "partition": 1,
+    "part_type": "0fc63daf-8483-4772-8e79-3d69d8477de4",
+    "part_label": null,
+    "fs": "ext4",
+    "fs_name": "ext4",
+    "label": null,
+    "uuid": "nas-sys-0001",
+    "mounts": [
+     {
+      "path": "/",
+      "read_only": false
+     }
+    ],
+    "state": "system",
+    "read_only": false,
+    "encryption": null,
+    "note": null,
+    "indexed": [],
+    "holders": [],
+    "space": {
+     "total": 7880000000,
+     "free": 6000000000
+    }
+   },
+   {
+    "device": "/dev/sata1p2",
+    "name": "sata1p2",
+    "size": 7990000000000,
+    "partition": 2,
+    "part_type": "0fc63daf-8483-4772-8e79-3d69d8477de4",
+    "part_label": null,
+    "fs": "btrfs",
+    "fs_name": "Btrfs",
+    "label": "volume1",
+    "uuid": "nas-vol-0001",
+    "mounts": [
+     {
+      "path": "@D@/nas/volume1",
+      "read_only": false
+     }
+    ],
+    "state": "mounted",
+    "read_only": false,
+    "encryption": null,
+    "note": null,
+    "indexed": [],
+    "holders": [],
+    "space": {
+     "total": 7870150000000,
+     "free": 5110000000000
+    }
+   }
+  ]
+ },
+ {
+  "device": "/dev/sata2",
+  "name": "sata2",
+  "size": 4000787030016,
+  "model": "Seagate IronWolf ST4000VN006",
+  "serial": "ZDEMONAS0002",
+  "transport": "sata",
+  "rotational": true,
+  "removable": false,
+  "read_only": false,
+  "partition_table": "gpt",
+  "system": false,
+  "backing_file": null,
+  "health": null,
+  "volumes": [
+   {
+    "device": "/dev/sata2p1",
+    "name": "sata2p1",
+    "size": 4000000000000,
+    "partition": 1,
+    "part_type": "0fc63daf-8483-4772-8e79-3d69d8477de4",
+    "part_label": null,
+    "fs": "btrfs",
+    "fs_name": "Btrfs",
+    "label": "volume2",
+    "uuid": "nas-vol-0002",
+    "mounts": [
+     {
+      "path": "@D@/nas/volume2",
+      "read_only": false
+     }
+    ],
+    "state": "mounted",
+    "read_only": false,
+    "encryption": null,
+    "note": null,
+    "indexed": [],
+    "holders": [],
+    "space": {
+     "total": 3940000000000,
+     "free": 2980000000000
+    }
+   }
+  ]
+ }
+]

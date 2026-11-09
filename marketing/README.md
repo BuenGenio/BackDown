@@ -106,6 +106,15 @@ Run from this directory unless noted:
 | Check links before deploying | `python3 tools/check-links.py` |
 | Test the store and the Stripe setup | `node --test tools/store.test.mjs ../scripts/stripe-setup.test.mjs` |
 
+## The live demo (`tools/demo/`, `public/demo/`)
+
+The guides embed BackDown's own web UI on an invented set of drives: `public/demo/` is the app's UI with its
+`/api/` calls answered by the Worker (`src/demo.js`) from responses recorded against a real BackDown fed with
+generated data. A guide embeds it with one raw block, `<figure class="demo" data-view="places" data-caption="…">
+</figure>` (`data-dir` opens a folder, `data-mode` a layout, `data-tab` a tab inside the view). Regenerate it with
+`tools/demo/run.sh` after a UI or API change; `tools/demo/README.md` has the pipeline and what's in the demo.
+Deploy as usual: it's static files plus one Worker route (`/demo/api/*`, in `wrangler.jsonc`).
+
 ## Screenshots (`screenshots/`)
 
 The slideshow shows the real dashboard and report UI (`../legacy/bd-dash.py`, `../assets/report.html`), served by `serve.py` with an invented demo dataset; nothing reads `index/` or any real drive. The report page hardcodes a few details of the founding dataset, which `serve.py` neutralises by pattern in its served copy. `capture.mjs` drives Firefox (via puppeteer-core) to shoot each slide in light and dark at 2x, per language; `encode.py` writes `public/shots/<lang>/<slide>-<theme>-{960,1600,2400}.webp`.

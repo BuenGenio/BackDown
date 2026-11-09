@@ -50,6 +50,8 @@ Signed manifest 4 of /media/old-drive at scan 17: 182.4 K files, 412.6 GB; 151.0
 
 Загальносистемна служба ([Settings](/docs/guides/settings-and-licences/#a-machine-wide-service)) підписує власним ключем, що зберігається в `/var/lib/backdown` і доступний для читання лише її користувачу `backdown`, а не вашому; Settings показує, який це ключ. Якщо вона не може зберегти там ключ, вона не підписує, а її журнал повідомляє, чому.
 
+<figure class="demo" data-view="settings" data-tab="Attestations" data-caption="Налаштування › Засвідчення: як часто служба підписує маніфест кожного диска, і ключ підпису цієї інсталяції."></figure>
+
 ## Перелічіть їх і дістаньте один
 
 ```sh

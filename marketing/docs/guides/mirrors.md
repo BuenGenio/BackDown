@@ -61,3 +61,5 @@ backdown mirror list
 ```
 
 To stop keeping a mirror, `backdown mirror remove 1`. The copies stay where they are.
+
+<figure class="demo" data-view="activity" data-caption="Activity lists each mirror with its last sync and the last verification."></figure>

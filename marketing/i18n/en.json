@@ -339,5 +339,8 @@
   "thanks.copied": "Copied",
   "thanks.use": "When {edition} ships, add it to BackDown with:",
   "thanks.keep": "The key is checked offline, on your machine. Keep it with your receipt.",
-  "thanks.help": "Questions about your order? Reply to your receipt from Stripe."
+  "thanks.help": "Questions about your order? Reply to your receipt from Stripe.",
+  "docs.demo_title": "Live demo: BackDown's own interface on an invented set of drives",
+  "docs.demo_tag": "Live demo on invented drives",
+  "docs.demo_open": "Open in a window of its own"
 }

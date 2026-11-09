@@ -15,6 +15,8 @@ Old drives often hold the same mailbox several times: a laptop's mail from 2016,
 
 Give either mailboxes or stores, not a mix. Dovecot's mdbox and sdbox formats aren't read yet.
 
+<figure class="demo" data-dir="/media/alex/Backup 2021/Laptop copy 2020/Mail" data-caption="One of the copies to be merged, opened in the browser: the newer snapshot of the same mailbox."></figure>
+
 ## See what the merge would be
 
 ```sh

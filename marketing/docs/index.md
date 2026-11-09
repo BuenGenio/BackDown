@@ -13,4 +13,6 @@ New here? Start with [Getting started](/docs/getting-started/): install it, open
 > [!NOTE]
 > These docs describe BackDown 1.0.0-beta.6: the desktop app, its background service and the `backdown` command, on Linux, macOS and Windows. It's a beta, so some things will change before 1.0; the [status page](/status/) has what's released and what's next.
 
+<figure class="demo" data-dir="/media/alex/Old Laptop" data-caption="Try it here: BackDown’s own interface on an invented set of drives — an old laptop, a backup drive, camera cards, an archive, a mirror and a NAS. Open folders, look at duplicates, places, the swarm. Nothing here is yours; nothing can be changed."></figure>
+
 <!-- cards -->

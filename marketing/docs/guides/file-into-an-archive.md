@@ -170,3 +170,5 @@ The **Plan** view does the same:
 Making a plan works in the browser opened with `backdown serve`; applying needs the background service.
 
 At the bottom of the Plan view, **Tidy the archive** does what `backdown dedup` does: choose the folder (the plan's archive is suggested), **Hardlinks** or **Clones**, and the smallest size, then **See what it would save**, and **Link** to start it in the background service. Earlier runs are listed below it.
+
+<figure class="demo" data-view="plan" data-caption="A plan in the browser: what goes where in the archive and why, what isn’t copied because it’s already there, and the drives’ totals."></figure>

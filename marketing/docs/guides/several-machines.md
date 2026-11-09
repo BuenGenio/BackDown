@@ -93,6 +93,8 @@ With `--trust-index`, the other machine only checks that its copy is still there
 
 Each machine in the sidebar opens its page: whether it can be reached, when it was synced, its drives (and whether their copies count), **Sync now**, **Test connection** and **Remove…**. Its drives can be browsed, read-only: live over ssh as its last scan saw them, or from what was synced when it can't be reached. A file's details show its hash there and its copies here and elsewhere.
 
+<figure class="demo" data-view="machine" data-caption="A machine’s page: reached or not, when it was synced, its drives with their health, and its folders."></figure>
+
 ## Open, preview or save a file that's there {#fetch}
 
 A file's details on a machine's page have **Preview**, **Download a copy** and **Open**. Each brings that one file here over the same ssh connection, only then: the other machine reads it only if it's still exactly as its index scanned it (same size and date), and says so otherwise. Files up to 256 MB are kept in a small cache here (`remote-cache` beside the index, 2 GB in all, the least recently used going first), so a second look or a video seek costs nothing more; bigger files stream the part asked for each time. In a terminal:

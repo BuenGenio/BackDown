@@ -1,0 +1,147 @@
+{
+ "drives": [
+  {
+   "device": "/dev/nvme0n1",
+   "name": "nvme0n1",
+   "model": "Samsung SSD 980 PRO 1TB",
+   "serial": "S5GXNF0R123456D",
+   "transport": "nvme",
+   "rotational": false,
+   "size": 1000204886016,
+   "protocol": "NVMe",
+   "reported": "ok",
+   "temperature": 41,
+   "power_on_hours": 6120,
+   "power_cycles": 812,
+   "critical_warning": 0,
+   "percentage_used": 4,
+   "available_spare": 100,
+   "spare_threshold": 10,
+   "media_errors": 0,
+   "unsafe_shutdowns": 14,
+   "mounts": [
+    "/"
+   ],
+   "source": "demo readings",
+   "id": "",
+   "read_at": 0
+  },
+  {
+   "device": "/dev/sda",
+   "name": "sda",
+   "model": "WD Elements 25A3",
+   "serial": "WX11DEMO0A3B",
+   "transport": "usb",
+   "rotational": true,
+   "size": 2000398934016,
+   "protocol": "ATA",
+   "reported": "failing",
+   "temperature": 47,
+   "power_on_hours": 28410,
+   "power_cycles": 1904,
+   "reallocated": 1812,
+   "pending": 36,
+   "uncorrectable": 12,
+   "crc_errors": 0,
+   "failing_attributes": [
+    "Reallocated_Sector_Ct",
+    "Current_Pending_Sector"
+   ],
+   "mounts": [
+    "@D@/drives/Backup 2021"
+   ],
+   "source": "demo readings",
+   "id": "",
+   "read_at": 0
+  },
+  {
+   "device": "/dev/sdb",
+   "name": "sdb",
+   "model": "Samsung PSSD T7 2TB",
+   "serial": "S6WDEMO0T7001",
+   "transport": "usb",
+   "rotational": false,
+   "size": 2000398934016,
+   "protocol": "ATA",
+   "reported": "ok",
+   "temperature": 36,
+   "power_on_hours": 310,
+   "power_cycles": 96,
+   "reallocated": 0,
+   "pending": 0,
+   "uncorrectable": 0,
+   "crc_errors": 0,
+   "mounts": [
+    "@D@/drives/Archive"
+   ],
+   "source": "demo readings",
+   "id": "",
+   "read_at": 0
+  },
+  {
+   "device": "/dev/sdc",
+   "name": "sdc",
+   "model": "ST1000LM035-1RK172",
+   "serial": "WDEMO1LM035",
+   "transport": "usb",
+   "rotational": true,
+   "size": 1000204886016,
+   "protocol": "ATA",
+   "reported": "ok",
+   "temperature": 39,
+   "power_on_hours": 19877,
+   "power_cycles": 3350,
+   "reallocated": 24,
+   "pending": 3,
+   "uncorrectable": 0,
+   "crc_errors": 2,
+   "mounts": [
+    "@D@/drives/Old Laptop"
+   ],
+   "source": "demo readings",
+   "id": "",
+   "read_at": 0
+  },
+  {
+   "device": "/dev/sde",
+   "name": "sde",
+   "model": "WDC WD40EFAX-68JH4N1",
+   "serial": "WDEMO4EFAX001",
+   "transport": "usb",
+   "rotational": true,
+   "size": 4000787030016,
+   "protocol": "ATA",
+   "reported": "ok",
+   "temperature": 35,
+   "power_on_hours": 1200,
+   "power_cycles": 40,
+   "reallocated": 0,
+   "pending": 0,
+   "uncorrectable": 0,
+   "crc_errors": 0,
+   "mounts": [
+    "@D@/drives/Mirror"
+   ],
+   "source": "demo readings",
+   "id": "",
+   "read_at": 0
+  },
+  {
+   "device": "/dev/sdd",
+   "name": "sdd",
+   "model": "Generic USB SD Reader",
+   "transport": "usb",
+   "rotational": false,
+   "size": 128043712512,
+   "reported": null,
+   "note": "no SMART over this card reader",
+   "mounts": [
+    "@D@/drives/Camera cards"
+   ],
+   "source": "demo readings",
+   "id": "",
+   "read_at": 0
+  }
+ ],
+ "notes": []
+}

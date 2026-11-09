@@ -29,6 +29,8 @@ The columns are the temperature, hours powered on, reallocated, pending and unco
 
 `backdown health` exits with 2 when a connected drive is failing, so a script can watch for it. With the background service running (on Linux and macOS), it asks the service to read every drive now; otherwise it reads them itself.
 
+<figure class="demo" data-view="activity" data-caption="Connected drives in Activity: a pill beside each disk — healthy, warning, failing or no health data — and a page per drive with its readings and trend."></figure>
+
 ## What BackDown can read
 
 Everything is read as you, without administrator rights. What an ordinary account is told depends on the system:

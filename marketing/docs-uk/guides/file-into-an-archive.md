@@ -169,3 +169,5 @@ Nothing was changed. To link them: backdown dedup "/media/archive/Archive" --lin
 Складання плану працює в браузері, відкритому через `backdown serve`; застосування потребує фонової служби.
 
 У нижній частині вкладки Plan **Tidy the archive** робить те, що робить `backdown dedup`: виберіть папку (пропонується архів плану), **Hardlinks** або **Clones**, і найменший розмір, потім **See what it would save**, і **Link**, щоб запустити це у фоновій службі. Попередні запуски перелічені під нею.
+
+<figure class="demo" data-view="plan" data-caption="План у браузері: що куди йде в архіві й чому, що не копіюється, бо вже там є, і підсумки по дисках."></figure>

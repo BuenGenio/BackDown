@@ -25,6 +25,8 @@ Most of what you can change is in the **Settings** view, at the bottom of the si
 
 The settings are saved in `settings.json` in your data folder, and your own filing schema in `schema.toml` beside it. Fast-rescan and machine settings are kept in the index itself; notification settings in `notifications.json`. The browser remembers your view, sort order, details pane and hidden-files choice in your web browser.
 
+<figure class="demo" data-view="settings" data-caption="Settings: rescans, hashing and junk rules, attestations, notifications, updates, the licence, and where the index and data live."></figure>
+
 ## The index
 
 The index is one SQLite database, `index.db`, in your BackDown data folder:

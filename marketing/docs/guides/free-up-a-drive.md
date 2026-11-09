@@ -105,3 +105,5 @@ The **Free up** view does the same, with the background service doing the work:
 5. Type the drive names to confirm, and press **Wipe**.
 
 The wipe shows in Activity, and the view lists past wipes with what existed only there and what happened to it. Its **Chain of custody** button downloads the [signed log](/docs/guides/chain-of-custody/) of every deletion and move. When some copies are only on another machine, "What would happen" says how much, and when that machine last confirmed them. The browser opened with `backdown serve` shows what would happen but can't wipe: that needs the background service.
+
+<figure class="demo" data-view="wipe" data-caption="The Wipe view: what to wipe, what exists elsewhere and what exists only here, and what happens to the latter."></figure>

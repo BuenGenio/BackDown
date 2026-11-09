@@ -130,6 +130,8 @@ Rescues run in the background service beside scans and hashing, show their progr
 
 A copy that's an image file on an indexed drive also opens in the browser, where the files on its FAT, exFAT, ext and NTFS partitions can be browsed; for other file systems (XFS, btrfs, HFS+, APFS), the image can be mounted read-only by the system instead ([disk images](/docs/guides/browse-without-restoring/#disk-images)).
 
+<figure class="demo" data-view="rescue" data-caption="The Rescue view: which drive or card, what happens, and the rescues so far."></figure>
+
 ## Not yet
 
 Finding files by content can't put a file stored in scattered pieces back together. Partitions Rescue finds with file systems BackDown doesn't read itself (XFS, btrfs, HFS+, APFS and others) can only be searched by content, not browsed or mounted. Browsing, undeleting and copying out are in the browser only, not in `backdown rescue`.

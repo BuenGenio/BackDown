@@ -1,9 +1,11 @@
-// backdown.io: static assets from ./public; this code runs only for /api/* (and the hourly status check).
+// backdown.io: static assets from ./public; this code runs only for /api/*, /demo/api/* (and the hourly status check).
 //   /api/waitlist   early-access sign-ups (KV WAITLIST)
 //   /api/status     the status page's live checks (status.js)
 //   /api/preorder, /api/checkout, /api/stripe/webhook, /api/order   pre-orders of Pro, Team and Forensic (store.js)
+//   /demo/api/*     the docs' live demo: the app's API answered from recorded responses (demo.js)
 import { refresh, status } from './status.js';
 import { checkout, order, preorder, webhook } from './store.js';
+import { demo } from './demo.js';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ROUTES = {
@@ -27,6 +29,7 @@ export default {
         return Response.json({ error: 'internal' }, { status: 500 });
       }
     }
+    if (url.pathname.startsWith('/demo/api/')) return demo(request, env, url);
     if (url.pathname.startsWith('/api/')) return Response.json({ error: 'not found' }, { status: 404 });
     return env.ASSETS.fetch(request);
   },

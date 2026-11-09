@@ -40,6 +40,8 @@ The same email address, or the same login on the same host, anywhere is the same
 
 Nothing is read from inside messages or files for this: names come from paths and from the small configuration files above, on connected drives only.
 
+<figure class="demo" data-view="entities" data-caption="Recognised things: who and what was found on the drives, and where it came from."></figure>
+
 ## Databases
 
 ```sh
@@ -94,6 +96,8 @@ What's indexed:
 - at **full depth**, the text in the rows of dumps and SQLite tables (text-typed columns only, up to 64 MiB a file) and message bodies.
 
 A hit opens the mailbox folder with the message selected, or the dump or file.
+
+<figure class="demo" data-view="search" data-caption="Search inside things: mail by subject, sender and recipient; dumps and SQLite files by table and column."></figure>
 
 ### The indexes already there are reused
 

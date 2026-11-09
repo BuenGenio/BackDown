@@ -1,4 +1,4 @@
-// backdown.io: a Worker serving ./public; src/worker.js runs only for /api/* and the hourly status check.
+// backdown.io: a Worker serving ./public; src/worker.js runs only for /api/*, /demo/api/* and the hourly status check.
 // Deploy: python3 build.py && npx wrangler deploy (from this directory). See README.md.
 {
   "name": "backdown-site",
@@ -8,7 +8,7 @@
     "directory": "./public",
     "binding": "ASSETS",
     "not_found_handling": "404-page",
-    "run_worker_first": ["/api/*"]
+    "run_worker_first": ["/api/*", "/demo/api/*"]
   },
   "kv_namespaces": [
     // early-access sign-ups: email:<address> -> {at, lang}

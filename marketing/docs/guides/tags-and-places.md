@@ -118,6 +118,8 @@ backdown tag find --near "Paris, France" --km 20 --tag event="Boat show 2019"
 
 Over the network (`backdown serve --host`), Places shows and searches but doesn't change tags.
 
+<figure class="demo" data-view="places" data-caption="Places: the map drawn from the data built into BackDown, the refine list, and the photos nearest or newest first."></figure>
+
 ## What a photo carries
 
 A photo's content key is `content:` and its SHA-256, which any SHA-256 tool gives you: `sha256sum` on Linux, `shasum -a 256` on macOS, `Get-FileHash` in PowerShell.
