@@ -1642,3 +1642,59 @@ fn where_is_it_finds_cached_folders_too_and_an_older_cache_is_filled_in() {
         ["dir Music/Moretts", "file Backups/Moretts.tar"]
     );
 }
+
+/// A drive unplugged on the other machine: asked to hash one of its files, that machine says the
+/// file is away, not gone (its index still has it), and the asker keeps its cached row. Only the
+/// index there says what's gone (`changes`), so a cache never loses a drive that's only away.
+#[test]
+fn a_file_on_a_drive_unplugged_there_is_kept_in_the_cache() {
+    let tmp = scratch();
+    let vol = tmp.path().join("usb");
+    write(&vol.join("photos/p1.jpg"), &blob(1, 5000));
+    let mut there = Db::open(&tmp.path().join("nas.db")).unwrap();
+    scan(&mut there, &vol);
+    let id: i64 = there
+        .conn
+        .query_row("SELECT id FROM files WHERE current = 1 LIMIT 1", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    // unplugged there: its folder is gone, its index isn't
+    fs::rename(&vol, tmp.path().join("usb-away")).unwrap();
+    let a = ask(
+        &there,
+        &format!(r#"{{"id":1,"op":"hash","ids":[{id}],"mode":"full"}}"#),
+    );
+    let r = &a["data"]["results"][0];
+    assert_eq!(r["away"], true, "{a}");
+    assert_ne!(r["gone"], true, "{a}");
+
+    // the asker keeps the row; a file really gone there is still dropped
+    let db = Db::open(&tmp.path().join("laptop.db")).unwrap();
+    let m = add(&db, "nas", "ssh://nas", None, None).unwrap();
+    for rid in [7, 8] {
+        db.conn
+            .execute(
+                "INSERT INTO remote_files (remote_id, rid, root_id, path, size, mtime) VALUES (?1, ?2, 1, ?3, 5000, 1)",
+                rusqlite::params![m.id, rid, format!("/usb/p{rid}").into_bytes()],
+            )
+            .unwrap();
+    }
+    assert_eq!(
+        store_hash(&db, &m, &json!({ "id": 7, "away": true }), true).unwrap(),
+        "away"
+    );
+    assert_eq!(
+        store_hash(&db, &m, &json!({ "id": 8, "gone": true }), true).unwrap(),
+        "failed"
+    );
+    let left: Vec<i64> = db
+        .conn
+        .prepare("SELECT rid FROM remote_files ORDER BY rid")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect();
+    assert_eq!(left, [7]);
+}

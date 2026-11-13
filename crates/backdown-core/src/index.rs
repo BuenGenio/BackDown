@@ -132,6 +132,9 @@ pub enum Refusal {
     Empty,
     /// the root's own folder can't be listed
     Unreadable,
+    /// the drive went away while it was being read (unplugged, unmounted, a USB reset): what the
+    /// scan hadn't reached isn't gone, only unread, so nothing is marked gone
+    Vanished,
 }
 
 /// A scan refused because what it would record is very likely wrong: it would mark files deleted
@@ -894,6 +897,8 @@ pub(crate) struct Writer<'c> {
     /// every file of the root was looked at (a walk or the file table, not the change log): only
     /// then does the streams recorder count the drive as looked at whole
     whole: bool,
+    /// the device the root was on when the scan began: still the same before anything is closed
+    dev: Option<u64>,
 }
 
 impl Drop for Writer<'_> {
@@ -937,6 +942,7 @@ impl<'c> Writer<'c> {
             committed: false,
             streams: crate::streams::Recorder::new(conn, root_id)?,
             whole: false,
+            dev: device_of(root),
         })
     }
 
@@ -1147,6 +1153,20 @@ impl<'c> Writer<'c> {
                      recorded; if it really was emptied, index again with --allow-empty",
                     self.st.root.display(),
                     crate::fmt::count(had as u64)
+                ),
+            ));
+        }
+        // the drive went away part way (unplugged, unmounted, a USB reset): the walk saw only
+        // NotFound from then on, so what it didn't reach was never read, not deleted. Nothing is
+        // closed: the batches committed so far stay (the next scan carries on from them), and the
+        // drive keeps its index until it's back and read whole
+        if !self.st.root.is_dir() || device_of(&self.st.root) != self.dev {
+            return Err(refused(
+                Refusal::Vanished,
+                format!(
+                    "{} went away while it was being read (unplugged or unmounted?): nothing was \
+                     marked gone, and it's scanned again when it's back",
+                    self.st.root.display()
                 ),
             ));
         }
@@ -1617,6 +1637,73 @@ mod tests {
         }
     }
 
+    /// The drive is unplugged part way through a walk: the walk sees NotFound from then on, so
+    /// what it didn't reach was never read. Nothing is marked gone, what was read stays, and the
+    /// next scan once the drive is back finds everything where it was.
+    #[test]
+    fn a_drive_unplugged_during_a_walk_keeps_its_index() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("drive");
+        for f in ["a", "b", "c/d", "c/e"] {
+            std::fs::create_dir_all(root.join(f).parent().unwrap()).unwrap();
+            std::fs::write(root.join(f), f.as_bytes()).unwrap();
+        }
+        let root = paths::canonical(&root).unwrap();
+        let mut db = Db::open(&tmp.path().join("idx.db")).unwrap();
+        let opts = Options {
+            one_file_system: true,
+            allow_empty: false,
+            allow_other_drive: false,
+        };
+        assert_eq!(index(&mut db, &root, &opts, &mut |_| {}).unwrap().files, 4);
+        let root_id = crate::forget::root_id(&db, &root).unwrap().unwrap();
+        let current = |db: &Db| -> i64 {
+            db.conn
+                .query_row("SELECT COUNT(*) FROM files WHERE current = 1", [], |r| {
+                    r.get(0)
+                })
+                .unwrap()
+        };
+
+        // the walk reads `a`, then the drive goes (its folder disappears, as /Volumes/X does)
+        let items = vec![
+            Item::Dir {
+                path: root.clone(),
+                depth: 0,
+                dev: None,
+                ino: None,
+            },
+            Item::File {
+                path: root.join("a"),
+                depth: 1,
+                size: 1,
+                mtime: mtime_of(&std::fs::metadata(root.join("a")).unwrap()),
+                dev: None,
+                ino: None,
+                links: 1,
+            },
+            Item::Error("IO error for operation on b: No such file or directory".into()),
+        ];
+        let mut w = Writer::begin(&db.conn, &root, root_id).unwrap();
+        write_items(&mut w, items.into_iter(), true, None, &mut |_| {}).unwrap();
+        let away = tmp.path().join("unplugged");
+        std::fs::rename(&root, &away).unwrap();
+        let err = w.close_unseen(4, false).unwrap_err();
+        assert_eq!(
+            err.downcast_ref::<Refused>().map(|r| r.why),
+            Some(Refusal::Vanished),
+            "{err:#}"
+        );
+        drop(w);
+        assert_eq!(current(&db), 4, "nothing marked gone");
+
+        // plugged back in: scanned whole, nothing new or gone
+        std::fs::rename(&away, &root).unwrap();
+        let st = index(&mut db, &root, &opts, &mut |_| {}).unwrap();
+        assert_eq!((st.files, st.new, st.removed), (4, 0, 0));
+        assert_eq!(current(&db), 4);
+    }
+
     /// A folder whose listing breaks off part way (an I/O error on a drive that stopped
     /// answering), and a file that can't be looked at: what the walk didn't get to is kept, the
     /// folders' totals still count it, and only what really went is closed.
@@ -1754,7 +1841,9 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("idx.db");
         let db = Db::open(&path).unwrap();
-        let root = Path::new("/drive");
+        // a real folder: a scan's root has to be there still when what it didn't see is closed
+        let root = &tmp.path().join("drive");
+        std::fs::create_dir(root).unwrap();
         db.conn
             .execute(
                 "INSERT INTO roots(path) VALUES (?1)",

@@ -1489,6 +1489,10 @@ fn store_hash(db: &Db, m: &Machine, r: &Value, samples_ok: bool) -> Result<&'sta
     let Some(rid) = r["id"].as_i64() else {
         return Ok("skipped");
     };
+    if r["away"] == true {
+        // its drive is away there: kept as it was (only the index there says what's gone)
+        return Ok("away");
+    }
     if r["gone"] == true {
         db.conn.execute(
             "DELETE FROM remote_files WHERE remote_id = ?1 AND rid = ?2",
