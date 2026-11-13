@@ -89,7 +89,7 @@ code{font-family:var(--font-mono);font-size:.84em;background:color-mix(in srgb,v
 .lang a:hover{background:var(--bg-sunk);color:var(--ink)}
 .lang a[aria-current=page]{color:var(--accent);font-weight:600}
 /* narrow phones: logo + language + a long CTA ("Předběžný přístup") must fit in one row */
-@media(max-width:420px){.bar{gap:8px}.hdr .home{font-size:1rem;gap:6px}.hdr .mark{width:24px;height:18px}.hdr nav{gap:6px}.lang summary{padding:0 8px}.lang summary span{display:none}.hdr .btn.sm{padding:0 8px;font-size:.75rem}}
+@media(max-width:480px){.bar{gap:8px}.hdr .home{font-size:1rem;gap:6px}.hdr .mark{width:24px;height:18px}.hdr nav{gap:6px}.lang summary{padding:0 8px}.lang summary span{display:none}.hdr .btn.sm{padding:0 8px;font-size:.75rem}}
 
 /* buttons + early-access form */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:46px;padding:0 20px;border-radius:999px;border:1px solid transparent;font:inherit;font-weight:600;font-size:.95rem;text-decoration:none;cursor:pointer;white-space:nowrap;transition:background .15s var(--ease),border-color .15s var(--ease)}
@@ -233,6 +233,19 @@ section{padding-block:clamp(40px,6vw,72px)}
 .cta{padding:clamp(28px,5vw,56px);display:grid;gap:28px;align-items:center}
 @media(min-width:900px){.cta{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
 .cta p{color:var(--ink-2);margin-top:14px;font-size:1.05rem}
+
+/* Buy Me a Coffee: header and footer buttons, the home page's support card */
+.coffee svg{width:18px;height:18px;flex:none}
+.foot-brand .coffee{margin-top:16px}
+@media(max-width:359px){.hdr .coffee{display:none}}
+@media(max-width:1199px){.hdr .btn.sm.coffee{width:36px;padding:0}.hdr .coffee span{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}}
+.support{padding:clamp(24px,4vw,40px);display:grid;gap:18px 28px;align-items:center}
+@media(min-width:820px){.support{grid-template-columns:auto minmax(0,1fr) auto}}
+.support .cup{width:56px;height:56px;border-radius:16px;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent)}
+.support .cup svg{width:28px;height:28px}
+.support h2{font-size:clamp(1.4rem,2.6vw,1.9rem)}
+.support p{color:var(--ink-2);margin-top:10px;max-width:46em}
+@media(max-width:819px){.support .btn{justify-self:start}}
 
 footer{padding:40px 0 48px;border-top:1px solid var(--glass-line);color:var(--ink-3);font-size:.84rem}
 footer .wrap{display:grid;gap:20px 40px;align-items:start}
