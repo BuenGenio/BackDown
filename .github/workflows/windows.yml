@@ -1,0 +1,23 @@
+# The workspace tests on Windows: on demand, and on pushes to the Windows port branch.
+# The release matrix (release.yml) runs the same tests on version tags.
+name: windows
+on:
+  workflow_dispatch:
+  push:
+    branches: ['fix/windows-port']
+    paths: ['crates/**', 'Cargo.*', '.github/workflows/windows.yml']
+permissions:
+  contents: read
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-test
+      - name: Test
+        run: cargo test --locked --workspace --no-fail-fast
