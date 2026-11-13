@@ -1,6 +1,6 @@
 {
   "_comment": "The /status/ page's roadmap and changelog. Text fields are {lang: text}; a missing language falls back to English (marked lang=en), so English can be updated first. Keep it public-safe: no real paths, hosts or drive names.",
-  "updated": "2026-11-08",
+  "updated": "2026-11-13",
   "now": [
     {
       "state": "done",
@@ -423,6 +423,13 @@
     }
   ],
   "shipped": [
+    {
+      "date": "2026-11-09",
+      "version": "v1.0.0-beta.9",
+      "text": {
+        "en": "A reliability fix. A long scan, or the one-time name index that beta.7 and beta.8 build when they first open a big index, committed its work in safe batches but never gave back the space those batches left in the index's write-ahead log, so on a big enough index the log could grow until the disk was full. BackDown now reclaims that space as it goes: after every batch, when the index opens, and between jobs. Nothing else changed."
+      }
+    },
     {
       "date": "2026-11-08",
       "version": "v1.0.0-beta.8",

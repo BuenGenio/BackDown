@@ -42,6 +42,10 @@ SITE = 'https://backdown.io'
 BRAND_MARK = (ROOT / 'public/brand/backdown-mark.svg').read_text(encoding='utf-8').strip()
 BRAND_VERSION = hashlib.sha256((BRAND_MARK + (ROOT / 'public/favicon.svg').read_text(encoding='utf-8')).encode()).hexdigest()[:10]
 BRAND_INLINE = BRAND_MARK.replace('fill="#d8432b"', 'fill="currentColor"').replace('<svg ', '<svg aria-hidden="true" ', 1)
+# the cup on the Buy Me a Coffee links: drawn here rather than their logo, so it takes the site's colours
+CUP = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+       '<path d="M4 10h12v4a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z"/><path d="M16 11h1.5a2.5 2.5 0 0 1 0 5H16"/>'
+       '<path d="M8 3.5c-.7.8-.7 1.7 0 2.5M12 3.5c-.7.8-.7 1.7 0 2.5"/><path d="M3 21.5h14"/></svg>')
 # page codes (also the URL folder and i18n/<code>.json), in language-menu order; English is served at /
 LANGS = ['en', 'es', 'pt-br', 'de', 'pl', 'cs', 'sk', 'uk']
 FLAGS = {'en': 'gb', 'es': 'es', 'pt-br': 'br', 'de': 'de', 'pl': 'pl', 'cs': 'cz', 'sk': 'sk', 'uk': 'ua'}  # public/flags/<code>.svg
@@ -406,6 +410,7 @@ def shell(lang, page, t, meta, variants, g):
         '@analytics': (f'<meta name="analytics" content="matomo" data-url="{esc(analytics["matomo_url"])}" data-site="{int(analytics["site_id"])}">\n'
                        f'<link rel="dns-prefetch" href="{esc(analytics["matomo_url"])}">') if g['tracking'] else '',
         '@releases_url': g['dl']['releases_url'],
+        '@support_url': esc(g['cfg']['support_url']), '@cup': CUP,
         **{f'@href.{k}': v for k, v in href.items()},
     }
 
