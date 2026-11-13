@@ -10,6 +10,7 @@ use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use serde_json::json;
 
 mod app;
+mod arrivals;
 mod client;
 mod completions;
 mod content;

@@ -294,6 +294,8 @@ function scanningSection() {
     <p class="note">A drive that comes back after being away is scanned then, whatever this says. ${st.daemon ? 'This applies straight away.' : 'It applies to BackDown’s background service; this window was opened with <code>backdown serve</code>.'}
       ${st.rescan_flag ? ` The service was started with <code>--rescan-every</code>, which it goes back to when it starts again.` : ''}</p>
     ${st.daemon ? `<p class="muted">Now: ${running ? `each drive is rescanned every ${esc(dur(running))}` : 'drives are scanned when you ask, or when they come back'}.</p>` : ''}
+    <label class="chk set-chk"><input type="checkbox" id="set-new-drives"${st.settings.index_new_drives ? ' checked' : ''}> Index a drive the first time it's plugged in</label>
+    <p class="note">For external drives (USB, Thunderbolt, SD cards) once they're mounted; indexing only reads. Each drive is considered once: one you remove from the index isn't added again, and one plugged in while this is off is left alone. On Linux, a new drive that stays unmounted (a server nobody is logged in to) is listed in Activity with the command that mounts it read-only.</p>
     ${SET.scan ? `<h3>Fast rescans</h3>${extSection('scan-settings', SET.scan)}` : ''}`;
 }
 
@@ -469,6 +471,7 @@ function wire() {
   $('#set-rescan')?.addEventListener('change', e => saveSetting({ rescan_every: e.target.value }, 'Rescan interval'));
   $('#set-hash-jobs')?.addEventListener('change', async e => { if (!await saveSetting({ hash_jobs: e.target.value }, 'Readers per drive')) render(); });
   $('#set-hash-retry')?.addEventListener('change', e => saveSetting({ hash_retry_errors: e.target.checked ? 1 : 0 }, 'Retrying'));
+  $('#set-new-drives')?.addEventListener('change', e => saveSetting({ index_new_drives: e.target.checked ? 1 : 0 }, 'New drives'));
   $('#set-attest')?.addEventListener('change', async e => { if (!await saveSetting({ attest: e.target.value }, 'Attestations')) render(); });
   $('#set-junk-save')?.addEventListener('click', async () => { if (await saveSetting({ junk_names: $("#set-junk-names").value }, 'Junk rules')) render(); });
   const sch = $("#set-schema-text");
