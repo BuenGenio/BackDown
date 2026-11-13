@@ -147,10 +147,8 @@ pub fn ready(conn: &Connection, tables: &[&str]) -> Result<bool> {
             return Ok(false);
         }
     }
-    if tables.contains(&"remote_files") && !index_exists(conn, "remote_files_lname")? {
-        return Ok(false);
-    }
-    Ok(true)
+    // other machines' names are searched through their own index, once it's there
+    Ok(!tables.contains(&"remote_files") || index_exists(conn, "remote_files_lname")?)
 }
 
 /// When the index opens: a table with no rows at all has nothing to fill in (a new index, or no

@@ -762,7 +762,7 @@ fn install(autostart: bool) -> Result<ExitCode> {
                 .unwrap_or(&exe);
             println!("BackDown.app is installed already: {}", app.display());
             if autostart {
-                crate::service::install(false, "127.0.0.1", 8787, true, false)?;
+                return crate::service::install(false, "127.0.0.1", 8787, true, false);
             }
             return Ok(ExitCode::SUCCESS);
         }
@@ -790,7 +790,7 @@ fn install(autostart: bool) -> Result<ExitCode> {
         println!("added {} (open it from Launchpad or Finder)", app.display());
         if autostart {
             // the background service at login is the launchd agent `backdown service` makes
-            crate::service::install(false, "127.0.0.1", 8787, true, false)?;
+            return crate::service::install(false, "127.0.0.1", 8787, true, false);
         }
         return Ok(ExitCode::SUCCESS);
     }
@@ -803,7 +803,7 @@ fn install(autostart: bool) -> Result<ExitCode> {
         println!("added BackDown to the Start menu ({})", menu.display());
         if autostart {
             // the background service at logon is the scheduled task `backdown service` makes
-            crate::service::install(false, "127.0.0.1", 8787, true, false)?;
+            return crate::service::install(false, "127.0.0.1", 8787, true, false);
         }
         return Ok(ExitCode::SUCCESS);
     }
