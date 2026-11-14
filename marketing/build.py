@@ -47,9 +47,10 @@ CUP = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width=
        '<path d="M4 10h12v4a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z"/><path d="M16 11h1.5a2.5 2.5 0 0 1 0 5H16"/>'
        '<path d="M8 3.5c-.7.8-.7 1.7 0 2.5M12 3.5c-.7.8-.7 1.7 0 2.5"/><path d="M3 21.5h14"/></svg>')
 # The features page's tiles, in page order: (i18n key, status tag). Each tile is a big icon and the feature's name;
-# the description is on its other side (site.js turns it over).
+# the description is on its other side (site.js turns it over). The tag is live, dev or plan, or the version a feature
+# ships in: "dev" until downloads.json offers that version (or a later one), "live" from then on.
 FEATURES = [('f1', 'live'), ('f2', 'live'), ('f3', 'live'), ('f6', 'live'), ('f10', 'live'), ('f4', 'live'), ('f5', 'live'),
-            ('f7', 'live'), ('f11', 'live'), ('f8', 'plan'), ('f9', 'live')]
+            ('f7', 'live'), ('f11', 'live'), ('f12', 'v1.0.0-beta.13'), ('f8', 'plan'), ('f9', 'live')]
 # 48×48, in the ink colour. Classes (site.css): a = accent, m = muted, ai = drawn on the accent, cut = a ring in the
 # tile's own colour that sets a badge off what's behind it; fill="var(--face)" fills with the tile's colour.
 FEATURE_ICONS = {
@@ -94,6 +95,13 @@ FEATURE_ICONS = {
     # a stopwatch, quick
     'f11': '<circle cx="30" cy="28" r="14"/><path d="M26 6h8M30 6v8M41 14.5l2.6-2.6"/><path class="a" d="M30 28l6.5-7.5" stroke-width="2.8"/>'
            '<circle class="a" cx="30" cy="28" r="2.2" fill="currentColor" stroke="none"/><path class="a" d="M2 21h9M4 28h7M2 35h9"/>',
+    # a drive that's away (dashed) with its index still there, and the plug: indexed when it's plugged in
+    'f12': '<rect class="m" x="4" y="9" width="40" height="27" rx="5" stroke-dasharray="3.4 3.6"/>'
+           '<path d="M16 17h15M16 22.5h19M16 28h9"/><g class="a" fill="currentColor" stroke="none"><circle cx="10.5" cy="17" r="1.7"/>'
+           '<circle cx="10.5" cy="22.5" r="1.7"/><circle cx="10.5" cy="28" r="1.7"/></g>'
+           '<circle class="a cut" cx="37" cy="36" r="9.5" fill="currentColor" stroke-width="3"/>'
+           '<path class="ai" d="M34.6 30.3v3M39.4 30.3v3M37 39.9v2.7" stroke-width="2.2"/>'
+           '<path class="ai" d="M32.8 33.3h8.4v2.3a4.2 4.2 0 0 1-8.4 0z" fill="currentColor" stroke-width="1.4"/>',
     # a lock, on a schedule
     'f8': '<path d="M12 21v-6a9 9 0 0 1 18 0v6"/><rect x="6" y="21" width="30" height="21" rx="4"/>'
           '<circle cx="21" cy="29.5" r="2.4" fill="currentColor" stroke="none"/><path d="M21 31.5v4.5"/>'
@@ -273,11 +281,14 @@ def feature_icon(fid):
             f'aria-hidden="true">{FEATURE_ICONS[fid]}</svg>')
 
 
-def feature_tiles(t):
+def feature_tiles(t, newest):
     """the features page's tiles: the icon and name in front; behind, the name again (for the eye only) and what it
-    does. Both sides are in the page, so the description is there for search engines, screen readers and print."""
+    does. Both sides are in the page, so the description is there for search engines, screen readers and print.
+    `newest` is the newest version downloads.json offers: a feature tagged with a later one is still in development."""
     out = []
     for fid, state in FEATURES:
+        if state.startswith('v'):
+            state = 'live' if newest and version_key(newest) >= version_key(state) else 'dev'
         title, body = t[f'features.{fid}_title'], t[f'features.{fid}_body']
         out.append(f'''    <article class="feat card" tabindex="0" data-feat="{fid}">
      <div class="feat-face"><span class="tag {state}">{t[f"features.tag_{state}"]}</span><span class="feat-ic">{feature_icon(fid)}</span><h2 class="h3">{title}</h2><span class="feat-turn">{TURN}</span></div>
@@ -319,12 +330,18 @@ def version_key(v):
     return (int(m[1]), int(m[2] or 0), int(m[3] or 0), {'alpha': 0, 'beta': 1, 'rc': 2, None: 3}[m[4]], int(m[5] or 0))
 
 
+def newest_offered(platforms):
+    """the newest version downloads.json offers on any platform, or None"""
+    return max((p['version'] for p in platforms if p['status'] == 'available' and p.get('version')), key=version_key,
+               default=None)
+
+
 def shipped_so_far(status, platforms):
     """status.json's shipped list as the site shows it. An entry can be written before its release: it stays hidden
     until downloads.json offers that version (or a later one), and one without a date takes the date the release
     went out (publish-release.sh writes it in). Also says when the current download has no entry."""
     offered = {p['version']: p.get('date') for p in platforms if p['status'] == 'available' and p.get('version')}
-    newest = max(offered, key=version_key, default=None)
+    newest = newest_offered(platforms)
     shown = []
     for s in status['shipped']:
         if newest and version_key(s['version']) > version_key(newest):
@@ -601,7 +618,7 @@ def main():
     used |= {f'faq.a{k[1:]}' for k in FAQ} | {f'faq.pa{k[2:]}' for k in FAQ_PREORDER}
     used |= {f'thanks.{s}' for s in ('pending', 'paid', 'paid_noemail', 'refunded', 'unknown', 'error')}
     used |= {f"download.{p['id']}_body" for p in platforms}
-    used |= {f'features.{fid}_{f}' for fid, _ in FEATURES for f in ('title', 'body')} | {f'features.tag_{s}' for _, s in FEATURES}
+    used |= {f'features.{fid}_{f}' for fid, _ in FEATURES for f in ('title', 'body')} | {f'features.tag_{s}' for s in ('live', 'dev', 'plan')}
     errors = [f'template uses undefined key {k}' for k in sorted(used - keys)]
     errors += [f'en.json key {k} is never used' for k in sorted(keys - used) if not k.startswith('docs.')]
     for lang, table in tables.items():
@@ -656,7 +673,7 @@ def main():
             if pid == 'download':
                 computed['@downloads'] = downloads(t, platforms)
             if pid == 'features':
-                computed['@features'] = feature_tiles(t)
+                computed['@features'] = feature_tiles(t, newest_offered(platforms))
             if pid == 'pricing':
                 computed['@faq'] = faq(t, cfg)
                 # hidden until /api/preorder says that edition's price is on sale (site.js); Pro's card is the pick

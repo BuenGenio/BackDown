@@ -200,6 +200,8 @@
   "features.f10_body": "Každý sken sa uchováva, takže prehliadač súborov ukáže ktorýkoľvek priečinok tak, ako vyzeral pri ľubovoľnom skene, s náhľadmi a zobrazením PDF, kancelárskych dokumentov, databáz SQLite, histórie repozitárov git a diffov iba na čítanie.",
   "features.f11_title": "Opakovaný sken za pár sekúnd",
   "features.f11_body": "Po prvom skene sa BackDown opýta vlastného záznamu zmien disku, čo sa zmenilo: histórie FSEvents v macOS alebo žurnálu USN vo Windows, a to aj keď bol disk medzitým odpojený. Na diskoch NTFS vie tiež priamo čítať hlavnú tabuľku súborov (MFT) a vypísať milióny súborov za pár sekúnd. Čo záznam nedokáže zaručiť, sa preskenuje celé, takže nič nechýba. Zadarmo v každej edícii.",
+  "features.f12_title": "Raz zapojený, nikdy nezabudnutý",
+  "features.f12_body": "Zapojte nový disk a BackDown ho zaindexuje, hneď ako je pripojený, a nič na ňom nezmení. Odpojte ho, hoci aj uprostred skenu, a jeho index zostane: môžete v ňom ďalej hľadať a pri ďalšom zapojení sa aktualizuje. Ak sa objaví pod inou cestou, BackDown ho rozpozná a nebude ho indexovať druhýkrát.",
   "faq.eyebrow": "Otázky",
   "faq.title": "Otázky o cenách",
   "faq.q1": "Je BackDown zadarmo?",

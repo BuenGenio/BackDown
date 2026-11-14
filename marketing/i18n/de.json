@@ -200,6 +200,8 @@
   "features.f10_body": "Jeder Scan bleibt erhalten. So zeigt der Dateibrowser jeden Ordner so, wie er zum Zeitpunkt eines beliebigen Scans aussah, mit Vorschauen und schreibgeschützten Viewern für PDFs, Office-Dokumente, SQLite-Datenbanken, Git-Verlauf und Diffs.",
   "features.f11_title": "Erneute Scans in Sekunden",
   "features.f11_body": "Nach dem ersten Scan fragt BackDown das eigene Änderungsprotokoll des Laufwerks, was sich geändert hat: den FSEvents-Verlauf unter macOS oder das USN-Journal unter Windows, auch wenn das Laufwerk zwischendurch abgesteckt war. Auf NTFS-Laufwerken kann es außerdem die Master File Table direkt lesen und Millionen Dateien in Sekunden auflisten. Was das Protokoll nicht verbürgen kann, wird vollständig gescannt, damit nichts fehlt. In jeder Edition kostenlos.",
+  "features.f12_title": "Einmal angeschlossen, nie vergessen",
+  "features.f12_body": "Schließen Sie ein neues Laufwerk an, und BackDown indexiert es, sobald es eingehängt ist, ohne etwas darauf zu verändern. Ziehen Sie es ab, auch mitten im Scan, und sein Index bleibt: weiter durchsuchbar und beim nächsten Anschließen auf den neuesten Stand gebracht. Taucht es unter einem anderen Pfad auf, wird es wiedererkannt statt doppelt indexiert.",
   "faq.eyebrow": "Fragen",
   "faq.title": "Fragen zu den Preisen",
   "faq.q1": "Ist BackDown kostenlos?",

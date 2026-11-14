@@ -200,6 +200,8 @@
   "features.f10_body": "Cada escaneo se conserva, así que el explorador de archivos puede mostrar cualquier carpeta tal como estaba en cualquier fecha de escaneo, con vistas previas y visores de solo lectura para PDF, documentos de oficina, bases de datos SQLite, historial de git y diferencias.",
   "features.f11_title": "Nuevos escaneos en segundos",
   "features.f11_body": "Después del primer escaneo, BackDown pregunta al propio registro de cambios del disco qué ha cambiado: el historial FSEvents en macOS o el diario USN en Windows, incluso si el disco se desconectó entre medias. En discos NTFS también puede leer directamente la tabla maestra de archivos y listar millones de archivos en segundos. Lo que el registro no puede garantizar se escanea por completo, así que no se pierde nada. Gratis en todas las ediciones.",
+  "features.f12_title": "Lo conectas una vez y no lo olvida",
+  "features.f12_body": "Conecta un disco nuevo y BackDown lo indexa en cuanto se monta, sin cambiar nada en él. Desconéctalo, aunque sea a mitad de un escaneo, y su índice se queda: puedes seguir buscando en él y se pone al día la próxima vez que vuelva. Si aparece en otra ruta, lo reconoce en vez de indexarlo dos veces.",
   "faq.eyebrow": "Preguntas",
   "faq.title": "Preguntas sobre precios",
   "faq.q1": "¿BackDown es gratis?",

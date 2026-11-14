@@ -200,6 +200,8 @@
   "features.f10_body": "Toda varredura fica guardada, então o navegador de arquivos mostra qualquer pasta como ela estava em qualquer data de varredura, com pré-visualizações e visualizadores somente leitura para PDFs, documentos de escritório, bancos de dados SQLite, histórico e diffs do git.",
   "features.f11_title": "Novas varreduras em segundos",
   "features.f11_body": "Depois da primeira varredura, o BackDown pergunta ao próprio registro de alterações do disco o que mudou: o histórico FSEvents no macOS ou o diário USN no Windows, mesmo que o disco tenha sido desconectado nesse meio-tempo. Em discos NTFS ele também pode ler diretamente a tabela mestra de arquivos e listar milhões de arquivos em segundos. O que o registro não consegue garantir passa por uma varredura completa, então nada fica de fora. Grátis em todas as edições.",
+  "features.f12_title": "Conectado uma vez, nunca esquecido",
+  "features.f12_body": "Conecte um disco novo e o BackDown o indexa assim que ele é montado, sem alterar nada nele. Desconecte-o, mesmo no meio de uma varredura, e o índice dele fica: você continua pesquisando nele, e ele é atualizado na próxima vez que o disco voltar. Se ele aparecer em outro caminho, é reconhecido em vez de indexado duas vezes.",
   "faq.eyebrow": "Perguntas",
   "faq.title": "Perguntas sobre preços",
   "faq.q1": "O BackDown é gratuito?",
