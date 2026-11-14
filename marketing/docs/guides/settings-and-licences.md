@@ -56,6 +56,8 @@ The service rescans each drive every 24 hours, and as soon as a drive that was a
 
 `backdown daemon --rescan-every 12h` (or `30m`, `7d`, `never`) sets it when the service starts; a change in Settings then applies until the service starts again with that option. `--port` moves the browser from port 8787.
 
+A drive plugged in for the first time is indexed as soon as it's mounted: "Index a drive the first time it's plugged in", in the same section, is on unless you turn it off. It covers external drives (USB, Thunderbolt, FireWire, SD cards), and indexing only reads. The system's own disks, internal drives and disk images are left alone. So is a drive that's indexed already, even when it's mounted at another path than the one it was indexed at. Each drive is considered once, by its file system's UUID: one you remove from the index isn't added again when you plug it back in, and one plugged in while the setting is off stays alone after you turn it on. Drives that were connected when the service first ran with this setting count as seen. On Linux, a new drive that's still not mounted a minute after it's plugged in is listed in Activity, with the command that mounts it read-only. That happens on a server nobody is logged in to, because udisks only mounts for the person at the screen. Once mounted, it's indexed. The service keeps the drives it has seen in `drives-seen.json` in its data folder.
+
 Under "Fast rescans" in the same section:
 
 - **Use the drive's change log and file table when possible** (on): off, every scan walks every folder.

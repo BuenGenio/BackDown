@@ -30,6 +30,8 @@ pub struct Settings {
     /// rescan each drive this often: "12h", "1d", "7d", or "never" (only when asked, or when a
     /// drive comes back)
     pub rescan_every: String,
+    /// queue the first index of an external drive when it's plugged in (arrivals.rs)
+    pub index_new_drives: bool,
     /// readers per drive for the hashing after each scan (1 suits spinning disks; SSDs take more)
     pub hash_jobs: usize,
     /// the hashing after each scan also retries files it couldn't read before
@@ -49,6 +51,7 @@ impl Default for Settings {
     fn default() -> Self {
         Settings {
             rescan_every: "24h".into(),
+            index_new_drives: true,
             hash_jobs: 1,
             hash_retry_errors: false,
             update_check: false,
@@ -357,6 +360,7 @@ fn change(env: &Env, params: &[(String, String)]) -> Result<()> {
                 s.hash_jobs = n;
             }
             "hash_retry_errors" => s.hash_retry_errors = v == "1" || v == "true",
+            "index_new_drives" => s.index_new_drives = v == "1" || v == "true",
             "update_check" => s.update_check = v == "1" || v == "true",
             "attest" => {
                 let m = crate::manifesting::Attest::parse(v)?;
@@ -584,6 +588,10 @@ mod tests {
         let s: Settings = serde_json::from_str(r#"{"hash_jobs": 3}"#).unwrap();
         assert_eq!(s.hash_jobs, 3);
         assert_eq!(s.rescan_every, "24h");
+        assert!(
+            s.index_new_drives,
+            "new drives are indexed unless turned off"
+        );
         assert!(!s.update_check, "no network requests unless asked for");
         assert_eq!(s.attest, "off", "nothing is signed unless asked for");
         let back: Settings = serde_json::from_value(serde_json::to_value(&s).unwrap()).unwrap();

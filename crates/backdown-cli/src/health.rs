@@ -220,7 +220,7 @@ pub fn run(d: &Daemon) {
 }
 
 /// Which disks are there, cheaply (no tools run): changes when one is plugged in or removed.
-fn disk_set() -> Option<Vec<String>> {
+pub(crate) fn disk_set() -> Option<Vec<String>> {
     let (dir, keep): (&str, fn(&str) -> bool) = if cfg!(target_os = "linux") {
         ("/sys/block", |n| {
             !["loop", "ram", "zram", "dm-", "md", "sr"]
@@ -362,7 +362,6 @@ pub fn after_remote_sync(d: &Daemon, db: &Db, show_now: &[Note]) {
 /// failed. Recording is quick; showing happens in the background.
 pub fn after_job(d: &Daemon, job: &Job, error: Option<&str>) {
     let Some(error) = error else { return };
-    let settings = d.health.settings();
     let label = job.path.as_deref().unwrap_or("");
     let note = if job.kind == "mirror-verify" {
         Note {
@@ -395,6 +394,13 @@ pub fn after_job(d: &Daemon, job: &Job, error: Option<&str>) {
     } else {
         return;
     };
+    tell(d, note);
+}
+
+/// Record a note in Activity (if it's news) and pop it up if its kind is chosen. Recording is
+/// quick; showing happens in the background.
+pub fn tell(d: &Daemon, note: Note) {
+    let settings = d.health.settings();
     // recorded either way (Activity lists it); popped up only if that kind is chosen
     let desktop = d.health.desktop && settings.desktop && settings.wants(note.kind);
     let r = Db::open(&d.db).and_then(|db| {

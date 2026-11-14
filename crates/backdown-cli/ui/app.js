@@ -1995,7 +1995,7 @@ function eta(j, now) {
   if (p == null || p < 0.02 || took < 15) return '';
   return `about ${dur(took * (1 - p) / p)} left`;
 }
-const REASON = { requested: 'you asked', scheduled: 'scheduled', returned: 'drive came back', 'after-scan': 'after a scan', 'after-apply': 'after copying', 'after-wipe': 'after wiping', 'after-rescue': 'recovered files', 'after-dedup': 'after tidying', 'after-merge': 'after merging mail', 'after-sync': 'after a machine’s sync', 'after-hash': 'after hashing', resumed: 'carrying on' };
+const REASON = { requested: 'you asked', scheduled: 'scheduled', returned: 'drive came back', 'new-drive': 'new drive', 'after-scan': 'after a scan', 'after-apply': 'after copying', 'after-wipe': 'after wiping', 'after-rescue': 'recovered files', 'after-dedup': 'after tidying', 'after-merge': 'after merging mail', 'after-sync': 'after a machine’s sync', 'after-hash': 'after hashing', resumed: 'carrying on' };
 const JOB_ICON = {
   'remote-sync': '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>',
   dedup: '<svg viewBox="0 0 24 24"><path d="M10 14a3.5 3.5 0 0 0 5 0l3-3a3.5 3.5 0 0 0-5-5l-.5.5"/><path d="M14 10a3.5 3.5 0 0 0-5 0l-3 3a3.5 3.5 0 0 0 5 5l.5-.5"/></svg>',
