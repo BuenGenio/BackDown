@@ -492,11 +492,17 @@ fn a_plan_is_carried_out_into_pool_folders_here_and_there() {
             .collect();
         format!("{files:#?}\n{log:#?}")
     };
-    // there: b.jpg (a.jpg was in the pool already; its copy went once)
+    // there: b.jpg's content, once (a.jpg was in the pool already). Under whichever of its two
+    // names the walk met first: a folder lists in its file system's order (by name on NTFS, by a
+    // hash on ext4), so either can be the one that's sent and the other the one that's "twice"
     let there = nas_pool.join("Unsorted/OLD-DRIVE/Photos");
-    assert!(there.join("b.jpg").exists(), "{}", everything());
-    assert_eq!(fs::read(there.join("b.jpg")).unwrap(), photo_b);
-    assert!(!there.join("a.jpg").exists() && !there.join("b copy.jpg").exists());
+    let sent: Vec<&str> = ["b.jpg", "b copy.jpg"]
+        .into_iter()
+        .filter(|n| there.join(n).exists())
+        .collect();
+    assert_eq!(sent.len(), 1, "{}", everything());
+    assert_eq!(fs::read(there.join(sent[0])).unwrap(), photo_b);
+    assert!(!there.join("a.jpg").exists());
     // here: the docs, next to what was there
     let docs = pool_here.join("Unsorted/OLD-DRIVE/Docs");
     assert_eq!(fs::read(docs.join("notes.txt")).unwrap(), blob(3, 2_000));
@@ -536,7 +542,7 @@ fn a_plan_is_carried_out_into_pool_folders_here_and_there() {
     assert_eq!(job, format!("pool:{id}"));
     assert!(
         String::from_utf8_lossy(&src).starts_with("laptop:")
-            && String::from_utf8_lossy(&src).ends_with("b.jpg")
+            && String::from_utf8_lossy(&src).ends_with(sent[0])
     );
     // what was sent has its hash known here now
     let unhashed: i64 = db
