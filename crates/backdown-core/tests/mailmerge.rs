@@ -287,7 +287,11 @@ fn snapshots_merge_into_one_maildir_every_message_once() {
     // oldest first: 2019's Maildir, the 2020 mbox, 2021's Maildir
     let order: Vec<&str> = dry.sources.iter().map(|s| s.kind.as_str()).collect();
     assert_eq!(order, ["Maildir", "mbox folder", "Maildir"]);
-    assert!(dry.sources[0].path.ends_with("drive-2019/Maildir"));
+    assert!(
+        Path::new(&dry.sources[0].path).ends_with(Path::new("drive-2019").join("Maildir")),
+        "{:?}",
+        dry.sources[0].path
+    );
     assert_eq!(dry.sources[0].folders_only_here, ["Old"]);
     assert_eq!(dry.sources[2].folders_only_here, ["Archive"]);
     assert_eq!(

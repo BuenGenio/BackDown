@@ -4,9 +4,9 @@
 //! On Windows a path is stored and shown in its normal form (`C:\…`, `\\server\share\…`) and
 //! opened in its verbatim form (`\\?\C:\…`, `\\?\UNC\server\share\…`), which reaches past 260
 //! characters and keeps names that Win32 would otherwise change (a trailing dot or space) as they
-//! are. `to_bytes` stores the normal form whichever form it's given, `os` gives the form to open,
-//! and `canonical` and `show` never let a verbatim prefix out. The conversions themselves work on
-//! UTF-16 code units and are tested on every OS.
+//! are. `to_bytes` stores the normal form whichever form it's given (and `/` as the `\` it is to
+//! Windows), `os` gives the form to open, and `canonical` and `show` never let a verbatim prefix
+//! out. The conversions themselves work on UTF-16 code units and are tested on every OS.
 //!
 //! `open_read` opens a source file for reading only; on Windows with backup semantics, which
 //! `enable_backup_privilege` makes count when BackDown runs elevated, so files the user's own
@@ -31,11 +31,17 @@ pub fn from_bytes(b: &[u8]) -> PathBuf {
     PathBuf::from(std::ffi::OsStr::from_bytes(b))
 }
 
-/// The normal form's UTF-16LE bytes (a verbatim `\\?\` path is stored without its prefix).
+/// The normal form's UTF-16LE bytes (a verbatim `\\?\` path is stored without its prefix), with
+/// `\` between names: `/` is a separator to Windows and never part of a name, so `D:/Photos` is
+/// stored, and found, as `D:\Photos` is (walks and canonical paths spell it with `\`).
 #[cfg(windows)]
 pub fn to_bytes(p: &Path) -> Vec<u8> {
     use std::os::windows::ffi::OsStrExt;
-    let wide: Vec<u16> = p.as_os_str().encode_wide().collect();
+    let wide: Vec<u16> = p
+        .as_os_str()
+        .encode_wide()
+        .map(|c| if c == SLASH { BACKSLASH } else { c })
+        .collect();
     let wide = strip_verbatim(&wide).unwrap_or(wide);
     wide.into_iter().flat_map(u16::to_le_bytes).collect()
 }
@@ -488,5 +494,21 @@ mod tests {
         let short = PathBuf::from(r"\\?\C:\Users");
         assert_eq!(dunce::simplified(&short), Path::new(r"C:\Users"));
         assert_eq!(normal(&short), dunce::simplified(&short));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn slashes_are_stored_as_the_separator_they_are() {
+        let stored = to_bytes(Path::new(r"D:\Photos\2019\a.jpg"));
+        assert_eq!(to_bytes(Path::new("D:/Photos/2019/a.jpg")), stored);
+        assert_eq!(
+            to_bytes(&Path::new(r"D:\Photos").join("2019/a.jpg")),
+            stored
+        );
+        assert_eq!(
+            dir_prefix(Path::new("D:/Photos/")),
+            to_bytes(Path::new(r"D:\Photos\"))
+        );
+        assert_eq!(from_bytes(&stored), Path::new(r"D:\Photos\2019\a.jpg"));
     }
 }

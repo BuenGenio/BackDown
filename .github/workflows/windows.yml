@@ -1,5 +1,5 @@
-# The workspace tests on Windows: on demand, and on pushes to the Windows port branch.
-# The release matrix (release.yml) runs the same tests on version tags.
+# The release job's Windows leg (release.yml), without a tag: the workspace tests as the release runs
+# them, then the static build and its smoke test. On demand, and on pushes to the Windows port branch.
 name: windows
 on:
   workflow_dispatch:
@@ -16,8 +16,22 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
       - uses: Swatinem/rust-cache@v2
         with:
-          key: windows-test
-      - name: Test
-        run: cargo test --locked --workspace --no-fail-fast
+          key: windows-x86_64
+      - name: Test (as release.yml runs them)
+        run: cargo test --locked --release --no-fail-fast
+      - name: Build and smoke test (as release.yml does)
+        shell: bash
+        env:
+          RUSTFLAGS: '-C target-feature=+crt-static'
+        run: |
+          cargo build --locked --release --target x86_64-pc-windows-msvc
+          mkdir -p dist && cp target/x86_64-pc-windows-msvc/release/backdown.exe dist/
+          bin=dist/backdown.exe
+          $bin --version
+          mkdir -p smoke/a smoke/b && echo same > smoke/a/x && echo same > smoke/b/x
+          $bin --db smoke.db index smoke/a smoke/b
+          $bin --db smoke.db check smoke/a

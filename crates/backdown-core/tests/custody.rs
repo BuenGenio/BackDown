@@ -146,6 +146,10 @@ fn sorted(mut v: Vec<Ev>) -> Vec<Ev> {
     v
 }
 
+/// Maildir's info separator as a Maildir on this system has it: `:` can't be in a Windows file
+/// name (`a:b` is a stream of `a` there), so `!` (what mailmerge writes there too).
+const INFO: &str = if cfg!(windows) { "!2," } else { ":2," };
+
 fn maildir_message(root: &Path, n: u32, id: &str, subject: &str) -> Vec<u8> {
     for s in ["cur", "new", "tmp"] {
         fs::create_dir_all(root.join(s)).unwrap();
@@ -156,7 +160,7 @@ fn maildir_message(root: &Path, n: u32, id: &str, subject: &str) -> Vec<u8> {
     write(
         &root
             .join("cur")
-            .join(format!("15595{n}.M{n}P1.host.example.org:2,S")),
+            .join(format!("15595{n}.M{n}P1.host.example.org{INFO}S")),
         m.as_bytes(),
     );
     m.into_bytes()

@@ -440,6 +440,15 @@ fn a_plan_is_carried_out_into_pool_folders_here_and_there() {
         path: nas_pool.display().to_string(),
     };
     plan::choose(&db, &mut pp, &areas, i, Some(to_nas.clone()), false).unwrap();
+    let docs = pp
+        .things
+        .iter()
+        .find(|t| t.item.source.ends_with("Docs"))
+        .unwrap();
+    assert!(
+        docs.to.as_ref().is_some_and(AreaRef::here),
+        "the docs stay where their place is: {docs:#?} {areas:#?}"
+    );
     let id = plan::save(&db, &mut pp).unwrap();
 
     let mut here = Here {

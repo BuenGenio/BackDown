@@ -267,6 +267,50 @@ impl Peer for Local {
     }
 }
 
+/// A Windows machine, whatever this system is: `Local`'s answers with its paths spelt as Windows
+/// keeps them (UTF-16, `\` between names, under a drive letter).
+struct AsWindows(Local);
+
+impl AsWindows {
+    fn path(raw: &[u8]) -> Vec<u8> {
+        if cfg!(windows) {
+            return raw.to_vec();
+        }
+        let s = format!("C:{}", String::from_utf8_lossy(raw).replace('/', "\\"));
+        s.encode_utf16().flat_map(u16::to_le_bytes).collect()
+    }
+
+    fn key(k: &Value) -> Value {
+        let raw = URL_SAFE_NO_PAD.decode(k.as_str().unwrap()).unwrap();
+        json!(URL_SAFE_NO_PAD.encode(Self::path(&raw)))
+    }
+}
+
+impl Peer for AsWindows {
+    fn call(&mut self, op: &str, args: Value, t: Duration) -> Result<Value> {
+        let mut v = self.0.call(op, args, t)?;
+        match op {
+            "hello" => v["os"] = json!("windows"),
+            "roots" => {
+                for r in v["roots"].as_array_mut().unwrap() {
+                    r["key"] = Self::key(&r["key"]);
+                    if !cfg!(windows) {
+                        let shown = Self::path(r["path"].as_str().unwrap().as_bytes());
+                        r["path"] = json!(display(Os::Windows, &shown));
+                    }
+                }
+            }
+            "changes" => {
+                for row in v["rows"].as_array_mut().unwrap() {
+                    row[1] = Self::key(&row[1]);
+                }
+            }
+            _ => {}
+        }
+        Ok(v)
+    }
+}
+
 /// A machine running a BackDown whose samples are computed differently: they can't be compared.
 struct OtherSamples(Local);
 
@@ -1505,6 +1549,48 @@ fn a_sync_keeps_each_machines_storage_and_an_older_one_just_doesnt_say() {
     // forgetting the machine forgets its storage too
     remove(&db, m.id).unwrap();
     assert_eq!(count(&db, "SELECT COUNT(*) FROM remote_volumes"), 0);
+}
+
+/// A Windows machine's files are named as Windows spells its paths from the very first sync, when
+/// all this machine knew of it before its hello was its address (they were read as Unix bytes, so
+/// every name came out wrong and nothing there could be found by name).
+#[test]
+fn a_windows_machine_is_read_as_windows_from_its_first_sync() {
+    use crate::swarm;
+    let tmp = scratch();
+    let vol = tmp.path().join("nas/volume1");
+    write(&vol.join("Music/Moretts/01 Intro.flac"), &blob(1, 500));
+    write(&vol.join("backup/report.txt"), &blob(2, 300));
+    let nas_db = tmp.path().join("nas.db");
+    let mut there = Db::open(&nas_db).unwrap();
+    scan(&mut there, &vol);
+    let db = Db::open(&tmp.path().join("local.db")).unwrap();
+    let m = add(&db, "pc", "ssh://pc.example.org", None, None).unwrap();
+    assert_eq!(m.os(), Os::Unix, "nothing said yet");
+    let mut peer = AsWindows(Local {
+        db: nas_db,
+        calls: Vec::new(),
+    });
+    sync(&db, &m, &mut peer, &SyncOptions::default(), &mut |_| {}).unwrap();
+    let m = get(&db, m.id).unwrap();
+    assert_eq!(m.os(), Os::Windows);
+    let find = |q: &str| {
+        swarm::cached_find(&db, &m, q, 10, Duration::from_secs(5))
+            .unwrap()
+            .0
+    };
+    let hits = find("report");
+    assert_eq!(hits.len(), 1, "{hits:?}");
+    assert_eq!(hits[0]["name"], "report.txt");
+    assert_eq!(hits[0]["folder"], "backup");
+    assert_eq!(hits[0]["drive"], "volume1");
+    // and its folders, worked out from the files' paths
+    let dirs = find("moretts");
+    assert_eq!(dirs.len(), 1, "{dirs:?}");
+    assert_eq!(
+        (&dirs[0]["kind"], &dirs[0]["folder"]),
+        (&json!("dir"), &json!("Music"))
+    );
 }
 
 #[test]
