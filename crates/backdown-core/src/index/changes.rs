@@ -997,9 +997,9 @@ mod tests {
 
     #[test]
     fn below_bounds_only_what_is_below() {
-        let (lo, hi) = below(Path::new("/a/b"));
+        let (lo, hi) = below(&paths::native("/a/b"));
         let inside = |p: &str| {
-            let b = paths::to_bytes(Path::new(p));
+            let b = paths::to_bytes(&paths::native(p));
             b >= lo && b < hi
         };
         assert!(inside("/a/b/c"));

@@ -491,7 +491,9 @@ fn copied_out_files_are_in_the_chain_of_custody() {
     );
     let keep = rows
         .iter()
-        .find(|r| r.1.ends_with(b"/keep.txt"))
+        .find(|r| {
+            r.1.ends_with(&crate::paths::to_bytes(std::path::Path::new("/keep.txt")))
+        })
         .expect("keep.txt");
     let from = format!("{}@{}:/keep.txt", img.display(), 1 << 20);
     assert_eq!(keep.1, crate::paths::to_bytes(std::path::Path::new(&from)));

@@ -4,9 +4,9 @@
 //! On Windows a path is stored and shown in its normal form (`C:\…`, `\\server\share\…`) and
 //! opened in its verbatim form (`\\?\C:\…`, `\\?\UNC\server\share\…`), which reaches past 260
 //! characters and keeps names that Win32 would otherwise change (a trailing dot or space) as they
-//! are. `to_bytes` stores the normal form whichever form it's given, `os` gives the form to open,
-//! and `canonical` and `show` never let a verbatim prefix out. The conversions themselves work on
-//! UTF-16 code units and are tested on every OS.
+//! are. `to_bytes` stores the normal form whichever form it's given (and `/` as the `\` it is to
+//! Windows), `os` gives the form to open, and `canonical` and `show` never let a verbatim prefix
+//! out. The conversions themselves work on UTF-16 code units and are tested on every OS.
 //!
 //! `open_read` opens a source file for reading only; on Windows with backup semantics, which
 //! `enable_backup_privilege` makes count when BackDown runs elevated, so files the user's own
@@ -31,11 +31,17 @@ pub fn from_bytes(b: &[u8]) -> PathBuf {
     PathBuf::from(std::ffi::OsStr::from_bytes(b))
 }
 
-/// The normal form's UTF-16LE bytes (a verbatim `\\?\` path is stored without its prefix).
+/// The normal form's UTF-16LE bytes (a verbatim `\\?\` path is stored without its prefix), with
+/// `\` between names: `/` is a separator to Windows and never part of a name, so `D:/Photos` is
+/// stored, and found, as `D:\Photos` is (walks and canonical paths spell it with `\`).
 #[cfg(windows)]
 pub fn to_bytes(p: &Path) -> Vec<u8> {
     use std::os::windows::ffi::OsStrExt;
-    let wide: Vec<u16> = p.as_os_str().encode_wide().collect();
+    let wide: Vec<u16> = p
+        .as_os_str()
+        .encode_wide()
+        .map(|c| if c == SLASH { BACKSLASH } else { c })
+        .collect();
     let wide = strip_verbatim(&wide).unwrap_or(wide);
     wide.into_iter().flat_map(u16::to_le_bytes).collect()
 }
@@ -52,6 +58,37 @@ pub fn from_bytes(b: &[u8]) -> PathBuf {
     PathBuf::from(std::ffi::OsString::from_wide(&wide))
 }
 
+/// Whether stored path bytes are plain ASCII. On Windows that's every UTF-16 code unit below 0x80:
+/// the bytes alone can't say, since many other code units are two bytes below 0x80 too (a
+/// combining accent, U+0301, is `01 03`).
+pub fn is_ascii(b: &[u8]) -> bool {
+    if cfg!(windows) {
+        ascii_units(b)
+    } else {
+        b.is_ascii()
+    }
+}
+
+/// Stored path bytes with ASCII letters lowered (on Windows, only in code units that are ASCII).
+pub fn ascii_lowercase(b: &[u8]) -> Vec<u8> {
+    if cfg!(windows) {
+        let (units, rest) = b.as_chunks::<2>();
+        units
+            .iter()
+            .flat_map(|&[lo, hi]| [if hi == 0 { lo.to_ascii_lowercase() } else { lo }, hi])
+            .chain(rest.iter().copied())
+            .collect()
+    } else {
+        b.to_ascii_lowercase()
+    }
+}
+
+/// UTF-16LE bytes, every code unit ASCII.
+fn ascii_units(b: &[u8]) -> bool {
+    let (units, rest) = b.as_chunks::<2>();
+    rest.is_empty() && units.iter().all(|&[lo, hi]| lo < 0x80 && hi == 0)
+}
+
 /// The byte prefix shared by every path strictly inside `dir`.
 pub fn dir_prefix(dir: &Path) -> Vec<u8> {
     let mut p = to_bytes(dir);
@@ -60,6 +97,12 @@ pub fn dir_prefix(dir: &Path) -> Vec<u8> {
         p.extend_from_slice(&sep);
     }
     p
+}
+
+/// A test's `/`-separated path, spelt as this system spells paths (`\` between names on Windows).
+#[cfg(test)]
+pub(crate) fn native(s: &str) -> PathBuf {
+    PathBuf::from(s.replace('/', MAIN_SEPARATOR_STR))
 }
 
 // ---------- verbatim paths (Windows), as UTF-16 code units
@@ -202,6 +245,28 @@ pub fn canonical(p: &Path) -> io::Result<PathBuf> {
     Ok(normal(&c).into_owned())
 }
 
+/// `canonical` for a path that may not exist yet (a folder to be made): its nearest existing
+/// folder resolved, the names below it as given. So it compares with canonical paths: links
+/// resolved, and on Windows `/` read as `\` and no verbatim prefix.
+pub fn canonical_planned(p: &Path) -> io::Result<PathBuf> {
+    let mut existing = p;
+    let mut rest = Vec::new();
+    while !existing.exists() {
+        match (existing.file_name(), existing.parent()) {
+            (Some(name), Some(parent)) => {
+                rest.push(name);
+                existing = parent;
+            }
+            _ => return Err(io::Error::new(io::ErrorKind::NotFound, "no such folder")),
+        }
+    }
+    let mut c = canonical(existing)?;
+    for name in rest.iter().rev() {
+        c.push(name);
+    }
+    Ok(c)
+}
+
 /// A path for people: its normal form, with names composed (NFC) as most systems write them.
 pub fn show(p: &Path) -> String {
     crate::names::nfc(&normal(p).to_string_lossy()).into_owned()
@@ -293,6 +358,41 @@ mod tests {
         let pre = dir_prefix(&d);
         assert!(pre.ends_with(&to_bytes(Path::new(MAIN_SEPARATOR_STR))));
         assert_eq!(dir_prefix(&from_bytes(&pre)), pre);
+    }
+
+    #[test]
+    fn ascii_is_judged_by_code_unit() {
+        let utf16 = |s: &str| -> Vec<u8> { s.encode_utf16().flat_map(u16::to_le_bytes).collect() };
+        assert!(ascii_units(&utf16(r"C:\Photos\a.jpg")));
+        // U+0301 is `01 03`, U+4E2D `2D 4E`: bytes below 0x80, characters that aren't ASCII
+        assert!(!ascii_units(&utf16("Cafe\u{301}")));
+        assert!(!ascii_units(&utf16("\u{4e2d}")));
+        assert!(!ascii_units(b"abc"), "odd length: not UTF-16");
+        // and as this system stores paths
+        assert!(is_ascii(&to_bytes(Path::new("plain/name.txt"))));
+        assert!(!is_ascii(&to_bytes(Path::new("cafe\u{301}"))));
+        assert!(!is_ascii(&to_bytes(Path::new("\u{4e2d}.txt"))));
+    }
+
+    #[test]
+    fn only_ascii_letters_are_lowered() {
+        // the second byte of U+4E2D's UTF-16 is `N`: lowering bytes would make it another character
+        assert_eq!(
+            ascii_lowercase(&to_bytes(Path::new("\u{4e2d}AB\u{c9}"))),
+            to_bytes(Path::new("\u{4e2d}ab\u{c9}"))
+        );
+    }
+
+    #[test]
+    fn planned_paths_resolve_what_exists() {
+        let t = tempfile::tempdir().unwrap();
+        let top = canonical(t.path()).unwrap();
+        let p = t.path().join("not").join("yet");
+        assert_eq!(canonical_planned(&p).unwrap(), top.join("not").join("yet"));
+        assert_eq!(canonical_planned(t.path()).unwrap(), top);
+        // verbatim on Windows: the same path in its normal form
+        let v = std::fs::canonicalize(t.path()).unwrap().join("new");
+        assert_eq!(canonical_planned(&v).unwrap(), top.join("new"));
     }
 
     fn s(w: &[u16]) -> String {
@@ -394,5 +494,21 @@ mod tests {
         let short = PathBuf::from(r"\\?\C:\Users");
         assert_eq!(dunce::simplified(&short), Path::new(r"C:\Users"));
         assert_eq!(normal(&short), dunce::simplified(&short));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn slashes_are_stored_as_the_separator_they_are() {
+        let stored = to_bytes(Path::new(r"D:\Photos\2019\a.jpg"));
+        assert_eq!(to_bytes(Path::new("D:/Photos/2019/a.jpg")), stored);
+        assert_eq!(
+            to_bytes(&Path::new(r"D:\Photos").join("2019/a.jpg")),
+            stored
+        );
+        assert_eq!(
+            dir_prefix(Path::new("D:/Photos/")),
+            to_bytes(Path::new(r"D:\Photos\"))
+        );
+        assert_eq!(from_bytes(&stored), Path::new(r"D:\Photos\2019\a.jpg"));
     }
 }

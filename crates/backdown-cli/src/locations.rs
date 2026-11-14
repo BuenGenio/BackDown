@@ -26,7 +26,7 @@ pub fn state_dir() -> PathBuf {
         home().join("Library/Application Support/BackDown")
     } else if cfg!(windows) {
         env_dir("LOCALAPPDATA")
-            .unwrap_or_else(|| home().join("AppData/Local"))
+            .unwrap_or_else(|| home().join("AppData").join("Local"))
             .join("BackDown")
     } else {
         env_dir("XDG_DATA_HOME")

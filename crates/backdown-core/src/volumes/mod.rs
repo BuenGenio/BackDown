@@ -694,7 +694,8 @@ mod tests {
             .unwrap()
             .indexed
             .iter()
-            .map(|i| (i.root.clone(), i.relation))
+            // the roots read back as this system spells paths (`\` on Windows), read here with `/`
+            .map(|i| (i.root.replace('\\', "/"), i.relation))
             .collect()
     }
 

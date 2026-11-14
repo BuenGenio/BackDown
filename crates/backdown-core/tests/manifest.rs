@@ -10,6 +10,12 @@ use backdown_core::signing::Signer;
 use backdown_core::{Db, hash, index};
 use serde_json::{Value, json};
 
+/// A manifest's relative path read with `/`: it's spelt with the separator of the system that
+/// made it (`\` on Windows).
+fn slashed(p: &str) -> String {
+    p.replace('\\', "/")
+}
+
 fn write(path: &Path, bytes: &[u8]) {
     write_at(path, bytes, 1_700_000_000);
 }
@@ -122,7 +128,7 @@ fn a_manifest_verifies_and_any_change_to_its_listing_shows() {
     // relative paths, sorted by their bytes
     let paths: Vec<String> = listing
         .lines()
-        .map(|l| Entry::parse(l).unwrap().display())
+        .map(|l| slashed(&Entry::parse(l).unwrap().display()))
         .collect();
     assert_eq!(
         paths,
@@ -136,7 +142,8 @@ fn a_manifest_verifies_and_any_change_to_its_listing_shows() {
     assert!(listing.contains(
         r#""path":"empty.txt","size":0,"sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855""#
     ));
-    assert!(listing.contains(r#""path":"photos/beach.jpg","size":5000,"sha256":null"#));
+    let beach = serde_json::to_string(&Path::new("photos").join("beach.jpg")).unwrap();
+    assert!(listing.contains(&format!(r#""path":{beach},"size":5000,"sha256":null"#)));
     assert!(listing_ok(&m.doc, &listing));
 
     // the same scan gives the same root every time
@@ -285,7 +292,7 @@ fn manifests_chain_and_compare_with_the_drive_later() {
         let names = |t: &manifest::Tally| {
             t.examples
                 .iter()
-                .map(|e| e.path.clone())
+                .map(|e| slashed(&e.path))
                 .collect::<Vec<_>>()
         };
         assert_eq!(names(&cmp.added), ["photos/sunset.jpg"]);
@@ -311,7 +318,7 @@ fn manifests_chain_and_compare_with_the_drive_later() {
         cmp.changed
             .examples
             .iter()
-            .map(|e| e.path.as_str())
+            .map(|e| slashed(&e.path))
             .collect::<Vec<_>>(),
         ["docs/notes.txt"]
     );

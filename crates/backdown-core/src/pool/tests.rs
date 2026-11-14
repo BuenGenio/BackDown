@@ -14,7 +14,8 @@ use crate::{Db, hash, index, recognise, remote, swarm};
 fn scratch() -> tempfile::TempDir {
     let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/tmp");
     fs::create_dir_all(&base).unwrap();
-    tempfile::tempdir_in(fs::canonicalize(base).unwrap()).unwrap()
+    // in its normal form, as a person gives a path (not `\\?\` on Windows)
+    tempfile::tempdir_in(crate::paths::canonical(&base).unwrap()).unwrap()
 }
 
 fn write(path: &Path, bytes: &[u8]) {
@@ -347,12 +348,17 @@ impl Connect for ToNas {
     }
 }
 
+/// This machine's system, as it says it in its `hello` and its storage report.
+const THIS_OS: &str = if cfg!(windows) { "windows" } else { "linux" };
+
 /// The nas's pool folder as this machine has it cached (as `a_nas_with_a_pool_folder` does), but
 /// a real folder of a real second index, so files can be written into it.
 fn a_real_nas(db: &Db, nas_db: &Path, pool_dir: &Path, already: &[u8]) -> (i64, i64) {
     let nas = Db::open(nas_db).unwrap();
     let a = add(&nas, pool_dir, Some(Reserve::Bytes(0)), &[]).unwrap();
     let m = remote::add(db, "nas", "ssh://nas.example.org", None, None).unwrap();
+    // it's this machine really, so its paths are spelt as this machine's are
+    remote::record_hello(db, m.id, &json!({ "os": THIS_OS }), crate::clock::now()).unwrap();
     let raw = crate::paths::to_bytes(pool_dir);
     db.conn
         .execute(
@@ -361,7 +367,7 @@ fn a_real_nas(db: &Db, nas_db: &Path, pool_dir: &Path, already: &[u8]) -> (i64, 
             params![m.id, raw, pool_dir.display().to_string(), crate::clock::now()],
         )
         .unwrap();
-    let in_it = pool_dir.join("Media/old.jpg");
+    let in_it = pool_dir.join("Media").join("old.jpg");
     db.conn
         .execute(
             "INSERT INTO remote_files(remote_id, rid, root_id, path, size, mtime, sample, sha256, error)
@@ -372,7 +378,7 @@ fn a_real_nas(db: &Db, nas_db: &Path, pool_dir: &Path, already: &[u8]) -> (i64, 
     let area = json!({ "id": a.id, "path": pool_dir.display().to_string(), "key": URL_SAFE_NO_PAD.encode(&raw),
         "reserve": 0, "takes": [], "present": true, "indexed": true, "answering": true,
         "space": { "total": 10_000_000_000u64, "free": 9_000_000_000u64 }, "files": 1, "bytes": already.len() });
-    let report = json!({ "os": "linux", "disks": [], "roots": [], "pool": [area] });
+    let report = json!({ "os": THIS_OS, "disks": [], "roots": [], "pool": [area] });
     remote::store_volumes(db, m.id, &Ok(report)).unwrap();
     (m.id, a.id)
 }
@@ -434,6 +440,15 @@ fn a_plan_is_carried_out_into_pool_folders_here_and_there() {
         path: nas_pool.display().to_string(),
     };
     plan::choose(&db, &mut pp, &areas, i, Some(to_nas.clone()), false).unwrap();
+    let docs = pp
+        .things
+        .iter()
+        .find(|t| t.item.source.ends_with("Docs"))
+        .unwrap();
+    assert!(
+        docs.to.as_ref().is_some_and(AreaRef::here),
+        "the docs stay where their place is: {docs:#?} {areas:#?}"
+    );
     let id = plan::save(&db, &mut pp).unwrap();
 
     let mut here = Here {
@@ -456,10 +471,38 @@ fn a_plan_is_carried_out_into_pool_folders_here_and_there() {
         (3, 1, 1, 0, 0),
         "{st:?}"
     );
-    // there: b.jpg (a.jpg was in the pool already; its copy went once)
+    // where everything is, and what the log says went where, when something isn't as expected
+    let everything = || {
+        let files: Vec<String> = walkdir::WalkDir::new(tmp.path())
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_type().is_file())
+            .map(|e| e.path().display().to_string())
+            .collect();
+        let log: Vec<String> = db
+            .conn
+            .prepare(
+                "SELECT state || ' ' || COALESCE(machine, '-') || ' ' || COALESCE(area, '-')
+                 || ' ' || COALESCE(dest, '-') FROM pool_log ORDER BY id",
+            )
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        format!("{files:#?}\n{log:#?}")
+    };
+    // there: b.jpg's content, once (a.jpg was in the pool already). Under whichever of its two
+    // names the walk met first: a folder lists in its file system's order (by name on NTFS, by a
+    // hash on ext4), so either can be the one that's sent and the other the one that's "twice"
     let there = nas_pool.join("Unsorted/OLD-DRIVE/Photos");
-    assert_eq!(fs::read(there.join("b.jpg")).unwrap(), photo_b);
-    assert!(!there.join("a.jpg").exists() && !there.join("b copy.jpg").exists());
+    let sent: Vec<&str> = ["b.jpg", "b copy.jpg"]
+        .into_iter()
+        .filter(|n| there.join(n).exists())
+        .collect();
+    assert_eq!(sent.len(), 1, "{}", everything());
+    assert_eq!(fs::read(there.join(sent[0])).unwrap(), photo_b);
+    assert!(!there.join("a.jpg").exists());
     // here: the docs, next to what was there
     let docs = pool_here.join("Unsorted/OLD-DRIVE/Docs");
     assert_eq!(fs::read(docs.join("notes.txt")).unwrap(), blob(3, 2_000));
@@ -499,7 +542,7 @@ fn a_plan_is_carried_out_into_pool_folders_here_and_there() {
     assert_eq!(job, format!("pool:{id}"));
     assert!(
         String::from_utf8_lossy(&src).starts_with("laptop:")
-            && String::from_utf8_lossy(&src).ends_with("b.jpg")
+            && String::from_utf8_lossy(&src).ends_with(sent[0])
     );
     // what was sent has its hash known here now
     let unhashed: i64 = db

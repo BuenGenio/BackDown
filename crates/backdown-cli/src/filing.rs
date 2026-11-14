@@ -113,10 +113,12 @@ pub fn make_plan(db: &Db, a: PlanArgs) -> Result<ExitCode> {
                 println!("           + {m}");
             }
             if action != "skip" {
-                println!(
-                    "           → {}",
-                    Path::new(&p.target).join(&it.dest).display()
-                );
+                // the place name by name, so it's spelt as the system spells paths (`\` on Windows)
+                let to = it
+                    .dest
+                    .split('/')
+                    .fold(PathBuf::from(&p.target), |at, name| at.join(name));
+                println!("           → {}", to.display());
             }
             println!("             {}", it.why);
         }

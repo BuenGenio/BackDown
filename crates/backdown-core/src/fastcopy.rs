@@ -55,8 +55,9 @@ impl Method {
 /// The platform's copying primitives; tests swap in fakes to walk the fallbacks.
 #[derive(Clone, Copy)]
 pub(crate) struct Ops {
-    /// Create `dest` (which doesn't exist) as a clone of `src`, returning it open. On failure
-    /// `dest` doesn't exist.
+    /// Create `dest` (which doesn't exist) as a clone of `src`, returning it open: for reading
+    /// where that's enough to flush it and set its times (Linux, macOS), for writing too where it
+    /// isn't (Windows). On failure `dest` doesn't exist.
     pub clone: fn(&File, &Path) -> io::Result<File>,
     /// Copy up to `max` bytes at `offset` of `src` to the same offset of `dest`, in the kernel;
     /// 0 at the end of the source.
