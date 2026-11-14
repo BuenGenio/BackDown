@@ -626,7 +626,10 @@ fn hash(db: &Db, ids: &[i64], mode: HashMode, fresh: bool, until: Instant) -> Re
         let (row, why) = current(db, id)?;
         let Some(row) = row else {
             out.push(match why {
-                Some("gone") | Some("missing") => json!({ "id": id, "gone": true }),
+                Some("gone") => json!({ "id": id, "gone": true }),
+                // still in the index there, not on the disk now (its drive unplugged): the file
+                // isn't gone, so the asker keeps it and asks again another time
+                Some("missing") => json!({ "id": id, "away": true }),
                 _ => json!({ "id": id, "changed": true }),
             });
             continue;
