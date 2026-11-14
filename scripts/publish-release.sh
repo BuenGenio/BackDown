@@ -3,8 +3,9 @@
 # cards at it. The `release` workflow for the tag must have finished (or, with --local, scripts/build-local.sh
 # must have built the tag on this machine); either builds and checksums everything, so this only moves
 # verified files. It signs the release's SHA256SUMS.txt (SHA256SUMS.txt.sig, with scripts/sign-release.mjs)
-# before anything goes up: no signature, no release. Deploying the site is a separate step
-# (marketing/README.md).
+# before anything goes up: no signature, no release. It then updates the site's download cards, dates the status
+# page's entry for the release (marketing/status.json, written ahead) and regenerates the docs' release notes, and
+# builds the site; committing and deploying that is a separate step (marketing/README.md).
 #
 #   scripts/publish-release.sh v0.2.0-alpha.1
 #   scripts/publish-release.sh v0.2.0-alpha.5 --local   # publish what scripts/build-local.sh built instead
@@ -126,6 +127,17 @@ for p in data['platforms']:
     p.update(status='available', version=tag, date=datetime.date.today().isoformat(), files=out)
 path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + '\n')
 print(f'{path}: {sum(len(p["files"]) for p in data["platforms"])} downloads for {tag}')
+# the status page's changelog: an entry written ahead for this release (no date yet) is dated today and shows from now
+status_path = path.parent / 'status.json'
+status = json.loads(status_path.read_text())
+at = next((i for i, s in enumerate(status['shipped']) if s['version'] == tag), None)
+if at is None:
+    print(f'{status_path}: no shipped entry for {tag} yet: write one (the status page\'s changelog), then build and deploy', file=sys.stderr)
+elif not status['shipped'][at].get('date'):
+    status['shipped'][at] = {'date': datetime.date.today().isoformat(), **status['shipped'][at]}
+    status_path.write_text(json.dumps(status, indent=2, ensure_ascii=False) + '\n')
+    print(f'{status_path}: {tag} shipped {status["shipped"][at]["date"]}')
 PY
+python3 "$root/marketing/tools/release-notes.py"
 python3 "$root/marketing/build.py" | tail -1
 echo "published https://github.com/$dst/releases/tag/$tag; now deploy the site (cd marketing && npx wrangler deploy)"

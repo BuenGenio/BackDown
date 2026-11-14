@@ -1,6 +1,6 @@
 {
-  "_comment": "The /status/ page's roadmap and changelog. Text fields are {lang: text}; a missing language falls back to English (marked lang=en), so English can be updated first. Keep it public-safe: no real paths, hosts or drive names.",
-  "updated": "2026-11-13",
+  "_comment": "The /status/ page's roadmap and changelog. Text fields are {lang: text}; a missing language falls back to English (marked lang=en), so English can be updated first. Keep it public-safe: no real paths, hosts or drive names. Shipped entries can be written before the release: one for a version newer than downloads.json offers stays hidden, and one without a date takes the date the release went out (scripts/publish-release.sh writes it in). Milestones show newest first.",
+  "updated": "2026-11-14",
   "now": [
     {
       "state": "done",
@@ -423,6 +423,13 @@
     }
   ],
   "shipped": [
+    {
+      "date": "2026-11-14",
+      "version": "v1.0.0-beta.12",
+      "text": {
+        "en": "The rest of beta.9's reliability fix. A scan that found a great many files gone, such as a drive emptied or a big folder moved away, closed them all in one step, and on a big index that one step could write more to the write-ahead log than the index itself holds. Forgetting another machine's files could do the same. Both now go 20,000 files at a time, reclaiming the space between batches. Syncing with another machine reclaims it after every page of files, and every background job when it finishes. If you're on beta.8 or earlier, this is the one to take."
+      }
+    },
     {
       "date": "2026-11-09",
       "version": "v1.0.0-beta.9",
