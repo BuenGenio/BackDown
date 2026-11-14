@@ -214,8 +214,19 @@ section{padding-block:clamp(40px,6vw,72px)}
 .feat>.feat-back{opacity:0;transition:opacity .35s var(--ease)}
 .feats:not(.fx) .feat:is(:hover,:focus-within)>.feat-back,.feat.open>.feat-back{opacity:1}
 .feats.fx .feat>.feat-back{transition:none}.feats.fx.still .feat>.feat-back{transition:opacity .3s var(--ease)}
+/* the description's title and text rise into focus once their side is showing, title first, and drop away quicker.
+   While a tile turns, the pieces carry only the tinted side; the words themselves stay whole, above the pieces */
+.feat-back>:is(.feat-bt,p){transition:opacity .2s var(--ease),transform .25s var(--ease),filter .2s var(--ease)}
+.feat:not(.open)>.feat-back>:is(.feat-bt,p){opacity:0;transform:translateY(10px);filter:blur(6px)}
+.feat.open>.feat-back>:is(.feat-bt,p),.feats:not(.fx) .feat:is(:hover,:focus-within)>.feat-back>:is(.feat-bt,p){opacity:1;transform:none;filter:none;
+ transition:opacity .55s var(--ease) .3s,transform .7s var(--ease) .3s,filter .55s var(--ease) .3s}
+.feat.open>.feat-back>p,.feats:not(.fx) .feat:is(:hover,:focus-within)>.feat-back>p{transition-delay:.42s}
+.feats.still .feat.open>.feat-back>:is(.feat-bt,p){transition-delay:.08s}
+@media(prefers-reduced-motion:reduce){.feat-back>:is(.feat-bt,p){transform:none!important;filter:none!important}}
 .feat.turning{z-index:2}
-.feat.turning>.feat-face,.feat.turning>.feat-back{visibility:hidden}
+.feat.turning>.feat-face{visibility:hidden}
+.feat.turning>.feat-back{opacity:1;background:transparent;z-index:1}
+.feat.turning>.feat-back>.feat-mark,.ch>.feat-back>:is(.feat-bt,p){visibility:hidden}
 .chunks{position:absolute;inset:0;display:none;perspective:720px;border-radius:var(--r);background:var(--bg-sunk);box-shadow:inset 0 2px 12px rgb(0 0 0/.14);pointer-events:none}
 .feat.turning>.chunks{display:block}
 .ch{position:absolute;overflow:hidden;-webkit-backface-visibility:hidden;backface-visibility:hidden;background:var(--face);will-change:transform}
