@@ -61,7 +61,7 @@ It runs `backdown --help` and `backdown <command> [<subcommand>] --help` in a cl
 
 ### Status page
 
-Update `status.json` when something ships (`now`, `milestones`, `shipped`; keep it public-safe: no real paths, hosts or drive names), rebuild, deploy. The "Right now" box is live: the page asks `/api/status` once on load and every 10 minutes while visible; the Worker rechecks hourly.
+Update `status.json` when something ships (`now`, `milestones`, `shipped`; keep it public-safe: no real paths, hosts or drive names), rebuild, deploy. Milestones show newest first whatever their order in the file. A release's `shipped` entry can be written while it's being prepared, without a `date`: it stays off the page until `downloads.json` offers that version, and `scripts/publish-release.sh` dates it when it publishes (it also regenerates `docs/changelog/` and builds), so a published release can't be missing from the changelog again. The build says on stderr when the current download has no entry. The "Right now" box is live: the page asks `/api/status` once on load and every 10 minutes while visible; the Worker rechecks hourly.
 
 ### Analytics
 
@@ -144,4 +144,4 @@ The app UI is English-only, so for other languages `capture.mjs` swaps the rende
 
 `bricolage-normal` / `instrument-*` are copies of `../assets/fonts/` (basic Latin only). The `*-latin-ext` subsets (for cs/sk/pl/es/pt-br) come from the same families on Google Fonts; neither family has Cyrillic, so `inter-tight-cyrillic` / `inter-cyrillic` stand in for Ukrainian. `site.css` maps them all by `unicode-range`, so each page downloads only what its text needs. The tokens at the top of `site.css` mirror `../assets/shell.css`.
 
-Keep the feature status tags (`Works today` / `In development` / `Planned`) and `status.json` honest as the roadmap moves, in every language.
+Keep the feature status tags (`Works today` / `In development` / `Planned`) and `status.json` honest as the roadmap moves, in every language. The features page's tiles are generated from `FEATURES` in `build.py` (order and status tag) and `FEATURE_ICONS` (48×48 SVG; classes `a` accent, `m` muted, `ai` on the accent, `cut` a ring in the tile's colour). A new feature needs an entry in both, plus `features.fN_title`/`_body` in every language. Each tile shows the icon and name; `site.js` turns it over to the description in a wave of chunks (copies of both sides, cut up on first use and shown only while turning). Without JS, or with reduced motion, the description fades in instead.

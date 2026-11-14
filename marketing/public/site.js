@@ -81,6 +81,149 @@ if (show) {
   mark(); setStopped(stopped);
 }
 
+// Features: each tile is an icon and a name, and turns over to what the feature does. It turns in chunks: the first
+// time, copies of both sides are cut into rows of uneven pieces (the way BackDown cuts a file into chunks), and the
+// pieces flip, lifting towards the viewer, in a wave that spreads from where the pointer came in, then back from
+// where it left. The copies only show while it turns; at rest the tile is its own text again, selectable and sharp.
+// Mouse: hover. Touch: tap (one tile open at a time). Keyboard: focus, Enter or Space, Escape. Under
+// prefers-reduced-motion the sides cross-fade instead; without JS, hover and focus fade the description in (site.css).
+const feats = document.querySelector('.feats');
+if (feats) {
+  const still = matchMedia('(prefers-reduced-motion: reduce)');
+  const LIFT = 46, SPEED = 0.8, EASE = 'cubic-bezier(.5,.05,.2,1)';  // px towards the viewer mid-turn; px/ms the wave spreads
+  const state = new Map();
+  const pose = (c, a, z) => `translateZ(${z}px) rotate3d(${c.ax},${c.ay},0,${a}deg)`;
+  const shade = a => Math.abs(Math.sin(a * Math.PI / 180)).toFixed(3);  // darkest edge-on
+  const sync = () => feats.classList.toggle('still', still.matches);
+  feats.classList.add('fx'); sync(); still.addEventListener?.('change', sync);
+
+  // the pieces, cut to the tile's current size; cut again when that has changed. Each piece is two flat cards, its
+  // front and its back, turning together half a turn apart: whichever faces away is hidden (backface-visibility), so
+  // no two sides share a plane (where some browsers would draw slivers of both)
+  function cut(tile) {
+    const box = tile.getBoundingClientRect(), old = state.get(tile);
+    const W = box.width - tile.clientLeft * 2, H = box.height - tile.clientTop * 2;  // fractional, so the copies wrap as the tile does
+    if (old?.layer && old.W === W && old.H === H) return old;
+    old?.layer?.remove();
+    const face = tile.querySelector(':scope > .feat-face'), back = tile.querySelector(':scope > .feat-back');
+    const r = Math.max(0, parseFloat(getComputedStyle(tile).borderTopLeftRadius) - tile.clientTop) + 'px';
+    const layer = document.createElement('div');
+    layer.className = 'chunks'; layer.setAttribute('aria-hidden', 'true'); layer.inert = true;
+    let seed = [...tile.dataset.feat].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) % 2147483647, 11);
+    const rnd = () => (seed = seed * 16807 % 2147483647) / 2147483647;
+    const rows = Math.max(4, Math.round(H / 46)), list = [], at = old?.open ? 180 : 0;
+    for (let row = 0; row < rows; row++) {
+      // whole pixels, each piece 1px over its right and lower neighbours, so no seam shows while they lie flat
+      const y = Math.round(row * H / rows), rh = row === rows - 1 ? H - y : Math.round((row + 1) * H / rows) - y;
+      for (let x = 0; x < W - 0.5;) {
+        let w = Math.round(34 + rnd() * 54);
+        if (W - x - w < 30) w = W - x;
+        const last = x + w >= W - 0.5, top = row === 0, bottom = row === rows - 1, left = x === 0;
+        const [f, b] = [face, back].map(src => {
+          const el = document.createElement('div'), copy = src.cloneNode(true);
+          el.className = src === back ? 'ch ch-b' : 'ch';
+          el.style.cssText = `left:${x}px;top:${y}px;width:${w + (last ? 0 : 1)}px;height:${rh + (bottom ? 0 : 1)}px`;
+          copy.style.cssText = `left:${-x}px;top:${-y}px;width:${W}px;height:${H}px`;
+          el.append(copy, document.createElement('i'));
+          // the tile's rounded corners
+          if (top && left) el.style.borderTopLeftRadius = r;
+          if (top && last) el.style.borderTopRightRadius = r;
+          if (bottom && left) el.style.borderBottomLeftRadius = r;
+          if (bottom && last) el.style.borderBottomRightRadius = r;
+          return el;
+        });
+        const c = { f, b, cx: x + w / 2, cy: y + rh / 2, ax: 0, ay: 1, angle: at };
+        place(c, at);
+        list.push(c);
+        x += w;
+      }
+    }
+    layer.append(...list.flatMap(c => [c.f, c.b]));
+    tile.append(layer);
+    const s = { W, H, layer, list, open: !!old?.open, run: 0 };
+    state.set(tile, s);
+    return s;
+  }
+  const place = (c, a) => { c.f.style.transform = pose(c, a, 0); c.b.style.transform = pose(c, a - 180, 0); };
+
+  // where a piece is now: part-way through a turn, or at rest
+  const angleOf = c => {
+    const p = c.anims?.[0].effect.getComputedTiming().progress;
+    return p == null ? c.angle : c.from + (c.to - c.from) * p;
+  };
+  const halt = c => { c.anims?.forEach(a => a.cancel()); c.anims = null; };
+
+  function turn(tile, open, ox, oy) {
+    if (tile.classList.contains('open') === open) return;
+    tile.classList.toggle('open', open);
+    if (still.matches) { state.set(tile, { ...state.get(tile), open }); return; }
+    const s = cut(tile), run = ++s.run;
+    s.open = open;
+    // at rest, every piece is aimed afresh, to tip away from the pointer
+    if (s.list.every(c => !c.anims)) for (const c of s.list) {
+      const dx = c.cx - ox, dy = c.cy - oy, d = Math.hypot(dx, dy);
+      [c.ax, c.ay] = d < 1 ? [0, 1] : [(-dy / d).toFixed(4), (dx / d).toFixed(4)];
+      place(c, c.angle);
+    }
+    tile.classList.add('turning');
+    let left = 0;
+    const done = () => { if (--left === 0 && run === s.run) tile.classList.remove('turning'); };
+    for (const c of s.list) {
+      const moving = !!c.anims, from = angleOf(c), want = open ? 180 : 0;
+      halt(c);
+      // from rest, on over (always the same way round, away from the pointer); mid-turn, back the shortest way
+      const to = moving ? want + 360 * Math.round((from - want) / 360) : from + 180;
+      const span = Math.abs(to - from);
+      if (span < 1) { c.angle = ((to % 360) + 360) % 360; place(c, c.angle); continue; }
+      const timing = { duration: (open ? 640 : 520) * Math.max(span / 180, 0.4), delay: Math.hypot(c.cx - ox, c.cy - oy) / SPEED,
+                       easing: EASE, fill: 'both' };
+      const mid = (from + to) / 2, z = LIFT * span / 180;
+      const moves = (el, k) => el.animate([{ transform: pose(c, from + k, 0) }, { transform: pose(c, mid + k, z) }, { transform: pose(c, to + k, 0) }], timing);
+      const light = el => el.animate([{ opacity: shade(from) }, { opacity: shade(mid) }, { opacity: shade(to) }], timing);
+      c.from = from; c.to = to; left++;
+      c.anims = [moves(c.f, 0), moves(c.b, -180), light(c.f.lastChild), light(c.b.lastChild)];
+      c.anims[0].onfinish = () => {
+        c.angle = ((to % 360) + 360) % 360;
+        place(c, c.angle);
+        halt(c); done();
+      };
+    }
+    if (!left) tile.classList.remove('turning');
+  }
+
+  let touch = false, pressed = 0;
+  feats.addEventListener('pointerdown', e => { touch = e.pointerType !== 'mouse'; pressed = performance.now(); });
+  for (const tile of feats.querySelectorAll('.feat')) {
+    const at = e => { const b = tile.getBoundingClientRect(); return [e.clientX - b.left - tile.clientLeft, e.clientY - b.top - tile.clientTop]; };
+    let intent;
+    // a pointer only passing over, on its way somewhere else, doesn't set every tile turning
+    tile.addEventListener('pointerenter', e => {
+      if (e.pointerType !== 'mouse') return;
+      const p = at(e); clearTimeout(intent); intent = setTimeout(() => turn(tile, true, ...p), 70);
+    });
+    tile.addEventListener('pointerleave', e => {
+      if (e.pointerType !== 'mouse') return;
+      clearTimeout(intent);
+      if (!tile.matches(':focus-visible')) turn(tile, false, ...at(e));
+    });
+    tile.addEventListener('click', e => {
+      if (!touch) return;
+      const open = !tile.classList.contains('open');
+      if (open) for (const other of feats.querySelectorAll('.feat.open')) if (other !== tile) turn(other, false, other.clientWidth / 2, other.clientHeight / 2);
+      turn(tile, open, ...at(e));
+    });
+    // focus from the keyboard; a tap or click that focuses the tile is handled above
+    tile.addEventListener('focus', () => {
+      if (tile.matches(':focus-visible') && performance.now() - pressed > 500) turn(tile, true, tile.clientWidth / 2, 0);
+    });
+    tile.addEventListener('blur', () => { if (!tile.matches(':hover')) turn(tile, false, tile.clientWidth / 2, tile.clientHeight); });
+    tile.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); turn(tile, !tile.classList.contains('open'), tile.clientWidth / 2, tile.clientHeight / 2); }
+      else if (e.key === 'Escape') turn(tile, false, tile.clientWidth / 2, tile.clientHeight / 2);
+    });
+  }
+}
+
 
 // Visit counting (only when build.py put a Matomo <meta> in the page): cookieless, and not loaded at all for
 // Do Not Track or Global Privacy Control.
