@@ -234,9 +234,11 @@ fn file() -> PathBuf {
     crate::settings::dir().join("drives-seen.json")
 }
 
+/// What was seen; None when nothing was (no file yet), or what was can't be read back (a damaged
+/// file): then the look is a first one, and what's connected is noted rather than indexed.
 fn load() -> Option<Seen> {
     let bytes = std::fs::read(file()).ok()?;
-    Some(serde_json::from_slice(&bytes).unwrap_or_default())
+    serde_json::from_slice(&bytes).ok()
 }
 
 fn save(seen: &Seen) -> Result<()> {
