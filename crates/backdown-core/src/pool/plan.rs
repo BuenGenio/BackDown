@@ -15,7 +15,7 @@
 //! folder's reserve (folders on one file system share its room). What fits nowhere is listed.
 
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use base64::Engine;
@@ -550,7 +550,11 @@ fn holds(db: &Db, a: &Area, place: &str) -> Result<bool> {
     let mut p = lo.clone();
     match a.os {
         None => {
-            let full = Path::new(&a.at.path).join(place);
+            // name by name: joined whole, its `/`s would stay in the path on Windows, which the
+            // index (`\` between names) would never match
+            let full = place
+                .split('/')
+                .fold(PathBuf::from(&a.at.path), |p, part| p.join(part));
             let dir = paths::dir_prefix(&full);
             let hi = remote::past(&dir);
             return Ok(db

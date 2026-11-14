@@ -85,12 +85,10 @@ pub fn changes<'e>(root: &Path, events: impl IntoIterator<Item = &'e Event>) -> 
 
 /// The path of an event given relative to its volume, under the volume's mount point.
 pub fn absolute(mount: &Path, rel: &str) -> PathBuf {
-    let rel = rel.trim_start_matches('/');
-    if rel.is_empty() {
-        mount.to_path_buf()
-    } else {
-        mount.join(rel)
-    }
+    // name by name, so the path is spelt as the index spells it (`//` collapsed)
+    rel.split('/')
+        .filter(|name| !name.is_empty())
+        .fold(mount.to_path_buf(), |p, name| p.join(name))
 }
 
 // ---------- macOS
@@ -515,9 +513,10 @@ mod tests {
 
     #[test]
     fn events_become_paths() {
-        let root = Path::new("/Volumes/Drive/Photos");
+        use crate::paths::native;
+        let root = &native("/Volumes/Drive/Photos");
         let e = |p: &str, flags| Event {
-            path: absolute(Path::new("/Volumes/Drive"), p),
+            path: absolute(&native("/Volumes/Drive"), p),
             flags,
             id: 1,
             inode: (flags & ITEM_IS_FILE != 0).then_some(42),
@@ -530,18 +529,22 @@ mod tests {
             e("", HISTORY_DONE),
         ];
         let c = changes(root, &evs).within(root);
+        // as spelt, not just as compared (`/` and `\` are one separator to a Windows path)
+        let spelt = |ps: &[&str]| -> Vec<String> {
+            ps.iter().map(|p| native(p).display().to_string()).collect()
+        };
         let got: Vec<String> = c.paths.iter().map(|p| p.display().to_string()).collect();
         assert_eq!(
             got,
-            [
+            spelt(&[
                 "/Volumes/Drive/Photos",
                 "/Volumes/Drive/Photos/2019/a.jpg",
                 "/Volumes/Drive/Photos/2020"
-            ]
+            ])
         );
         assert_eq!(
-            c.subtrees.iter().next().unwrap(),
-            Path::new("/Volumes/Drive/Photos/raw")
+            c.subtrees.iter().next().unwrap().display().to_string(),
+            spelt(&["/Volumes/Drive/Photos/raw"])[0]
         );
         assert!(c.full.is_none());
         assert_eq!(c.inodes.iter().copied().collect::<Vec<_>>(), [42]);

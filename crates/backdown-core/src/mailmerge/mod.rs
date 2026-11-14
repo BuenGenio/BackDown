@@ -35,7 +35,7 @@ use anyhow::{Context, Result};
 use rusqlite::{OptionalExtension, params};
 
 use crate::clock::now;
-use crate::{Db, fmt};
+use crate::{Db, fmt, paths};
 
 mod deciding;
 mod export;
@@ -139,7 +139,7 @@ fn source_list(sources: &[PathBuf]) -> Result<String> {
     let list: Vec<String> = sources
         .iter()
         .map(|s| {
-            dunce::canonicalize(s)
+            paths::canonical(s)
                 .unwrap_or_else(|_| s.clone())
                 .display()
                 .to_string()
