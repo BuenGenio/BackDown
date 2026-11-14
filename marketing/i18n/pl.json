@@ -200,6 +200,8 @@
   "features.f10_body": "Każdy skan jest zachowywany, więc przeglądarka plików pokaże dowolny folder w takim stanie, w jakim był w dniu dowolnego skanu. Do tego podglądy oraz widoki tylko do odczytu dla PDF-ów, dokumentów biurowych, baz danych SQLite, historii git i diffów.",
   "features.f11_title": "Ponowny skan w kilka sekund",
   "features.f11_body": "Po pierwszym skanie BackDown pyta własny dziennik zmian dysku, co się zmieniło: historię FSEvents w macOS albo dziennik USN w Windows, nawet jeśli dysk był w międzyczasie odłączony. Na dyskach NTFS może też bezpośrednio odczytać główną tabelę plików (MFT) i wypisać miliony plików w kilka sekund. Wszystko, za co dziennik nie może ręczyć, jest skanowane w całości, więc nic nie umyka. Za darmo w każdej edycji.",
+  "features.f12_title": "Podłączasz raz, pamięta zawsze",
+  "features.f12_body": "Podłącz nowy dysk, a BackDown zindeksuje go, gdy tylko zostanie zamontowany, niczego na nim nie zmieniając. Odłącz go, nawet w połowie skanu, a jego indeks zostanie: nadal możesz w nim wyszukiwać, a przy następnym podłączeniu zostanie zaktualizowany. Jeśli pojawi się pod inną ścieżką, zostanie rozpoznany, a nie zindeksowany drugi raz.",
   "faq.eyebrow": "Pytania",
   "faq.title": "Pytania o cennik",
   "faq.q1": "Czy BackDown jest darmowy?",
