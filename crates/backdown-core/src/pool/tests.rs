@@ -471,8 +471,30 @@ fn a_plan_is_carried_out_into_pool_folders_here_and_there() {
         (3, 1, 1, 0, 0),
         "{st:?}"
     );
+    // where everything is, and what the log says went where, when something isn't as expected
+    let everything = || {
+        let files: Vec<String> = walkdir::WalkDir::new(tmp.path())
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_type().is_file())
+            .map(|e| e.path().display().to_string())
+            .collect();
+        let log: Vec<String> = db
+            .conn
+            .prepare(
+                "SELECT state || ' ' || COALESCE(machine, '-') || ' ' || COALESCE(area, '-')
+                 || ' ' || COALESCE(dest, '-') FROM pool_log ORDER BY id",
+            )
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        format!("{files:#?}\n{log:#?}")
+    };
     // there: b.jpg (a.jpg was in the pool already; its copy went once)
     let there = nas_pool.join("Unsorted/OLD-DRIVE/Photos");
+    assert!(there.join("b.jpg").exists(), "{}", everything());
     assert_eq!(fs::read(there.join("b.jpg")).unwrap(), photo_b);
     assert!(!there.join("a.jpg").exists() && !there.join("b copy.jpg").exists());
     // here: the docs, next to what was there

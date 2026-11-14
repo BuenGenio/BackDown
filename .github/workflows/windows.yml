@@ -1,10 +1,11 @@
 # The release job's Windows leg (release.yml), without a tag: the workspace tests as the release runs
-# them, then the static build and its smoke test. On demand, and on pushes to the Windows port branch.
+# them, then the static build and its smoke test. On demand (Actions → windows → Run workflow, before
+# tagging), and on pushes to branches for Windows work (fix/windows-*, windows/**); not on every push.
 name: windows
 on:
   workflow_dispatch:
   push:
-    branches: ['fix/windows-port']
+    branches: ['fix/windows-*', 'windows/**']
     paths: ['crates/**', 'Cargo.*', '.github/workflows/windows.yml']
 permissions:
   contents: read
