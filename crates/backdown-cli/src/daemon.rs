@@ -55,7 +55,8 @@ pub struct Job {
     pub error: Option<String>,
     /// queued by the scheduler rather than asked for
     pub auto: bool,
-    /// why it was queued: "requested" | "scheduled" | "returned" (a drive came back) | "after-scan"
+    /// why it was queued: "requested" | "scheduled" | "returned" (a drive came back) | "new-drive"
+    /// (plugged in for the first time: arrivals.rs) | "after-scan"
     pub reason: &'static str,
     pub queued_at: i64,
     pub started_at: Option<i64>,
@@ -229,6 +230,7 @@ impl Daemon {
                     "after-merge" => " (after merging mail into it)",
                     "scheduled" => " (scheduled)",
                     "returned" => " (the drive is back)",
+                    "new-drive" => " (a new drive)",
                     "resumed" => " (carrying on where it stopped)",
                     _ => "",
                 }
@@ -662,6 +664,12 @@ pub fn run(opts: Options) -> Result<()> {
         std::thread::Builder::new()
             .name("health".into())
             .spawn(move || crate::health::run(&d))?;
+    }
+    {
+        let d = Arc::clone(&d);
+        std::thread::Builder::new()
+            .name("arrivals".into())
+            .spawn(move || crate::arrivals::run(&d))?;
     }
     #[cfg(unix)]
     {
