@@ -198,6 +198,19 @@
       }
     },
     {
+      "state": "done",
+      "text": {
+        "en": "A new drive indexed as soon as it's plugged in, and a drive that's away keeping its index, even one unplugged in the middle of a scan",
+        "es": "Un disco nuevo se indexa en cuanto se conecta, y un disco que no está conserva su índice, aunque se desconecte en mitad de un escaneo",
+        "pt-br": "Um disco novo indexado assim que é conectado, e um disco ausente mantendo seu índice, mesmo se for desconectado no meio de uma varredura",
+        "de": "Ein neues Laufwerk wird indexiert, sobald es angeschlossen ist, und ein abwesendes Laufwerk behält seinen Index, auch wenn es mitten im Scan abgezogen wurde",
+        "pl": "Nowy dysk indeksowany zaraz po podłączeniu, a dysk, którego nie ma, zachowuje swój indeks, nawet gdy odłączono go w trakcie skanowania",
+        "cs": "Nový disk se indexuje hned po připojení a disk, který zrovna není připojený, si ponechá svůj index, i když ho odpojíte uprostřed skenování",
+        "sk": "Nový disk sa indexuje hneď po pripojení a disk, ktorý práve nie je pripojený, si ponechá svoj index, aj keď ho odpojíte uprostred skenovania",
+        "uk": "Новий диск індексується щойно його підключено, а диск, якого зараз немає, зберігає свій індекс, навіть якщо його від’єднали посеред сканування"
+      }
+    },
+    {
       "state": "doing",
       "text": {
         "en": "Trying the beta on real Macs and Windows PCs, and fixing what turns up",
@@ -423,6 +436,12 @@
     }
   ],
   "shipped": [
+    {
+      "version": "v1.0.0-beta.13",
+      "text": {
+        "en": "Windows is back, with every test passing there. The fixes found on the way: names with accents typed in the other Unicode form are found, another machine's Windows drives are searchable by name from its first sync, mailboxes on Windows count their messages, and an archive folder typed as <code>D:/Archive</code>, <code>\\\\?\\D:\\Archive</code> or a short 8.3 name is recognised as itself. A drive plugged in for the first time is now indexed as soon as it's mounted (Settings › Scanning, on unless you turn it off). It covers external drives only, each drive once, and indexing only reads. A drive unplugged in the middle of a scan keeps its index, instead of having everything the scan hadn't reached marked gone, and a file on a drive unplugged on another machine stays in this one's view of it until that machine says it's gone."
+      }
+    },
     {
       "date": "2026-11-14",
       "version": "v1.0.0-beta.12",
