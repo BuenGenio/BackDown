@@ -42,6 +42,71 @@ SITE = 'https://backdown.io'
 BRAND_MARK = (ROOT / 'public/brand/backdown-mark.svg').read_text(encoding='utf-8').strip()
 BRAND_VERSION = hashlib.sha256((BRAND_MARK + (ROOT / 'public/favicon.svg').read_text(encoding='utf-8')).encode()).hexdigest()[:10]
 BRAND_INLINE = BRAND_MARK.replace('fill="#d8432b"', 'fill="currentColor"').replace('<svg ', '<svg aria-hidden="true" ', 1)
+# the cup on the Buy Me a Coffee links: drawn here rather than their logo, so it takes the site's colours
+CUP = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+       '<path d="M4 10h12v4a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z"/><path d="M16 11h1.5a2.5 2.5 0 0 1 0 5H16"/>'
+       '<path d="M8 3.5c-.7.8-.7 1.7 0 2.5M12 3.5c-.7.8-.7 1.7 0 2.5"/><path d="M3 21.5h14"/></svg>')
+# The features page's tiles, in page order: (i18n key, status tag). Each tile is a big icon and the feature's name;
+# the description is on its other side (site.js turns it over).
+FEATURES = [('f1', 'live'), ('f2', 'live'), ('f3', 'live'), ('f6', 'live'), ('f10', 'live'), ('f4', 'live'), ('f5', 'live'),
+            ('f7', 'live'), ('f11', 'live'), ('f8', 'plan'), ('f9', 'live')]
+# 48×48, in the ink colour. Classes (site.css): a = accent, m = muted, ai = drawn on the accent, cut = a ring in the
+# tile's own colour that sets a badge off what's behind it; fill="var(--face)" fills with the tile's colour.
+FEATURE_ICONS = {
+    # many copies in, one of each out: a selection of mixed shapes, and the unique ones it comes down to
+    'f1': '<path d="M3 16v-5h5M22 11h5v5M27 32v5h-5M8 37H3v-5"/><g class="m" fill="currentColor" stroke="none">'
+          '<rect x="6.6" y="14.6" width="4.8" height="4.8" rx=".8"/><circle cx="15" cy="17" r="2.5"/><path d="M21 14.1l2.9 2.9-2.9 2.9-2.9-2.9z"/>'
+          '<path d="M9 21.3l2.8 4.9H6.2z"/><path d="M15 21.1l2.9 2.9-2.9 2.9-2.9-2.9z"/><circle cx="21" cy="24" r="2.5"/>'
+          '<circle cx="9" cy="31" r="2.5"/><rect x="12.6" y="28.6" width="4.8" height="4.8" rx=".8"/><path d="M21 28.3l2.8 4.9h-5.6z"/></g>'
+          '<path class="a" d="M30.5 24h6.5m-3-3.5 3.5 3.5-3.5 3.5"/><g class="a" fill="currentColor" stroke="none">'
+          '<rect x="40.4" y="9.4" width="5.2" height="5.2" rx=".8"/><path d="M43 17.4l3 3-3 3-3-3z"/><circle cx="43" cy="29" r="2.7"/>'
+          '<path d="M43 34.3l2.9 5h-5.8z"/></g>',
+    # a copy elsewhere (behind), the drive (in front), and the check that says it can go
+    'f2': '<rect class="m" x="12" y="7" width="32" height="19" rx="4"/><rect x="4" y="15" width="32" height="19" rx="4" fill="var(--face)"/>'
+          '<path d="M10 28.5h10"/><circle cx="29.5" cy="28.5" r="1.6" fill="currentColor" stroke="none"/>'
+          '<circle class="a cut" cx="35" cy="34" r="9.5" fill="currentColor" stroke-width="3"/><path class="ai" d="M30.8 34.2l2.9 2.9 5.4-5.8" stroke-width="2.6"/>',
+    # a job that breaks, and carries on past the break
+    'f3': '<path d="M8.5 27H22l2 5.5-3 5.5H8.5a5.5 5.5 0 0 1 0-11z"/><path d="M26.5 27h13a5.5 5.5 0 0 1 0 11H25.5l3-5.5z"/>'
+          '<g class="a" fill="currentColor" stroke="none"><rect x="7" y="30.5" width="12" height="4" rx="2"/>'
+          '<rect x="30.5" y="30.5" width="7" height="4" rx="2" opacity=".45"/></g>'
+          '<path class="a" d="M14 21.5c3.5-9.5 16.5-10 20.5-.5"/><path class="a" d="M30.3 20.4l4.4 1 1-4.3"/>',
+    # a browser window holding a size tree
+    'f6': '<rect x="4" y="6" width="40" height="36" rx="5"/><path d="M4 14h40"/><g fill="currentColor" stroke="none">'
+          '<circle cx="9" cy="10" r="1.3"/><circle cx="13" cy="10" r="1.3"/><circle cx="17" cy="10" r="1.3"/>'
+          '<rect class="a" x="9" y="19" width="14" height="18" rx="1.5"/><rect class="m" x="25" y="19" width="14" height="8" rx="1.5"/>'
+          '<rect x="25" y="29" width="7" height="8" rx="1.5"/><rect class="a" x="34" y="29" width="5" height="8" rx="1.5" opacity=".5"/></g>',
+    # scans stacked up, and a hand turning back
+    'f10': '<rect class="m" x="17" y="4" width="26" height="19" rx="3.5"/><rect class="m" x="11" y="10" width="26" height="19" rx="3.5" fill="var(--face)"/>'
+           '<rect x="5" y="16" width="26" height="19" rx="3.5" fill="var(--face)"/><circle class="cut" cx="34" cy="34" r="10" fill="var(--face)" stroke-width="3"/>'
+           '<path class="a" d="M26.6 30.3A8.2 8.2 0 1 1 26 36.5"/><path class="a" d="M26.3 25.8l.3 4.5 4.4-.6"/><path class="a" d="M34 30v4.3l2.8 1.8"/>',
+    # a label on a thing: what it is
+    'f4': '<path d="M5 14a4 4 0 0 1 4-4h17a4 4 0 0 1 3 1.3l11.6 11.3a2 2 0 0 1 0 2.8L29 36.7a4 4 0 0 1-3 1.3H9a4 4 0 0 1-4-4z"/>'
+          '<circle cx="32" cy="24" r="2.3"/><g class="a"><rect x="10" y="17.5" width="15" height="13" rx="2"/><path d="M10.6 19l6.9 5.5 6.9-5.5"/></g>',
+    # from a server, along the way, to the drive it ended up on
+    'f5': '<rect x="4" y="5" width="20" height="8" rx="2.2"/><rect x="4" y="15" width="20" height="8" rx="2.2"/>'
+          '<g fill="currentColor" stroke="none"><circle cx="9" cy="9" r="1.2"/><circle cx="9" cy="19" r="1.2"/><circle cx="40.5" cy="37" r="1.2"/></g>'
+          '<path class="a" d="M14 26v3a8 8 0 0 0 8 8h4" stroke-dasharray="2.4 3.4"/><path class="a" d="M24.5 33.5l3.5 3.5-3.5 3.5"/>'
+          '<rect x="31" y="31" width="14" height="12" rx="2.6"/>',
+    # an archive, looked into without opening it
+    'f7': '<rect x="4" y="8" width="40" height="9" rx="2.5"/><path d="M7.5 17v18a5 5 0 0 0 5 5h23a5 5 0 0 0 5-5V17"/>'
+          '<g class="a"><path d="M13 29c3.2-4.6 7-6.8 11-6.8s7.8 2.2 11 6.8c-3.2 4.6-7 6.8-11 6.8s-7.8-2.2-11-6.8z"/>'
+          '<circle cx="24" cy="29" r="2.7" fill="currentColor" stroke="none"/></g>',
+    # a stopwatch, quick
+    'f11': '<circle cx="30" cy="28" r="14"/><path d="M26 6h8M30 6v8M41 14.5l2.6-2.6"/><path class="a" d="M30 28l6.5-7.5" stroke-width="2.8"/>'
+           '<circle class="a" cx="30" cy="28" r="2.2" fill="currentColor" stroke="none"/><path class="a" d="M2 21h9M4 28h7M2 35h9"/>',
+    # a lock, on a schedule
+    'f8': '<path d="M12 21v-6a9 9 0 0 1 18 0v6"/><rect x="6" y="21" width="30" height="21" rx="4"/>'
+          '<circle cx="21" cy="29.5" r="2.4" fill="currentColor" stroke="none"/><path d="M21 31.5v4.5"/>'
+          '<circle class="a cut" cx="37" cy="37" r="9" fill="currentColor" stroke-width="3"/><path class="ai" d="M37 32.5v4.8l3 2" stroke-width="2.2"/>',
+    # a signed record, chained
+    'f9': '<path d="M8 7a3 3 0 0 1 3-3h14l9 9v26a3 3 0 0 1-3 3H11a3 3 0 0 1-3-3z"/><path d="M25 4v9h9"/><path class="m" d="M13 18h11M13 24h15M13 30h7"/>'
+          '<path class="cut" d="M33 30l6-6M30 39l6-6" stroke-width="7"/><g class="a" stroke-width="2.6">'
+          '<rect x="27.5" y="26.5" width="14" height="7.5" rx="3.75" transform="rotate(-45 34.5 30.25)"/>'
+          '<rect x="23.5" y="35" width="14" height="7.5" rx="3.75" transform="rotate(-45 30.5 38.75)"/></g>',
+}
+# the corner mark on a tile's front: there's more on the other side
+TURN = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+        '<path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4.5v4h-4"/></svg>')
 # page codes (also the URL folder and i18n/<code>.json), in language-menu order; English is served at /
 LANGS = ['en', 'es', 'pt-br', 'de', 'pl', 'cs', 'sk', 'uk']
 FLAGS = {'en': 'gb', 'es': 'es', 'pt-br': 'br', 'de': 'de', 'pl': 'pl', 'cs': 'cz', 'sk': 'sk', 'uk': 'ua'}  # public/flags/<code>.svg
@@ -203,6 +268,24 @@ def downloads(t, platforms):
     return '\n'.join(out)
 
 
+def feature_icon(fid):
+    return ('<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" '
+            f'aria-hidden="true">{FEATURE_ICONS[fid]}</svg>')
+
+
+def feature_tiles(t):
+    """the features page's tiles: the icon and name in front; behind, the name again (for the eye only) and what it
+    does. Both sides are in the page, so the description is there for search engines, screen readers and print."""
+    out = []
+    for fid, state in FEATURES:
+        title, body = t[f'features.{fid}_title'], t[f'features.{fid}_body']
+        out.append(f'''    <article class="feat card" tabindex="0" data-feat="{fid}">
+     <div class="feat-face"><span class="tag {state}">{t[f"features.tag_{state}"]}</span><span class="feat-ic">{feature_icon(fid)}</span><h2 class="h3">{title}</h2><span class="feat-turn">{TURN}</span></div>
+     <div class="feat-back"><span class="feat-mark">{feature_icon(fid)}</span><span class="feat-bt" aria-hidden="true">{title}</span><p>{body}</p></div>
+    </article>''')
+    return '\n'.join(out)
+
+
 def faq_items(t, cfg):
     keys = FAQ + (FAQ_PREORDER if cfg['preorder']['enabled'] else [])
     return [(t[f'faq.{k}'], t[f'faq.{k.replace("q", "a", 1) if k.startswith("q") else "pa" + k[2:]}']) for k in keys]
@@ -228,9 +311,39 @@ def status_now(lang, t, status):
     return '\n'.join(out)
 
 
+def version_key(v):
+    """v1.0.0-beta.12 → a sortable tuple: the numbers, then the stage (alpha < beta < rc < the release itself)"""
+    m = re.fullmatch(r'v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:-(alpha|beta|rc)\.(\d+))?', v)
+    if not m:
+        sys.exit(f'not a version: {v}')
+    return (int(m[1]), int(m[2] or 0), int(m[3] or 0), {'alpha': 0, 'beta': 1, 'rc': 2, None: 3}[m[4]], int(m[5] or 0))
+
+
+def shipped_so_far(status, platforms):
+    """status.json's shipped list as the site shows it. An entry can be written before its release: it stays hidden
+    until downloads.json offers that version (or a later one), and one without a date takes the date the release
+    went out (publish-release.sh writes it in). Also says when the current download has no entry."""
+    offered = {p['version']: p.get('date') for p in platforms if p['status'] == 'available' and p.get('version')}
+    newest = max(offered, key=version_key, default=None)
+    shown = []
+    for s in status['shipped']:
+        if newest and version_key(s['version']) > version_key(newest):
+            continue
+        date = s.get('date') or offered.get(s['version'])
+        if not date:
+            print(f'note: status.json\'s shipped entry for {s["version"]} has no date and isn\'t the current download, so it\'s left out',
+                  file=sys.stderr)
+            continue
+        shown.append({**s, 'date': date})
+    if newest and newest not in {s['version'] for s in shown}:
+        print(f'note: the site offers {newest}, but status.json has no shipped entry for it: add one (the status page\'s '
+              f'changelog and the press kit\'s latest release read it)', file=sys.stderr)
+    return shown
+
+
 def status_milestones(lang, t, status):
     out = []
-    for m in status['milestones']:
+    for m in sorted(status['milestones'], key=lambda m: version_key(m['version']), reverse=True):  # the latest first
         title, en1 = localized(m['title'], lang)
         body, en2 = localized(m['body'], lang)
         year, q = m['when']
@@ -406,6 +519,7 @@ def shell(lang, page, t, meta, variants, g):
         '@analytics': (f'<meta name="analytics" content="matomo" data-url="{esc(analytics["matomo_url"])}" data-site="{int(analytics["site_id"])}">\n'
                        f'<link rel="dns-prefetch" href="{esc(analytics["matomo_url"])}">') if g['tracking'] else '',
         '@releases_url': g['dl']['releases_url'],
+        '@support_url': esc(g['cfg']['support_url']), '@cup': CUP,
         **{f'@href.{k}': v for k, v in href.items()},
     }
 
@@ -460,6 +574,8 @@ def main():
     RELEASES_URL = dl['releases_url']
     status = load('status.json')
     platforms = dl['platforms']
+    status['shipped'] = shipped_so_far(status, platforms)
+    status['updated'] = max([status['updated']] + [s['date'] for s in status['shipped']])
     pages = pages_for(cfg)
     templates = {p['id']: (T / f'{p["id"]}.html').read_text(encoding='utf-8') for p in PAGES}
     base = (T / 'base.html').read_text(encoding='utf-8')
@@ -485,6 +601,7 @@ def main():
     used |= {f'faq.a{k[1:]}' for k in FAQ} | {f'faq.pa{k[2:]}' for k in FAQ_PREORDER}
     used |= {f'thanks.{s}' for s in ('pending', 'paid', 'paid_noemail', 'refunded', 'unknown', 'error')}
     used |= {f"download.{p['id']}_body" for p in platforms}
+    used |= {f'features.{fid}_{f}' for fid, _ in FEATURES for f in ('title', 'body')} | {f'features.tag_{s}' for _, s in FEATURES}
     errors = [f'template uses undefined key {k}' for k in sorted(used - keys)]
     errors += [f'en.json key {k} is never used' for k in sorted(keys - used) if not k.startswith('docs.')]
     for lang, table in tables.items():
@@ -538,6 +655,8 @@ def main():
                                             for i in range(len(SLIDES)))
             if pid == 'download':
                 computed['@downloads'] = downloads(t, platforms)
+            if pid == 'features':
+                computed['@features'] = feature_tiles(t)
             if pid == 'pricing':
                 computed['@faq'] = faq(t, cfg)
                 # hidden until /api/preorder says that edition's price is on sale (site.js); Pro's card is the pick

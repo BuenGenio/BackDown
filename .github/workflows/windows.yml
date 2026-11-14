@@ -1,0 +1,38 @@
+# The release job's Windows leg (release.yml), without a tag: the workspace tests as the release runs
+# them, then the static build and its smoke test. On demand (Actions → windows → Run workflow, before
+# tagging), and on pushes to branches for Windows work (fix/windows-*, windows/**); not on every push.
+name: windows
+on:
+  workflow_dispatch:
+  push:
+    branches: ['fix/windows-*', 'windows/**']
+    paths: ['crates/**', 'Cargo.*', '.github/workflows/windows.yml']
+permissions:
+  contents: read
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-x86_64
+      - name: Test (as release.yml runs them)
+        run: cargo test --locked --release --no-fail-fast
+      - name: Build and smoke test (as release.yml does)
+        shell: bash
+        env:
+          RUSTFLAGS: '-C target-feature=+crt-static'
+        run: |
+          cargo build --locked --release --target x86_64-pc-windows-msvc
+          mkdir -p dist && cp target/x86_64-pc-windows-msvc/release/backdown.exe dist/
+          bin=dist/backdown.exe
+          $bin --version
+          mkdir -p smoke/a smoke/b && echo same > smoke/a/x && echo same > smoke/b/x
+          $bin --db smoke.db index smoke/a smoke/b
+          $bin --db smoke.db check smoke/a

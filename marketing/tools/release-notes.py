@@ -34,16 +34,19 @@ def markdown(text):
 
 def main():
     status = json.loads((MK / 'status.json').read_text(encoding='utf-8'))
-    shipped = {s['version']: s['date'] for s in status['shipped']}
+    shipped = {s['version']: s['date'] for s in status['shipped'] if s.get('date')}  # an entry without a date is written ahead
     # the current download (downloads.json) is shipped even when status.json hasn't caught up; notes for a later
     # version are a release being prepared, and stay out until it ships
     dl = json.loads((MK / 'downloads.json').read_text(encoding='utf-8'))
+    offered = {p['version']: p['date'] for p in dl['platforms'] if p.get('version') and p.get('date')}
     current = max((f['version'] for p in dl['platforms'] for f in [p] if f.get('version')), key=version_key, default=None)
     tags = []
     for f in NOTES.glob('v*.md'):
         tag = f.stem
         if tag in shipped or (current and version_key(tag) <= version_key(current)):
             tags.append(tag)
+            if tag not in shipped and tag in offered:  # the date downloads.json says it went out
+                shipped[tag] = offered[tag]
             if tag not in shipped:  # the date it was committed here, lacking a status.json entry
                 out = subprocess.run(['git', '-C', str(ROOT), 'log', '-1', '--format=%cs', '--', str(f.relative_to(ROOT))], capture_output=True, text=True).stdout.strip()
                 shipped[tag] = out or datetime.date.today().isoformat()

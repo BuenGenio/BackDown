@@ -740,12 +740,13 @@ mod tests {
 
     #[test]
     fn records_become_paths() {
-        let root = PathBuf::from("/r");
+        use crate::paths::native;
+        let root = native("/r");
         // /r (1) with a/ (2) holding b/ (3)
         let folders = vec![
             (root.clone(), 1),
-            (root.join("a"), 2),
-            (root.join("a/b"), 3),
+            (native("/r/a"), 2),
+            (native("/r/a/b"), 3),
         ];
         let r = |frn, parent, reason, dir: bool, name: &str| Record {
             usn: 0,
@@ -769,31 +770,33 @@ mod tests {
             r(20, 1, REASON_RENAME_NEW_NAME, true, "in"),
             r(22, 20, REASON_FILE_CREATE, false, "u.bin"),
         ];
-        let mut locate = |frn: u64| (frn == 99).then(|| PathBuf::from("/elsewhere"));
+        let mut locate = |frn: u64| (frn == 99).then(|| native("/elsewhere"));
         // file 10 has another name, elsewhere in the root, which changed with it
         let mut names = |frn: u64| {
             if frn == 10 {
-                vec![PathBuf::from("/r/x/b/f.txt"), PathBuf::from("/r/link.txt")]
+                vec![native("/r/x/b/f.txt"), native("/r/link.txt")]
             } else {
                 Vec::new()
             }
         };
         let c = changes(&root, folders, &recs, &mut locate, &mut names).unwrap();
+        // as spelt, not just as compared (`/` and `\` are one separator to a Windows path)
         let got: Vec<String> = c.paths.iter().map(|p| p.display().to_string()).collect();
-        assert_eq!(
-            got,
-            [
-                "/r",
-                "/r/a",
-                "/r/a/b/f.txt",
-                "/r/in",
-                "/r/in/u.bin",
-                "/r/link.txt",
-                "/r/x",
-                "/r/x/b/f.txt",
-                "/r/x/b/g.txt"
-            ]
-        );
+        let want: Vec<String> = [
+            "/r",
+            "/r/a",
+            "/r/a/b/f.txt",
+            "/r/in",
+            "/r/in/u.bin",
+            "/r/link.txt",
+            "/r/x",
+            "/r/x/b/f.txt",
+            "/r/x/b/g.txt",
+        ]
+        .iter()
+        .map(|p| native(p).display().to_string())
+        .collect();
+        assert_eq!(got, want);
         assert!(c.full.is_none());
         // the root itself renamed: everything
         let mut locate = |_| None;
@@ -812,7 +815,7 @@ mod tests {
         assert!(
             changes(
                 &root,
-                vec![(root.clone(), 1), (root.join("a/b"), 3)],
+                vec![(root.clone(), 1), (native("/r/a/b"), 3)],
                 &[],
                 &mut locate,
                 &mut names

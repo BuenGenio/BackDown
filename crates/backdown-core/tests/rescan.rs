@@ -799,7 +799,13 @@ fn nothing_changed_is_quick_and_complete() {
 fn auto_walks_where_there_is_no_change_log() {
     let (root, mut db) = setup("auto");
     let st = index::scan(&mut db, &root, &opts(), index::Method::Auto, &mut |_| {}).unwrap();
-    assert_eq!(st.method, "walk");
+    // on Windows the drive is NTFS, whose file table is read instead of walking wherever BackDown
+    // may read it (elevated, as CI runs); either way the note says why the log wasn't used
+    if cfg!(windows) {
+        assert!(["walk", "table"].contains(&st.method), "{st:?}");
+    } else {
+        assert_eq!(st.method, "walk");
+    }
     assert!(!st.note.is_empty());
     // asked for explicitly, the change log's absence is an error, not a silent walk
     #[cfg(target_os = "linux")]

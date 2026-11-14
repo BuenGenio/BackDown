@@ -304,8 +304,9 @@ fn measure_mailbox(db: &Db, mb: &[u8]) -> Result<(u64, u64, Option<i64>, Option<
         *last += 1;
     }
     let sep = recognise::sep();
-    let cur = [&sep[..], b"cur"].concat();
-    let new = [&sep[..], b"new"].concat();
+    // as stored (UTF-16 on Windows), like the separator before them
+    let cur = [&sep[..], &paths::to_bytes(Path::new("cur"))[..]].concat();
+    let new = [&sep[..], &paths::to_bytes(Path::new("new"))[..]].concat();
     let mut stmt = db.conn.prepare_cached(
         "SELECT dir, size, mtime FROM files WHERE current = 1 AND path >= ?1 AND path < ?2",
     )?;

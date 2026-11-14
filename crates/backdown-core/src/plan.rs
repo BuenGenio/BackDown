@@ -371,7 +371,11 @@ pub fn make(
     if !target.is_absolute() {
         bail!("the archive folder must be an absolute path");
     }
-    make_in(db, Some(target), only, schema, recognised, overlaps)
+    // as the index spells it, as far as it exists: given through a link, or on Windows in another
+    // case, verbatim or by its short name, its own drive would otherwise be planned as a source
+    let target =
+        paths::canonical_planned(target).unwrap_or_else(|_| paths::normal(target).into_owned());
+    make_in(db, Some(&target), only, schema, recognised, overlaps)
 }
 
 /// The same, for an archive that isn't one folder on this machine (the swarm's pool: pool/plan.rs

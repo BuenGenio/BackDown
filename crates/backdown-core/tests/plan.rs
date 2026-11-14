@@ -6,6 +6,15 @@ use std::path::Path;
 
 use backdown_core::{Db, apply, hash, index, overlap, plan, recognise, report};
 
+/// Maildir's info separator as a Maildir on this system has it: `:` can't be in a Windows file
+/// name (`a:b` is a stream of `a` there), so `!` (what mailmerge writes there too).
+const INFO: &str = if cfg!(windows) { "!2," } else { ":2," };
+
+/// A `/`-separated path as this system spells it (`\` between names on Windows).
+fn spelt(p: &str) -> String {
+    p.replace('/', std::path::MAIN_SEPARATOR_STR)
+}
+
 fn write(path: &Path, bytes: &[u8]) {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(path, bytes).unwrap();
@@ -124,12 +133,14 @@ fn plan_apply_resume_and_prove() {
     let item = |src: &str| {
         p.items
             .iter()
-            .find(|i| i.source.ends_with(src))
+            .find(|i| i.source.ends_with(&spelt(src)))
             .unwrap_or_else(|| panic!("no item for …{src}: {:#?}", p.items))
     };
 
     assert!(
-        !p.items.iter().any(|i| i.source.contains("/archive")),
+        !p.items
+            .iter()
+            .any(|i| i.source.contains(&spelt("/archive"))),
         "the archive's own drive isn't a source"
     );
     let store = item("laptop/srv/vmail");
@@ -262,7 +273,7 @@ fn real_store(root: &Path, extra: bool, read: bool) {
         for m in 0..n {
             write(
                 &mb.join(format!(
-                    "cur/{}.M{m}P1.mail.example.org:2,{}",
+                    "cur/{}.M{m}P1.mail.example.org{INFO}{}",
                     1_500_000_000 + m * 1000,
                     if read { "S" } else { "" }
                 )),
@@ -292,12 +303,12 @@ fn overlapping_mailboxes_are_merged_instead_of_copied_twice() {
     let i = p
         .items
         .iter()
-        .position(|x| x.source.ends_with("laptop/srv/vmail"))
+        .position(|x| x.source.ends_with(&spelt("laptop/srv/vmail")))
         .unwrap();
     let u = p
         .items
         .iter()
-        .position(|x| x.source.ends_with("usb/backup/vmail"))
+        .position(|x| x.source.ends_with(&spelt("usb/backup/vmail")))
         .unwrap();
     // the larger (usb, one more message) is filed, the laptop's is its twin
     assert_eq!(p.items[u].action, "copy", "{:#?}", p.items);
@@ -335,10 +346,10 @@ fn overlapping_mailboxes_are_merged_instead_of_copied_twice() {
     names.sort();
     assert_eq!(names.len(), 4, "{names:?}");
     assert!(
-        names[..3].iter().all(|n| n.ends_with(":2,S")),
+        names[..3].iter().all(|n| n.ends_with(&format!("{INFO}S"))),
         "read on the laptop: read in the merge ({names:?})"
     );
-    assert!(names[3].ends_with(":2,"), "only on the usb stick, unread");
+    assert!(names[3].ends_with(INFO), "only on the usb stick, unread");
     let j = apply::journal_summary(&db, id).unwrap();
     assert!(j.iter().any(|(s, n, _)| s == "merged" && *n == 1), "{j:?}");
     // again: carried on, nothing written twice

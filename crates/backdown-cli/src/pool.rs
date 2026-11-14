@@ -302,7 +302,8 @@ pub fn command(db: Option<PathBuf>, local: bool, cmd: PoolCmd) -> Result<ExitCod
 
 /// The indexed drive here called `which`: its path, or its name.
 fn drive_id(db: &Db, which: &str) -> Result<i64> {
-    let want = std::fs::canonicalize(which).unwrap_or_else(|_| PathBuf::from(which));
+    let want =
+        backdown_core::paths::canonical(Path::new(which)).unwrap_or_else(|_| PathBuf::from(which));
     let roots = backdown_core::browse::roots(db)?;
     if let Some(r) = roots.iter().find(|r| Path::new(&r.path) == want) {
         return Ok(r.id);

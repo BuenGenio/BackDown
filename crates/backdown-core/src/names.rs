@@ -42,7 +42,7 @@ pub fn nfc(s: &str) -> Cow<'_, str> {
 
 /// A path's stored bytes with its names composed (NFC): the same for both spellings of a name.
 pub fn nfc_path(b: &[u8]) -> Cow<'_, [u8]> {
-    if b.is_ascii() {
+    if paths::is_ascii(b) {
         return Cow::Borrowed(b);
     }
     let p = paths::from_bytes(b);
@@ -191,7 +191,7 @@ impl Folding {
                 let raw = paths::to_bytes(Path::new(name));
                 let mut v = b"b".to_vec();
                 v.extend(if self.case {
-                    raw.to_ascii_lowercase()
+                    paths::ascii_lowercase(&raw)
                 } else {
                     raw
                 });

@@ -107,11 +107,11 @@ pub fn add(db: &Db, source: &Path, target: &Path, verify_every_days: i64) -> Res
     if !target.is_absolute() {
         bail!("the mirror folder must be a full path");
     }
-    let target = if target.exists() {
-        paths::canonical(target)?
-    } else {
-        target.to_path_buf()
-    };
+    // resolved as far as it exists, so it compares with the source (a folder not made yet, or on
+    // Windows given verbatim or with `/`, would otherwise never be seen inside it); a drive that
+    // isn't there at all is taken as given
+    let target =
+        paths::canonical_planned(target).unwrap_or_else(|_| paths::normal(target).into_owned());
     if target.starts_with(&source) || source.starts_with(&target) {
         bail!("a mirror can't be inside what it mirrors, or the other way round");
     }

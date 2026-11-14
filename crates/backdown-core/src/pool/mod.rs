@@ -107,7 +107,7 @@ pub fn find(db: &Db, which: &str) -> Result<Area> {
     {
         return Ok(a.clone());
     }
-    let p = dunce::canonicalize(which).unwrap_or_else(|_| PathBuf::from(which));
+    let p = paths::canonical(Path::new(which)).unwrap_or_else(|_| PathBuf::from(which));
     all.into_iter()
         .find(|a| Path::new(&a.path) == p || a.path == which)
         .with_context(|| format!("{which} isn't a pool folder here (`backdown pool list`)"))
@@ -173,7 +173,7 @@ pub fn add(db: &Db, path: &Path, reserve: Option<Reserve>, takes: &[String]) -> 
         std::fs::create_dir_all(path)
             .with_context(|| format!("can't create {}", path.display()))?;
     }
-    let path = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let path = paths::canonical(path).unwrap_or_else(|_| path.to_path_buf());
     if !path.is_dir() {
         bail!("{} isn't a folder", path.display());
     }

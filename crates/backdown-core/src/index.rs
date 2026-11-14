@@ -1727,8 +1727,9 @@ mod tests {
         let root_id = crate::forget::root_id(&db, &root).unwrap().unwrap();
 
         // the second walk: d's listing breaks off after x1, y can't be looked at, z is gone
+        // spelt as a walk spells them (`\` between names on Windows)
         let file = |p: &str, depth| Item::File {
-            path: root.join(p),
+            path: root.join(paths::native(p)),
             depth,
             size: p.len() as u64,
             mtime: mtime_of(&std::fs::metadata(root.join(p)).unwrap()),
@@ -1740,7 +1741,7 @@ mod tests {
             path: if p.is_empty() {
                 root.clone()
             } else {
-                root.join(p)
+                root.join(paths::native(p))
             },
             depth,
             dev: None,
@@ -1792,7 +1793,11 @@ mod tests {
                 p.strip_prefix(&root).unwrap().display().to_string()
             })
             .collect();
-        assert_eq!(current, ["d/sub/x3", "d/x1", "d/x2", "y"]);
+        let want: Vec<String> = ["d/sub/x3", "d/x1", "d/x2", "y"]
+            .iter()
+            .map(|p| paths::native(p).display().to_string())
+            .collect();
+        assert_eq!(current, want);
         let totals = |p: &Path| -> (i64, i64) {
             db.conn
                 .query_row(
@@ -1803,7 +1808,7 @@ mod tests {
                 .unwrap()
         };
         assert_eq!(totals(&root.join("d")), (3, st.scan));
-        assert_eq!(totals(&root.join("d/sub")), (1, st.scan));
+        assert_eq!(totals(&root.join(paths::native("d/sub"))), (1, st.scan));
         assert_eq!(totals(&root), (4, st.scan));
 
         // the root itself breaking off fails the scan, and leaves no trace

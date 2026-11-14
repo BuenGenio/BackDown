@@ -729,7 +729,13 @@ pub fn read_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::paths::native;
     use crate::tags::{self, TARGET_CONTENT};
+
+    /// A path as the index keeps it here.
+    fn stored(p: &str) -> Vec<u8> {
+        paths::to_bytes(&native(p))
+    }
 
     fn db() -> Connection {
         let c = Connection::open_in_memory().unwrap();
@@ -928,7 +934,7 @@ mod tests {
         tags::attach(&c, TARGET_CONTENT, &key, loc, "exif", 1.0).unwrap();
         c.execute(
             "INSERT INTO roots(id, path) VALUES (1, ?1)",
-            params![b"/photos".to_vec()],
+            params![stored("/photos")],
         )
         .unwrap();
         for (id, p, current) in [
@@ -937,7 +943,7 @@ mod tests {
         ] {
             c.execute(
                 "INSERT INTO files(id, root_id, path, size, mtime, sha256, current) VALUES (?1, 1, ?2, 10, 0, ?3, ?4)",
-                params![id, p.as_bytes().to_vec(), sha.to_vec(), current],
+                params![id, stored(p), sha.to_vec(), current],
             )
             .unwrap();
         }
@@ -953,10 +959,10 @@ mod tests {
         let hit = f.hits.iter().find(|h| h.key == key).unwrap();
         assert_eq!(hit.copies.len(), 1, "only the current copy");
         assert_eq!(hit.copies[0].name, "IMG_1.jpg");
-        assert_eq!(hit.copies[0].root, "/photos");
+        assert_eq!(hit.copies[0].root, native("/photos").display().to_string());
         assert_eq!(
             browse::path_of(&hit.copies[0].dir).unwrap(),
-            Path::new("/photos/2019")
+            native("/photos/2019")
         );
     }
 
@@ -965,7 +971,7 @@ mod tests {
         let c = db();
         c.execute(
             "INSERT INTO roots(id, path) VALUES (1, ?1)",
-            params![b"/d".to_vec()],
+            params![stored("/d")],
         )
         .unwrap();
         for (id, p) in [
@@ -977,11 +983,11 @@ mod tests {
         ] {
             c.execute(
                 "INSERT INTO files(id, root_id, path, size, mtime) VALUES (?1, 1, ?2, 10, 0)",
-                params![id, p.as_bytes().to_vec()],
+                params![id, stored(p)],
             )
             .unwrap();
         }
-        let mut ids: Vec<i64> = media_under(&c, Path::new("/d/a"))
+        let mut ids: Vec<i64> = media_under(&c, &native("/d/a"))
             .unwrap()
             .iter()
             .map(|m| m.id)
@@ -993,7 +999,7 @@ mod tests {
             "not the text file, not the folder beside it"
         );
         assert_eq!(
-            media_under(&c, Path::new("/d/ab/IMG_2.jpg")).unwrap().len(),
+            media_under(&c, &native("/d/ab/IMG_2.jpg")).unwrap().len(),
             1
         );
     }

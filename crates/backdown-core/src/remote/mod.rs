@@ -1193,6 +1193,9 @@ pub fn sync(
         db.conn
             .execute("DELETE FROM remote_roots WHERE remote_id = ?1", [m.id])?;
     }
+    // as it just said hello: how its paths are spelt (a machine added just now hasn't said yet,
+    // and a Windows machine's UTF-16 paths read as Unix bytes give every name wrong)
+    let m = &get(db, m.id)?;
     let mut st = SyncStats::default();
     // first, as it's quick: a drive there going bad is news even when the files take a while
     if opts.health {
