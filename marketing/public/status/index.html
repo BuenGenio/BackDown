@@ -49,10 +49,10 @@
 <meta name="twitter:image:alt" content="What's happening at BackDown.">
 <meta name="analytics" content="matomo" data-url="https://matomo.matumi.anthill.hk/" data-site="14">
 <link rel="dns-prefetch" href="https://matomo.matumi.anthill.hk/">
-<script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Organization","@id":"https://backdown.io/#org","name":"BackDown","url":"https://backdown.io/","logo":"https://backdown.io/icon-512.png?v=bd6fc6de2a","sameAs":["https://github.com/BuenGenio/backdown-releases/releases"]},{"@type":"WebSite","@id":"https://backdown.io/#website","url":"https://backdown.io/","name":"BackDown","publisher":{"@id":"https://backdown.io/#org"},"inLanguage":["en","es","pt-BR","de","pl","cs","sk","uk"]},{"@type":"WebPage","@id":"https://backdown.io/status/#webpage","url":"https://backdown.io/status/","name":"Status and roadmap · BackDown","description":"What's being built right now, what's next, and everything shipped so far, with live checks of the website, downloads and sign-ups.","inLanguage":"en","isPartOf":{"@id":"https://backdown.io/#website"},"about":{"@id":"https://backdown.io/#app"},"primaryImageOfPage":"https://backdown.io/og/en-status.png?v=bd6fc6de2a","breadcrumb":{"@id":"https://backdown.io/status/#breadcrumb"},"dateModified":"2026-11-13"},{"@type":"BreadcrumbList","@id":"https://backdown.io/status/#breadcrumb","itemListElement":[{"@type":"ListItem","position":1,"name":"BackDown","item":"https://backdown.io/"},{"@type":"ListItem","position":2,"name":"Status","item":"https://backdown.io/status/"}]}]}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Organization","@id":"https://backdown.io/#org","name":"BackDown","url":"https://backdown.io/","logo":"https://backdown.io/icon-512.png?v=bd6fc6de2a","sameAs":["https://github.com/BuenGenio/backdown-releases/releases"]},{"@type":"WebSite","@id":"https://backdown.io/#website","url":"https://backdown.io/","name":"BackDown","publisher":{"@id":"https://backdown.io/#org"},"inLanguage":["en","es","pt-BR","de","pl","cs","sk","uk"]},{"@type":"WebPage","@id":"https://backdown.io/status/#webpage","url":"https://backdown.io/status/","name":"Status and roadmap · BackDown","description":"What's being built right now, what's next, and everything shipped so far, with live checks of the website, downloads and sign-ups.","inLanguage":"en","isPartOf":{"@id":"https://backdown.io/#website"},"about":{"@id":"https://backdown.io/#app"},"primaryImageOfPage":"https://backdown.io/og/en-status.png?v=bd6fc6de2a","breadcrumb":{"@id":"https://backdown.io/status/#breadcrumb"},"dateModified":"2026-11-14"},{"@type":"BreadcrumbList","@id":"https://backdown.io/status/#breadcrumb","itemListElement":[{"@type":"ListItem","position":1,"name":"BackDown","item":"https://backdown.io/"},{"@type":"ListItem","position":2,"name":"Status","item":"https://backdown.io/status/"}]}]}</script>
 <link rel="preload" href="/fonts/bricolage-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/site.css?v=751c083938">
-<script src="/site.js?v=751c083938" defer></script>
+<link rel="stylesheet" href="/site.css?v=94826c5018">
+<script src="/site.js?v=94826c5018" defer></script>
 <script type="speculationrules">{"prefetch":[{"where":{"and":[{"href_matches":"/*"},{"not":{"href_matches":"/api/*"}}]},"eagerness":"moderate"}]}</script>
 </head>
 <body>
@@ -83,7 +83,7 @@
  <section id="live" class="first">
   <div class="wrap">
    <div class="livebox card" data-api="/api/status" data-ago="Checked {ago}" data-states="{&quot;up&quot;: &quot;Working&quot;, &quot;degraded&quot;: &quot;Degraded&quot;, &quot;down&quot;: &quot;Down&quot;, &quot;open&quot;: &quot;Open&quot;, &quot;closed&quot;: &quot;Not open yet&quot;, &quot;unknown&quot;: &quot;Checking…&quot;}">
-    <div class="live-head"><h2 class="h3">Right now</h2><span class="checked">Last updated <time datetime="2026-11-13">13 Nov 2026</time></span></div>
+    <div class="live-head"><h2 class="h3">Right now</h2><span class="checked">Last updated <time datetime="2026-11-14">14 Nov 2026</time></span></div>
     <ul class="svc">
      <li data-svc="site"><span class="sdot up"></span><span class="nm">Website</span><span class="st">Working</span></li>
      <li data-svc="downloads"><span class="sdot"></span><span class="nm">Downloads</span><span class="st">Checking…</span></li>
@@ -124,27 +124,27 @@
   <div class="wrap">
    <div class="head"><span class="eyebrow">Roadmap</span><h2>The plan to 1.0.</h2><p>Targets, not promises: every phase has to work on real drives with millions of files before it ships.</p></div>
    <ol class="milestones">
+    <li class="ms ms-now"><span class="ms-dot" aria-hidden="true"></span><div class="ms-body card">
+     <div class="ms-top"><span class="mono">v1.0</span><span class="tag dev">In progress</span><span class="when">Q2 2027</span></div>
+     <h3>macOS and Windows, natively</h3><p>Native disk handling for APFS, Time Machine and NTFS, with signed installers.</p></div></li>
     <li class="ms ms-done"><span class="ms-dot" aria-hidden="true"></span><div class="ms-body card">
-     <div class="ms-top"><span class="mono">v0.1</span><span class="tag live">Done</span><span class="when">Q3 2026</span></div>
-     <h3>The original scripts</h3><p>Resumable indexing, SHA-256 hashing and a live dashboard, proven on 27 million files across 15 TB.</p></div></li>
-    <li class="ms ms-done"><span class="ms-dot" aria-hidden="true"></span><div class="ms-body card">
-     <div class="ms-top"><span class="mono">v0.2</span><span class="tag live">Done</span><span class="when">Q3 2026</span></div>
-     <h3>Command-line preview</h3><p>One fast binary for Linux, macOS and Windows: index, hash, find duplicates, prove a drive is safe to wipe, browse any past scan, and run as a background service.</p></div></li>
-    <li class="ms ms-done"><span class="ms-dot" aria-hidden="true"></span><div class="ms-body card">
-     <div class="ms-top"><span class="mono">v0.3</span><span class="tag live">Done</span><span class="when">Q3 2026</span></div>
-     <h3>Recognisers and reports</h3><p>Tell what each folder is (mail archives, Time Machine sets, phone backups, photo libraries, git repositories) and where it came from, then write a report with a verdict for every drive.</p></div></li>
-    <li class="ms ms-done"><span class="ms-dot" aria-hidden="true"></span><div class="ms-body card">
-     <div class="ms-top"><span class="mono">v0.4</span><span class="tag live">Done</span><span class="when">Q3 2026</span></div>
-     <h3>Planner and journaled copy</h3><p>Propose a clean archive layout, copy into it with every step journaled and re-verified by hash, and only then free up the old drives.</p></div></li>
+     <div class="ms-top"><span class="mono">v0.6</span><span class="tag live">Done</span><span class="when">Q3 2026</span></div>
+     <h3>Mirrors and drive health</h3><p>Scheduled mirror checks, drive-health trends, and a warning before a drive dies.</p></div></li>
     <li class="ms ms-done"><span class="ms-dot" aria-hidden="true"></span><div class="ms-body card">
      <div class="ms-top"><span class="mono">v0.5</span><span class="tag live">Done</span><span class="when">Q3 2026</span></div>
      <h3>Desktop app</h3><p>Everything above without a terminal: plug in two drives, see what's duplicated, get a report.</p></div></li>
     <li class="ms ms-done"><span class="ms-dot" aria-hidden="true"></span><div class="ms-body card">
-     <div class="ms-top"><span class="mono">v0.6</span><span class="tag live">Done</span><span class="when">Q3 2026</span></div>
-     <h3>Mirrors and drive health</h3><p>Scheduled mirror checks, drive-health trends, and a warning before a drive dies.</p></div></li>
-    <li class="ms ms-now"><span class="ms-dot" aria-hidden="true"></span><div class="ms-body card">
-     <div class="ms-top"><span class="mono">v1.0</span><span class="tag dev">In progress</span><span class="when">Q2 2027</span></div>
-     <h3>macOS and Windows, natively</h3><p>Native disk handling for APFS, Time Machine and NTFS, with signed installers.</p></div></li>
+     <div class="ms-top"><span class="mono">v0.4</span><span class="tag live">Done</span><span class="when">Q3 2026</span></div>
+     <h3>Planner and journaled copy</h3><p>Propose a clean archive layout, copy into it with every step journaled and re-verified by hash, and only then free up the old drives.</p></div></li>
+    <li class="ms ms-done"><span class="ms-dot" aria-hidden="true"></span><div class="ms-body card">
+     <div class="ms-top"><span class="mono">v0.3</span><span class="tag live">Done</span><span class="when">Q3 2026</span></div>
+     <h3>Recognisers and reports</h3><p>Tell what each folder is (mail archives, Time Machine sets, phone backups, photo libraries, git repositories) and where it came from, then write a report with a verdict for every drive.</p></div></li>
+    <li class="ms ms-done"><span class="ms-dot" aria-hidden="true"></span><div class="ms-body card">
+     <div class="ms-top"><span class="mono">v0.2</span><span class="tag live">Done</span><span class="when">Q3 2026</span></div>
+     <h3>Command-line preview</h3><p>One fast binary for Linux, macOS and Windows: index, hash, find duplicates, prove a drive is safe to wipe, browse any past scan, and run as a background service.</p></div></li>
+    <li class="ms ms-done"><span class="ms-dot" aria-hidden="true"></span><div class="ms-body card">
+     <div class="ms-top"><span class="mono">v0.1</span><span class="tag live">Done</span><span class="when">Q3 2026</span></div>
+     <h3>The original scripts</h3><p>Resumable indexing, SHA-256 hashing and a live dashboard, proven on 27 million files across 15 TB.</p></div></li>
    </ol>
   </div>
  </section>

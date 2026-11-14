@@ -49,10 +49,10 @@
 <meta name="twitter:image:alt" content="Qué está pasando en BackDown.">
 <meta name="analytics" content="matomo" data-url="https://matomo.matumi.anthill.hk/" data-site="14">
 <link rel="dns-prefetch" href="https://matomo.matumi.anthill.hk/">
-<script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Organization","@id":"https://backdown.io/#org","name":"BackDown","url":"https://backdown.io/","logo":"https://backdown.io/icon-512.png?v=bd6fc6de2a","sameAs":["https://github.com/BuenGenio/backdown-releases/releases"]},{"@type":"WebSite","@id":"https://backdown.io/#website","url":"https://backdown.io/","name":"BackDown","publisher":{"@id":"https://backdown.io/#org"},"inLanguage":["en","es","pt-BR","de","pl","cs","sk","uk"]},{"@type":"WebPage","@id":"https://backdown.io/es/status/#webpage","url":"https://backdown.io/es/status/","name":"Estado y hoja de ruta · BackDown","description":"En qué estamos trabajando, qué viene después y todo lo publicado hasta ahora, con comprobaciones en directo del sitio web, las descargas y las inscripciones.","inLanguage":"es","isPartOf":{"@id":"https://backdown.io/#website"},"about":{"@id":"https://backdown.io/#app"},"primaryImageOfPage":"https://backdown.io/og/es-status.png?v=bd6fc6de2a","breadcrumb":{"@id":"https://backdown.io/es/status/#breadcrumb"},"dateModified":"2026-11-13"},{"@type":"BreadcrumbList","@id":"https://backdown.io/es/status/#breadcrumb","itemListElement":[{"@type":"ListItem","position":1,"name":"BackDown","item":"https://backdown.io/es/"},{"@type":"ListItem","position":2,"name":"Estado","item":"https://backdown.io/es/status/"}]}]}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Organization","@id":"https://backdown.io/#org","name":"BackDown","url":"https://backdown.io/","logo":"https://backdown.io/icon-512.png?v=bd6fc6de2a","sameAs":["https://github.com/BuenGenio/backdown-releases/releases"]},{"@type":"WebSite","@id":"https://backdown.io/#website","url":"https://backdown.io/","name":"BackDown","publisher":{"@id":"https://backdown.io/#org"},"inLanguage":["en","es","pt-BR","de","pl","cs","sk","uk"]},{"@type":"WebPage","@id":"https://backdown.io/es/status/#webpage","url":"https://backdown.io/es/status/","name":"Estado y hoja de ruta · BackDown","description":"En qué estamos trabajando, qué viene después y todo lo publicado hasta ahora, con comprobaciones en directo del sitio web, las descargas y las inscripciones.","inLanguage":"es","isPartOf":{"@id":"https://backdown.io/#website"},"about":{"@id":"https://backdown.io/#app"},"primaryImageOfPage":"https://backdown.io/og/es-status.png?v=bd6fc6de2a","breadcrumb":{"@id":"https://backdown.io/es/status/#breadcrumb"},"dateModified":"2026-11-14"},{"@type":"BreadcrumbList","@id":"https://backdown.io/es/status/#breadcrumb","itemListElement":[{"@type":"ListItem","position":1,"name":"BackDown","item":"https://backdown.io/es/"},{"@type":"ListItem","position":2,"name":"Estado","item":"https://backdown.io/es/status/"}]}]}</script>
 <link rel="preload" href="/fonts/bricolage-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/site.css?v=751c083938">
-<script src="/site.js?v=751c083938" defer></script>
+<link rel="stylesheet" href="/site.css?v=94826c5018">
+<script src="/site.js?v=94826c5018" defer></script>
 <script type="speculationrules">{"prefetch":[{"where":{"and":[{"href_matches":"/*"},{"not":{"href_matches":"/api/*"}}]},"eagerness":"moderate"}]}</script>
 </head>
 <body>
@@ -83,7 +83,7 @@
  <section id="live" class="first">
   <div class="wrap">
    <div class="livebox card" data-api="/api/status" data-ago="Comprobado {ago}" data-states="{&quot;up&quot;: &quot;Funcionando&quot;, &quot;degraded&quot;: &quot;Con incidencias&quot;, &quot;down&quot;: &quot;Sin servicio&quot;, &quot;open&quot;: &quot;Abierto&quot;, &quot;closed&quot;: &quot;Próximamente&quot;, &quot;unknown&quot;: &quot;Comprobando…&quot;}">
-    <div class="live-head"><h2 class="h3">Ahora mismo</h2><span class="checked">Última actualización: <time datetime="2026-11-13">13 nov 2026</time></span></div>
+    <div class="live-head"><h2 class="h3">Ahora mismo</h2><span class="checked">Última actualización: <time datetime="2026-11-14">14 nov 2026</time></span></div>
     <ul class="svc">
      <li data-svc="site"><span class="sdot up"></span><span class="nm">Sitio web</span><span class="st">Funcionando</span></li>
      <li data-svc="downloads"><span class="sdot"></span><span class="nm">Descargas</span><span class="st">Comprobando…</span></li>
@@ -124,27 +124,27 @@
   <div class="wrap">
    <div class="head"><span class="eyebrow">Hoja de ruta</span><h2>El plan hasta la 1.0.</h2><p>Objetivos, no promesas: cada fase tiene que funcionar en discos reales con millones de archivos antes de publicarse.</p></div>
    <ol class="milestones">
+    <li class="ms ms-now"><span class="ms-dot" aria-hidden="true"></span><div class="ms-body card">
+     <div class="ms-top"><span class="mono">v1.0</span><span class="tag dev">En curso</span><span class="when">T2 2027</span></div>
+     <h3>macOS y Windows, de forma nativa</h3><p>Gestión nativa de discos para APFS, Time Machine y NTFS, con instaladores firmados.</p></div></li>
     <li class="ms ms-done"><span class="ms-dot" aria-hidden="true"></span><div class="ms-body card">
-     <div class="ms-top"><span class="mono">v0.1</span><span class="tag live">Hecho</span><span class="when">T3 2026</span></div>
-     <h3>Los scripts originales</h3><p>Indexación reanudable, hashes SHA-256 y un panel en tiempo real, probados con 27 millones de archivos en 15 TB.</p></div></li>
-    <li class="ms ms-done"><span class="ms-dot" aria-hidden="true"></span><div class="ms-body card">
-     <div class="ms-top"><span class="mono">v0.2</span><span class="tag live">Hecho</span><span class="when">T3 2026</span></div>
-     <h3>Versión preliminar de línea de comandos</h3><p>Un único binario rápido para Linux, macOS y Windows: indexa, calcula hashes, encuentra duplicados, demuestra que un disco se puede borrar sin riesgo, explora cualquier escaneo anterior y funciona como servicio en segundo plano.</p></div></li>
-    <li class="ms ms-done"><span class="ms-dot" aria-hidden="true"></span><div class="ms-body card">
-     <div class="ms-top"><span class="mono">v0.3</span><span class="tag live">Hecho</span><span class="when">T3 2026</span></div>
-     <h3>Reconocimiento e informes</h3><p>Saber qué es cada carpeta (correo archivado, copias de Time Machine, copias de teléfonos, bibliotecas de fotos, repositorios git) y de dónde viene, y después redactar un informe con un veredicto para cada disco.</p></div></li>
-    <li class="ms ms-done"><span class="ms-dot" aria-hidden="true"></span><div class="ms-body card">
-     <div class="ms-top"><span class="mono">v0.4</span><span class="tag live">Hecho</span><span class="when">T3 2026</span></div>
-     <h3>Planificador y copia con registro</h3><p>Proponer una organización limpia para el archivo, copiar en ella registrando cada paso y volviendo a verificarlo por hash, y solo entonces liberar los discos antiguos.</p></div></li>
+     <div class="ms-top"><span class="mono">v0.6</span><span class="tag live">Hecho</span><span class="when">T3 2026</span></div>
+     <h3>Espejos y estado de los discos</h3><p>Comprobaciones programadas de los espejos, tendencias del estado de los discos y un aviso antes de que un disco falle.</p></div></li>
     <li class="ms ms-done"><span class="ms-dot" aria-hidden="true"></span><div class="ms-body card">
      <div class="ms-top"><span class="mono">v0.5</span><span class="tag live">Hecho</span><span class="when">T3 2026</span></div>
      <h3>App de escritorio</h3><p>Todo lo anterior sin terminal: conecta dos discos, mira qué está duplicado y obtén un informe.</p></div></li>
     <li class="ms ms-done"><span class="ms-dot" aria-hidden="true"></span><div class="ms-body card">
-     <div class="ms-top"><span class="mono">v0.6</span><span class="tag live">Hecho</span><span class="when">T3 2026</span></div>
-     <h3>Espejos y estado de los discos</h3><p>Comprobaciones programadas de los espejos, tendencias del estado de los discos y un aviso antes de que un disco falle.</p></div></li>
-    <li class="ms ms-now"><span class="ms-dot" aria-hidden="true"></span><div class="ms-body card">
-     <div class="ms-top"><span class="mono">v1.0</span><span class="tag dev">En curso</span><span class="when">T2 2027</span></div>
-     <h3>macOS y Windows, de forma nativa</h3><p>Gestión nativa de discos para APFS, Time Machine y NTFS, con instaladores firmados.</p></div></li>
+     <div class="ms-top"><span class="mono">v0.4</span><span class="tag live">Hecho</span><span class="when">T3 2026</span></div>
+     <h3>Planificador y copia con registro</h3><p>Proponer una organización limpia para el archivo, copiar en ella registrando cada paso y volviendo a verificarlo por hash, y solo entonces liberar los discos antiguos.</p></div></li>
+    <li class="ms ms-done"><span class="ms-dot" aria-hidden="true"></span><div class="ms-body card">
+     <div class="ms-top"><span class="mono">v0.3</span><span class="tag live">Hecho</span><span class="when">T3 2026</span></div>
+     <h3>Reconocimiento e informes</h3><p>Saber qué es cada carpeta (correo archivado, copias de Time Machine, copias de teléfonos, bibliotecas de fotos, repositorios git) y de dónde viene, y después redactar un informe con un veredicto para cada disco.</p></div></li>
+    <li class="ms ms-done"><span class="ms-dot" aria-hidden="true"></span><div class="ms-body card">
+     <div class="ms-top"><span class="mono">v0.2</span><span class="tag live">Hecho</span><span class="when">T3 2026</span></div>
+     <h3>Versión preliminar de línea de comandos</h3><p>Un único binario rápido para Linux, macOS y Windows: indexa, calcula hashes, encuentra duplicados, demuestra que un disco se puede borrar sin riesgo, explora cualquier escaneo anterior y funciona como servicio en segundo plano.</p></div></li>
+    <li class="ms ms-done"><span class="ms-dot" aria-hidden="true"></span><div class="ms-body card">
+     <div class="ms-top"><span class="mono">v0.1</span><span class="tag live">Hecho</span><span class="when">T3 2026</span></div>
+     <h3>Los scripts originales</h3><p>Indexación reanudable, hashes SHA-256 y un panel en tiempo real, probados con 27 millones de archivos en 15 TB.</p></div></li>
    </ol>
   </div>
  </section>
