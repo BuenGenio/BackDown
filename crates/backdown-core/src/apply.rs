@@ -704,13 +704,18 @@ mod tests {
             *b ^= 0xFF;
         }
         fs::write(dest, &bytes)?;
-        File::open(dest)
+        opened(dest)
     }
     fn good_clone(src: &File, dest: &Path) -> io::Result<File> {
         let mut bytes = Vec::new();
         src.try_clone()?.read_to_end(&mut bytes)?;
         fs::write(dest, &bytes)?;
-        File::open(dest)
+        opened(dest)
+    }
+    /// the clone open as `native_clone` leaves it on Linux: for reading and writing (Windows
+    /// won't flush a file or set its times through a handle opened only for reading)
+    fn opened(dest: &Path) -> io::Result<File> {
+        fs::OpenOptions::new().read(true).write(true).open(dest)
     }
 
     #[test]

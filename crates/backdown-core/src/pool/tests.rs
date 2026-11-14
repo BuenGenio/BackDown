@@ -14,7 +14,8 @@ use crate::{Db, hash, index, recognise, remote, swarm};
 fn scratch() -> tempfile::TempDir {
     let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/tmp");
     fs::create_dir_all(&base).unwrap();
-    tempfile::tempdir_in(fs::canonicalize(base).unwrap()).unwrap()
+    // in its normal form, as a person gives a path (not `\\?\` on Windows)
+    tempfile::tempdir_in(crate::paths::canonical(&base).unwrap()).unwrap()
 }
 
 fn write(path: &Path, bytes: &[u8]) {
@@ -347,12 +348,17 @@ impl Connect for ToNas {
     }
 }
 
+/// This machine's system, as it says it in its `hello` and its storage report.
+const THIS_OS: &str = if cfg!(windows) { "windows" } else { "linux" };
+
 /// The nas's pool folder as this machine has it cached (as `a_nas_with_a_pool_folder` does), but
 /// a real folder of a real second index, so files can be written into it.
 fn a_real_nas(db: &Db, nas_db: &Path, pool_dir: &Path, already: &[u8]) -> (i64, i64) {
     let nas = Db::open(nas_db).unwrap();
     let a = add(&nas, pool_dir, Some(Reserve::Bytes(0)), &[]).unwrap();
     let m = remote::add(db, "nas", "ssh://nas.example.org", None, None).unwrap();
+    // it's this machine really, so its paths are spelt as this machine's are
+    remote::record_hello(db, m.id, &json!({ "os": THIS_OS }), crate::clock::now()).unwrap();
     let raw = crate::paths::to_bytes(pool_dir);
     db.conn
         .execute(
@@ -361,7 +367,7 @@ fn a_real_nas(db: &Db, nas_db: &Path, pool_dir: &Path, already: &[u8]) -> (i64, 
             params![m.id, raw, pool_dir.display().to_string(), crate::clock::now()],
         )
         .unwrap();
-    let in_it = pool_dir.join("Media/old.jpg");
+    let in_it = pool_dir.join("Media").join("old.jpg");
     db.conn
         .execute(
             "INSERT INTO remote_files(remote_id, rid, root_id, path, size, mtime, sample, sha256, error)
@@ -372,7 +378,7 @@ fn a_real_nas(db: &Db, nas_db: &Path, pool_dir: &Path, already: &[u8]) -> (i64, 
     let area = json!({ "id": a.id, "path": pool_dir.display().to_string(), "key": URL_SAFE_NO_PAD.encode(&raw),
         "reserve": 0, "takes": [], "present": true, "indexed": true, "answering": true,
         "space": { "total": 10_000_000_000u64, "free": 9_000_000_000u64 }, "files": 1, "bytes": already.len() });
-    let report = json!({ "os": "linux", "disks": [], "roots": [], "pool": [area] });
+    let report = json!({ "os": THIS_OS, "disks": [], "roots": [], "pool": [area] });
     remote::store_volumes(db, m.id, &Ok(report)).unwrap();
     (m.id, a.id)
 }

@@ -30,6 +30,12 @@ fn b(p: &Path) -> Vec<u8> {
     paths::to_bytes(p)
 }
 
+/// A `/`-separated path as this system spells it (`\` between names on Windows), as a walk or a
+/// copy records it.
+fn n(p: &str) -> PathBuf {
+    PathBuf::from(p.replace('/', std::path::MAIN_SEPARATOR_STR))
+}
+
 fn scan_all(db: &mut Db, drives: &[&Path]) {
     for d in drives {
         index::index(
@@ -164,9 +170,9 @@ fn each_job_records_what_it_did() {
     let drive = base.join("archive");
     let archive = drive.join("Archive");
     let (a, bb, only) = (blob(1, 40_000), blob(2, 30_000), blob(3, 20_000));
-    write(&old.join("photos/a.jpg"), &a);
-    write(&old.join("photos/b.jpg"), &bb);
-    write(&old.join("docs/only.odt"), &only);
+    write(&old.join(n("photos/a.jpg")), &a);
+    write(&old.join(n("photos/b.jpg")), &bb);
+    write(&old.join(n("docs/only.odt")), &only);
     write(&drive.join("readme.txt"), b"the archive drive");
     let mut db = Db::open(&base.join("i.db")).unwrap();
     assert!(custody::check(&db.conn).unwrap().ok, "an empty log checks");
@@ -210,8 +216,11 @@ fn each_job_records_what_it_did() {
     let st = apply::apply(&mut db, pid, false, &mut |_| {}).unwrap();
     assert_eq!(st.copied, 2, "{st:?}");
     let plan_ref = format!("plan:{pid}");
-    let (a_old, b_old) = (old.join("photos/a.jpg"), old.join("photos/b.jpg"));
-    let (a_new, b_new) = (archive.join("Photos/a.jpg"), archive.join("Photos/b.jpg"));
+    let (a_old, b_old) = (old.join(n("photos/a.jpg")), old.join(n("photos/b.jpg")));
+    let (a_new, b_new) = (
+        archive.join(n("Photos/a.jpg")),
+        archive.join(n("Photos/b.jpg")),
+    );
     assert_eq!(
         events_after(&db, 0),
         sorted(vec![
@@ -246,7 +255,7 @@ fn each_job_records_what_it_did() {
     let st = wipe::wipe(&mut db, wid, false, None, &mut |_, _| {}).unwrap();
     assert_eq!((st.deleted, st.moved), (3, 1), "{st:?}");
     let wipe_ref = format!("wipe:{wid}");
-    let moved_to = rescued.join("old-drive/docs/only.odt");
+    let moved_to = rescued.join(n("old-drive/docs/only.odt"));
     assert_eq!(
         events_after(&db, 2),
         sorted(vec![
@@ -271,7 +280,7 @@ fn each_job_records_what_it_did() {
             ev(
                 "move",
                 &wipe_ref,
-                &old.join("docs/only.odt"),
+                &old.join(n("docs/only.odt")),
                 Some(&moved_to),
                 Some(&only),
                 true,
@@ -303,8 +312,8 @@ fn each_job_records_what_it_did() {
         let got = events_after(&db, before);
         assert_eq!(got.len(), 1, "{got:?}");
         let (one, two) = (
-            b(&archive.join("Dups/one.bin")),
-            b(&archive.join("Dups/two.bin")),
+            b(&archive.join(n("Dups/one.bin"))),
+            b(&archive.join(n("Dups/two.bin"))),
         );
         let e = &got[0];
         assert_eq!(
@@ -323,7 +332,7 @@ fn each_job_records_what_it_did() {
 
     // a mirror: each copy, and an old copy set aside when the source changed
     let photos = archive.join("Photos");
-    let mirror_dir = base.join("mirror-drive/Photos");
+    let mirror_dir = base.join(n("mirror-drive/Photos"));
     let mid = mirror::add(&db, &photos, &mirror_dir, 30).unwrap();
     let before = last_seq(&db);
     mirror::sync(&db, mid, &mut |_, _| {}).unwrap();
@@ -381,8 +390,8 @@ fn each_job_records_what_it_did() {
 
     // merging two snapshots of a mailbox: each message written, once
     let (s1, s2) = (
-        base.join("old-drive/mail-2019"),
-        base.join("old-drive/mail-2020"),
+        base.join(n("old-drive/mail-2019")),
+        base.join(n("old-drive/mail-2020")),
     );
     let m1 = maildir_message(&s1, 1, "one@example.org", "first");
     maildir_message(&s2, 1, "one@example.org", "first");
@@ -444,7 +453,7 @@ fn sample_log(dir: &Path) -> (Db, Signer) {
     let db = Db::open(&dir.join("i.db")).unwrap();
     let s = signer(dir);
     let h = |n: u8| sha(&[n]);
-    let p = |s: &str| PathBuf::from(s);
+    let p = n;
     let copy = |src: &str, dest: &str, n: u8, size: u64, job: (&str, i64), act: Action| {
         Event::new(act, job, &b(&p(src)), Some(h(n).as_slice()), size)
             .to(&b(&p(dest)), Some(h(n).as_slice()))
@@ -841,12 +850,12 @@ fn an_elided_export_verifies_without_showing_other_paths() {
 
     // by folder: whole names only (/media/archive/Pho isn't /media/archive/Photos)
     let (_, _, rep) = only(Filter {
-        path: Some(b(Path::new("/media/archive/Photos"))),
+        path: Some(b(&n("/media/archive/Photos"))),
         ..Filter::default()
     });
     assert_eq!(rep.elided, 2, "{rep:?}");
     let (_, _, rep) = only(Filter {
-        path: Some(b(Path::new("/media/archive/Pho"))),
+        path: Some(b(&n("/media/archive/Pho"))),
         ..Filter::default()
     });
     assert_eq!(rep.elided, 6);

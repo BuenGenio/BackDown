@@ -509,12 +509,21 @@ fn the_duplicates_view_filters_by_size_type_date_and_hidden_names() {
     scan(&mut db, &d);
     hash_all(&mut db);
     let groups = if cfg!(unix) { 5 } else { 4 };
-    let top = fs::canonicalize(&d).unwrap().to_string_lossy().into_owned();
+    // as the index has it (no `\\?\` on Windows), and read with `/` between names
+    let top = backdown_core::paths::canonical(&d)
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
     let listed = |r: &report::Dupes| -> HashSet<String> {
         r.largest
             .iter()
             .flat_map(|g| g.files.iter().filter(|f| f.listed))
-            .map(|f| f.path.strip_prefix(top.as_str()).unwrap().to_string())
+            .map(|f| {
+                f.path
+                    .strip_prefix(top.as_str())
+                    .unwrap()
+                    .replace('\\', "/")
+            })
             .collect()
     };
     let run = |f: &DupesFilter| report::dupes_listed(&db, 1, f, 10).unwrap();

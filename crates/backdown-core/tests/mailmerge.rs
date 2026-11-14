@@ -8,6 +8,10 @@ use std::sync::atomic::AtomicBool;
 use backdown_core::Db;
 use backdown_core::mailmerge::{self, SEEN};
 
+/// Maildir's info separator as a Maildir on this system has it: `:` can't be in a Windows file
+/// name (`a:b` is a stream of `a` there), so `!` (what mailmerge writes there too).
+const INFO: &str = if cfg!(windows) { "!2," } else { ":2," };
+
 fn write(path: &Path, bytes: &[u8]) {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(path, bytes).unwrap();
@@ -38,7 +42,7 @@ fn msg(id: Option<&str>, subject: &str, body: &str) -> String {
 fn put(root: &Path, folder: &str, t: i64, n: u32, flags: &str, m: &str) -> PathBuf {
     let p = maildir(root, folder)
         .join("cur")
-        .join(format!("{t}.M{n}P1.host.example.org:2,{flags}"));
+        .join(format!("{t}.M{n}P1.host.example.org{INFO}{flags}"));
     write(&p, m.as_bytes());
     p
 }
@@ -100,7 +104,7 @@ fn subjects(msgs: &[(String, Vec<u8>)]) -> BTreeSet<String> {
 fn flags_of(msgs: &[(String, Vec<u8>)], subject: &str) -> String {
     msgs.iter()
         .find(|(_, b)| String::from_utf8_lossy(b).contains(&format!("Subject: {subject}\n")))
-        .map(|(n, _)| n.rsplit_once(":2,").unwrap().1.to_string())
+        .map(|(n, _)| n.rsplit_once(INFO).unwrap().1.to_string())
         .unwrap_or_else(|| panic!("no {subject}"))
 }
 

@@ -13,7 +13,21 @@ use crate::{Db, hash, index, overlap, report, wipe};
 fn scratch() -> tempfile::TempDir {
     let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/tmp");
     fs::create_dir_all(&base).unwrap();
-    tempfile::tempdir_in(fs::canonicalize(base).unwrap()).unwrap()
+    // in its normal form, as a person gives a path (not `\\?\` on Windows)
+    tempfile::tempdir_in(crate::paths::canonical(&base).unwrap()).unwrap()
+}
+
+/// `WHERE` a stored path ends in a name, `?1` being `ends(name)`: its bytes are this machine's
+/// own (UTF-16 on Windows, which `LIKE` can't read).
+const ENDS: &str = "substr(path, -length(?1)) = ?1";
+
+fn ends(name: &str) -> Vec<u8> {
+    crate::paths::to_bytes(&Path::new(std::path::MAIN_SEPARATOR_STR).join(name))
+}
+
+/// A `/`-separated path as this machine spells it.
+fn spelt(p: &str) -> String {
+    crate::paths::native(p).display().to_string()
 }
 
 fn write(path: &Path, bytes: &[u8]) {
@@ -704,8 +718,8 @@ fn sync_is_incremental_and_copies_there_count_conservatively() {
     let sha_of = |db: &Db, name: &str| -> Option<Vec<u8>> {
         db.conn
             .query_row(
-                "SELECT sha256 FROM remote_files WHERE CAST(path AS TEXT) LIKE ?1",
-                [format!("%/{name}")],
+                &format!("SELECT sha256 FROM remote_files WHERE {ENDS}"),
+                [ends(name)],
                 |r| r.get(0),
             )
             .optional()
@@ -719,8 +733,8 @@ fn sync_is_incremental_and_copies_there_count_conservatively() {
     let rid: i64 = db
         .conn
         .query_row(
-            "SELECT rid FROM remote_files WHERE CAST(path AS TEXT) LIKE '%/b.txt'",
-            [],
+            &format!("SELECT rid FROM remote_files WHERE {ENDS}"),
+            [ends("b.txt")],
             |r| r.get(0),
         )
         .unwrap();
@@ -734,8 +748,8 @@ fn sync_is_incremental_and_copies_there_count_conservatively() {
     let local_sha = |name: &str| -> Option<Vec<u8>> {
         db.conn
             .query_row(
-                "SELECT sha256 FROM files WHERE CAST(path AS TEXT) LIKE ?1",
-                [format!("%/{name}")],
+                &format!("SELECT sha256 FROM files WHERE {ENDS}"),
+                [ends(name)],
                 |r| r.get(0),
             )
             .unwrap()
@@ -808,8 +822,10 @@ fn sync_is_incremental_and_copies_there_count_conservatively() {
     assert_eq!(copies.len(), 2);
     assert!(copies.iter().all(|c| !c.counts && c.why_not.is_some()));
     assert!(
-        copies[0].path.ends_with("/backup/photos/a copy.jpg")
-            || copies[0].path.ends_with("/backup/photos/a.jpg")
+        copies[0]
+            .path
+            .ends_with(&spelt("/backup/photos/a copy.jpg"))
+            || copies[0].path.ends_with(&spelt("/backup/photos/a.jpg"))
     );
     // a longer window makes it count again
     set_setting(&db, "proof_days", 30).unwrap();
@@ -974,7 +990,7 @@ fn a_wipe_trusts_a_copy_there_only_once_it_is_re_read() {
     assert_eq!(how, "remote re-read");
     let proof = String::from_utf8(proof).unwrap();
     assert!(
-        proof.starts_with("ssh://nas.example.org/") && proof.ends_with("/backup/big.bin"),
+        proof.starts_with("ssh://nas.example.org/") && proof.ends_with(&spelt("/backup/big.bin")),
         "{proof}"
     );
     // and without a verifier (an older caller), a remote copy is never enough
@@ -1522,7 +1538,7 @@ fn where_is_it_searches_a_machines_cached_files_when_it_cant_be_asked() {
     // the name itself first, then a word in a name
     assert_eq!(hits[0]["name"], "report.txt");
     assert_eq!(hits[0]["rank"], 4);
-    assert_eq!(hits[0]["folder"], "backup/docs");
+    assert_eq!(hits[0]["folder"], spelt("backup/docs"));
     assert_eq!(hits[0]["drive"], "volume1");
     assert_eq!(hits[0]["cached"], true);
     assert_eq!(hits[1]["name"], "Quarterly Report 2021.pdf");
@@ -1575,7 +1591,8 @@ fn where_is_it_finds_cached_folders_too_and_an_older_cache_is_filled_in() {
                 format!(
                     "{} {}/{}",
                     h["kind"].as_str().unwrap(),
-                    h["folder"].as_str().unwrap(),
+                    // as that machine spells it (`\` on Windows), read here with `/`
+                    h["folder"].as_str().unwrap().replace('\\', "/"),
                     h["name"].as_str().unwrap()
                 )
             })
@@ -1601,7 +1618,10 @@ fn where_is_it_finds_cached_folders_too_and_an_older_cache_is_filled_in() {
         .find(|h| h["kind"] == "dir" && h["folder"] == "Music")
         .unwrap();
     assert!(
-        dir["path"].as_str().unwrap().ends_with("/Music/Moretts"),
+        dir["path"]
+            .as_str()
+            .unwrap()
+            .ends_with(&spelt("/Music/Moretts")),
         "{dir}"
     );
     assert_eq!(dir["drive"], "volume1");

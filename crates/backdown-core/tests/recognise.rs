@@ -6,6 +6,14 @@ use std::path::Path;
 use backdown_core::recognise::{self, Entity};
 use backdown_core::{Db, index};
 
+/// A `/`-separated path as this system spells it (`\` between names on Windows).
+fn spelt(p: &str) -> String {
+    p.replace('/', std::path::MAIN_SEPARATOR_STR)
+}
+
+/// Maildir's info separator as a Maildir on this system has it (`:` can't be in a Windows name).
+const INFO: &str = if cfg!(windows) { "!2," } else { ":2," };
+
 fn write(path: &Path, bytes: &[u8]) {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(path, bytes).unwrap();
@@ -13,7 +21,7 @@ fn write(path: &Path, bytes: &[u8]) {
 
 fn find<'a>(es: &'a [Entity], kind: &str, ends: &str) -> &'a Entity {
     es.iter()
-        .find(|e| e.kind == kind && e.path.ends_with(ends))
+        .find(|e| e.kind == kind && e.path.ends_with(&spelt(ends)))
         .unwrap_or_else(|| {
             panic!(
                 "no {kind} at …{ends}; got {:#?}",
@@ -41,7 +49,7 @@ fn drive(d: &Path) {
             write(
                 &mb.join(sub)
                     .join("cur")
-                    .join(format!("1500000000.M1P1.host:2,S{user}{sub}")),
+                    .join(format!("1500000000.M1P1.host{INFO}S{user}{sub}")),
                 b"From: x\n\nhello",
             );
         }
@@ -632,7 +640,7 @@ fn overlaps_and_the_report() {
     let ov = overlap::overlaps(&db, &rec, &mut |_| {}).unwrap();
     let get = |level: &str, ends: &str| {
         ov.iter()
-            .find(|o| o.unit.level == level && o.unit.path.ends_with(ends))
+            .find(|o| o.unit.level == level && o.unit.path.ends_with(&spelt(ends)))
             .unwrap_or_else(|| panic!("no {level} …{ends}"))
     };
 
@@ -650,7 +658,7 @@ fn overlaps_and_the_report() {
     let store = get("entity", "old-laptop/mail");
     assert_eq!(store.elsewhere, 10_000);
     assert!(
-        store.containers[0].path.ends_with("archive/Mail"),
+        store.containers[0].path.ends_with(&spelt("archive/Mail")),
         "the most specific place: {:?}",
         store.containers
     );
@@ -834,7 +842,7 @@ fn databases_and_who_things_are_about() {
     assert_eq!(fopt(mongo, "Collections"), Some("3"));
     assert!(
         !es.iter()
-            .any(|e| e.kind == "mongo-dump" && e.path.ends_with("dump/app")),
+            .any(|e| e.kind == "mongo-dump" && e.path.ends_with(&spelt("dump/app"))),
         "a database's folder isn't a thing of its own inside the dump"
     );
     let lite = find(es, "sqlite-db", "notes.sqlite");

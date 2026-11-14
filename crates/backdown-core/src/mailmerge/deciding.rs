@@ -86,17 +86,7 @@ pub(super) fn resolve_dest(dest: &Path) -> Result<PathBuf> {
     if !dest.is_absolute() {
         bail!("the merged mailbox must be a full path");
     }
-    let mut existing = dest;
-    let mut rest = Vec::new();
-    while !existing.exists() {
-        rest.push(existing.file_name().context("no such folder")?);
-        existing = existing.parent().context("no such folder")?;
-    }
-    let mut p = dunce::canonicalize(existing)?;
-    for c in rest.iter().rev() {
-        p.push(c);
-    }
-    Ok(p)
+    paths::canonical_planned(dest).with_context(|| format!("can't open {}", dest.display()))
 }
 
 pub(super) fn load_sources(sources: &[PathBuf], dest: &Path) -> Result<Vec<SourceAt>> {
@@ -105,7 +95,7 @@ pub(super) fn load_sources(sources: &[PathBuf], dest: &Path) -> Result<Vec<Sourc
     }
     let mut out = Vec::new();
     for s in sources {
-        let s = dunce::canonicalize(s).with_context(|| format!("can't open {}", s.display()))?;
+        let s = paths::canonical(s).with_context(|| format!("can't open {}", s.display()))?;
         if dest.starts_with(&s) || s.starts_with(dest) {
             bail!(
                 "the merged mailbox can't be inside a source, or the other way round ({})",
