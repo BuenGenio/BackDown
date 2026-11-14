@@ -424,6 +424,7 @@
   ],
   "shipped": [
     {
+      "date": "2026-11-14",
       "version": "v1.0.0-beta.12",
       "text": {
         "en": "The rest of beta.9's reliability fix. A scan that found a great many files gone, such as a drive emptied or a big folder moved away, closed them all in one step, and on a big index that one step could write more to the write-ahead log than the index itself holds. Forgetting another machine's files could do the same. Both now go 20,000 files at a time, reclaiming the space between batches. Syncing with another machine reclaims it after every page of files, and every background job when it finishes. If you're on beta.8 or earlier, this is the one to take."

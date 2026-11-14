@@ -1472,11 +1472,19 @@
   </url>
   <url>
     <loc>https://backdown.io/docs/changelog/</loc>
-    <lastmod>2026-11-09</lastmod>
+    <lastmod>2026-11-14</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
     <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/changelog/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/changelog/"/>
+  </url>
+  <url>
+    <loc>https://backdown.io/docs/changelog/1.0.0-beta.12/</loc>
+    <lastmod>2026-11-14</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://backdown.io/docs/changelog/1.0.0-beta.12/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://backdown.io/docs/changelog/1.0.0-beta.12/"/>
   </url>
   <url>
     <loc>https://backdown.io/docs/changelog/1.0.0-beta.9/</loc>
