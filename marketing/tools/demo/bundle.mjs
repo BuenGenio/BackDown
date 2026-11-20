@@ -77,7 +77,7 @@ console.log('responses:', Object.keys(entries).length, (bytes / 1e6).toFixed(1),
 // ---- the UI, from the running app (so it matches the API that was recorded)
 const r0 = await fetch(`${BASE}/?t=${TOKEN}`, { redirect: 'manual' });
 const cookie = (r0.headers.get('set-cookie') || '').split(';')[0];
-const UI = ['index.html', 'app.css', 'app.js', 'viewers.js', 'icons.js', 'extras.js', 'mailbox.js', 'sqldump.js', 'search.js', 'settings.js', 'tidy.js',
+const UI = ['index.html', 'app.css', 'dashboard.css', 'settings.css', 'app.js', 'dashboard.js', 'viewers.js', 'icons.js', 'extras.js', 'mailbox.js', 'sqldump.js', 'search.js', 'settings.js', 'tidy.js',
   'health.js', 'machines.js', 'swarm.js', 'pool.js', 'fsbrowse.js', 'drives.js', 'dupes.js', 'places.js', 'geomap.js', 'favicon.svg',
   'vendor/pdf.min.mjs', 'vendor/pdf.worker.min.mjs', 'vendor/docx-preview.min.js', 'vendor/jszip.min.js', 'vendor/highlight.min.js',
   'vendor/hljs-light.css', 'vendor/hljs-dark.css'];
@@ -90,7 +90,7 @@ for (const name of UI) {
     body = Buffer.from(body.toString('utf8').replace(/(["'`])\/api\//g, '$1/demo/api/').replace(/\\\/api\\\//g, '\\/demo\\/api\\/').replace(/(["'`(])\/vendor\//g, '$1/demo/vendor/').replace(/(["'`])\/favicon\.svg/g, '$1/demo/favicon.svg'));
   } else if (name === 'index.html') {
     let t = body.toString('utf8')
-      .replace(/(href|src)="\/(app\.css|app\.js|favicon\.svg|vendor\/[^"]+)"/g, '$1="/demo/$2"')
+      .replace(/(href|src)="\/(app\.css|dashboard\.css|settings\.css|app\.js|favicon\.svg|vendor\/[^"]+)"/g, '$1="/demo/$2"')
       .replace('<script type="module" src="/demo/app.js"', '<script src="/demo/demo.js"></script>\n<script type="module" src="/demo/app.js"')
       .replace(/<title>[^<]*<\/title>/, '<title>BackDown demo</title>')
       .replace('<meta charset="utf-8">', '<meta charset="utf-8">\n<meta name="robots" content="noindex">'); // an app shell, not a page to index

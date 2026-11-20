@@ -11,6 +11,8 @@ import { mountMachines, renderMachinesNav, machinesDaemon, machinePath, showMach
 import { mountCell, mountNotice, loadMounts, allowButton, browseFoundBtn, filesBody } from './drives.js';
 import { mountSwarm, showSwarm } from './swarm.js';
 import { mountPlaces, showPlaces, placesDaemon } from './places.js';
+import { dashboardHtml } from './dashboard.js';
+import { H } from './health.js';
 
 const $ = s => document.querySelector(s);
 // names are shown composed (NFC), whichever form the drive stores them in (HFS+ decomposes them)
@@ -62,11 +64,12 @@ export function enterView(mode) {
   $('#banner').hidden = true; $('#info').hidden = true; $('#timebar').hidden = true;
 }
 export const daemonState = () => S.daemon;
+export const isView = mode => S.mode === mode;
 
 const S = {
   roots: [], root: null, dir: null, scan: null, timeline: [], listing: null, entries: [],
   view: localStorage.getItem('bd.view') || 'grid', sort: { key: 'name', asc: true },
-  sel: new Set(), anchor: null, back: [], fwd: [], mode: 'browse', info: localStorage.getItem('bd.info') === '1',
+  sel: new Set(), anchor: null, back: [], fwd: [], mode: 'dashboard', info: localStorage.getItem('bd.info') === '1',
   filter: { type: 'all', size: 'any', date: 'any' }, hidden: localStorage.getItem('bd.hidden') === '1', cmp: null,
 };
 
@@ -78,10 +81,7 @@ async function boot() {
   S.roots = data.roots;
   showSummary(data.status);
   renderPlaces();
-  if (!S.roots.length) return showActivity();
-  const saved = sessionStorage.getItem('bd.dir');
-  const start = saved && S.roots.some(r => atob64(saved).startsWith(atob64(r.key))) ? saved : S.roots[0].key;
-  await go(start, { push: false });
+  showDashboard();
 }
 
 const summary = st => `${count(st.files)} files · ${bytes(st.bytes)} · ${count(st.hashed)} hashed`;
@@ -89,9 +89,9 @@ const summary = st => `${count(st.files)} files · ${bytes(st.bytes)} · ${count
 // big index they take a full read of it, and the drives shouldn't wait for that
 function showSummary(st) {
   const el = $('#status-files');
-  if (st) { el.textContent = summary(st); return; }
+  if (st) { S.index = st; el.textContent = summary(st); if (S.mode === 'dashboard') renderDashboard(); return; }
   if (!el.textContent) el.textContent = 'Counting files…';
-  api('index-status').then(s => { el.textContent = summary(s); }).catch(() => {});
+  api('index-status').then(s => { S.index = s; el.textContent = summary(s); if (S.mode === 'dashboard') renderDashboard(); }).catch(() => {});
 }
 
 function fatal(msg) {
@@ -112,6 +112,8 @@ function renderPlaces() {
       ${S.daemon?.running ? `<button class="rescan${busy.has(r.path) ? ' spin' : ''}" type="button" data-rescan="${r.id}" title="Rescan ${esc(r.name)} now" aria-label="Rescan ${esc(r.name)}"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg></button>` : ''}
     </div>`).join('');
   $('#dupes-btn').setAttribute('aria-current', String(S.mode === 'dupes'));
+  $('#dashboard-btn').setAttribute('aria-current', String(S.mode === 'dashboard'));
+  $('#home').setAttribute('aria-pressed', String(S.mode === 'dashboard'));
   $('#activity-btn').setAttribute('aria-current', String(S.mode === 'activity'));
   $('#entities-btn').setAttribute('aria-current', String(S.mode === 'entities'));
   $('#places-btn').setAttribute('aria-current', String(S.mode === 'places'));
@@ -197,6 +199,14 @@ function renderAll() {
 }
 
 function renderPath() {
+  $('.main').dataset.mode = S.mode;
+  $('#view').setAttribute('aria-label', S.mode === 'dashboard' ? 'Dashboard' : S.mode === 'browse' ? 'Folder contents' : 'Main content');
+  const landing = S.mode === 'dashboard' || S.mode === 'settings';
+  for (const id of ['filter-btn', 'sort-btn', 'info-btn']) $(`#${id}`).hidden = landing;
+  $('.headerbar .seg').hidden = landing;
+  if (landing) $('#filterbar').hidden = true;
+  $('#back').disabled = !S.back.length;
+  $('#fwd').disabled = !S.fwd.length;
   if (S.mode === 'compare' && S.cmp?.listing) {
     $('#pathbar').innerHTML = `<span class="crumb-tag">Compare</span>` + S.cmp.listing.crumbs.map((c, i) =>
       `${i ? '<span class="crumb-sep">›</span>' : ''}<button class="crumb" type="button" data-key="${c.key}" title="${esc(c.name)}">${esc(i === 0 ? S.root.name : c.name)}</button>`).join('');
@@ -205,7 +215,7 @@ function renderPath() {
   if (S.mode === 'machine') { $('#pathbar').innerHTML = machinePath(); return; }
   if (S.mode !== 'browse') {
     $('#f-count').textContent = ''; // the folder's; Duplicates writes its own
-    $('#pathbar').innerHTML = `<span class="crumb" style="cursor:default">${{ dupes: 'Duplicates', activity: 'Activity', entities: 'What’s here', places: 'Places', swarm: 'Swarm', plan: 'Plan', wipe: 'Free up', rescue: 'Rescue', settings: 'Settings' }[S.mode] || 'Search'}</span>`;
+    $('#pathbar').innerHTML = `<span class="crumb" style="cursor:default">${{ dashboard: 'Dashboard', dupes: 'Duplicates', activity: 'Activity', entities: 'What’s here', places: 'Places', swarm: 'Swarm', plan: 'Plan', wipe: 'Free up', rescue: 'Rescue', settings: 'Settings' }[S.mode] || 'Search'}</span>`;
     return;
   }
   $('#pathbar').innerHTML = S.listing.crumbs.map((c, i) =>
@@ -845,6 +855,7 @@ const TAB_FIELDS = ['root', 'dir', 'scan', 'listing', 'entries', 'timeline', 'mo
 let tabs = [], tabAt = 0;
 const snap = () => Object.fromEntries(TAB_FIELDS.map(f => [f, S[f]]));
 function tabTitle(t) {
+  if (t.mode === 'dashboard') return 'Dashboard';
   if (t.mode === 'activity') return 'Activity';
   if (t.mode === 'dupes') return 'Duplicates';
   if (t.mode === 'entities') return 'What’s here';
@@ -867,7 +878,7 @@ function renderTabs() {
   if (bar.hidden) { try { sessionStorage.removeItem('bd.tabs'); } catch {} return; }
   bar.innerHTML = tabs.map((t, i) => `<div class="tab" role="tab" aria-selected="${i === tabAt}" data-tab="${i}" title="${esc(t.listing?.path || tabTitle(t))}">
       <span class="tab-n">${esc(tabTitle(t))}</span><button class="tab-x" type="button" data-tab-close="${i}" aria-label="Close tab" title="Close tab (Alt+W)">×</button></div>`).join('');
-  try { sessionStorage.setItem('bd.tabs', JSON.stringify({ at: tabAt, dirs: tabs.map(t => t.dir) })); } catch {}
+  try { sessionStorage.setItem('bd.tabs', JSON.stringify({ at: tabAt, dirs: tabs.map(t => t.mode === 'dashboard' ? null : t.dir) })); } catch {}
 }
 async function newTab(dirKey = S.dir) {
   if (!dirKey) return;
@@ -897,6 +908,7 @@ function closeTab(i = tabAt) {
 }
 async function showCurrent() {
   setViewButtons(); syncFilterUI(); closeSearch(false);
+  if (S.mode === 'dashboard') return showDashboard();
   if (S.mode === 'activity') return showActivity();
   if (S.mode === 'dupes') return showDupes();
   if (S.mode === 'entities') return showEntities();
@@ -909,7 +921,7 @@ async function showCurrent() {
   if (S.mode === 'settings') return showSettings();
   if (S.mode === 'compare' && S.cmp) return renderCompare();
   S.mode = 'browse';
-  if (!S.listing) return S.dir ? go(S.dir, { push: false, scan: null }) : showActivity();
+  if (!S.listing) return S.dir ? go(S.dir, { push: false, scan: null }) : showDashboard();
   $('#timebar').hidden = S.timeline.length < 2;
   renderAll();
 }
@@ -946,6 +958,9 @@ function showHelp() {
 
 let searchTimer;
 function openSearch() {
+  if (S.mode === 'dashboard') setScope('all');
+  $('#q').placeholder = S.mode === 'dashboard' || !S.dir ? 'Search every drive' : 'Search this folder';
+  $('#q').setAttribute('aria-label', $('#q').placeholder);
   $('#searchbox').hidden = false; $('#pathbar').hidden = true;
   $('#search-btn').setAttribute('aria-pressed', 'true');
   $('#q').focus(); $('#q').select();
@@ -954,11 +969,14 @@ function closeSearch(rerender = true) {
   if ($('#searchbox').hidden) return;
   $('#searchbox').hidden = true; $('#pathbar').hidden = false; $('#q').value = '';
   $('#search-btn').setAttribute('aria-pressed', 'false');
-  if (rerender && S.mode === 'search') { S.mode = 'browse'; renderAll(); }
+  if (rerender && S.mode === 'search') {
+    if (!S.listing) return showDashboard();
+    S.mode = 'browse'; renderAll();
+  }
 }
 // this folder or every drive, ranked (search.js, find.rs)
 async function runSearch(q) {
-  if (!q.trim()) { S.mode = 'browse'; renderAll(); return; }
+  if (!q.trim()) { if (!S.listing) return showDashboard(); S.mode = 'browse'; renderAll(); return; }
   let res;
   try { res = await find(q, S.dir); } catch (e) { return toastError(e); }
   if (!res || $('#searchbox').hidden || $('#q').value !== q) return; // a newer search, or none any more
@@ -1849,7 +1867,7 @@ async function pollDaemon(fresh = false) {
   const t0 = Date.now();
   let d, failed = false;
   try { d = await api('daemon', S.daemon && !fresh ? { since: S.daemon.change, wait: 50 } : {}); }
-  catch { d = { running: false }; failed = !!S.daemon; }
+  catch (e) { d = { running: false, connectionError: e.message }; failed = true; }
   polling = false;
   await applyDaemon(d);
   if (document.hidden) return;
@@ -1870,7 +1888,8 @@ const jobName = j => j.kind === 'index' ? `Scan ${rootName(j.path)}` : j.kind ==
   : j.kind === 'attest' ? `Sign a manifest of ${rootName(j.path)}`
   : j.kind === 'forget' ? `Remove ${rootName(j.path)} from the index`
   : j.kind === 'content' ? 'Index what’s inside the files'
-  : j.kind === 'places' ? `Read dates and places${j.path ? ` in ${rootName(j.path)}` : ' on every drive'}` : 'Hash new and changed files';
+  : j.kind === 'places' ? `Read dates and places${j.path ? ` in ${rootName(j.path)}` : ' on every drive'}`
+  : j.kind === 'hash' ? 'Hash new and changed files' : `Background task${j.kind ? `: ${j.kind}` : ''}`;
 function rescueJobName(j) {
   const r = RS.list.find(x => `rescue ${x.id}` === j.path);
   return r ? `${RS_TITLE[r.mode] || 'Rescue'}: ${baseName(r.source)}` : 'Rescue';
@@ -1881,6 +1900,8 @@ async function applyDaemon(d) {
   const had = !!S.daemon;
   let fin = [], prevSeen = null;
   S.daemon = d.running ? d : null;
+  S.daemonChecked = true;
+  S.daemonError = d.connectionError || null;
   if (d.running) clockSkew = d.now - Date.now() / 1000;
   daemonChanged(d); // drive health or notifications changed: health.js fetches them again
   machinesDaemon(d); // a machine's sync started or ended: machines.js fetches them again
@@ -1918,11 +1939,14 @@ async function applyDaemon(d) {
     const failed = d.recent.find(j => j.state === 'failed');
     if (failed && failed.id > shownFail && failed.finished_at > d.now - 60 && S.mode !== 'activity') toastError(new Error(`${jobName(failed)} failed: ${failed.error}`));
     if (failed) shownFail = Math.max(shownFail, failed.id);
+  } else {
+    st.innerHTML = `<span class="act">${S.daemonError ? 'Service unavailable' : 'View only'}</span>`;
   }
   // the sidebar only changes when the set of busy drives does
   const key = JSON.stringify([had, !!S.daemon, S.daemon?.current?.path, S.daemon?.queued.map(j => j.path)]);
   if (key !== busyKey) { busyKey = key; renderPlaces(); }
   if (S.mode === 'activity') renderActivity();
+  if (S.mode === 'dashboard') renderDashboard();
   if (S.mode === 'wipe') renderWipeHist();
   // a rescue started elsewhere (the CLI, another tab): learn what it is, to name it
   if (S.daemon && [S.daemon.side, ...S.daemon.queued].some(j => j?.kind === 'rescue' && !RS.list.some(x => `rescue ${x.id}` === j.path)) && !RS.loading) {
@@ -2070,6 +2094,40 @@ document.addEventListener('pointerdown', () => { pressed = true; }, true);
 document.addEventListener('pointerup', () => { pressed = false; setTimeout(() => { const f = heldRedraw; heldRedraw = null; f?.(); }, 0); }, true);
 document.addEventListener('pointercancel', () => { pressed = false; }, true);
 const held = f => { if (!pressed) return false; heldRedraw = f; return true; };
+
+// ---------- the landing dashboard
+
+function showDashboard() {
+  const already = S.mode === 'dashboard' && !!$('#view .dashboard');
+  enterView('dashboard');
+  renderDashboard();
+  if (!already) $('#view').scrollTop = 0;
+}
+
+function renderDashboard() {
+  if (S.mode !== 'dashboard' || held(renderDashboard)) return;
+  const view = $('#view'), scroll = view.scrollTop;
+  const open = new Set([...view.querySelectorAll('[data-service][open]')].map(el => el.dataset.service));
+  const historyScroll = new Map([...view.querySelectorAll('[data-service]')].map(el => [el.dataset.service, el.querySelector('.dash-history')?.scrollTop || 0]));
+  const focused = document.activeElement;
+  const focusService = focused?.closest('[data-service]')?.dataset.service;
+  const focusAction = focused?.dataset.dashboardView;
+  const focusRoot = focused?.dataset.dashboardRoot;
+  const focusSummary = focused?.tagName === 'SUMMARY';
+  view.innerHTML = dashboardHtml({ roots: S.roots, index: S.index, daemon: S.daemon,
+    checked: S.daemonChecked, error: S.daemonError, health: H.data, notes: H.notes }, { bytes, when, jobName, pct });
+  for (const el of view.querySelectorAll('[data-service]')) {
+    el.open = open.has(el.dataset.service);
+    const history = el.querySelector('.dash-history');
+    if (history) history.scrollTop = historyScroll.get(el.dataset.service) || 0;
+  }
+  const service = focusService && view.querySelector(`[data-service="${CSS.escape(focusService)}"]`);
+  const focus = focusSummary ? service?.querySelector('summary')
+    : focusAction ? (service || view).querySelector(`[data-dashboard-view="${CSS.escape(focusAction)}"]`)
+    : focusRoot ? view.querySelector(`[data-dashboard-root="${CSS.escape(focusRoot)}"]`) : null;
+  focus?.focus({ preventScroll: true });
+  view.scrollTop = scroll;
+}
 
 function renderActivity() {
   if (held(renderActivity)) return;
@@ -2253,6 +2311,16 @@ function setViewButtons() { for (const x of VIEWS) $(`#view-${x}`).setAttribute(
 document.addEventListener('click', e => {
   const t = e.target;
   if (suppressClick) { suppressClick = false; if (t.closest('#view')) return; }
+  const dashboardAction = t.closest('[data-dashboard-view]');
+  if (dashboardAction) {
+    const action = dashboardAction.dataset.dashboardView;
+    if (action === 'drives') return $('#dashboard-drives')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    const actions = { entities: showEntities, dupes: showDupes, places: () => showPlaces(), plan: () => showPlan(),
+      wipe: () => showWipe(), rescue: showRescue, swarm: () => showSwarm(), activity: showActivity, settings: () => showSettings() };
+    return actions[action]?.();
+  }
+  const dashboardRoot = t.closest('[data-dashboard-root]');
+  if (dashboardRoot) return go(dashboardRoot.dataset.dashboardRoot, { scan: null });
   const tab = t.closest('[data-tab-close]');
   if (tab) return closeTab(+tab.dataset.tabClose);
   const tb = t.closest('[data-tab]');
@@ -2338,6 +2406,8 @@ $('#q').addEventListener('input', e => { clearTimeout(searchTimer); searchTimer 
 $('#q').addEventListener('keydown', e => { if (e.key === 'Escape') { closeSearch(); $('#view').focus(); } });
 mountFind(rerunSearch);
 $('#dupes-btn').onclick = showDupes;
+$('#dashboard-btn').onclick = showDashboard;
+$('#home').onclick = showDashboard;
 $('#activity-btn').onclick = showActivity;
 $('#entities-btn').onclick = showEntities;
 $('#places-btn').onclick = () => showPlaces();
@@ -2381,7 +2451,13 @@ document.addEventListener('keydown', e => {
   if (e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); return goBack(); }
   if (e.altKey && e.key === 'ArrowRight') { e.preventDefault(); return goFwd(); }
   if (e.altKey && e.key === 'ArrowUp') { e.preventDefault(); return goUp(); }
-  if (S.mode !== 'browse') { if (e.key === 'Escape') { S.mode = 'browse'; renderAll(); } return; }
+  if (S.mode !== 'browse') {
+    if (e.key === 'Escape') {
+      if (S.mode === 'dashboard' || !S.listing) return showDashboard();
+      S.mode = 'browse'; renderAll();
+    }
+    return;
+  }
   if (k === 'ContextMenu' || (e.shiftKey && k === 'F10')) {
     e.preventDefault();
     const at = S.anchor && document.querySelector(`#view [data-key="${CSS.escape(S.anchor)}"]`);
@@ -2414,7 +2490,7 @@ try { const so = JSON.parse(localStorage.getItem('bd.sort')); if (so?.key) S.sor
 setView(S.view);
 setupFilters();
 loadFeatures();
-mountHealth({ onRescue: rescueDrive, onChange: () => { renderPlaces(); if (S.mode === 'activity') renderActivity(); } });
+mountHealth({ onRescue: rescueDrive, onChange: () => { renderPlaces(); if (S.mode === 'activity') renderActivity(); if (S.mode === 'dashboard') renderDashboard(); } });
 // Duplicates (dupes.js): what it reads of this view's state, and what it hands off to
 mountDupes({
   S, enter: enterView, syncFilterUI, filtering, typeKinds: TYPE_KINDS, sizes: SIZES, tmColor: TM_COLOR, thumb,
@@ -2453,10 +2529,8 @@ checkUpdates();
 function restoreTabs() {
   const saved = savedTabs;
   const dirs = (saved?.dirs || []).filter(d => d && S.roots.some(r => atob64(d).startsWith(atob64(r.key))));
-  if (dirs.length < 2 || !S.listing) return;
-  tabs = dirs.map(dir => ({ ...snap(), dir, listing: null, entries: [], mode: 'browse', back: [], fwd: [], sel: new Set(), anchor: null, cmp: null, scan: null }));
-  tabAt = Math.min(saved.at || 0, tabs.length - 1);
-  const here = tabs.findIndex(t => t.dir === S.dir);
-  if (here >= 0) { tabs[here] = snap(); tabAt = here; renderTabs(); }
-  else { tabs[tabAt] = { ...tabs[tabAt] }; Object.assign(S, tabs[tabAt]); showCurrent(); }
+  if (!dirs.length) return;
+  tabs = [snap(), ...dirs.map(dir => ({ ...snap(), root: null, dir, listing: null, entries: [], mode: 'browse', back: [], fwd: [], sel: new Set(), anchor: null, cmp: null, scan: null }))];
+  tabAt = 0;
+  renderTabs();
 }

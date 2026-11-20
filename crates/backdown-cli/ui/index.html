@@ -6,6 +6,8 @@
 <title>BackDown</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/app.css">
+<link rel="stylesheet" href="/dashboard.css">
+<link rel="stylesheet" href="/settings.css">
 <link rel="stylesheet" href="/vendor/hljs-light.css" media="(prefers-color-scheme: light)">
 <link rel="stylesheet" href="/vendor/hljs-dark.css" media="(prefers-color-scheme: dark)">
 <script type="module" src="/app.js"></script>
@@ -15,6 +17,7 @@
 <div class="app" id="app">
  <aside class="sidebar">
   <div class="brand"><span class="mark" aria-hidden="true"><svg viewBox="0 0 80 60" fill="currentColor" fill-rule="evenodd"><path d="M1 0H10A1 1 0 0 1 11 1V19.7383A21.5 21.5 0 0 1 40 27.5455A21.5 21.5 0 0 1 69 19.7383V1A1 1 0 0 1 70 0H79A1 1 0 0 1 80 1V38.5A21.5 21.5 0 0 1 40 49.4545A21.5 21.5 0 0 1 0 38.5V1A1 1 0 0 1 1 0ZM32.5 38.5A11 11 0 1 0 10.5 38.5A11 11 0 1 0 32.5 38.5ZM69.5 38.5A11 11 0 1 0 47.5 38.5A11 11 0 1 0 69.5 38.5Z"/></svg></span>backdown</div>
+  <button class="place" id="dashboard-btn" type="button"><span class="pi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg></span><span class="pn">Dashboard</span></button>
   <div class="side-sec">Drives</div>
   <nav class="places" id="places" aria-label="Indexed drives"></nav>
   <div class="side-sec">Machines</div>
@@ -37,6 +40,7 @@
  <main class="main">
   <header class="headerbar">
    <div class="hb-group">
+    <button id="home" class="hb-btn header-home" type="button" title="Dashboard" aria-label="Dashboard"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg></button>
     <button id="back" class="hb-btn" type="button" title="Back (Alt+←)" aria-label="Back"><svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></button>
     <button id="fwd" class="hb-btn" type="button" title="Forward (Alt+→)" aria-label="Forward"><svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></button>
    </div>
