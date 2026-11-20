@@ -1,0 +1,22 @@
+/* Rounded, task-based settings tabs; loaded after the shared app styles. */
+.settings-dashboard{max-width:1200px;margin:0 auto;gap:20px;padding:14px 10px 40px}
+.set-heading h1{margin:0 0 5px;font-size:1.8rem;letter-spacing:-.035em}
+.set-heading p{margin:0;color:var(--ink-2);font-size:1rem}
+.settings-dashboard .set-tabs{position:static;margin:0;padding:0;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;overflow:visible;background:none;border:0;scrollbar-width:auto}
+.settings-dashboard .set-tab{display:flex;align-items:center;gap:12px;min-height:84px;margin:0;padding:14px;text-align:left;white-space:normal;color:var(--ink-2);background:var(--bg);border:1px solid var(--line);border-radius:16px;transition:background .15s,border-color .15s}
+.settings-dashboard .set-tab svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.settings-dashboard .set-tab span{display:flex;flex-direction:column;gap:4px;min-width:0}
+.settings-dashboard .set-tab b{font-size:.94rem;font-weight:650;line-height:1.25}
+.settings-dashboard .set-tab small{font-size:.8rem;font-weight:400;line-height:1.3;color:var(--ink-2)}
+.settings-dashboard .set-tab:hover{background:var(--hover);border-color:var(--line-2)}
+.settings-dashboard .set-tab[aria-selected=true]{color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--view));border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.settings-dashboard .set-tab:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.set-panel{display:flex;flex-direction:column;gap:18px;min-width:0}
+.settings-dashboard .set-sec{border-radius:18px;padding:22px;gap:14px;min-width:0;scroll-margin-top:14px}
+.settings-dashboard .set-sec h2{font-size:1.15rem;letter-spacing:-.015em;margin:0 0 2px}
+.settings-dashboard .set-sec h3{font-size:.94rem;text-transform:none;letter-spacing:0;color:var(--ink-2)}
+.settings-dashboard .set-sec .set-field input,.settings-dashboard .set-field select{min-height:40px}
+.settings-dashboard .set-dl{row-gap:10px}
+@media(max-width:1200px){.settings-dashboard .set-tabs{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:700px){.settings-dashboard{padding:8px 0 30px;gap:16px}.settings-dashboard .set-tabs{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.settings-dashboard .set-tab{min-height:80px;padding:12px;gap:9px}.settings-dashboard .set-tab:last-child{grid-column:1/-1}.settings-dashboard .set-sec{padding:16px}.settings-dashboard .set-dl{grid-template-columns:1fr;gap:4px}.settings-dashboard .set-dl dd{margin-bottom:8px}.settings-dashboard .set-field{align-items:flex-start}.settings-dashboard .set-field select{width:100%;max-width:100%}}
+@media(prefers-reduced-motion:reduce){.settings-dashboard .set-tab{transition:none}}

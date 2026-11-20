@@ -6,7 +6,7 @@
 // the endpoint returns. Pro badges and explanations come from /api/features, whose table
 // (tiers.rs) is the one place that says what's paid; while BackDown is a preview everything is
 // unlocked, and this says so.
-import { api, bytes, when, enterView, daemonState } from './app.js';
+import { api, bytes, when, enterView, daemonState, isView } from './app.js';
 import { toast } from './extras.js';
 
 const $ = s => document.querySelector(s);
@@ -164,36 +164,56 @@ export async function showSettings(section) {
   const soft = p => p.catch(e => ({ error: e.message }));
   [SET.st, SET.feat, SET.sch, SET.upd, SET.notify, SET.scan, SET.machines] = await Promise.all([
     soft(api('settings')), soft(api('features')), soft(api('schema')), soft(api('update')), optional('notify-settings'), optional('scan-settings'), optional('machines')]);
+  if (!isView('settings')) return;
   if (!SET.feat.error) { FEAT.data = SET.feat; paintBadges(); }
   if (!SET.upd.error) { UPD.data = SET.upd; paintUpdateBanner(); }
   if (section) SET.tab = section;
   render();
 }
 
+// Keep section links stable while presenting a small set of task-based tabs.
+const SETTINGS_GROUPS = [
+  { id: 'general', title: 'General', hint: 'Updates & licence', sections: ['updates', 'licence', 'about'], icon: '<circle cx="12" cy="12" r="8"/><path d="M12 8h.01M12 11v5"/>' },
+  { id: 'scanning', title: 'Scanning', hint: 'Scans & hashing', sections: ['scanning', 'hashing'], icon: '<path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6"/>' },
+  { id: 'organisation', title: 'Organisation', hint: 'Filing & junk rules', sections: ['schema', 'junk'], icon: '<path d="M3 7h7l2 2h9v11H3zM3 7V4h7l2 3"/>' },
+  { id: 'protection', title: 'Protection', hint: 'Proof & notifications', sections: ['attest', 'notify'], icon: '<path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6zM8 12l3 3 5-6"/>' },
+  { id: 'storage', title: 'Storage & machines', hint: 'Index & connections', sections: ['machines', 'data'], icon: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>' },
+];
+const settingsGroup = section => SETTINGS_GROUPS.find(g => g.id === section || g.sections.includes(section));
+
 function render() {
-  const secs = [
-    ['licence', 'Licence', licenceSection()],
-    ['updates', 'Updates', updatesSection()],
-    ['scanning', 'Scanning', scanningSection()],
-    ['hashing', 'Hashing', hashingSection()],
-    ['attest', 'Attestations', attestSection()],
-    ['junk', 'Junk rules', junkSection()],
-    ['schema', 'Filing schema', schemaSection()],
-    SET.notify ? ['notify', 'Notifications', notifySection()] : null,
-    SET.machines ? ['machines', 'Other machines', machinesSection()] : null,
-    ['data', 'Index and data', dataSection()],
-    ['about', 'About', aboutSection()],
-  ].filter(Boolean);
-  if (!secs.some(([id]) => id === SET.tab)) SET.tab = secs[0][0];
+  if (!isView('settings')) return;
+  const secs = new Map([
+    ['licence', ['Licence', licenceSection()]],
+    ['updates', ['Updates', updatesSection()]],
+    ['scanning', ['Drive scanning', scanningSection()]],
+    ['hashing', ['File hashing', hashingSection()]],
+    ['attest', ['Attestations', attestSection()]],
+    ['junk', ['Junk rules', junkSection()]],
+    ['schema', ['Filing schema', schemaSection()]],
+    ...(SET.notify ? [['notify', ['Notifications', notifySection()]]] : []),
+    ...(SET.machines ? [['machines', ['Other machines', machinesSection()]]] : []),
+    ['data', ['Index and data', dataSection()]],
+    ['about', ['About BackDown', aboutSection()]],
+  ]);
+  const section = SET.tab;
+  SET.tab = settingsGroup(section)?.id || 'general';
   const on = id => id === SET.tab;
-  // every panel is rendered (wire() binds them all); only the selected one is shown
-  $('#view').innerHTML = `<div class="settings">
-    <div class="set-tabs" role="tablist" aria-label="Settings">${secs.map(([id, t]) =>
-      `<button type="button" class="set-tab" role="tab" id="set-tab-${id}" aria-controls="set-${id}" aria-selected="${on(id)}" tabindex="${on(id) ? 0 : -1}" data-set-tab="${id}">${esc(t)}</button>`).join('')}</div>
-    ${secs.map(([id, , body]) => `<section class="set-sec" id="set-${id}" role="tabpanel" aria-labelledby="set-tab-${id}"${on(id) ? '' : ' hidden'}>${body}</section>`).join('')}
+  // All fields stay mounted for their existing event handlers; one group is visible.
+  $('#view').innerHTML = `<div class="settings settings-dashboard">
+    <header class="set-heading"><h1>Settings</h1><p>Manage BackDown, your drives and how your files are organised.</p></header>
+    <div class="set-tabs" role="tablist" aria-label="Settings">${SETTINGS_GROUPS.map(g =>
+      `<button type="button" class="set-tab" role="tab" id="set-tab-${g.id}" aria-controls="set-panel-${g.id}" aria-selected="${on(g.id)}" tabindex="${on(g.id) ? 0 : -1}" data-set-tab="${g.id}"><svg viewBox="0 0 24 24" aria-hidden="true">${g.icon}</svg><span><b>${esc(g.title)}</b><small>${esc(g.hint)}</small></span></button>`).join('')}</div>
+    ${SETTINGS_GROUPS.map(g => `<div class="set-panel" id="set-panel-${g.id}" role="tabpanel" tabindex="0" aria-labelledby="set-tab-${g.id}"${on(g.id) ? '' : ' hidden'}>${g.sections.filter(id => secs.has(id)).map(id => {
+      const [title, body] = secs.get(id);
+      return `<section class="set-sec" id="set-${id}" aria-labelledby="set-heading-${id}"><h2 id="set-heading-${id}">${esc(title)}</h2>${body}</section>`;
+    }).join('')}</div>`).join('')}
   </div>`;
   wire();
-  $('#view .set-tab[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  if (section && section !== SET.tab && secs.has(section)) {
+    const target = document.getElementById(`set-${section}`);
+    target?.scrollIntoView({ block: 'start' });
+  }
 }
 
 function selectTab(id, focus) {
@@ -203,9 +223,9 @@ function selectTab(id, focus) {
     const sel = b.dataset.setTab === id;
     b.setAttribute('aria-selected', String(sel));
     b.tabIndex = sel ? 0 : -1;
-    if (sel) { b.scrollIntoView({ block: 'nearest', inline: 'nearest' }); if (focus) b.focus(); }
+    if (sel && focus) b.focus({ preventScroll: true });
   });
-  v.querySelectorAll('.set-sec').forEach(p => { p.hidden = p.id !== `set-${id}`; });
+  v.querySelectorAll('.set-panel').forEach(p => { p.hidden = p.id !== `set-panel-${id}`; });
   v.scrollTop = 0;
 }
 
@@ -482,12 +502,13 @@ function wire() {
       let html;
       try { const r = await post('schema', { check: 1 }, sch.value); html = schemaState(null, r.warnings); }
       catch (e) { html = schemaState(e.message); }
-      if (seq === SET.schemaSeq) $('#set-schema-state').innerHTML = html;
+      const state = $('#set-schema-state');
+      if (seq === SET.schemaSeq && sch.isConnected && state) state.innerHTML = html;
     }, 350);
   });
   $('#set-schema-save')?.addEventListener('click', async () => {
     try { SET.sch = await post('schema', {}, sch.value); toast('Filing schema saved: new plans use it'); render(); document.getElementById("set-schema-text")?.scrollIntoView({ block: "center" }); }
-    catch (e) { $('#set-schema-state').innerHTML = schemaState(e.message); }
+    catch (e) { const state = $('#set-schema-state'); if (sch.isConnected && state) state.innerHTML = schemaState(e.message); }
   });
   $('#set-schema-reset')?.addEventListener('click', async () => {
     if (!confirm('Go back to the built-in filing schema? Your edited one is deleted.')) return;
